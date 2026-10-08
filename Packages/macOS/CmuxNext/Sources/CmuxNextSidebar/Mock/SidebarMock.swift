@@ -3,7 +3,8 @@ import Foundation
 
 /// Demo data: 40 workspaces across a pinned area, a local machine with
 /// groups, and one cloud VM. Lets the module run without a daemon.
-public enum SidebarMock {
+public struct SidebarMock {
+    public init() {}
     public static let cloudMachine = MachineID("vm-freestyle-a1")
 
     public static func makeModel() -> SidebarModel {
@@ -19,7 +20,7 @@ public enum SidebarMock {
                     id: WorkspaceID("ws-new-\(counter)"),
                     machineID: machineID,
                     title: "Workspace \(counter)",
-                    subtitle: "~"
+                    directory: "~"
                 )
                 insert(ws, into: model, group: group)
                 model.click(ws.id)
@@ -42,8 +43,8 @@ public enum SidebarMock {
                 SidebarWorkspace(
                     id: WorkspaceID("ws-\(made + i)"),
                     title: "workspace \(made + i)",
-                    subtitle: i.isMultiple(of: 2) ? "~/src/project-\(made + i)" : nil,
-                    activity: i == 3 ? .running : .idle
+                    directory: i.isMultiple(of: 2) ? "~/src/project-\(made + i)" : nil,
+                    activity: i == 3 ? .busy : .idle
                 )
             }
             made += size
@@ -75,13 +76,13 @@ public enum SidebarMock {
         let cloud = cloudMachine
         func ws(
             _ id: String, _ machine: MachineID, _ title: String, _ subtitle: String?,
-            _ icon: WorkspaceIcon? = nil, unread: UnreadState = .none, activity: AgentActivity = .idle
+            _ icon: WorkspaceIcon? = nil, unread: UnreadState = .none, activity: StatusIndicatorState = .idle
         ) -> SidebarWorkspace {
             // Agent lines are live status; everything else is passive detail.
             let isAgentLine = subtitle.map { $0.hasPrefix("Claude:") || $0.hasPrefix("Codex:") } ?? false
             return SidebarWorkspace(
                 id: WorkspaceID(id), machineID: machine, title: title,
-                subtitle: isAgentLine ? nil : subtitle, status: isAgentLine ? subtitle : nil,
+                directory: isAgentLine ? nil : subtitle, status: isAgentLine ? subtitle : nil,
                 icon: icon, unread: unread, activity: activity
             )
         }
@@ -93,12 +94,12 @@ public enum SidebarMock {
         ])
 
         let localSection = SidebarSection(kind: .machine(SidebarMachine(id: local, name: "This Mac", kind: .local)), nodes: [
-            .workspace(ws("ws-local-1", local, "cmux", "worktrees/feat-cmux-next  feat-cmux-next", .swatch(.purple), activity: .running)),
-            .workspace(ws("ws-local-2", local, "sidebar agent", "Claude: writing DropResolver.swift", .symbol("sparkles"), unread: .count(3), activity: .running)),
-            .workspace(ws("ws-local-3", local, "tabs agent", "Codex: waiting for approval", .symbol("sparkles"), unread: .dot, activity: .needsInput)),
+            .workspace(ws("ws-local-1", local, "cmux", "worktrees/feat-cmux-next  feat-cmux-next", .swatch(.purple), activity: .busy)),
+            .workspace(ws("ws-local-2", local, "sidebar agent", "Claude: writing DropResolver.swift", .symbol("sparkles"), unread: .count(3), activity: .busy)),
+            .workspace(ws("ws-local-3", local, "tabs agent", "Codex: waiting for approval", .symbol("sparkles"), unread: .dot, activity: .waiting)),
             .group(SidebarGroup(id: GroupID("grp-next"), name: "cmux-next", color: .purple, workspaces: [
                 ws("ws-next-1", local, "daemon client", "feat-cmux-next-daemon-client", .symbol("antenna.radiowaves.left.and.right")),
-                ws("ws-next-2", local, "terminal host", "feat-cmux-next-terminal", .symbol("terminal"), activity: .running),
+                ws("ws-next-2", local, "terminal host", "feat-cmux-next-terminal", .symbol("terminal"), activity: .busy),
                 ws("ws-next-3", local, "palette", "feat-cmux-next-palette", .symbol("command")),
                 ws("ws-next-4", local, "layout", "feat-cmux-next-layout", .symbol("rectangle.split.3x1")),
                 ws("ws-next-5", local, "browser", "CEF fork build", .symbol("globe"), unread: .count(12), activity: .error),
@@ -110,9 +111,9 @@ public enum SidebarMock {
             ])),
             .workspace(ws("ws-local-4", local, "ghostty", "ghostty  manaflow/main", .swatch(.orange))),
             .group(SidebarGroup(id: GroupID("grp-infra"), name: "infra", color: .orange, isCollapsed: true, workspaces: [
-                ws("ws-infra-1", local, "fleet", "cmux-ci wait 4812", .symbol("server.rack"), activity: .running),
+                ws("ws-infra-1", local, "fleet", "cmux-ci wait 4812", .symbol("server.rack"), activity: .busy),
                 ws("ws-infra-2", local, "tailscale", "tsadmin devices", .symbol("network")),
-                ws("ws-infra-3", local, "subrouter", "cmux-lawrence:31415", .symbol("arrow.triangle.branch"), unread: .count(2)),
+                ws("ws-infra-3", local, "subrouter", "router-host:31415", .symbol("arrow.triangle.branch"), unread: .count(2)),
                 ws("ws-infra-4", local, "pscale", "cmux-prod  staging", .symbol("cylinder.split.1x2")),
             ])),
             .workspace(ws("ws-local-5", local, "zed", "zed/repo  main", .swatch(.cyan))),
@@ -129,11 +130,11 @@ public enum SidebarMock {
         ])
 
         let cloudSection = SidebarSection(kind: .machine(SidebarMachine(id: cloud, name: "cloud-a1", kind: .cloud)), nodes: [
-            .workspace(ws("ws-cloud-1", cloud, "agent: migrate db", "Claude: running drizzle push", .symbol("sparkles"), activity: .running)),
-            .workspace(ws("ws-cloud-2", cloud, "agent: fix flaky test", "Codex: needs input", .symbol("sparkles"), unread: .count(1), activity: .needsInput)),
+            .workspace(ws("ws-cloud-1", cloud, "agent: migrate db", "Claude: running drizzle push", .symbol("sparkles"), activity: .busy)),
+            .workspace(ws("ws-cloud-2", cloud, "agent: fix flaky test", "Codex: needs input", .symbol("sparkles"), unread: .count(1), activity: .waiting)),
             .group(SidebarGroup(id: GroupID("grp-cloud-bench"), name: "benchmarks", color: .cyan, workspaces: [
                 ws("ws-cloud-3", cloud, "npm install", "sandbox-fs-bench", .symbol("shippingbox")),
-                ws("ws-cloud-4", cloud, "cargo build", "cmux-tui  release", .symbol("hammer"), activity: .running),
+                ws("ws-cloud-4", cloud, "cargo build", "cmux-tui  release", .symbol("hammer"), activity: .busy),
                 ws("ws-cloud-5", cloud, "pip install", "sandbox-fs-bench", .symbol("shippingbox")),
             ])),
             .workspace(ws("ws-cloud-6", cloud, "docker", "docker compose up", .symbol("cube"))),
@@ -142,7 +143,7 @@ public enum SidebarMock {
             .workspace(ws("ws-cloud-9", cloud, "logs", "journalctl -f", .symbol("text.alignleft"))),
             .workspace(ws("ws-cloud-10", cloud, "tui", "cmux-tui --session cloud", .symbol("rectangle.3.group"))),
             .workspace(ws("ws-cloud-11", cloud, "redis", "redis-cli monitor", .symbol("memorychip"))),
-            .workspace(ws("ws-cloud-12", cloud, "nix build", "nix build .#cmux-tui", .symbol("snowflake"), activity: .running)),
+            .workspace(ws("ws-cloud-12", cloud, "nix build", "nix build .#cmux-tui", .symbol("snowflake"), activity: .busy)),
         ])
 
         return [pinned, localSection, cloudSection]

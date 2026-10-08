@@ -1,0 +1,42 @@
+{
+  "description": "HistoryQuery.apply cases ported from Swift HistoryQueryTests. now_ms is 1800000000000 (2027-01-15T08:00:00Z); local_day_start_ms is that day's UTC midnight. A path in directories is a directory for the injected predicate (trailing slashes ignored).",
+  "now_ms": 1800000000000,
+  "local_day_start_ms": 1799971200000,
+  "directories": ["/tmp/project"],
+  "entries": [
+    {"id": "page:1", "kind": "page", "at_ms": 1799999940000, "title": "Swift Forums", "detail": "https://forums.swift.org/t/1", "available": true, "url": "https://forums.swift.org/t/1", "profile": "default"},
+    {"id": "page:2", "kind": "page", "at_ms": 1799992800000, "title": "Résumé tips", "detail": "https://example.com/resume", "available": true, "url": "https://example.com/resume", "profile": "default"},
+    {"id": "agent:s-1", "kind": "agent", "at_ms": 1799999970000, "title": "claude", "detail": "/Users/me/api", "workspace": "api", "available": true, "running": true, "cwd": "/Users/me/api", "session_id": "s-1", "provider": "claude"},
+    {"id": "page:3", "kind": "page", "at_ms": 1796544000000, "title": "Old page", "detail": "https://old.example.com", "available": true, "url": "https://old.example.com", "profile": "default"},
+    {"id": "page:4", "kind": "page", "at_ms": 1790000000000, "title": "Straße ΟΔΟΣ ｶﾞイド", "detail": "https://de.example/x", "available": true, "url": "https://de.example/x", "profile": "default"},
+    {"id": "page:history", "kind": "page", "at_ms": 1799999999000, "title": "History", "detail": "cmux://history", "available": true, "url": "cmux://history", "profile": "default"},
+    {"id": "page:blank", "kind": "page", "at_ms": 1799999998000, "title": "about:blank", "detail": "about:blank", "available": true, "url": "about:blank", "profile": "default"},
+    {"id": "page:dir", "kind": "page", "at_ms": 1799999000000, "title": "project", "available": true, "url": "file:///tmp/project/", "profile": "default"},
+    {"id": "page:file", "kind": "page", "at_ms": 1799998000000, "title": "notes", "available": true, "url": "file:///tmp/project/notes.txt", "profile": "default"},
+    {"id": "location:home:tab:0", "kind": "location", "at_ms": 1800000000000, "title": "History", "detail": "Work", "workspace": "Work", "available": true, "current": true, "url": "cmux://history"},
+    {"id": "location:home:tab2:1", "kind": "location", "at_ms": 1799999500000, "title": "~", "available": true, "current": false, "cwd": "/Users/me"},
+    {"id": "location:home:tab3:2", "kind": "location", "at_ms": 1799999400000, "title": "zsh", "detail": "Work", "workspace": "Work", "machine": "box", "available": false, "current": false, "cwd": "/srv/app"},
+    {"id": "command:home/t/1799999300000", "kind": "command", "at_ms": 1799999300000, "title": "cargo test", "detail": "/repo", "available": true, "cwd": "/repo", "command": "cargo test", "exit_code": 101},
+    {"id": "closed:tab_9", "kind": "closed", "at_ms": 1799999200000, "title": "Docs", "detail": "https://docs.example/", "available": true, "closed_kind": "browser_tab", "url": "https://docs.example/"}
+  ],
+  "cases": [
+    {"name": "empty query is everything displayable, newest first", "query": {},
+     "expected_ids": ["agent:s-1", "page:1", "location:home:tab3:2", "command:home/t/1799999300000", "closed:tab_9", "page:file", "page:2", "page:3", "page:4"]},
+    {"name": "tokens match in any order across fields", "query": {"text": "forums SWIFT"}, "expected_ids": ["page:1"]},
+    {"name": "agent provider and cwd", "query": {"text": "api claude"}, "expected_ids": ["agent:s-1"]},
+    {"name": "diacritics fold", "query": {"text": "resume"}, "expected_ids": ["page:2"]},
+    {"name": "width folds", "query": {"text": "ＲＥＳＵＭＥ"}, "expected_ids": ["page:2"]},
+    {"name": "pages in the last hour", "query": {"kinds": ["page"], "range": "hour"}, "expected_ids": ["page:1", "page:file"]},
+    {"name": "page limit", "query": {"kinds": ["page"], "limit": 2}, "expected_ids": ["page:1", "page:file"]},
+    {"name": "last four weeks", "query": {"range": "month", "kinds": ["page"]}, "expected_ids": ["page:1", "page:file", "page:2"]},
+    {"name": "today starts at local midnight", "query": {"range": "today", "kinds": ["page"]}, "expected_ids": ["page:1", "page:file", "page:2"]},
+    {"name": "location search matches workspace and cwd", "query": {"text": "work srv"}, "expected_ids": ["location:home:tab3:2"]},
+    {"name": "location search matches machine", "query": {"kinds": ["location"], "text": "BOX"}, "expected_ids": ["location:home:tab3:2"]},
+    {"name": "commands", "query": {"kinds": ["command"], "text": "cargo"}, "expected_ids": ["command:home/t/1799999300000"]},
+    {"name": "closed by url", "query": {"kinds": ["closed", "agent"], "text": "docs.example"}, "expected_ids": ["closed:tab_9"]},
+    {"name": "sharp s folds to ss", "query": {"text": "STRASSE"}, "expected_ids": ["page:4"]},
+    {"name": "greek final sigma folds to sigma", "query": {"text": "οδος"}, "expected_ids": ["page:4"]},
+    {"name": "halfwidth kana with dakuten matches fullwidth kana", "query": {"text": "ガイド"}, "expected_ids": ["page:4"]},
+    {"name": "no match", "query": {"text": "zzz"}, "expected_ids": []}
+  ]
+}

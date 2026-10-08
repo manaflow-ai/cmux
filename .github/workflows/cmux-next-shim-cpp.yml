@@ -1,0 +1,60 @@
+name: cmux-next CEF shim C++ tests
+
+# The CEF shim's download and popup bookkeeping (CEFShim/src/download_state.h)
+# and the password reveal relay (CEFShim/src/password_reveal_relay.h, which must
+# zero its copy of a revealed password) need no CEF:
+# scripts/cmux-next/test-shim-downloads-cpp.sh and
+# scripts/cmux-next/test-password-reveal-relay-cpp.sh compile their cases with
+# one clang++ call each and run them. The shim itself is built only by the
+# app build, so this is the one check that runs these cases on every change.
+# Pushes run only on feat-cmux-next and main (plus pull requests); a side
+# branch runs it with `gh workflow run cmux-next-shim-cpp.yml --ref <branch>`.
+
+on:
+  pull_request:
+    paths:
+      - Packages/macOS/CmuxNext/CEFShim/**
+      - scripts/cmux-next/test-shim-downloads-cpp.sh
+      - scripts/cmux-next/test-password-reveal-relay-cpp.sh
+      - scripts/cmux-next/test-shim-switches-cpp.sh
+      - scripts/cmux-next/test-auth-callback-policy-cpp.sh
+      - .github/workflows/cmux-next-shim-cpp.yml
+  push:
+    branches:
+      - feat-cmux-next
+      - main
+    paths:
+      - Packages/macOS/CmuxNext/CEFShim/**
+      - scripts/cmux-next/test-shim-downloads-cpp.sh
+      - scripts/cmux-next/test-password-reveal-relay-cpp.sh
+      - scripts/cmux-next/test-shim-switches-cpp.sh
+      - scripts/cmux-next/test-auth-callback-policy-cpp.sh
+      - .github/workflows/cmux-next-shim-cpp.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-shim-cpp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shim-downloads-cpp:
+    name: CEF shim download state (C++)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Download tokens, URL schemes and pending popups
+        run: ./scripts/cmux-next/test-shim-downloads-cpp.sh
+      - name: Password reveal relay zeroes its copy
+        run: ./scripts/cmux-next/test-password-reveal-relay-cpp.sh
+      - name: Feature-list switches merge with CEF's own lists
+        run: ./scripts/cmux-next/test-shim-switches-cpp.sh
+      - name: Sign-in session callbacks end only their own session
+        run: ./scripts/cmux-next/test-auth-callback-policy-cpp.sh

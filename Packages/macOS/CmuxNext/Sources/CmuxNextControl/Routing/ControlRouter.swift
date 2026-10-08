@@ -20,14 +20,32 @@ public final class ControlRouter: Sendable {
         /// (``ControlMethod/Deadline/terminalStart``).
         public var terminalStartDeadline: Duration
         public var queueLimits: MainActorWorkQueue.Limits
+        /// Whether `debug.*` methods may be registered: only in DEBUG builds
+        /// (``ControlRouter/debugMethodsAllowed``). A release router drops
+        /// every `debug.*` registration, so no release build serves one.
+        public var allowsDebugMethods: Bool
 
         public init(requestDeadline: Duration = .seconds(2), terminalStartDeadline: Duration = ControlRouter.terminalStartDeadline,
-                    queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits()) {
+                    queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits(),
+                    allowsDebugMethods: Bool = ControlRouter.debugMethodsAllowed) {
             self.requestDeadline = requestDeadline
             self.terminalStartDeadline = terminalStartDeadline
             self.queueLimits = queueLimits
+            self.allowsDebugMethods = allowsDebugMethods
         }
     }
+
+    /// True in DEBUG builds only: release builds serve no `debug.*` method.
+    public static var debugMethodsAllowed: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// A `debug.*` method: diagnostics and automation for tagged DEV builds.
+    public static func isDebugMethod(_ name: String) -> Bool { name.hasPrefix("debug.") }
 
     /// Default deadline for a request that starts a terminal: the daemon's
     /// own terminal start deadline (`DaemonConnection.defaultSpawnTimeout`)
@@ -48,6 +66,9 @@ public final class ControlRouter: Sendable {
     let idempotency = ControlIdempotencyCache()
     let executor: any ControlActionExecutor
     let settings: (any ControlSettingsStore)?
+    /// Writes schema settings through the settings owner; nil in tests
+    /// that only give a file (schema values are still validated).
+    let settingsWriter: (any ControlSettingsWriter)?
     private let state = Mutex(State())
 
     struct State {
@@ -74,12 +95,14 @@ public final class ControlRouter: Sendable {
         identity: ControlIdentity,
         executor: any ControlActionExecutor,
         settings: (any ControlSettingsStore)? = nil,
+        settingsWriter: (any ControlSettingsWriter)? = nil,
         configuration: Configuration = Configuration(),
         frameSource: any ControlFrameSource = MainQueueFrameSource()
     ) {
         self.identity = identity
         self.executor = executor
         self.settings = settings
+        self.settingsWriter = settingsWriter
         self.configuration = configuration
         self.workQueue = MainActorWorkQueue(limits: configuration.queueLimits, frameSource: frameSource)
         register(builtinMethods())
@@ -88,10 +111,13 @@ public final class ControlRouter: Sendable {
     // MARK: - Registration
 
     /// Adds methods. A later registration with the same name replaces the
-    /// earlier one (the App or compat layer may refine a built-in).
+    /// earlier one (the App or compat layer may refine a built-in). A
+    /// `debug.*` method is dropped unless the configuration allows debug
+    /// methods (DEBUG builds), whichever code path registers it.
     public func register(_ methods: [ControlMethod]) {
+        let allowsDebug = configuration.allowsDebugMethods
         state.withLock { state in
-            for method in methods {
+            for method in methods where allowsDebug || !Self.isDebugMethod(method.name) {
                 if state.methods.updateValue(method, forKey: method.name) == nil { state.order.append(method.name) }
             }
         }
@@ -132,9 +158,23 @@ public final class ControlRouter: Sendable {
 
     public var catalog: ControlCatalog { snapshots.current.catalog }
 
+    /// Publishes `catalog`; when its actions changed, also publishes
+    /// `action.catalog.changed` on `events.stream`, so a client that mirrors
+    /// the actions (`cmux mcp serve`) re-reads `action.list` instead of
+    /// polling it. Context-bit changes (`updateContextMask`) are not changes.
     public func updateCatalog(_ catalog: ControlCatalog) {
-        snapshots.publish { $0.catalog = catalog }
+        var changed = false
+        snapshots.publish { snapshot in
+            changed = snapshot.catalog.actions != catalog.actions
+            snapshot.catalog = catalog
+        }
+        guard changed else { return }
+        events.publish(name: Self.actionCatalogChangedEvent, category: "action", source: "app",
+                       payload: ["count": JSONValue(catalog.actions.count)])
     }
+
+    /// The `events.stream` event name for a changed action registry.
+    public static let actionCatalogChangedEvent = "action.catalog.changed"
 
     public func updateContextMask(_ mask: UInt32) {
         snapshots.publish { $0.catalog.contextMask = mask }
@@ -170,7 +210,7 @@ public final class ControlRouter: Sendable {
                     // Same bound as a v2 request (architecture.md 5a).
                     let reply: String?
                     do {
-                        reply = try await ControlDeadline.run(method: "v1 \(trimmed.split(separator: " ").first ?? "")",
+                        reply = try await ControlDeadline.shared.run(method: "v1 \(trimmed.split(separator: " ").first ?? "")",
                                                               deadline: .now + configuration.requestDeadline) { await handler(trimmed) }
                     } catch let error as ControlError {
                         return "ERROR: \(error.message)"
@@ -208,13 +248,14 @@ public final class ControlRouter: Sendable {
         }
         var snapshot = snapshots.current
         let startsTerminal = method.startsTerminal(request, snapshot)
-        let limit = method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
+        let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
         let deadline = ContinuousClock.now + limit
         let progress = ControlCallProgress()
         do {
             // Read barrier (state-ownership.md 4.3): answer from a snapshot
             // that covers the caller's earlier writes.
-            if let after = request.params["after"], !after.isNull {
+            // `debug.hangs` reads its own `after` (a hang log cursor).
+            if request.method != "debug.hangs", let after = request.params["after"], !after.isNull {
                 snapshot = try await readBarrier(after, method: request.method, deadline: deadline)
             }
             let call = ControlCall(request: request, snapshot: snapshot, connection: connection,
@@ -233,7 +274,7 @@ public final class ControlRouter: Sendable {
             return try body(call)
         case .async(let body):
             if !method.claimsProgress { _ = call.progress.begin() }
-            return try await ControlDeadline.run(method: call.method, deadline: call.deadline,
+            return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline,
                                                  startsTerminal: call.startsTerminal) { try await body(call) }
         case .mainActor(let body):
             let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
@@ -246,7 +287,7 @@ public final class ControlRouter: Sendable {
             case .value(let value):
                 return value
             case .followUp(let work):
-                return try await ControlDeadline.run(method: call.method, deadline: call.deadline,
+                return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline,
                                                      startsTerminal: call.startsTerminal, work)
             }
         }

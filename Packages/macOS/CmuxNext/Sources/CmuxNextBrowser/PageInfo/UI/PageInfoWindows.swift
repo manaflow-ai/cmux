@@ -49,24 +49,31 @@ final class PageInfoWindows {
     }
 
     private func present(_ window: NSWindow) {
-        ThemeStore.shared.adopt(window)
+        // The shell window's theme scope (its room).
+        let scope = parentWindow()?.themeScope ?? .app
+        scope.adopt(window)
         WindowPlacement.present(window, parent: parentWindow())
     }
 }
 
 /// Shared window chrome for the page info windows: titled, closable,
-/// theme background, not released on close.
+/// kind `.pageInfo` (the one surface background), not released on close.
 class PageInfoWindow: NSWindow {
     init(title: String, size: CGSize) {
         super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: true)
         self.title = title
         isReleasedWhenClosed = false
         minSize = NSSize(width: size.width * 0.8, height: size.height * 0.6)
-        backgroundColor = Palette.windowBackground
         animationBehavior = .utilityWindow
     }
 
-    /// Escape closes, as in Chrome's dialogs.
+    /// Sets the window's content through the window kit (kind
+    /// `.pageInfo`); `PageInfoWindows` adopts the shell window's scope.
+    func installContent(_ content: NSView) {
+        install(kind: .pageInfo, content: content, scope: themeScope)
+    }
+
+    /// Escape closes.
     override func cancelOperation(_ sender: Any?) { close() }
 
     static func sectionTitle(_ text: String) -> NSTextField {

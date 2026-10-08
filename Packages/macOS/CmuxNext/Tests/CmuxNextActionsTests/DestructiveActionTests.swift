@@ -7,7 +7,7 @@ import Testing
 /// `confirm: true` or is refused with a typed reason.
 @Suite struct DestructiveActionTests {
     static let destructiveIDs: [ActionID] = [
-        "cloudKillMachine", "workspaceGroup.delete", "workspaceGroup.closeWorkspaces", "closeWorkspace", "tabGroup.close",
+        "cloudKillMachine", "cloudFileRemove", "palette.cloud.deleteSnapshot", "workspaceGroup.delete", "workspaceGroup.closeWorkspaces", "closeWorkspace", "tabGroup.close",
     ]
 
     @Test func catalogDeclaresDestructiveActionsWithConfirmArgument() throws {
@@ -76,7 +76,7 @@ import Testing
         let registry = ActionRegistry.standard()
         var ran = 0
         var refusals: [String] = []
-        registry.refusalObserver = { refusals.append($0) }
+        registry.refusalObserver = { reason, _ in refusals.append(reason) }
         registry.bind("closeWorkspace", invoke: { _ in ran += 1 })
         registry.perform("closeWorkspace")
         #expect(ran == 0)

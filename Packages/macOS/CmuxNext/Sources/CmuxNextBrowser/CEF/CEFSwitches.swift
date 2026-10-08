@@ -16,13 +16,23 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     var arguments: [String] {
         var result: [String] = []
         if forkAPIVersion >= 1 {
-            // One Chromium Browser per pane host, Chrome UI hidden
+            // One Chromium Browser per pane host, Chromium's own UI hidden
             // (include/cef_cmux.h in the fork).
             result.append("cmux-tabbed-windows")
         }
         // Non-official builds otherwise enable the field trial testing config
         // (features that need helpers cmux does not ship).
         result.append("disable-field-trial-config")
+        // Web notifications must not make CEF's Alerts helper request a
+        // separate macOS notification authorization. DesktopNotifier owns the
+        // one app-level authorization request when cmux posts a banner.
+        result.append("disable-notifications")
+        // Never pass a feature-list switch expecting it to replace CEF's own
+        // list: the shim merges disable-features/enable-features into it
+        // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
+        // (MacAppCodeSignClone) stays on: it protects running helpers when an
+        // update replaces the bundle, and its --type=code-sign-clone-cleanup
+        // helper exits by itself about 1 s after the app (cx-dj33).
         if useMockKeychain {
             result.append("use-mock-keychain")
         }

@@ -4,7 +4,7 @@ import Foundation
 /// One Chromium `Browser` (tabbed window) per cmux pane and profile
 /// (browser.md, Decision 1). The first CEF tab shown in the pane creates the
 /// window in `hostView`; later tabs join it with `cmux_tab_add`, so
-/// extensions see one Chrome window with N tabs. Showing a tab reparents the
+/// extensions see one Chromium window with N tabs. Showing a tab reparents the
 /// shared `hostView` into that tab's content view and activates the tab; the
 /// fork's tracker follows the reparent and clips the page to the visible
 /// part of the view.
@@ -33,10 +33,20 @@ final class CEFPaneHost {
     /// A popup host's about:blank browser that created its Chromium window;
     /// it closes once the popup moved in (`CEFPaneHost+Popups`).
     var placeholder: CEFTab?
+    /// An extension's popup window (chrome.windows.create type popup, fork
+    /// API 11): the hidden Chromium window this popup host attaches to its
+    /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
+    var popupWindow: Int32?
 
-    init(key: CEFPaneKey, runtime: CEFRuntime) {
+    let lifecycleTrace: BrowserLifecycleTrace
+    let contextMenus: BrowserContextMenuBuilder
+
+    init(key: CEFPaneKey, runtime: CEFRuntime, lifecycleTrace: BrowserLifecycleTrace = .shared,
+         contextMenus: BrowserContextMenuBuilder = .shared) {
         self.key = key
         self.runtime = runtime
+        self.lifecycleTrace = lifecycleTrace
+        self.contextMenus = contextMenus
     }
 
     func add(_ tab: CEFTab) {
@@ -71,7 +81,7 @@ final class CEFPaneHost {
 
     /// Called when a tab's content view enters a window: show that tab.
     func present(_ tab: CEFTab, in container: NSView) {
-        BrowserLifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
+        lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
         if hostView.superview !== container {
             hostView.removeFromSuperview()
             hostView.frame = container.bounds
@@ -85,6 +95,7 @@ final class CEFPaneHost {
         visibleTab = tab
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !isPopupHost { runtime.lastShownHost = self }
+        if attachPopupWindowIfNeeded(tab) { return }
         ensureCreated(tab)
         if tab.awaitsWindowMove {
             // Still in its opener's window: activating it there would show
@@ -94,6 +105,8 @@ final class CEFPaneHost {
             lastActivated = browser
             _ = runtime.shim?.tabActivate(browser)
             hostView.postGeometryChange()
+            // A window-wide side panel stays open across tabs: no event.
+            tab.sidePanel.scheduleRefresh()
         }
     }
 
@@ -108,7 +121,7 @@ final class CEFPaneHost {
 
     /// Called when a tab's content view leaves its window.
     func conceal(_ tab: CEFTab) {
-        BrowserLifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
+        lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
         visibleTab = nil
     }
@@ -142,8 +155,9 @@ final class CEFPaneHost {
             windowTab = tab
             window = .creating(request: request)
             runtime.pendingWindows[request] = self
-            // The theme may have changed since CEF started.
-            shim.setBackgroundColor(PageBackground.themeARGB)
+            // The first frame takes this pane's theme scope (room,
+            // workspace), which may differ from the app theme.
+            shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
             let started = shim.createWindow(
                 request, Unmanaged.passUnretained(hostView).toOpaque(),
                 max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32,
@@ -194,8 +208,8 @@ final class CEFPaneHost {
             _ = runtime.shim?.tabActivate(id)
         }
         refreshExtensionActions()
-        runtime.extensionStore(for: key.profile).refresh()
-        runtime.windowBecameLive(self)
+        runtime.extensionStores.store(for: key.profile).refresh()
+        runtime.orphans.windowBecameLive(self)
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.

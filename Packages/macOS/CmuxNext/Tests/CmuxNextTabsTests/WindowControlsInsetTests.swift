@@ -22,4 +22,14 @@ struct WindowControlsInsetTests {
         #expect(TabStripView.windowControlsInset(strip: strip, lights: nil, accessory: badge, padding: 4) >= badge.maxX - 4)
         #expect(TabStripView.windowControlsInset(strip: strip, lights: nil, accessory: nil, padding: 4) == 0)
     }
+
+    /// The top-left strip keeps 149 pt clear for the traffic lights and the band (its first tab at
+    /// x = 151 in debug.pane_chrome), with the sidebar shown or hidden: the band's toggle stays one
+    /// fixed target and the strip starts after it (Leo, T3 Code ref, 2026-10-07).
+    @Test func theStripClearsTheTrafficLightsAndTheBand() {
+        let lights = CGRect(x: 12, y: 698, width: 54, height: 16)
+        let band = CGRect(x: 74, y: 694, width: 71, height: 24)
+        #expect(TabStripView.windowControlsInset(strip: strip, lights: lights, accessory: band, padding: 2) == 149)
+    }
+
 }

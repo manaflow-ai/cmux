@@ -46,7 +46,8 @@ function ScreenChip({ screen, number, onSelect, onClose, onRename }: ScreenChipP
           items={[
             {
               label: t("renameScreen"),
-              onSelect: () => dispatchRename({ type: "begin", target: { kind: "screen", id: screen.id, value: screen.label } }),
+              onSelect: () =>
+                dispatchRename({ type: "begin", target: { kind: "screen", id: screen.id, value: screen.label } }),
             },
             { label: t("closeScreen"), danger: true, onSelect: () => onClose(screen.id) },
           ]}
@@ -87,7 +88,14 @@ export function StatusBar({
         />
       ))}
       {workspace && (
-        <button className="new-screen" aria-label={t("newScreen")} onClick={() => onNewScreen(workspace.id)} type="button">+</button>
+        <button
+          className="new-screen"
+          aria-label={t("newScreen")}
+          onClick={() => onNewScreen(workspace.id)}
+          type="button"
+        >
+          +
+        </button>
       )}
       <span className="session-badge">[{session ?? "—"}]</span>
     </footer>

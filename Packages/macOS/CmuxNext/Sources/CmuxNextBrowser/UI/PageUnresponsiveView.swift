@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// Chrome's "Page unresponsive" choice, as a glass card over the page: Wait
+/// The "Page unresponsive" choice, as a glass card over the page: Wait
 /// restarts the engine's hang timer, Exit page ends the renderer (the tab
 /// then shows `PageGoneView`). Shown only while the engine reports the hang.
 final class PageUnresponsiveView: NSView {
@@ -10,18 +10,18 @@ final class PageUnresponsiveView: NSView {
     private let titleLabel = NSTextField(labelWithString: Strings.pageUnresponsiveTitle)
     private let messageLabel = NSTextField(wrappingLabelWithString: Strings.pageUnresponsiveMessage)
     private let density = DensityBinding()
+    /// The card's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
-        setAccessibilityIdentifier(BrowserChromeView.Identifier.pageUnresponsive)
-        titleLabel.textColor = Palette.textPrimary
-        messageLabel.textColor = Palette.textSecondary
+        setAccessibilityIdentifier(BrowserChromeView.pageUnresponsiveIdentifier)
         messageLabel.maximumNumberOfLines = 4
         let exit = ChromeTextButton(title: Strings.pageUnresponsiveExit, prominent: false, action: #selector(exitPage), target: self)
-        exit.setAccessibilityIdentifier(BrowserChromeView.Identifier.pageUnresponsiveExit)
+        exit.setAccessibilityIdentifier(BrowserChromeView.pageUnresponsiveExitIdentifier)
         let wait = ChromeTextButton(title: Strings.pageUnresponsiveWait, prominent: true, action: #selector(waitForPage), target: self)
-        wait.setAccessibilityIdentifier(BrowserChromeView.Identifier.pageUnresponsiveWait)
+        wait.setAccessibilityIdentifier(BrowserChromeView.pageUnresponsiveWaitIdentifier)
         let buttons = NSStackView(views: [exit, wait])
         let stack = NSStackView(views: [titleLabel, messageLabel, buttons])
         stack.orientation = .vertical
@@ -30,8 +30,9 @@ final class PageUnresponsiveView: NSView {
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
+        self.glass = glass
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -59,6 +60,24 @@ final class PageUnresponsiveView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            titleLabel.textColor = Palette.textPrimary
+            messageLabel.textColor = Palette.textSecondary
+            glass?.applyTheme()
+        }
+    }
 
     @objc private func waitForPage() { onWait?() }
     @objc private func exitPage() { onExit?() }

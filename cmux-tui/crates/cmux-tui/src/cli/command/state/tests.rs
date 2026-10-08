@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::super::{CommandPlan, RequestPlan, Resolve, Selectors, parse};
+use super::super::{CommandPlan, RequestPlan, Resolve, Selectors, ZoomStep, parse};
 use super::status_target;
 use crate::cli::Surface;
 use cmux_tui_core::resource::ResourceOperation as Op;
@@ -179,6 +179,9 @@ fn status_without_a_selector_targets_the_caller_then_current() {
 fn tab_pin_zoom_and_update() {
     assert_eq!(sent(&["tab", TAB, "pin"]), ("tab.pin".into(), json!({"tab": TAB})));
     assert_eq!(sent(&["tab", TAB, "unpin"]), ("tab.unpin".into(), json!({"tab": TAB})));
+    // Every zoom first reads the tab: a browser tab's page zoom is the app's.
+    let zoom = plan(&["tab", TAB, "zoom", "1.5"]);
+    assert_eq!(zoom.resolve, vec![Resolve::TabZoom { step: ZoomStep::Value }]);
     assert_eq!(
         sent(&["tab", TAB, "zoom", "1.5"]),
         ("tab.update".into(), json!({"tab": TAB, "zoom": 1.5}))
@@ -187,25 +190,43 @@ fn tab_pin_zoom_and_update() {
         sent(&["tab", TAB, "zoom", "reset"]),
         ("tab.update".into(), json!({"tab": TAB, "zoom": null}))
     );
+    assert_eq!(
+        plan(&["tab", TAB, "zoom", "in"]).resolve,
+        vec![Resolve::TabZoom { step: ZoomStep::In }]
+    );
+    assert_eq!(
+        plan(&["tab", TAB, "update", "--clear-zoom"]).resolve,
+        vec![Resolve::TabZoom { step: ZoomStep::Reset }]
+    );
     // The shorthand fills `current`.
     assert_eq!(sent(&["tab", "pin"]).1["tab"], "current");
-    assert_eq!(
-        sent(&[
-            "tab",
-            TAB,
-            "update",
-            "--back",
-            "https://a.example,https://b.example",
-            "--forward",
-            ""
-        ]),
-        (
-            "tab.update".into(),
-            json!({"tab": TAB, "back": ["https://a.example", "https://b.example"], "forward": []})
-        )
-    );
+    // The CLI never writes a browser tab's history.
+    let _ = rejects(&["tab", TAB, "update", "--back", "https://a.example"]);
+    assert!(rejects(&["tab", TAB, "update", "--zoom", "1", "--back", "x"]).contains("--back"));
     assert!(rejects(&["tab", TAB, "zoom", "9"]).contains("0.25"));
-    assert!(rejects(&["tab", TAB, "update"]).contains("change flag"));
+    assert!(rejects(&["tab", TAB, "update"]).contains("--zoom"));
+}
+
+#[test]
+fn tab_update_sets_and_clears_the_user_icon() {
+    // The icon is the daemon's field on every tab kind: no tab read first.
+    let set = plan(&["tab", TAB, "update", "--icon", "star.fill"]);
+    assert!(set.resolve.is_empty());
+    assert_eq!(
+        sent(&["tab", TAB, "update", "--icon", "star.fill"]),
+        ("tab.update".into(), json!({"tab": TAB, "icon": "star.fill"}))
+    );
+    assert_eq!(
+        sent(&["tab", TAB, "update", "--clear-icon"]),
+        ("tab.update".into(), json!({"tab": TAB, "icon": null}))
+    );
+    assert!(
+        rejects(&["tab", TAB, "update", "--icon", "x", "--clear-icon"]).contains("--clear-icon")
+    );
+    // A browser tab's page zoom is an app action, so one request never
+    // carries both.
+    assert!(rejects(&["tab", TAB, "update", "--icon", "x", "--zoom", "1"]).contains("not both"));
+    assert!(rejects(&["tab", TAB, "update", "--clear-icon", "--clear-zoom"]).contains("not both"));
 }
 
 #[test]
@@ -516,6 +537,27 @@ fn closed_history_lists_and_reopens() {
         ("closed.reopen".into(), json!({"closed": "c1"}))
     );
     assert!(rejects(&["closed", "c1", "explode"]).contains("closed"));
+}
+
+/// `closed-history-v2`: window scope, list limit, Reopen Closed without an
+/// id (Cmd-Shift-T) and partial reopen of chosen members.
+#[test]
+fn closed_history_scopes_to_a_window_and_reopens_groups() {
+    assert_eq!(
+        sent(&["closed", "list", "--window", "inst/win", "--limit", "5"]),
+        ("closed.list".into(), json!({"window": "inst/win", "limit": 5}))
+    );
+    assert_eq!(
+        sent(&["closed", "reopen", "--window", "inst/win"]),
+        ("closed.reopen".into(), json!({"window": "inst/win"}))
+    );
+    assert_eq!(sent(&["closed", "reopen"]), ("closed.reopen".into(), json!({})));
+    assert_eq!(
+        sent(&["closed", "c1", "reopen", "--members", "0,2"]),
+        ("closed.reopen".into(), json!({"closed": "c1", "members": [0, 2]}))
+    );
+    assert!(rejects(&["closed", "c1", "reopen", "--members", "x"]).contains("--members"));
+    assert!(rejects(&["closed", "list", "--limit", "0"]).contains("--limit"));
 }
 
 #[test]

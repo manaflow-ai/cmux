@@ -10,7 +10,8 @@ fn cloud_image_paste_advertises_a_versioned_capability() {
         outbound: Arc::new(BoundedOutbound::default()),
         control: None,
     });
-    let identity = handle_command(&mux, 0, Command::Identify, &writer).unwrap();
+    let identity =
+        handle_command(&mux, mux.local_test_client(0), Command::Identify, &writer).unwrap();
     assert!(
         identity["capabilities"]
             .as_array()
@@ -149,7 +150,7 @@ fn projected_image_paste_view(mux: &Arc<Mux>, source: &crate::Surface) -> Arc<cr
         usize::MAX,
         None,
         None,
-        &WorkspaceMutation::local("image-paste-projection"),
+        &WorkspaceMutation::daemon_local("image-paste-projection"),
     )
     .unwrap();
     mux.with_state(|state| {

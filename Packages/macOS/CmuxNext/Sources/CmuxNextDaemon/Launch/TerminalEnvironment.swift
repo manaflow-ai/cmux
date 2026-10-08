@@ -8,25 +8,26 @@ public import Foundation
 /// which can hold tokens and keys. Both get only what a correct shell needs
 /// before its rc files run; the login shell in each terminal sources the
 /// user's rc files for everything else.
-public enum TerminalEnvironment {
+public struct TerminalEnvironment: Sendable {
+    public static let instance = Self()
     /// Exact keys taken from the login environment.
-    public static let allowedKeys: Set<String> = [
+    public let allowedKeys: Set<String> = [
         "PATH", "MANPATH", "INFOPATH", "LANG", "SHELL", "TERMINFO_DIRS",
         "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY",
     ]
 
     /// Key prefixes taken from the login environment. `CMUX_` keys that name
     /// a socket, session, or placement are still dropped
-    /// (`LoginEnvironment.excludedKeys`).
-    public static let allowedPrefixes: [String] = ["LC_", "XDG_", "CMUX_"]
+    /// (`LoginEnvironment.shared.excludedKeys`).
+    public let allowedPrefixes: [String] = ["LC_", "XDG_", "CMUX_"]
 
     /// Process identity the daemon itself needs (state root, temp dir, ssh
     /// agent). Taken from the app process, never from the login shell, and
     /// only for the daemon process: terminals inherit them from it.
-    public static let daemonIdentityKeys: Set<String> = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"]
+    public let daemonIdentityKeys: Set<String> = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"]
 
-    public static func isAllowed(_ key: String) -> Bool {
-        guard !LoginEnvironment.excludedKeys.contains(key), !isCredential(key) else { return false }
+    public func isAllowed(_ key: String) -> Bool {
+        guard !LoginEnvironment.shared.excludedKeys.contains(key), !isCredential(key) else { return false }
         return allowedKeys.contains(key) || allowedPrefixes.contains { key.hasPrefix($0) }
     }
 
@@ -35,19 +36,19 @@ public enum TerminalEnvironment {
     /// (`CMUX_DOGFOOD_STACK_PASSWORD`, `CMUX_SOCKET_PASSWORD`, a token or
     /// a credentials file) would otherwise reach every program in every
     /// terminal and the daemon's persisted terminal env.
-    static let credentialParts: Set<String> = [
+    let credentialParts: Set<String> = [
         "PASSWORD", "PASSWD", "PASS", "TOKEN", "SECRET", "CREDENTIAL", "CREDENTIALS", "APIKEY", "PRIVATE",
     ]
 
     /// Whether `key` names a credential: one of its `_`-separated parts is
     /// a credential word, or it ends in `_KEY` (`API_KEY`, `ACCESS_KEY`).
-    static func isCredential(_ key: String) -> Bool {
+    func isCredential(_ key: String) -> Bool {
         let parts = key.uppercased().split(separator: "_").map(String.init)
         return parts.contains(where: credentialParts.contains) || parts.last == "KEY"
     }
 
     /// The allowlisted subset of `environment`.
-    public static func filter(_ environment: [String: String]) -> [String: String] {
+    public func filter(_ environment: [String: String]) -> [String: String] {
         environment.filter { isAllowed($0.key) }
     }
 
@@ -57,7 +58,7 @@ public enum TerminalEnvironment {
     /// (`CMUX_NEXT_SOCKET_PATH`, `CMUX_NEXT_NO_ACTIVATE`) configure this
     /// process only and are not forwarded, so a cmux-next started from one of
     /// its terminals does not inherit them.
-    public static func terminal(login: [String: String]?, base: [String: String]) -> [String: String] {
+    public func terminal(login: [String: String]?, base: [String: String]) -> [String: String] {
         var env = filter(login ?? base)
         for (key, value) in base where key.hasPrefix("CMUX_") && !key.hasPrefix("CMUX_NEXT_") && isAllowed(key) && env[key] == nil {
             env[key] = value
@@ -71,7 +72,7 @@ public enum TerminalEnvironment {
 
     /// Environment for the daemon process: `terminal(login:base:)` plus the
     /// app's process identity keys, plus `overrides`.
-    public static func daemon(login: [String: String]?, base: [String: String], overrides: [String: String]) -> [String: String] {
+    public func daemon(login: [String: String]?, base: [String: String], overrides: [String: String]) -> [String: String] {
         var env = terminal(login: login, base: base)
         for key in daemonIdentityKeys { if let value = base[key] { env[key] = value } }
         for (key, value) in overrides { env[key] = value }
@@ -94,7 +95,7 @@ public enum TerminalEnvironment {
     /// - `TERM_PROGRAM=ghostty`, `TERM_PROGRAM_VERSION`: feature detection
     ///   (neovim and others).
     /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
-    public static func ghostty(
+    public func ghostty(
         resourcesDirectory: String?,
         version: String?,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
@@ -112,24 +113,30 @@ public enum TerminalEnvironment {
     }
 
     /// Shared per-launch provider for terminal `env`: the login environment
-    /// captured once (the launcher's capture) and filtered.
+    /// (`LoginEnvironmentCache.value()`: this launch's capture, else the
+    /// one remembered from the last launch, else a wait for the capture),
+    /// filtered.
     /// `overrides` (the app's `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`,
     /// `CMUX_TAG`, Ghostty's terminal identity) win, so terminals created in
     /// a daemon that an older launch started still reach this app.
     /// `integration` (read per terminal, so a config reload applies to the
     /// next one) adds Ghostty's shell integration last, over the login
-    /// `PATH`, `SHELL` and data dirs.
-    public static func shared(
+    /// `PATH`, `SHELL` and data dirs. `cli` (`BundledCLIEnvironment`) then
+    /// puts the bundled `cmux` first on `PATH` and wraps that integration so
+    /// it stays first after the user's startup files.
+    public func shared(
         base: [String: String] = ProcessInfo.processInfo.environment,
         overrides: [String: String] = [:],
         login: (@Sendable () async -> [String: String]?)? = nil,
-        integration: @escaping @Sendable () async -> GhosttyShellIntegration? = { nil }
+        integration: @escaping @Sendable () async -> GhosttyShellIntegration? = { nil },
+        cli: BundledCLIEnvironment? = nil
     ) -> @Sendable () async -> [String: String] {
         {
             let captured = if let login { await login() } else { await LoginEnvironmentCache.shared.value() }
             var env = terminal(login: captured, base: base)
             for (key, value) in overrides { env[key] = value }
             if let integration = await integration() { env = integration.apply(to: env) }
+            if let cli { env = cli.apply(to: env) }
             return env
         }
     }

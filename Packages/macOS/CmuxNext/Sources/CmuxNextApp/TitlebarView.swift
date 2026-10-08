@@ -3,8 +3,9 @@ import CmuxNextDesign
 
 /// The standard titlebar strip (`window.titlebar` "standard") above the
 /// content column: the workspace title, centered, secondary text. Dragging
-/// it moves the window; a double-click runs the user's titlebar action.
-final class TitlebarView: NSView {
+/// it moves the window; a double-click runs the user's titlebar action
+/// (both through `TitlebarDragPolicy`).
+final class TitlebarView: NSView, TitlebarPressDeciding {
     private let label = NSTextField(labelWithString: "")
 
     var title: String = "" {
@@ -14,7 +15,6 @@ final class TitlebarView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         label.font = Typography.bodyEmphasized
-        label.textColor = Palette.textSecondary
         label.lineBreakMode = .byTruncatingMiddle
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -31,9 +31,15 @@ final class TitlebarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override var mouseDownCanMoveWindow: Bool { true }
-
-    override func mouseUp(with event: NSEvent) {
-        if event.clickCount == 2 { WindowTitlebar.performDoubleClick(in: window) } else { super.mouseUp(with: event) }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        performWithTheme { label.textColor = Palette.textSecondary }
     }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        viewDidChangeEffectiveAppearance()
+    }
+
+    func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .movesWindow }
 }

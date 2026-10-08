@@ -62,7 +62,10 @@ extension LayoutDesignMetricsTests {
         view.layoutSubtreeIfNeeded()
 
         try await withPaneChrome(PaneChromeOverrides(padding: 4, cornerRadius: 6, border: .subtle)) {
-            try await waitUntil { view.context.hosts["b"]?.contentRect.minX == 4 }
+            try await waitUntil {
+                guard let host = view.context.hosts["b"] else { return false }
+                return host.contentRect.minX == 4 && host.content.superview?.layer?.cornerRadius == 6
+            }
             let host = try #require(view.context.hosts["b"])
             #expect(host.contentRect == host.bounds.insetBy(dx: 4, dy: 4))
             #expect(host.content.superview?.layer?.cornerRadius == 6)
@@ -75,7 +78,10 @@ extension LayoutDesignMetricsTests {
             #expect(hidden)
 
             DesignSettings.shared.setPaneChrome(PaneChromeOverrides(padding: 0, border: PaneBorderStyle.none))
-            try await waitUntil { view.context.hosts["b"]?.contentRect == view.context.hosts["b"]?.bounds }
+            try await waitUntil {
+                guard let host = view.context.hosts["b"] else { return false }
+                return host.contentRect == host.bounds && host.content.superview?.layer?.cornerRadius == 0
+            }
             #expect(host.content.superview?.layer?.cornerRadius == 0)
             #expect(!host.chrome.showsBorder)
             let shown = dividers(in: view).allSatisfy { $0.showsIdleLine }

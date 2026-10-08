@@ -57,7 +57,8 @@ public struct MobileRPCError: Error, Sendable, Equatable {
 
 /// Wire encoding for responses and events (JSON objects inside
 /// `MobileSyncFrameCodec` frames).
-public enum MobileRPCWire {
+public struct MobileRPCWire {
+    public init() {}
     public static func success(id: JSONValue, result: JSONValue) -> Data {
         encode(.object(["id": id, "ok": .bool(true), "result": result]))
     }

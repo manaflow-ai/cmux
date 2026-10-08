@@ -8,9 +8,34 @@ import Foundation
 // of the build's real feed; answers with the typed result (or `pending`
 // when the feed is slower than the control deadline), never installs.
 extension AppControl {
-    func registerUpdateMethods(_ updater: UpdaterService) {
+    func registerUpdateMethods(_ updater: UpdaterService, services appServices: AppServices) {
         service?.router.register([
             .mainActor("updates.status") { _ in .value(Self.json(updater.status, log: updater.log.recent)) },
+            // `{build?, check?}`: rolls back to a kept build, or with check
+            // only reports whether it would. Both daemons' stores count: the
+            // app's and the Chief conversation owner's.
+            .mainActor("updates.rollback") { call in
+                let build = call.params["build"]?.stringValue
+                let check = call.params["check"]?.boolValue == true
+                let stateDirectories = appServices.environment.daemonStateDirectories
+                return .followUp {
+                    let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
+                    return try await MainActor.run { () throws -> JSONValue in
+                        if check {
+                            switch updater.rollbackDecision(to: build, inputs: inputs) {
+                            case .success(let kept): return .object(["allowed": true, "build": .string(kept.build)])
+                            case .failure(let refusal): return .object(["allowed": false, "reason": .string(refusal.message)])
+                            }
+                        }
+                        do {
+                            let kept = try updater.rollback(to: build, inputs: inputs, relaunch: UpdaterService.relaunchAfterExit)
+                            return .object(["rolled_back_to": .string(kept.build)])
+                        } catch let refusal as RollbackRefusal {
+                            throw ControlError(code: "rollback_refused", message: refusal.message)
+                        }
+                    }
+                }
+            },
             .mainActor("updates.check") { call in
                 let probe = updater.probe()
                 // Answer inside the 2 s control deadline. A slower feed leaves
@@ -19,7 +44,7 @@ extension AppControl {
                 return .followUp {
                     let outcome: (done: Bool, failure: String?)
                     do {
-                        outcome = (true, try await ControlDeadline.run(method: call.method, deadline: answerBy) { await probe.value })
+                        outcome = (true, try await ControlDeadline.shared.run(method: call.method, deadline: answerBy) { await probe.value })
                     } catch {
                         outcome = (false, nil)
                     }
@@ -33,6 +58,48 @@ extension AppControl {
                 }
             },
         ])
+        // DEV and NIGHTLY only: a test appcast for every check (signatures
+        // still required). `{url: null}` returns to the real feed.
+        if updater.identity.track == .nightly || updater.identity.track == .development {
+            service?.router.register([
+                .mainActor("updates.test_feed") { call in
+                    do {
+                        try updater.useTestFeed(call.params["url"]?.stringValue, pinned: call.params["pinned"]?.boolValue == true)
+                    } catch {
+                        throw ControlError.invalidParams(String(describing: error))
+                    }
+                    return .value(Self.json(updater.status, log: []))
+                },
+                .mainActor("debug.updater") { [weak services = appServices] call in
+                    guard let services else { throw ControlError.invalidParams("debug.updater: the app is shutting down") }
+                    return .value(try DebugUpdater.run(call.params, services))
+                },
+            ])
+        }
+        #if DEBUG
+        service?.router.register([
+            .mainActor("debug.update_indicator") { call in
+                updater.debugIndicatorPhase = Self.indicatorPhase(call.params)
+                return .value(.object(["phase": .string(String(describing: updater.indicatorPhase))]))
+            },
+        ])
+        #endif
+    }
+
+    /// `debug.update_indicator {phase, version?, progress?, text?}`: a fixed
+    /// rail update circle for screenshots; `phase: "live"` (or none) follows
+    /// the updater again.
+    static func indicatorPhase(_ params: [String: JSONValue]) -> UpdateIndicatorPhase? {
+        switch params["phase"]?.stringValue {
+        case "hidden": .hidden
+        case "checking": .checking
+        case "downloading": .downloading(progress: params["progress"]?.doubleValue)
+        case "available": .available(version: params["version"]?.stringValue)
+        case "ready": .ready(version: params["version"]?.stringValue)
+        case "installing": .installing
+        case "note": .note(params["text"]?.stringValue ?? "", isError: params["error"]?.boolValue == true)
+        default: nil
+        }
     }
 
     static func json(_ status: UpdaterStatus, log: [String]) -> JSONValue {
@@ -54,6 +121,12 @@ extension AppControl {
             "last_probe": status.lastProbe.map(json) ?? .null,
             "last_probe_error": status.lastProbeError.map(JSONValue.string) ?? .null,
             "channel_switch_target": status.channelSwitchTarget.map { .string($0.rawValue) } ?? .null,
+            "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null,
+            "card": status.card.map { card in
+                .object(["kind": .string(card.kind), "title": .string(card.presentation.title),
+                         "detail": card.presentation.detail.map(JSONValue.string) ?? .null])
+            } ?? .null,
+            "badge": status.badge.map(JSONValue.string) ?? .null,
             "log": .array(log.suffix(20).map(JSONValue.string)),
         ])
     }

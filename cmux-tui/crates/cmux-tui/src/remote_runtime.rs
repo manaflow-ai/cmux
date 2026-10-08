@@ -2173,7 +2173,7 @@ async fn run_daemon(
                     .await?;
                     crate::client_log::stderr_log!(
                         "remote",
-                        "cmux-tui: authenticated workspace HTTP at http://{}; bearer token file {}",
+                        "{BIN}: authenticated workspace HTTP at http://{}; bearer token file {}",
                         server.local_addr(),
                         server.token_file().display()
                     );
@@ -3077,6 +3077,8 @@ fn remove_shutdown_recovery_evidence(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use crate::test_exec::write_executable;
     use cmux_remote::daemon::RemoteDaemon;
 
     use super::*;
@@ -5175,8 +5177,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn client_shutdown_cancels_reconnect_ssh_bootstrap_and_kills_child() {
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let daemon_root = directory.path().join("daemon");
         let daemon_link = daemon_root.join("link.sock");
@@ -5223,15 +5223,13 @@ mod tests {
 
         let script = directory.path().join("ssh");
         let pid_file = directory.path().join("ssh.pid");
-        fs::write(
+        write_executable(
             &script,
             format!(
                 "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nexec /bin/sleep 30\n",
                 pid_file.display()
             ),
-        )
-        .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let ssh = SshProviderConfig {
             ssh_binary: script.to_string_lossy().into_owned(),
             ..SshProviderConfig::default()
@@ -5268,6 +5266,7 @@ mod tests {
                 heartbeat_interval: None,
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
+                maximum_duration: None,
             },
             startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
             state_dir: directory.path().join("client"),
@@ -5431,6 +5430,7 @@ mod tests {
                 heartbeat_interval: None,
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
+                maximum_duration: None,
             },
             startup_timeout: Duration::from_secs(2),
             state_dir: directory.path().join("client"),
@@ -5506,6 +5506,7 @@ mod tests {
                 heartbeat_interval: None,
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
+                maximum_duration: None,
             },
             startup_timeout: Duration::from_secs(1),
             state_dir: directory.path().join("client"),
@@ -5781,8 +5782,6 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn reconnect_bootstraps_an_ssh_candidate_not_attempted_initially() {
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let log = directory.path().join("ssh.log");
@@ -5797,16 +5796,14 @@ mod tests {
             os: "test".into(),
             arch: "test".into(),
         };
-        fs::write(
+        write_executable(
             &script,
             format!(
                 "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nprintf '%s\\n' '{}'\n",
                 log.display(),
                 serde_json::to_string(&probe).unwrap()
             ),
-        )
-        .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let ssh = SshProviderConfig {
             ssh_binary: script.to_string_lossy().into_owned(),
             ..SshProviderConfig::default()
@@ -6039,12 +6036,9 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn connection_timeout_bounds_initial_ssh_bootstrap() {
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
-        fs::write(&script, "#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        write_executable(&script, "#!/bin/sh\nexec /bin/sleep 30\n");
         let ssh = SshProviderConfig {
             ssh_binary: script.to_string_lossy().into_owned(),
             ..SshProviderConfig::default()

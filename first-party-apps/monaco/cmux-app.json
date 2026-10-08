@@ -1,0 +1,253 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/monaco",
+  "name": {
+    "en": "Monaco",
+    "ja": "Monaco"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "A full code editor (Monaco) for files and documents in cmux, with your terminal's font and colors, save, conflict handling, read-only mode, a diff view and an optional minimap.",
+    "ja": "cmuxのファイルとドキュメント向けの本格的なコードエディタ(Monaco)。ターミナルのフォントと色、保存、競合の処理、読み取り専用モード、差分表示、ミニマップ(任意)に対応します。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "developer-tools",
+    "productivity"
+  ],
+  "keywords": [
+    "editor",
+    "code",
+    "text",
+    "monaco"
+  ],
+  "engines": {
+    "cmux": "^1.0"
+  },
+  "main": "dist/main.js",
+  "scopes": {
+    "document:write": "Edit and save the files and documents you open with this editor.",
+    "workspace:write": "Open an editor pane when you run Open File."
+  },
+  "contributes": {
+    "paneKinds": [
+      {
+        "id": "editor",
+        "title": {
+          "en": "Monaco",
+          "ja": "Monaco"
+        },
+        "symbol": "doc.text",
+        "web": "web/index.html",
+        "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'",
+        "x-cmux-implements": {
+          "interface": "cmux.editor/1",
+          "types": [
+            "public.source-code",
+            "public.plain-text",
+            "public.json",
+            "net.daringfireball.markdown"
+          ],
+          "capabilities": [
+            "diff",
+            "readOnly",
+            "multiCursor",
+            "decorations"
+          ]
+        },
+        "x-cmux-pane-commands": [
+          "save",
+          "revert",
+          "toggleReadOnly",
+          "focus"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "id": "open",
+        "title": {
+          "en": "Open File in Monaco",
+          "ja": "Monacoでファイルを開く"
+        },
+        "run": "open",
+        "contexts": [],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "uri": {
+              "type": "string",
+              "description": "file:// or cmux-fs:// URI."
+            },
+            "doc": {
+              "type": "string",
+              "description": "A document handle (doc_…)."
+            }
+          }
+        }
+      },
+      {
+        "id": "save",
+        "title": {
+          "en": "Save",
+          "ja": "保存"
+        },
+        "symbol": "square.and.arrow.down",
+        "run": "save",
+        "keywords": [
+          "save",
+          "write"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "doc": {
+              "type": "string",
+              "description": "A document handle; the focused editor when absent."
+            }
+          }
+        },
+        "x-cmux-keybinding": "cmd+s",
+        "x-cmux-when": "paneFocused:editor"
+      },
+      {
+        "id": "revert",
+        "title": {
+          "en": "Revert to Saved",
+          "ja": "保存した版に戻す"
+        },
+        "run": "revert",
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "doc": {
+              "type": "string"
+            }
+          }
+        },
+        "x-cmux-when": "paneFocused:editor"
+      },
+      {
+        "id": "toggleReadOnly",
+        "title": {
+          "en": "Toggle Read-Only",
+          "ja": "読み取り専用を切り替え"
+        },
+        "run": "toggleReadOnly",
+        "contexts": [
+          "palette"
+        ],
+        "x-cmux-mcp": false,
+        "x-cmux-when": "paneFocused:editor"
+      },
+      {
+        "id": "cycleVariant",
+        "title": {
+          "en": "Next Monaco Variant",
+          "ja": "Monacoの次のバリアント"
+        },
+        "run": "cycleVariant",
+        "contexts": [
+          "palette"
+        ],
+        "x-cmux-mcp": false
+      }
+    ],
+    "mcpServers": [
+      {
+        "id": "monacoTools",
+        "title": {
+          "en": "Monaco",
+          "ja": "Monaco"
+        },
+        "tools": "commands"
+      }
+    ],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": [
+            "statusLine",
+            "header",
+            "bare"
+          ],
+          "default": "statusLine",
+          "title": "Design variant",
+          "description": "statusLine: a small status line under the editor. header: a header with the file name and Save. bare: the editor only.",
+          "x-cmux-devOnly": true
+        },
+        "fontFamily": {
+          "type": "string",
+          "default": "",
+          "title": "Font family",
+          "description": "Empty: the terminal font."
+        },
+        "fontSize": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 72,
+          "default": 0,
+          "title": "Font size",
+          "description": "0: the terminal font size."
+        },
+        "wordWrap": {
+          "type": "boolean",
+          "default": false,
+          "title": "Wrap long lines"
+        },
+        "lineNumbers": {
+          "type": "boolean",
+          "default": true,
+          "title": "Show line numbers"
+        },
+        "tabSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "default": 2,
+          "title": "Tab size"
+        },
+        "minimap": {
+          "type": "boolean",
+          "default": false,
+          "title": "Show minimap"
+        },
+        "renderWhitespace": {
+          "type": "string",
+          "enum": [
+            "none",
+            "boundary",
+            "all"
+          ],
+          "default": "none",
+          "title": "Show whitespace"
+        }
+      }
+    }
+  },
+  "activation": [
+    "onCommand:open",
+    "onCommand:save",
+    "onCommand:revert"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "web/"
+  ]
+}

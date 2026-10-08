@@ -17,13 +17,22 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-coderouter",
+    "crates/cmux-history",
+    "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
+    "crates/cmux-conversation",
+    "crates/cmux-chief",
     "bindings/rust",
     "bindings/rust-sidebar",
+    "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
+    "crates/cmux-browser-host",
     "crates/cmux-tui-core",
+    "crates/cmux-layout-reducer",
+    "crates/cmux-unix-socket",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
@@ -34,16 +43,41 @@ members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-transport",
+    "crates/cmux-tasks-core",
+    "crates/cmux-tasks",
+    "crates/cmux-server-core",
+    "crates/cmux-server",
+    "crates/cmux-host",
+    "crates/cmux-motion",
+    "crates/cmux-theme-tokens",
+    "crates/cmux-app-manifest",
+    "crates/cmux-terminal-iface",
+    "crates/cmux-rd-proto",
+    "crates/cmux-rd-core",
+    "crates/cmux-rd-engine",
+    "crates/cmux-encode",
+    "crates/cmux-remote-browser",
+    "crates/cmux-local-auth",
+    "crates/cmux-agent-pane-policy",
+    "crates/cmux-link",
+    "crates/cmux-pane-protocol",
+    "crates/cmux-app-host",
 ]
 default-members = [
     "crates/acpmux",
+    "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
+    "crates/cmux-conversation",
     "bindings/rust",
     "bindings/rust-sidebar",
+    "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
+    "crates/cmux-browser-host",
     "crates/cmux-tui-core",
+    "crates/cmux-layout-reducer",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
@@ -53,18 +87,39 @@ default-members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-transport",
+    "crates/cmux-tasks-core",
+    "crates/cmux-tasks",
+    "crates/cmux-server-core",
+    "crates/cmux-server",
+    "crates/cmux-host",
+    "crates/cmux-motion",
+    "crates/cmux-theme-tokens",
+    "crates/cmux-app-manifest",
+    "crates/cmux-terminal-iface",
+    "crates/cmux-rd-proto",
+    "crates/cmux-rd-core",
+    "crates/cmux-rd-engine",
+    "crates/cmux-encode",
+    "crates/cmux-remote-browser",
+    "crates/cmux-local-auth",
+    "crates/cmux-link",
+    "crates/cmux-pane-protocol",
+    "crates/cmux-app-host",
 ]
-exclude = ["vendor/crossterm"]
+exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.91"
-license = "MIT"
+license = "GPL-3.0-or-later"
 publish = false
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
+# `cargo kani` sets cfg(kani) for the proof harnesses in cmux-layout-reducer.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
@@ -73,19 +128,32 @@ redundant_clone = "warn"
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
+cmux-coderouter = { path = "crates/cmux-coderouter" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
+cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
+cmux-unix-socket = { path = "crates/cmux-unix-socket" }
+cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
+cmux-conversation = { path = "crates/cmux-conversation" }
+cmux-local-auth = { path = "crates/cmux-local-auth" }
+cmux-link = { path = "crates/cmux-link" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
+cmux-server = { path = "crates/cmux-server" }
+cmux-server-core = { path = "crates/cmux-server-core" }
+cmux-host = { path = "crates/cmux-host" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
+cmux-app-manifest = { path = "crates/cmux-app-manifest" }
+cmux-terminal-iface = { path = "crates/cmux-terminal-iface" }
+cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 anyhow = "1"
 async-trait = "0.1"
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
@@ -98,14 +166,17 @@ crossbeam-channel = "0.5"
 ratatui = "0.30"
 unicode-width = "0.2"
 unicode-segmentation = "1"
+unicode-normalization = "0.1"
 base64 = "0.22"
 # In-process WireGuard for Cloud VM attach (crates/cmux-wg). boringtun's
 # `noise` module is the sans-IO WireGuard session; no tun device, no ffi.
 boringtun = { version = "0.7", default-features = false }
 # ip_network is what boringtun already uses for AllowedIPs, so it adds no code.
 ip_network = "0.4"
-# smoltcp is the userspace TCP/IP stack those tunnels terminate in.
-smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "async"] }
+# smoltcp is the userspace TCP/IP stack those tunnels terminate in. Without a
+# congestion-control feature it runs with none and bursts a full window into
+# any bottleneck; CUBIC is the controller cmux-wg selects.
+smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
@@ -121,6 +192,10 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 time = { version = "0.3", default-features = false, features = ["parsing", "std"] }
 jsonschema = { version = "0.30", default-features = false }
+# QuickJS-ng for the app host (one VM per app process). Exact pin: the app
+# host is a sandbox boundary, so engine upgrades are deliberate. `allocator`
+# lets the host count every byte the VM allocates (32 MiB limit per app).
+rquickjs = { version = "=0.14.0", default-features = false, features = ["std", "allocator"] }
 flate2 = "1"
 bindgen = "0.72"
 smallvec = "1"
@@ -149,14 +224,25 @@ wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
 rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks"] }
+# Unicode normalization for history search folding (cmux-history). Already in
+# the graph through url -> idna -> idna_adapter at this version; compiled
+# data only, no new transitive code.
+icu_normalizer = { version = "2.2", default-features = false, features = ["compiled_data"] }
 sha2 = "0.10"
+# XML parser for the SVG icon sanitizer (cmux-tui-core). Already in the graph
+# through plist at this version; no DTD support, MIT licensed.
+quick-xml = { version = "0.41", default-features = false }
+# Ed25519 verification of the signed channel manifest (cmux-server-core).
+# ring is already in the graph through rustls; this adds no new code.
+ring = "0.17"
 socket2 = { version = "0.5", features = ["all"] }
 snow = "0.10"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["timeout"] }
+tower-http = { version = "0.6", features = ["limit", "timeout"] }
+hex = "0.4"
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }

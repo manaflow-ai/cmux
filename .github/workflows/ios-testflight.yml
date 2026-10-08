@@ -496,19 +496,37 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --summary "$GITHUB_STEP_SUMMARY"
 
+  # IOS-SOURCE-ARCHIVE-PER-RELEASE: the corresponding-source archive (Ghostty,
+  # ghostty-next and every Zig package, z2d included) of the exact commit this
+  # run uploads, built and checked by the cmux-next source-archive workflow
+  # before the upload. The upload needs it: no iOS build ships without one.
+  source-archive:
+    name: Build and check the iOS source archive
+    needs: decide
+    if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cmux-next-source-archive.yml
+    with:
+      ref: ${{ github.sha }}
+      build: ios-${{ github.run_id }}
+      artifact: cmux-ios-source-archive
+
   upload:
     name: Upload to TestFlight
-    needs: decide
+    needs: [decide, source-archive]
     # Only ever publish from main. Push runs always use main; this also
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
-    # Saves the iOS compilation cache. Every R2 cache writer declares this
-    # environment (#14147); the guard in test_ci_pull_request_caches_are_read_only.py
-    # enforces it.
-    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
+    # Signs with the iOS distribution certificate and the App Store Connect
+    # key, which live only in the release environment (main and v* tags), and
+    # saves the iOS compilation cache, so release also holds a copy of the R2
+    # cache write credentials. Guards: test_ci_signing_secrets_need_release_environment.py
+    # and test_ci_pull_request_caches_are_read_only.py.
+    environment: ${{ github.ref == 'refs/heads/main' && 'release' || '' }}
     outputs:
       final_build_number: ${{ steps.upload.outputs.final_build_number }}
       bundle_id: ${{ steps.distribution.outputs.bundle_id }}
@@ -570,6 +588,12 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up Go for the Cloud tunnel extension
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
 
       # The verified prebuilt is the happy path (same pattern as
       # reload-build.yml). Zig and the ghostty source are fetched only when it
@@ -754,7 +778,7 @@ jobs:
           # helper also installs an optional pre-provisioned extension secret,
           # then falls back to the active profile in ASC.
           EXTENSION_BUNDLE_ID="$(bash ./ios/scripts/notification-service-bundle-id.sh "$IOS_BETA_BUNDLE_ID")"
-          if [ "$IOS_BETA_PROFILE_TYPE" = "internal" ] || [ -n "${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" ]; then
+          if [ "$IOS_BETA_PROFILE_TYPE" = "internal" ] || [ "$IOS_BETA_PROFILE_TYPE" = "beta" ] || [ -n "${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" ]; then
             EXTENSION_ENV="$RUNNER_TEMP/cmux-${IOS_BETA_PROFILE_TYPE}-extension.env"
             : > "$EXTENSION_ENV"
             IOS_APPSTORE_TEAM_ID=7WLXT3NR37 \
@@ -921,6 +945,15 @@ jobs:
           echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
           echo "Prepared CFBundleVersion: $FINAL_BN"
 
+
+      - name: Retain signed BETA app for permission verification
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.upload_mode == 'marketing_version_override' && github.event.inputs.prepare_only != 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-beta-testflight-${{ github.sha }}
+          path: ${{ runner.temp }}/cmux-ios-upload/export/cmux-resigned.ipa
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Package prepared candidate
         id: package_candidate
@@ -1149,6 +1182,9 @@ jobs:
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
   set-testflight-notes:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     name: Set TestFlight notes
     needs: upload
     # Run alongside tester assignment and even if later Mac metadata/Sentry
@@ -1182,6 +1218,9 @@ jobs:
   # external marketing-version override assigns Founder's Edition and Pro
   # inline in cloud-testflight.sh, so it must skip this internal-app lookup.
   assign-internal-group:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
     # Gated on the upload step's outcome, not the upload job's result: once
@@ -1220,3 +1259,36 @@ jobs:
           python3 ./ios/scripts/asc_assign_internal_testflight_group.py \
             --bundle-id "$ASSIGN_BUNDLE_ID" \
             --build-number "$BUILD_NUMBER"
+
+  # Attaches the archive as cmux-ios-source-<build>.tar.gz to the ios-source
+  # release (the name the iOS Acknowledgements pane's z2d offer gives) and tags
+  # the commit cmux-next-src-<11 characters>. Only after a successful upload and
+  # only while vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1 (the coordinator's hold).
+  publish-source-archive:
+    name: Publish the iOS source archive
+    needs: [upload, source-archive]
+    if: ${{ !cancelled() && needs.upload.result == 'success' && needs.upload.outputs.uploaded == 'success' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Download the iOS source archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-ios-source-archive
+          path: source-archive
+
+      - name: Publish the iOS source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
+          APP_COMMIT: ${{ github.sha }}
+        run: ./scripts/cmux-next/publish-ios-source-archive.sh "$BUILD_NUMBER" "$APP_COMMIT" source-archive

@@ -36,6 +36,7 @@ Global options, accepted before the scope:
 | --- | --- |
 | `--socket <path>` | Connect to an exact local session socket. |
 | `--session <name>` | Route through a named local session. |
+| `--all-sessions` | Run a list (`… list`) on every local session; each record gains `session`. |
 | `--machine <value>` | Constrain machine-scoped requests. |
 | `--app-socket <path>` | Connect to an exact app control socket (app scopes only). |
 | `--json` | Print one JSON result object. |
@@ -45,6 +46,34 @@ Global options, accepted before the scope:
 
 `--socket`, `--session`, `--machine` and `--app-socket` also take the
 `--flag=value` form.
+
+`--socket` is a daemon session socket. The remote commands (`connect`, `ssh`,
+`forward`, `rpc`) reach a ROUTE and refuse `--socket`. A tagged app's
+`/tmp/cmux-debug-<tag>.sock` is the app control socket: pass it with
+`--app-socket` to an app verb (`cmux --app-socket <path> app identify`).
+To call one app control method of a DEV or tagged build (for example a
+`debug.*` read), use `app call`:
+
+```text
+cmux --app-socket /tmp/cmux-debug-<tag>.sock app call debug.surfaces '{}'
+```
+
+`app call METHOD [JSON_OBJECT]` first asks the app `system.identify` and
+refuses (exit 1, `app.call_debug_only`) any app that is not a debug build
+(`com.cmuxterm.app.debug[.<tag>]`). The params are sent as given, with the
+CLI's `origin` (`cli` or `script`) over any `origin` in the JSON, so
+person-only operations stay refused. JSON that is not one object is a usage
+error (exit 2); the app's own error passes through with its code (exit 1).
+Inside a tagged app's terminal, or through `CMUX_TAG=<tag>
+scripts/cmux-debug-cli.sh`, the socket is found without `--app-socket`.
+
+Every command acts on one session. Without `--socket`, `--session` or
+`--all-sessions`, lists and bulk commands act only on the session the CLI
+finds (see [Discovery](#discovery)), so a script that lists and then closes
+never reaches another session. `--all-sessions` is accepted only by list
+reads and reaches the local sessions this user runs (the runtime directory's
+`<name>.sock` files and the bundling app's session); sessions the app reaches
+over SSH or on Cloud machines have no CLI transport yet.
 
 ## Output and exit codes
 
@@ -118,6 +147,13 @@ For a `current` or name selector, missing structural ancestors default to
 workspace, screen and pane (what the user sees), not the caller's. To act on
 the caller's own terminal, pass `$CMUX_TUI_TERMINAL_ID`. An id selector needs no ancestors. Nested forms name the chain
 explicitly: `cmux workspace api screen current pane current split --down`.
+
+A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,
+`--tabs`, `--terminal`, `--browser`, `--split`, `--target` or `--other-*`, may
+carry its session: `build-box:ws_…` routes the command to the local session
+`build-box`, as `--session build-box` would. Ids from two sessions in one
+command, or a qualifier with `--socket` or a different `--session`, are usage
+errors. App actions take unqualified ids.
 
 Zero matches return `selector.not_found`; more than one returns
 `selector.ambiguous` with every candidate id. A supplied ancestor that does not
@@ -229,8 +265,9 @@ cmux tab create terminal [--cwd <path>] [--name <value>] [--workspace <sel>] [--
 cmux tab create browser --url <value> [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
 cmux tab <selector> terminal|browser ...
 cmux tab <selector> pin|unpin
-cmux tab <selector> zoom <0.25..5>|reset
-cmux tab <selector> update [--zoom <0.25..5>|--clear-zoom] [--back <url,...>] [--forward <url,...>]
+cmux tab <selector> zoom <0.25..5>|reset|in|out
+cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
+cmux tab <selector> update --icon <value>|--clear-icon
 cmux tab group list [--pane <pane_id>]
 cmux tab group create --tabs <tab_id,...> [--name <value>] [--color <color>]
 cmux tab group <group> show|ungroup|close
@@ -245,7 +282,11 @@ cmux tab group saved <saved> delete
 cmux tab group <group> split|column|new-workspace|unsave [OPTIONS]
 ```
 
-Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
+On a terminal tab, zoom is its font scale, which the daemon stores
+(`tab.update`). On a browser tab it is the page zoom, which the app that hosts
+the page owns: the CLI runs the app's Zoom In, Zoom Out or Actual Size action
+on the tab's pane (the tab must be the one its pane shows) and never writes the
+browser tab record; an exact value is refused there. Pinned tabs sort first
 and leave their group. Tab group verbs are `tab_group.*` and
 `saved_tab_group.*` operations; `split`, `column`, `new-workspace` and `unsave`
 have no `cmux.protocol/2` operation yet and still use private daemon commands.
@@ -399,12 +440,18 @@ cmux action list [--category <c>] [--noun <n>] [--available]
 cmux action describe <id>
 cmux action run <id> [--target <id>] [--<arg> <value>] [--arg name=value] [--wait] [--interactive]
 cmux settings get [<path>]
-cmux settings set <path> <value>
-cmux settings unset <path>
+cmux settings set <path> <value> [--confirm]
+cmux settings reset <path> [--confirm]
+cmux settings unset <path> [--confirm]
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
 ```
 
 `settings set` parses the value as JSON when it parses, else as a string.
+`unset` is an alias of `reset`. A key only the person may change answers
+`setting_user_only` (exit 1) with a hint. `--confirm` asks the person at the
+Mac on a native sheet and waits for the answer with no client deadline; a
+declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
+`cmux settings set <path> -- --confirm` sets the string "--confirm".
 `events` streams JSON lines until interrupted.
 
 Browser page commands address a browser tab the app hosts, by `tab_…` id or
@@ -430,6 +477,31 @@ Every action in the app's registry is also a verb under its CLI name:
 `--interactive` work as in `action run`. `cmux action list` lists the names and
 `cmux action describe <id>` shows the arguments and targets.
 
+## `cmux coderouter`
+
+```text
+cmux coderouter status [--team <id>]
+cmux coderouter machines [--team <id>]
+cmux coderouter claude list [--team <id>]
+cmux coderouter claude add oauth-token|api-key [--label <l>] [--stdin] [--team <id>]
+cmux coderouter claude add bedrock [--label <l>] [--region <r>] [--model <claude>=<bedrock>]... [--team <id>]
+cmux coderouter claude remove|disable|enable <account> [--team <id>]
+cmux coderouter claude clear [--team <id>]
+cmux coderouter <other verb> ...          # the bundled CodeRouter CLI
+cmux cr ...                               # the bundled CodeRouter CLI
+```
+
+The owned verbs go to the app (`auth.status`, `coderouter.claude_upstream.get|add|update|remove|clear`,
+`coderouter.machines`), which calls CodeRouter as the signed-in user and bounds
+each call at 20 s. `claude add` reads its secret from `CLAUDE_CODE_OAUTH_TOKEN` or
+`ANTHROPIC_API_KEY`, from stdin (`--stdin`, or any stdin that is not a
+terminal), or from a hidden prompt; a secret on the command line is refused.
+Bedrock reads `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`.
+`<account>` is the id, label or masked identifier. Every other `coderouter`
+verb and all of `cr` exec `Contents/Resources/bin/coderouter` of the app bundle
+that contains this `cmux`, with every `CMUX_*` variable removed; arguments and
+the exit code pass through.
+
 ## `cmux acp`
 
 ```text
@@ -443,7 +515,7 @@ cmux acp ensure|last|pending|history|compare|preset|defaults|guide ...
 cmux acp session <info|cancel|stop|rename|fork|set|allow|deny|export|import|tail> ...
 cmux acp daemon <run|status|shutdown|config|harnesses|reload|models|schema> ...
 cmux acp host <add|ls|rm|setup> ...
-cmux acp web [--no-open]
+cmux acp web [--no-open] [--rotate-token]
 cmux acp stdio [-m HARNESS[/MODEL]] [--policy P] [--effort E] [--preset P]
 cmux acp open <name> [--pane <id>]
 ```
@@ -482,4 +554,6 @@ yet.
 | `sidebar-state` | `cmux workspace [<sel>] status list`. |
 | `todo` | None as a CLI verb; the app actions under `cmux action list --noun workspace` cover the checklist. |
 | `claude-hook`, `codex-hook`, `hooks …` | `cmux agent hook install|uninstall|status|emit`. |
+| `--workspace build-box:workspace:N`, `list-workspaces --all-sessions` | `build-box:ws_…` qualified ids and `--all-sessions` on lists (local named sessions only). |
+| `agent message`, `agent inbox` | None yet. The inbox belongs to the session host that runs the recipient's terminal and has no daemon operation. |
 | `markdown open`, `themes`, `vm`, `cloud` verbs, `glaeda`, `current` | None, except the app actions `cmux action list` reports (for example `cmux cloud new-machine`). |

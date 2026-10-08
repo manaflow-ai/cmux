@@ -50,8 +50,20 @@ impl Translator {
                         let content: Vec<Value> = blocks
                             .iter()
                             .map(|b| match b.get("type").and_then(Value::as_str) {
-                                Some("text") => json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")}),
+                                // `cache_control` passes through unchanged: Claude
+                                // Code copies user blocks into the API request, so
+                                // a client can place its own cache breakpoint.
+                                Some("text") => {
+                                    let mut text = json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")});
+                                    if let Some(marker) = b.get("cache_control").filter(|m| !m.is_null()) {
+                                        text["cache_control"] = marker.clone();
+                                    }
+                                    text
+                                }
                                 Some("image") => json!({"type": "image", "source": {"type": "base64", "media_type": b.get("mimeType").and_then(Value::as_str).unwrap_or("image/png"), "data": b.get("data").and_then(Value::as_str).unwrap_or("")}}),
+                                Some("resource") | Some("resource_link") => {
+                                    json!({"type": "text", "text": resource_text(b)})
+                                }
                                 _ => json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")}),
                             })
                             .collect();
@@ -65,8 +77,10 @@ impl Translator {
                     method::SESSION_SET_MODE => {
                         let mode =
                             p.get("modeId").and_then(Value::as_str).unwrap_or("default").to_owned();
-                        *self.mode.lock().await = mode.clone();
-                        self.pending.lock().await.insert(id.to_string(), Pending::Control);
+                        self.pending
+                            .lock()
+                            .await
+                            .insert(id.to_string(), Pending::Control(Setting::Mode, mode.clone()));
                         Outbound::Lines(vec![
                             json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "set_permission_mode", "mode": mode}}),
                         ])
@@ -76,15 +90,19 @@ impl Translator {
                         let val = p.get("value").and_then(Value::as_str).unwrap_or("").to_owned();
                         match cid {
                             "model" => {
-                                *self.model.lock().await = val.clone();
-                                self.pending.lock().await.insert(id.to_string(), Pending::Control);
+                                self.pending.lock().await.insert(
+                                    id.to_string(),
+                                    Pending::Control(Setting::Model, val.clone()),
+                                );
                                 Outbound::Lines(vec![
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "set_model", "model": val}}),
                                 ])
                             }
                             "mode" => {
-                                *self.mode.lock().await = val.clone();
-                                self.pending.lock().await.insert(id.to_string(), Pending::Control);
+                                self.pending.lock().await.insert(
+                                    id.to_string(),
+                                    Pending::Control(Setting::Mode, val.clone()),
+                                );
                                 Outbound::Lines(vec![
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "set_permission_mode", "mode": val}}),
                                 ])
@@ -103,8 +121,10 @@ impl Translator {
                                         )),
                                     ));
                                 }
-                                *self.effort.lock().await = val.clone();
-                                self.pending.lock().await.insert(id.to_string(), Pending::Control);
+                                self.pending.lock().await.insert(
+                                    id.to_string(),
+                                    Pending::Control(Setting::Effort, val.clone()),
+                                );
                                 // Claude Code's live effort switch is the flag-settings channel.
                                 let level = if val == "default" { "auto".to_owned() } else { val };
                                 Outbound::Lines(vec![
@@ -123,8 +143,10 @@ impl Translator {
                             .and_then(Value::as_str)
                             .unwrap_or("default")
                             .to_owned();
-                        *self.model.lock().await = val.clone();
-                        self.pending.lock().await.insert(id.to_string(), Pending::Control);
+                        self.pending
+                            .lock()
+                            .await
+                            .insert(id.to_string(), Pending::Control(Setting::Model, val.clone()));
                         Outbound::Lines(vec![
                             json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "set_model", "model": val}}),
                         ])
@@ -166,10 +188,12 @@ impl Translator {
                 let outcome =
                     result.as_ref().and_then(|r| r.get("outcome")).cloned().unwrap_or(Value::Null);
                 let selected = outcome.get("optionId").and_then(Value::as_str).unwrap_or("");
-                let response = if error.is_some()
-                    || outcome.get("outcome").and_then(Value::as_str) == Some("cancelled")
-                    || selected.starts_with("reject")
-                {
+                // Only the allow options we advertised grant the tool; a
+                // missing, rejected, or unknown option denies it.
+                let allowed = error.is_none()
+                    && outcome.get("outcome").and_then(Value::as_str) != Some("cancelled")
+                    && matches!(selected, "allow_once" | "allow_always");
+                let response = if !allowed {
                     json!({"behavior": "deny", "message": "The user rejected this action."})
                 } else {
                     // allow / allow_always: pass the (possibly answered) input back.
@@ -185,5 +209,16 @@ impl Translator {
                 ])
             }
         }
+    }
+}
+
+/// An ACP `resource` or `resource_link` block as prompt text, so embedded
+/// context reaches Claude instead of an empty string.
+fn resource_text(b: &Value) -> String {
+    let r = b.get("resource").unwrap_or(b);
+    let uri = r.get("uri").and_then(Value::as_str).unwrap_or("");
+    match r.get("text").and_then(Value::as_str) {
+        Some(text) => format!("<resource uri=\"{uri}\">\n{text}\n</resource>"),
+        None => format!("<resource uri=\"{uri}\" />"),
     }
 }

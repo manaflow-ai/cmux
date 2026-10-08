@@ -5,7 +5,8 @@ import Foundation
 /// the source text in place so comments, key order, and formatting the user
 /// wrote survive a `settings.set` (the same policy as the old app's
 /// `JSONCPathEditor`).
-public enum JSONC {
+public struct JSONC {
+    public init() {}
     public enum Failure: Error, Sendable, Equatable {
         case unterminatedComment
         case unterminatedString

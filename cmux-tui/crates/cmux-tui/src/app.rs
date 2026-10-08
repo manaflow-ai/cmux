@@ -97,6 +97,8 @@ use crate::ui::graphics_writer::{
     GraphicsCompletion, GraphicsProcessing, GraphicsResponseFilter, GraphicsWriter,
     GraphicsWriterShutdown, StdoutLock, graphics_fence_channel,
 };
+mod pairing_confirm;
+
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::{
     ReusableRowBuffer, horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry,
@@ -2441,11 +2443,11 @@ impl OrderedSession {
         );
     }
 
-    fn disconnect_size_participant(&self, participant: String) {
+    fn disconnect_size_participant(&self, surface: SurfaceId, participant: String) {
         self.enqueue_coalescing_pointer_mutation(
             "disconnect participant",
             ("disconnect participant", participant_key(&participant)),
-            move |session| match session.disconnect_size_participant(&participant) {
+            move |session| match session.disconnect_size_participant(surface, &participant) {
                 // The menu is a snapshot; a participant that already left is done.
                 Err(error) if error.to_string().contains("unknown participant") => Ok(()),
                 result => result,
@@ -14490,7 +14492,7 @@ impl App {
                 Err(error) => {
                     crate::client_log::stderr_log!(
                         "status-segment",
-                        "cmux-tui: could not start a status segment worker: {error}"
+                        "{BIN}: could not start a status segment worker: {error}"
                     );
                 }
             }
@@ -16022,7 +16024,7 @@ impl App {
                     SessionMutationOutcome::CreationResponseAmbiguous(error) => {
                         crate::client_log::stderr_log!(
                             "session",
-                            "cmux-tui: session creation response was ambiguous: {error}"
+                            "{BIN}: session creation response was ambiguous: {error}"
                         );
                         self.status_message =
                             Some(localization::catalog().session.creation_reconciling.to_string());
@@ -16034,7 +16036,7 @@ impl App {
                     SessionMutationOutcome::MutationTimedOut(error) => {
                         crate::client_log::stderr_log!(
                             "session",
-                            "cmux-tui: session operation timed out: {error}"
+                            "{BIN}: session operation timed out: {error}"
                         );
                         if let Some(intent) = semantic_intent {
                             // A peer without creation receipts cannot identify
@@ -16053,7 +16055,7 @@ impl App {
                     SessionMutationOutcome::Failed(error) => {
                         crate::client_log::stderr_log!(
                             "session",
-                            "cmux-tui: session operation failed: {error}"
+                            "{BIN}: session operation failed: {error}"
                         );
                         if let Some(intent) = semantic_intent {
                             self.mark_semantic_destination_failed(intent);
@@ -19733,10 +19735,8 @@ impl App {
     }
 
     fn handle_pairing_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        match key.code {
-            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => self.resolve_pairing(true),
-            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => self.resolve_pairing(false),
-            _ => {}
+        if let Some(approve) = pairing_confirm::decision(&key) {
+            self.resolve_pairing(approve);
         }
         Ok(RenderAction::Draw)
     }
@@ -20726,7 +20726,7 @@ impl App {
                         // leave through the local detach lifecycle.
                         self.run_action(Action::Detach)?;
                     } else {
-                        self.session.disconnect_size_participant(id);
+                        self.session.disconnect_size_participant(surface, id);
                     }
                 }
             }
@@ -28288,7 +28288,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.sync_layout((80, 31));
         while app.session.has_pending_mutations() {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             app.handle(event).unwrap();
         }
         app.session.remote = true;
@@ -28317,7 +28317,7 @@ mod tests {
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
         while app.session.has_pending_mutations() {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             app.handle(event).unwrap();
         }
         assert_eq!(app.active_pane(), Some(bottom_right));
@@ -28351,7 +28351,7 @@ mod tests {
         );
         app.sync_layout((80, 25));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(app.tree.active_screen().unwrap().viewport_splits.is_empty());
         assert_eq!(app.horizontal_scrollbar_state(), None);
@@ -28373,7 +28373,7 @@ mod tests {
         app.config.viewport.animation = false;
         app.sync_layout((80, 25));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         let screen = app.tree.active_screen().unwrap();
@@ -28472,7 +28472,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.sync_layout((80, 25));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         app.status_message = Some("復元失敗".to_string());
 
@@ -29294,7 +29294,7 @@ mod tests {
 
         app.resize_focused_split(-0.05);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let screen = app.tree.active_screen().unwrap();
         let appended_split =
@@ -29340,7 +29340,7 @@ mod tests {
         app.handle_left_drag(drag_x, handle.y).unwrap();
         app.handle_left_up(drag_x, handle.y).unwrap();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(
             (app.tree.active_screen().unwrap().viewport_base_width.unwrap() - expected_base_width)
@@ -29378,7 +29378,7 @@ mod tests {
 
         app.resize_drag_target(target, 20, 5);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let first_width = mux.with_state(|state| {
             state.workspaces[state.active_workspace].screens[0].viewport_base_width.unwrap()
@@ -29387,7 +29387,7 @@ mod tests {
         app.viewport_offset = 10;
         app.resize_drag_target(target, 20, 5);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let second_width = mux.with_state(|state| {
             state.workspaces[state.active_workspace].screens[0].viewport_base_width.unwrap()
@@ -29430,7 +29430,7 @@ mod tests {
 
         app.run_action(Action::UndoLayout).unwrap();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(matches!(
             app.prompt.as_ref().map(|prompt| prompt.target),
@@ -29454,7 +29454,7 @@ mod tests {
         app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
         app.commit_prompt();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(app.prompt.is_none());
         assert!(mux.surface(right.id).is_some());
@@ -29467,7 +29467,7 @@ mod tests {
 
         app.run_action(Action::UndoLayout).unwrap();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert_eq!(
             app.status_message.as_deref(),
@@ -29491,7 +29491,7 @@ mod tests {
 
         app.run_action(Action::UndoLayout).unwrap();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(app.prompt.is_some());
         assert!(mux.set_viewport_pane_width(right_pane, 0.5));
@@ -29499,7 +29499,7 @@ mod tests {
         app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
         app.commit_prompt();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         assert!(mux.surface(right.id).is_some());
@@ -30290,7 +30290,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
         let completion = loop {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             if matches!(
                 &event,
                 AppEvent::ClearHistorySucceeded { surface: completed, .. }
@@ -30332,7 +30332,7 @@ mod tests {
         ))))
         .unwrap();
         let completion = loop {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             if matches!(
                 &event,
                 AppEvent::ClearHistorySucceeded { surface: completed, .. }
@@ -30387,7 +30387,7 @@ mod tests {
         ))))
         .unwrap();
         let completion = loop {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             if matches!(
                 &event,
                 AppEvent::ClearHistorySucceeded { surface: completed, .. }
@@ -30874,7 +30874,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.sync_layout((80, 19));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         for y in [0, 17] {
@@ -30884,7 +30884,7 @@ mod tests {
             app.resize_drag_target(target, 0, y);
             app.session.settle_split_ratio();
             while app.session.has_pending_mutations() {
-                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+                app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
             }
             app.sync_layout((80, 19));
 
@@ -30899,7 +30899,7 @@ mod tests {
             );
 
             while app.session.has_pending_mutations() {
-                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+                app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
             }
         }
 
@@ -31310,7 +31310,7 @@ mod tests {
 
         assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
         assert!(!app.quit);
-        let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             event,
             AppEvent::SessionMutationSettled {
@@ -31409,20 +31409,17 @@ mod tests {
 
     #[test]
     fn size_menu_commands_reach_the_shared_sizing_host() {
-        let mux = Mux::new("size-menu-commands-test", SurfaceOptions::default());
+        let mux = Mux::new("size-menu-commands-test", crate::test_wait::quiet_surface());
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         mux.resize_surface_for_client(surface.id, 0, 100, 40).unwrap();
         mux.resize_surface_for_client(surface.id, 7, 118, 30).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         let settle = |app: &mut App| {
-            loop {
-                let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            crate::test_wait::recv_until(&events, "SessionMutationSettled", |event| {
                 let settled = matches!(event, AppEvent::SessionMutationSettled { .. });
                 assert!(app.handle(event).is_ok());
-                if settled {
-                    break;
-                }
-            }
+                settled
+            });
         };
 
         app.activate_menu(MenuAction::SetSizeMode {
@@ -31457,6 +31454,8 @@ mod tests {
         .unwrap();
         assert!(app.status_message.is_some());
         assert!(!mux.terminal_size_state(surface.id).unwrap().participant("c7").unwrap().counts);
+        drop(app);
+        mux.shutdown();
     }
 
     #[test]
@@ -31480,7 +31479,7 @@ mod tests {
 
         let pointer_pending = app.session.has_pending_pointer_mutations();
         release_tx.send(()).unwrap();
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         app.handle(settled).unwrap();
         assert!(
             pointer_pending,
@@ -32538,7 +32537,7 @@ mod tests {
 
     #[test]
     fn desired_host_mouse_capture_follows_scoped_inner_terminal() {
-        let mux = Mux::new("scoped-mouse-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-mouse-capture-test", crate::test_wait::quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         assert!(app.desired_host_mouse_capture(), "full TUI always captures host mouse");
@@ -32569,7 +32568,7 @@ mod tests {
     /// the inner application still owns the mouse.
     #[test]
     fn scoped_host_mouse_capture_follows_canonical_state_without_a_rendered_frame() {
-        let mux = Mux::new("scoped-canonical-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-canonical-capture-test", crate::test_wait::quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
@@ -32883,7 +32882,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -32934,7 +32933,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33008,7 +33007,7 @@ mod tests {
             app.sidebar_visible = false;
             app.sync_layout((40, 15));
             while app.session.has_pending_mutations() {
-                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+                app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
             }
             let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
             app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33048,7 +33047,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33100,7 +33099,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33146,7 +33145,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33192,7 +33191,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33235,7 +33234,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33276,7 +33275,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33331,7 +33330,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33435,7 +33434,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33481,7 +33480,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -33597,7 +33596,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -34435,7 +34434,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         surface.with_terminal(|terminal| {
             for index in 0..100 {
@@ -34487,7 +34486,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((40, 15));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         surface.with_terminal(|terminal| {
             for index in 0..100 {
@@ -34557,7 +34556,7 @@ mod tests {
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
         app.replay_deferred_input().unwrap();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         assert_eq!(
@@ -34941,7 +34940,7 @@ mod tests {
 
         assert_eq!(app.deferred_input.len(), 1);
         release_tx.send(()).unwrap();
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(settled, AppEvent::SessionMutationSettled { .. }));
         app.handle(settled).unwrap();
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
@@ -35242,7 +35241,7 @@ mod tests {
             assert_eq!(app.tree.active_workspace, 0);
 
             while app.session.has_pending_mutations() {
-                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+                app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
             }
             app.pointer_route_phase = PointerRoutePhase::Fresh;
             assert_eq!(mux.with_state(|state| state.active_workspace), 1);
@@ -35411,7 +35410,7 @@ mod tests {
         app.handle(event(MouseEventKind::Up(MouseButton::Left), first_tab.x)).unwrap();
         assert!(app.deferred_input.is_empty());
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let order = mux.with_state(|state| state.panes[&pane].tabs.clone());
         assert_eq!(order, vec![second.id, first.id]);
@@ -35510,7 +35509,7 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sync_layout((160, 50));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         assert!(mux.client_surface_size(first.id, 0).is_some());
@@ -35520,7 +35519,7 @@ mod tests {
         app.select_tab_for_client(Some(pane), Some(1), None);
         app.sync_layout((160, 50));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         assert_eq!(mux.client_surface_size(first.id, 0), None);
@@ -35580,7 +35579,7 @@ mod tests {
         assert!(!app.session.remote_background_dirty.load(Ordering::Acquire));
         assert!(!app.session.has_pending_mutations());
         assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            events.recv_timeout(crate::test_wait::EVENT).unwrap(),
             AppEvent::RemoteTreeUpdated { result: Ok(_), .. }
         ));
     }
@@ -36514,7 +36513,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.sync_layout((80, 25));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert_eq!(app.viewport_offset, 80);
 
@@ -36552,7 +36551,7 @@ mod tests {
         let release_canceled = !app.pending_size_releases.contains(&first.id);
         release_tx.send(()).unwrap();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         assert!(release_canceled, "a visible surface must no longer be pending release");
@@ -36575,7 +36574,7 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux));
 
         app.session.attach_surface(77, Some((80, 24)));
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             settled,
             AppEvent::SessionMutationSettled {
@@ -36604,7 +36603,7 @@ mod tests {
             false,
             claim,
         );
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             settled,
             AppEvent::SessionMutationSettled {
@@ -36658,7 +36657,7 @@ mod tests {
         release.wait();
 
         let settled = loop {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             if matches!(
                 &event,
                 AppEvent::SurfaceAttachSettled {
@@ -36688,7 +36687,7 @@ mod tests {
         app.replace_tree(notify_tree(surface, false));
 
         app.session.attach_surface(surface, Some((80, 24)));
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
 
         assert!(matches!(
             &settled,
@@ -36719,7 +36718,7 @@ mod tests {
         app.session.inner.forget_surface(surface);
         release_attach.send(()).unwrap();
 
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
@@ -36745,7 +36744,7 @@ mod tests {
         let (mut app, events) = test_app_with_events(session);
         app.replace_tree(notify_tree(surface, false));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         app.session.attach_surface(surface, Some((80, 24)));
@@ -36755,7 +36754,7 @@ mod tests {
         release.wait();
 
         let settled = loop {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             if matches!(
                 &event,
                 AppEvent::SurfaceAttachSettled {
@@ -36809,7 +36808,7 @@ mod tests {
         app.session.begin_shutdown();
         release.wait();
 
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
@@ -36845,7 +36844,7 @@ mod tests {
 
         app.session.attach_surface(surface, Some((80, 24)));
 
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
@@ -37127,7 +37126,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.deferred_input.len(), 1);
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             settled,
             AppEvent::SessionMutationSettled {
@@ -37179,7 +37178,7 @@ mod tests {
         assert!(app.pending_pointer_motion.is_some());
         assert_eq!(app.deferred_input.len(), 1);
 
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             settled,
             AppEvent::SessionMutationSettled {
@@ -37283,7 +37282,7 @@ mod tests {
         app.retry_pending_surface_attach();
 
         assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            events.recv_timeout(crate::test_wait::EVENT).unwrap(),
             AppEvent::SessionMutationSettled {
                 outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
                     surface: 77,
@@ -37364,7 +37363,7 @@ mod tests {
         app.retry_pending_surface_attach();
 
         assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            events.recv_timeout(crate::test_wait::EVENT).unwrap(),
             AppEvent::SessionMutationSettled {
                 outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
                     surface: 88,
@@ -37770,7 +37769,7 @@ mod tests {
         app.session.remote = true;
         app.replace_tree(app.session.tree());
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let surface = terminal.id;
         app.rendered_terminal_sizes.insert(surface, (12, 5));
@@ -37819,7 +37818,7 @@ mod tests {
 
         release_attach.send(()).unwrap();
         assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            events.recv_timeout(crate::test_wait::EVENT).unwrap(),
             AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
     }
@@ -37842,7 +37841,7 @@ mod tests {
         assert!(!app.session.has_pending_mutations());
 
         release_attach.send(()).unwrap();
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             settled,
             AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
@@ -37854,7 +37853,7 @@ mod tests {
         assert_eq!(app.geometry_authority_surface, Some(surface));
         assert!(app.session.has_pending_mutations());
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(app.status_message.is_none());
     }
@@ -37900,7 +37899,7 @@ mod tests {
 
         for _ in 0..ATTACH_COUNT {
             assert!(matches!(
-                events.recv_timeout(Duration::from_secs(1)).unwrap(),
+                events.recv_timeout(crate::test_wait::EVENT).unwrap(),
                 AppEvent::SurfaceAttachSettled { .. }
             ));
         }
@@ -37973,7 +37972,7 @@ mod tests {
 
         for _ in 0..4 {
             assert!(matches!(
-                events.recv_timeout(Duration::from_secs(1)).unwrap(),
+                events.recv_timeout(crate::test_wait::EVENT).unwrap(),
                 AppEvent::SurfaceAttachSettled { .. }
             ));
         }
@@ -37991,7 +37990,7 @@ mod tests {
         release_attach.send(()).unwrap();
 
         assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            events.recv_timeout(crate::test_wait::EVENT).unwrap(),
             AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
         let surface = app.session.surface(surface_id).unwrap();
@@ -38016,7 +38015,7 @@ mod tests {
         fixture.release_resize.send(()).unwrap();
 
         assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            events.recv_timeout(crate::test_wait::EVENT).unwrap(),
             AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
         let surface = app.session.surface(surface_id).unwrap();
@@ -38056,7 +38055,7 @@ mod tests {
         *app.session.remote_surface_attaches.lock().unwrap() = Some(executor);
 
         app.session.attach_surface(77, None);
-        app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
 
         assert_eq!(
             app.status_message.as_deref(),
@@ -38086,7 +38085,7 @@ mod tests {
 
         let mut updates = Vec::new();
         while updates.len() < 2 {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             if let AppEvent::SidebarPluginUpdated { relaunch, .. } = &event {
                 updates.push(*relaunch);
             }
@@ -38216,7 +38215,7 @@ mod tests {
         ));
         app.session
             .enqueue("timed out mutation", |_| Err(crate::session::test_remote_timeout_error()));
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             settled,
             AppEvent::SessionMutationSettled {
@@ -38300,7 +38299,7 @@ mod tests {
             app.session.enqueue_coalescing_session_mutation(label, key, |_| {
                 Err(crate::session::test_remote_timeout_error())
             });
-            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             assert!(matches!(
                 settled,
                 AppEvent::SessionMutationSettled {
@@ -38344,7 +38343,7 @@ mod tests {
         *lock.lock().unwrap() = true;
         ready.notify_all();
 
-        let timed_out = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let timed_out = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             timed_out,
             AppEvent::SessionMutationSettled {
@@ -38359,7 +38358,7 @@ mod tests {
             ("surface resize", 7),
             |_| Ok(()),
         );
-        let recovered = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let recovered = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         assert!(matches!(
             recovered,
             AppEvent::SessionMutationSettled {
@@ -38514,7 +38513,7 @@ mod tests {
         assert_eq!(app.hover, None);
 
         release_tx.send(()).unwrap();
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
         app.handle(settled).unwrap();
 
         assert!(app.deferred_input.is_empty());
@@ -38741,7 +38740,7 @@ mod tests {
         let mut sample_without_tree = 0;
         let mut authoritative_snapshots = 0;
         for _ in 0..2 {
-            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+            match events.recv_timeout(crate::test_wait::EVENT).unwrap() {
                 AppEvent::SessionMutationSettled {
                     outcome: super::SessionMutationOutcome::Success { tree: None },
                     impact: MutationImpact::PointerMap,
@@ -38891,7 +38890,7 @@ mod tests {
 
         release_tx.send(()).unwrap();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
@@ -39220,7 +39219,7 @@ mod tests {
         app.graphics_supported = false;
         app.sync_layout((100, 12));
         while app.session.has_pending_mutations() {
-            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
@@ -39303,7 +39302,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((100, 12));
         while app.session.has_pending_mutations() {
-            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let content = app.pane_areas[0].content;
         let (events, receiver) = crossbeam_channel::unbounded();
@@ -39543,7 +39542,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((100, 12));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         app.status_message = Some("old failure".to_string());
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
@@ -39609,7 +39608,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((100, 12));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         app.status_message = Some("old failure".to_string());
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
@@ -39680,7 +39679,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.sync_layout((80, 12));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert_eq!(app.active_surface(), Some(second.id));
 
@@ -39718,7 +39717,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.sync_layout((80, 12));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert_eq!(app.active_surface(), Some(browser.id));
 
@@ -39882,7 +39881,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((100, 20));
         while app.session.has_pending_mutations() {
-            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -39938,7 +39937,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((100, 20));
         while app.session.has_pending_mutations() {
-            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
         let action = app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge))).unwrap();
@@ -40101,13 +40100,13 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((100, 40));
         while app.session.has_pending_mutations() {
-            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
         while app.session.has_pending_mutations() {
             let action =
-                app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+                app.handle(mutation_events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
             app.render_action(&mut terminal, action).unwrap();
         }
         let content = app.pane_areas[0].content;
@@ -40165,7 +40164,7 @@ mod tests {
         app.sidebar_visible = false;
         app.sync_layout((100, 20));
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
@@ -40216,7 +40215,7 @@ mod tests {
         app.handle_right_up(close.0, close.1).unwrap();
         assert!(app.menu.is_none());
         while app.session.has_pending_mutations() {
-            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let settled = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             app.handle(settled).unwrap();
         }
 
@@ -42638,7 +42637,7 @@ mod tests {
         app.status_message = None;
         app.request_delete_workspace(workspace.workspace);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(mux.with_state(|state| {
             state.workspaces.iter().any(|candidate| candidate.id == workspace.workspace)
@@ -42715,7 +42714,7 @@ mod tests {
 
         app.request_delete_workspace(placement.workspace);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         assert!(mux.with_state(|state| {
@@ -42997,9 +42996,9 @@ mod tests {
             workspace_key: stale_key.into(),
             name: "renamed".into(),
         });
-        app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         assert_eq!(
@@ -43045,7 +43044,7 @@ mod tests {
         app.request_rename_managed_workspace(placement.workspace, "renamed".into());
         settle_machine_action(&mut app, &events);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(mux.with_state(|state| {
             state
@@ -43058,7 +43057,7 @@ mod tests {
         app.request_delete_workspace(placement.workspace);
         settle_machine_action(&mut app, &events);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(!mux.with_state(|state| {
             state.workspaces.iter().any(|workspace| workspace.id == placement.workspace)
@@ -44149,7 +44148,7 @@ mod tests {
         app.handle_left_up(workspace_row.x, workspace_row.y).unwrap();
         assert_eq!(app.focus, FocusTarget::Pane);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         app.handle_left_down(workspace_area.x + 1, workspace_area.y, KeyModifiers::NONE).unwrap();
@@ -44737,7 +44736,7 @@ mod tests {
         app.prompt.as_mut().unwrap().input.insert_str("first renamed");
         app.commit_prompt();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         let tree = app.session.tree();
@@ -44786,7 +44785,7 @@ mod tests {
         app.prompt.as_mut().unwrap().input.insert_str("inactive renamed");
         app.commit_prompt();
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
 
         let tree = app.session.tree();
@@ -45227,7 +45226,7 @@ mod tests {
     fn settle_machine_action(app: &mut App, events: &Receiver<AppEvent>) -> RenderAction {
         let mut action = app.process_machine_requests();
         while app.machine_action_in_flight {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
             action = action.merge(app.handle(event).unwrap());
         }
         action
@@ -46740,7 +46739,7 @@ mod tests {
         assert!(app.owner_shutdown_requested());
     }
 
-    fn test_app(session: Session) -> App {
+    pub(super) fn test_app(session: Session) -> App {
         test_app_with_events(session).0
     }
 

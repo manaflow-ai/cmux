@@ -9,16 +9,21 @@ extension CEFTab {
     /// OnLoadingStateChange(!loading). Same-document navigations only change
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
+        defer { CEFAgentURLGuard.check(self, after: event) }
         switch event {
         case .loadingState(_, let loading, let back, let forward):
-            machine.apply(.historyChanged(canGoBack: back, canGoForward: forward))
+            nativeHistory = (back, forward)
+            restored.applyAvailability()
+            restored.dropForwardIfLeftFirstEntry()
             if loading, !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
+                capturesTitleBeforeCommit = true
                 machine.apply(.started(id, url: nil))
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
+            if !loading { clearTitleBeforeCommit() }
         case .loadStart(_, let url):
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
@@ -26,23 +31,29 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
+            restored.navigationCommitted(url: URL(string: url))
+            if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
+            clearTitleBeforeCommit()
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
+            restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
             // Extensions finish loading after the first window exists and
             // badges are per page; refresh cheaply on each document load.
             refreshExtensionActions()
         case .loadError(_, let code, let text, let url):
+            clearTitleBeforeCommit()
             guard let navigation else { return }
             machine.apply(.failed(navigation, Self.loadError(code: code, text: text, url: url)))
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
             machine.apply(.titleChanged(title.isEmpty ? nil : title))
+            if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
             machine.apply(.faviconChanged(faviconURL))
@@ -52,23 +63,27 @@ extension CEFTab {
         case .fullscreen(_, let entering):
             machine.apply(.contentFullscreenChanged(entering))
         case .findResult(_, let count, let active, let isFinal):
-            guard isFinal, let continuation = findContinuation else { return }
-            findContinuation = nil
-            continuation.resume(returning: BrowserFindResult(
-                matchFound: count > 0, matchCount: count, currentIndex: count > 0 ? active : nil
-            ))
+            findRequests.result(count: count, active: active, isFinal: isFinal)
         case .closeRequested:
             emit(.close)
         case .navigationReroute(_, let url, _):
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
-        case .keyUnhandled(_, let keyCode):
-            if keyCode == 0x1B { emit(.unhandledEscape) }
+        case .keyUnhandled(_, let keyCode, let shift):
+            if keyCode == 0x1B {
+                emit(.unhandledEscape)
+            } else if let key = BrowserPageKey(windowsKeyCode: keyCode, shift: shift) {
+                emit(.unhandledKey(key))
+            }
+        case .takeFocus(_, let forward):
+            emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive:
             machine.apply(.unresponsiveChanged(true))
         case .renderResponsive:
             machine.apply(.unresponsiveChanged(false))
+        case .devToolsMessage(_, let json):
+            agentRelay.deliver(json)
         default:
             break
         }
@@ -84,12 +99,14 @@ extension CEFTab {
 
     private func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()
-        guard let url else {
+        // A machine store's loopback icon is the machine's: never fetched from this Mac.
+        guard let url, url.isAppFetchableFavicon(remoteStore: machineStore != nil) else {
             favicon = nil
             return
         }
+        let profile = profileID
         faviconTask = Task { [weak self] in
-            let image = await BrowserFaviconLoader.shared.favicon(at: url)
+            let image = await BrowserFaviconLoader.shared.favicon(at: url, profile: profile)
             guard !Task.isCancelled else { return }
             self?.favicon = image
         }
@@ -126,18 +143,14 @@ extension CEFTab {
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
         guard let browserID, !text.isEmpty, let shim = runtime.shim else { return .none }
-        findContinuation?.resume(returning: .none)
-        let findID = nextFindID
-        nextFindID += 1
         return await withCheckedContinuation { continuation in
-            findContinuation = continuation
+            let findID = findRequests.begin(continuation)
             shim.find(browserID, findID, text, direction == .forward ? 1 : 0, caseSensitive ? 1 : 0, 1)
         }
     }
 
     public func clearFind() {
-        findContinuation?.resume(returning: .none)
-        findContinuation = nil
+        findRequests.cancel()
         browserID.map { runtime.shim?.stopFinding($0, 1) }
     }
 
@@ -150,10 +163,16 @@ extension CEFTab {
         if actions != extensionActions { extensionActions = actions }
     }
 
-    public var extensionStore: BrowserExtensionStore { runtime.extensionStore(for: profileID) }
+    public var extensionStore: BrowserExtensionStore { runtime.extensionStores.store(for: profileID) }
 
     public func runExtensionAction(_ id: String, anchor: CGRect) {
-        guard let browserID, let shim = runtime.shim else { return }
+        guard let browserID else {
+            // The click came before the page's browser exists (right after
+            // launch): run it from `attach(browser:)`.
+            pendingExtensionAction = (id, anchor)
+            return
+        }
+        guard let shim = runtime.shim else { return }
         // The fork anchors the popup at the top edge of the browser area
         // between x and x + width (DIPs, browser view coordinates), so it
         // hangs below the toolbar button.
@@ -178,5 +197,10 @@ extension CEFTab {
         // Chromium screen DIPs have a top-left origin on the primary screen.
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         runtime.shim?.extActionContextMenu(browserID, id, point.x.clampedInt32, (primaryHeight - point.y).clampedInt32)
+    }
+
+    func clearTitleBeforeCommit() {
+        titleBeforeCommit = nil
+        capturesTitleBeforeCommit = false
     }
 }

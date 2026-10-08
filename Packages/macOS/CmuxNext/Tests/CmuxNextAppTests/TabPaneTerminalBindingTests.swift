@@ -21,14 +21,16 @@ struct TabPaneTerminalBindingTests {
         let services = Coverage.boundServices()
         let group = ActionTargetRef(kind: .tabGroup, id: "g1")
         for id in ["tabGroup.rename", "tabGroup.color.red", "tabGroup.moveLeft", "tabGroup.save"] {
-            #expect(Coverage.run(services, id, target: group) == .refused("needs daemon capability tab-groups-v1"), "\(id)")
+            let outcome = Coverage.run(services, id, target: group)
+            #expect(CapabilityRefusalTests.refusedByGate(outcome), "\(id): \(outcome)")
         }
     }
 
     @Test func unportedFeaturesSayWhatTheyNeed() {
         let services = Coverage.boundServices()
         #expect(Coverage.run(services, "toggleCanvasLayout") == .refused("needs canvas layout, which cmux-next does not have yet"))
-        #expect(Coverage.run(services, "palette.copyPaneLink") == .refused("needs cmux-next deep link navigation (cmux:// handler)"))
+        // Copy Pane Link works now (cmux:// links); with no window it has no pane to link.
+        #expect(Coverage.run(services, "palette.copyPaneLink") == .refused(MiscHandlerStrings.noPane))
     }
 
     @Test func missingTargetsAreRefusedNotSilentlyIgnored() {

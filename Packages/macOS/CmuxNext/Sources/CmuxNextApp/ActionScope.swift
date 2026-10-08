@@ -18,7 +18,12 @@ struct ActionScope {
             switch target.kind {
             case .tab:
                 guard let (_, pane) = services.locateTab(target.id) else { return notFound(RefusalStrings.noTab(target.id)) }
-                return services.paneController(for: pane)
+                // In a hidden or parked workspace: no controller to act on.
+                guard let controller = services.paneController(for: pane) else {
+                    services.registry.refuse(RefusalStrings.notShownInAnyWindow(target.description))
+                    return nil
+                }
+                return controller
             case .pane:
                 for controller in services.windows.controllers {
                     if let pane = controller.content?.panes.values.first(where: { $0.paneKey == target.id }) { return pane }

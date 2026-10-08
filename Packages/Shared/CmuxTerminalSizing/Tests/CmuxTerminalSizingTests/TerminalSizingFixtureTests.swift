@@ -21,12 +21,14 @@ struct TerminalSizingFixtureTests {
         var reason: TerminalSizingReason?
         var generation: UInt64?
         var counts: [String: Bool]?
+        var priorityKeys: [String: String]?
         var policy: TerminalSizingPolicy?
         var countsOverride: Bool??
 
         enum CodingKeys: String, CodingKey {
             case op, participant, id, cols, rows, owners, reason, generation, counts, policy
             case countsOverride = "counts_override"
+            case priorityKeys = "priority_keys"
         }
 
         init(from decoder: any Decoder) throws {
@@ -40,6 +42,7 @@ struct TerminalSizingFixtureTests {
             reason = try c.decodeIfPresent(TerminalSizingReason.self, forKey: .reason)
             generation = try c.decodeIfPresent(UInt64.self, forKey: .generation)
             counts = try c.decodeIfPresent([String: Bool].self, forKey: .counts)
+            priorityKeys = try c.decodeIfPresent([String: String].self, forKey: .priorityKeys)
             policy = try c.decodeIfPresent(TerminalSizingPolicy.self, forKey: .policy)
             countsOverride = c.contains(.countsOverride) ? .some(try c.decodeIfPresent(Bool.self, forKey: .countsOverride)) : nil
         }
@@ -64,6 +67,7 @@ struct TerminalSizingFixtureTests {
             case "report":
                 engine.report(try #require(step.id), viewport: TerminalGridSize(cols: try #require(step.cols), rows: try #require(step.rows)))
             case "activity": engine.noteActivity(try #require(step.id))
+            case "clear_viewport": engine.clearViewport(try #require(step.id))
             case "set_counts": engine.setCountsOverride(try #require(step.id), try #require(step.countsOverride))
             case "set_policy": engine.setPolicy(try #require(step.policy))
             case "expect":
@@ -75,6 +79,9 @@ struct TerminalSizingFixtureTests {
                 if let reason = step.reason { #expect(s.reason == reason, "\(where_)") }
                 if let generation = step.generation { #expect(s.generation == generation, "\(where_)") }
                 for (id, value) in step.counts ?? [:] { #expect(s.participant(id)?.counts == value, "\(where_) counts \(id)") }
+                for (id, key) in step.priorityKeys ?? [:] {
+                    #expect(s.participant(id)?.priorityKey == key, "\(where_) priority_key \(id)")
+                }
             default: Issue.record("unknown op \(step.op)")
             }
         }

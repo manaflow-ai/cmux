@@ -5,19 +5,17 @@ import CmuxNextDesign
 // history recording.
 extension BrowserChromeView {
     /// Accessibility identifiers of the toolbar (UI automation, e2e suites).
-    public enum Identifier {
-        public static let back = "browser.toolbar.back"
-        public static let forward = "browser.toolbar.forward"
-        public static let reload = "browser.toolbar.reload"
-        public static let omnibar = "browser.toolbar.omnibar"
-        public static let extensionsButton = "browser.extensions.button"
-        public static let pageGone = "browser.page.gone"
-        public static let pageGoneReload = "browser.page.gone.reload"
-        public static let pageUnresponsive = "browser.page.unresponsive"
-        public static let pageUnresponsiveWait = "browser.page.unresponsive.wait"
-        public static let pageUnresponsiveExit = "browser.page.unresponsive.exit"
-        public static func extensionAction(_ id: String) -> String { "browser.extension.action.\(id)" }
-    }
+    public static let backIdentifier = "browser.toolbar.back"
+    public static let forwardIdentifier = "browser.toolbar.forward"
+    public static let reloadIdentifier = "browser.toolbar.reload"
+    public static let omnibarIdentifier = "browser.toolbar.omnibar"
+    public static let extensionsButtonIdentifier = "browser.extensions.button"
+    public static let pageGoneIdentifier = "browser.page.gone"
+    public static let pageGoneReloadIdentifier = "browser.page.gone.reload"
+    public static let pageUnresponsiveIdentifier = "browser.page.unresponsive"
+    public static let pageUnresponsiveWaitIdentifier = "browser.page.unresponsive.wait"
+    public static let pageUnresponsiveExitIdentifier = "browser.page.unresponsive.exit"
+    public static func extensionActionIdentifier(_ id: String) -> String { "browser.extension.action.\(id)" }
 
     /// Runs the Extensions menu's items (the App's action registry). Nil
     /// drives the extension store directly.
@@ -77,6 +75,7 @@ extension BrowserChromeView {
         add("omnibar", addressBar)
         if extensionToolbar.isShowingExtensions { add("extensions", extensionToolbar.puzzle) }
         for id in extensionToolbar.visibleIDs { add("action:\(id)", extensionToolbar.button(for: id)) }
+        for button in BrowserToolbarButton.allCases { add("button:\(button.rawValue)", toolbarButtons.button(button)) }
         let host = extensionToolbar.host
         return BrowserToolbarReport(
             width: bounds.width, showsForward: !forwardButton.isHidden,
@@ -101,6 +100,12 @@ extension BrowserChromeView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil { extensionToolbar.hidePopups() }
+        // A tab shown again repaints: overrides may have changed while it was out (R55).
+        else {
+            updateColors()
+            renderPrompt()
+        }
+        headerBandReattachIfInstalled()
     }
 
     /// The region of this chrome that contains `view`, nil when outside.
@@ -115,7 +120,7 @@ extension BrowserChromeView {
     /// Collapses the toolbar for the pane's width (BrowserToolbarLayout).
     func applyToolbarLayout() {
         let resolved = BrowserToolbarLayout.resolve(
-            width: bounds.width, pinned: extensionToolbar.pinnedCount,
+            width: widthLeftByToolbarButtons(), pinned: extensionToolbar.pinnedCount,
             showsExtensions: extensionToolbar.isShowingExtensions, metrics: Self.toolbarMetrics
         )
         guard resolved != toolbarLayout else { return }
@@ -172,5 +177,14 @@ public struct BrowserToolbarReport: Equatable, Sendable {
             for other in rects[(index + 1)...] where rect.insetBy(dx: 0.5, dy: 0.5).intersects(other) { return false }
         }
         return true
+    }
+}
+
+extension BrowserChromeView {
+    /// The tab was restored showing `url` (relaunch, hibernation wake): its
+    /// first load of that page is not recorded as a new visit.
+    public func markRestored(_ url: URL?) {
+        guard let url, recordedURL == nil else { return }
+        recordedURL = url
     }
 }

@@ -11,19 +11,19 @@ final class FindBarView: NSView {
     private let countLabel = NSTextField(labelWithString: "")
     private var findTask: Task<Void, Never>?
     private let density = DensityBinding()
+    private let icon = NSImageView()
+    /// The bar's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
 
-        let icon = NSImageView()
-        icon.contentTintColor = Palette.textSecondary
 
         field.setPlaceholder(Strings.findPlaceholder)
         field.delegate = self
         field.setAccessibilityLabel(Strings.findPlaceholder)
 
-        countLabel.textColor = Palette.textSecondary
         countLabel.alignment = .right
         countLabel.setContentHuggingPriority(.required, for: .horizontal)
 
@@ -36,8 +36,9 @@ final class FindBarView: NSView {
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
+        self.glass = glass
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -53,7 +54,7 @@ final class FindBarView: NSView {
                 BrowserMetrics.findCountWidth
             },
         ])
-        density.update { [countLabel] in
+        density.update { [countLabel, icon] in
             icon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize - 1, weight: .semibold))
             countLabel.font = BrowserMetrics.countFont
@@ -68,6 +69,24 @@ final class FindBarView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            icon.contentTintColor = Palette.textSecondary
+            countLabel.textColor = Palette.textSecondary
+            glass?.applyTheme()
+        }
+    }
 
     func focus() {
         window?.makeFirstResponder(field)

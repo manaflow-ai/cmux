@@ -57,10 +57,6 @@ import Testing
         #expect(split.undoable)
         let ack = try Fixture.response(AckTabNotificationsRequest.Response.self, "ack-tab-notifications.json")
         #expect(!ack.cleared)
-        let group = try Fixture.response(WorkspaceGroupResult.self, "create-workspace-group.json")
-        #expect(group.group.id == "agents")
-        let member = try Fixture.response(MoveWorkspaceToGroupRequest.Response.self, "move-workspace-to-group.json")
-        #expect(member.group == "agents")
         let browser = try Fixture.response(NewFrontendBrowserTabRequest.Response.self, "new-frontend-browser-tab.json")
         #expect(browser.tabResourceID != nil)
     }

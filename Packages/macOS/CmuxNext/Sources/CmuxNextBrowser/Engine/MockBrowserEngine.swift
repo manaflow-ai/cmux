@@ -44,6 +44,12 @@ public final class MockBrowserEngine: BrowserEngine {
 /// hand with `simulate` to reproduce engine callback orders.
 @Observable
 public final class MockBrowserTab: BrowserTab {
+    /// The back/forward list `navigationList()` reports (tests set it).
+    @ObservationIgnored public var navigation: BrowserNavigationList?
+    /// Sessions handed to `restoreSession`, in order.
+    @ObservationIgnored public private(set) var restoredSessions: [BrowserSavedSession] = []
+    /// How far the page says it is scrolled (tests set it; it may never answer).
+    @ObservationIgnored public var scrollPosition: @MainActor () async -> Double? = { nil }
     public enum Command: Hashable, Sendable {
         case load(URL)
         case goBack
@@ -58,10 +64,13 @@ public final class MockBrowserTab: BrowserTab {
         case occlude(Bool)
         case exitContentFullscreen
         case showDevTools
+        case goToEntry(Int)
         case close
         case runExtensionAction(String, anchor: CGRect)
         case hideExtensionPopups
         case showExtensionActionMenu(String)
+        case markAgentDriven
+        case applyColorScheme(BrowserColorScheme)
     }
 
     public let id: BrowserTabID
@@ -75,6 +84,9 @@ public final class MockBrowserTab: BrowserTab {
     public private(set) var pendingPrompts: [BrowserPrompt] = []
     public private(set) var commands: [Command] = []
     public private(set) var isClosed = false
+    /// Engine page captures (`snapshot()`) so far; not a command, so it never
+    /// changes a test's command list.
+    @ObservationIgnored public private(set) var snapshotCount = 0
 
     /// Page text used by `find`.
     public var pageText = ""
@@ -194,6 +206,7 @@ public final class MockBrowserTab: BrowserTab {
 
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
+        snapshotCount += 1
         let size = 4
         let context = CGContext(
             data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
@@ -238,6 +251,11 @@ public final class MockBrowserTab: BrowserTab {
     }
 
     public func showDevTools() { commands.append(.showDevTools) }
+    public private(set) var isAgentDriven = false
+    public func markAgentDriven() {
+        isAgentDriven = true
+        commands.append(.markAgentDriven)
+    }
 
     public func close() {
         guard !isClosed else { return }
@@ -286,4 +304,34 @@ final class MockPageView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+}
+
+/// Records restores; saves `navigation` (else the shown page) with the
+/// measured scroll position on the shown entry.
+extension MockBrowserTab: BrowserSessionRestoring {
+    public func restoreSession(_ entries: [BrowserSavedEntry], current: Int) {
+        restoredSessions.append(BrowserSavedSession(entries: entries, current: current))
+    }
+
+    public func currentScrollY() async -> Double? { await scrollPosition() }
+
+    public func savedSession(measuringScroll: Bool) async -> BrowserSavedSession? {
+        let y = measuringScroll ? await currentScrollY() : nil
+        guard let url = state.url else { return nil }
+        var session = BrowserRestoredHistory.empty.session(around: navigation, shown: BrowserNavigationEntry(url: url, title: state.title))
+        guard session.entries.indices.contains(session.current) else { return nil }
+        if let y { session.entries[session.current].scrollY = y }
+        return session
+    }
+}
+
+extension MockBrowserTab: BrowserBackForwardListing {
+    /// The list a test set with `navigation`.
+    public func navigationList() -> BrowserNavigationList? { navigation }
+
+    @discardableResult
+    public func goToEntry(offset: Int) -> Bool {
+        commands.append(.goToEntry(offset))
+        return navigation != nil
+    }
 }

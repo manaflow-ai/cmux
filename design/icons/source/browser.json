@@ -1,0 +1,613 @@
+{
+ "batch": "browser",
+ "icons": [
+  {
+   "name": "bookmark",
+   "meaning": "Bookmark this page (star)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.15L14.59 8.84L20.8 9.54L16.18 13.76L17.44 19.88L12 16.8L6.56 19.88L7.82 13.76L3.2 9.54L9.41 8.84Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.15L14.59 8.84L20.8 9.54L16.18 13.76L17.44 19.88L12 16.8L6.56 19.88L7.82 13.76L3.2 9.54L9.41 8.84Z'/></g></svg>",
+   "alts": [
+    {
+     "label": "ribbon (= tabgroup.save)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 20.5v-15A2 2 0 0 1 8 3.5h8a2 2 0 0 1 2 2v15l-6-4.5Z'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 20.5v-15A2 2 0 0 1 8 3.5h8a2 2 0 0 1 2 2v15l-6-4.5Z'/></g></svg>"
+    }
+   ],
+   "note": "Preferred: the address-bar star every browser uses; the ribbon stays the Bookmarks-section noun (tabgroup.save, bookmarks.bar/other carry it). Alt if one bookmark metaphor is wanted everywhere.",
+   "replaces": [
+    "star"
+   ]
+  },
+  {
+   "name": "bookmark.active",
+   "meaning": "Bookmarked (on)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.15L14.59 8.84L20.8 9.54L16.18 13.76L17.44 19.88L12 16.8L6.56 19.88L7.82 13.76L3.2 9.54L9.41 8.84Z'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.15L14.59 8.84L20.8 9.54L16.18 13.76L17.44 19.88L12 16.8L6.56 19.88L7.82 13.76L3.2 9.54L9.41 8.84Z'/></g></svg>",
+   "alts": [],
+   "note": "On state of bookmark: filled star in both styles (Line = the toggle's on half).",
+   "replaces": [
+    "star.fill"
+   ]
+  },
+  {
+   "name": "bookmark.manager",
+   "meaning": "Bookmark manager page",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.455 18.078V5.922A2.338 2.338 0 0 1 7.792 3.585H18.545v16.83H7.792A2.338 2.338 0 0 1 5.455 18.078Z'/><path d='M18.545 15.74H7.792A2.338 2.338 0 0 0 5.455 18.078'/><path d='M10.13 3.585v6.078l1.87 -1.309 1.87 1.309V3.585Z' fill='currentColor'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-bookmark-manager' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M18.545 15.74H7.792A2.338 2.338 0 0 0 5.455 18.078'/></g><path d='M10.13 3.585v6.078l1.87 -1.309 1.87 1.309V3.585Z' fill='#000' stroke='#000' stroke-width='1.75' stroke-linejoin='round'/></mask></defs><g mask='url(#cmxs-bookmark-manager)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.455 18.078V5.922A2.338 2.338 0 0 1 7.792 3.585H18.545v16.83H7.792A2.338 2.338 0 0 1 5.455 18.078Z'/></g></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.455 18.078V7.792A2.338 2.338 0 0 1 7.792 5.455H18.545v14.96H7.792A2.338 2.338 0 0 1 5.455 18.078Z'/><path d='M18.545 15.74H7.792A2.338 2.338 0 0 0 5.455 18.078'/><path class='accent' stroke='var(--accent)' d='M8.727 5.455V3.117l1.87 1.87M16.675 5.455V3.117l-1.87 1.87'/></svg>",
+   "alts": [],
+   "note": "Closed book with a ribbon (bookmarks live in it). Cat: ears on the cover top instead of the ribbon.",
+   "replaces": [
+    "book.closed"
+   ]
+  },
+  {
+   "name": "bookmarks.bar",
+   "meaning": "Bookmarks bar",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M3.846 9.282h16.308'/><path d='M7.244 9.282v5.436l1.812 -1.268 1.812 1.268V9.282Z' fill='currentColor'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-bookmarks-bar' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3.846 9.282h16.308'/></g><path d='M7.244 9.282v5.436l1.812 -1.268 1.812 1.268V9.282Z' fill='#000' stroke='#000' stroke-width='1.75' stroke-linejoin='round'/></mask></defs><g mask='url(#cmxs-bookmarks-bar)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></g></svg>",
+   "alts": [
+    {
+     "label": "window with a bar of item dashes",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M3.846 10.188h16.308M7.017 7.47h2.718M12 7.47h2.718'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-bookmarks-bar-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3.846 10.188h16.308M7.017 7.47h2.718M12 7.47h2.718'/></g></mask></defs><g mask='url(#cmxs-bookmarks-bar-alt1)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></g></svg>"
+    }
+   ],
+   "note": "Window whose top strip carries a ribbon. Pairs with bookmarks.other in the bookmark root picker. Dash alt is closer to the source but the dashes merge at 12 px.",
+   "replaces": [
+    "menubar.rectangle"
+   ]
+  },
+  {
+   "name": "bookmarks.other",
+   "meaning": "Other bookmarks root",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 7.5A2.5 2.5 0 0 1 5.5 5h3.75l2 2.25h7.25A2.5 2.5 0 0 1 21 9.75v7.75a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5Z'/><path d='M10 10.5v6l2-1.4 2 1.4v-6Z' fill='currentColor'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-bookmarks-other' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><path d='M10 10.5v6l2-1.4 2 1.4v-6Z' fill='#000' stroke='#000' stroke-width='1.75' stroke-linejoin='round'/></mask></defs><g mask='url(#cmxs-bookmarks-other)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 7.5A2.5 2.5 0 0 1 5.5 5h3.75l2 2.25h7.25A2.5 2.5 0 0 1 21 9.75v7.75a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5Z'/></g></g></svg>",
+   "alts": [
+    {
+     "label": "tray (source; = inbox without lines)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.652 5.06h10.695L20.37 13.197V17.615a2.325 2.325 0 0 1 -2.325 2.325h-12.09A2.325 2.325 0 0 1 3.63 17.615v-4.417Z'/><path d='M3.63 13.197h4.417l1.395 2.325h5.115l1.395 -2.325H20.37'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-bookmarks-other-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3.63 13.197h4.417l1.395 2.325h5.115l1.395 -2.325H20.37'/></g></mask></defs><g mask='url(#cmxs-bookmarks-other-alt1)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.652 5.06h10.695L20.37 13.197V17.615a2.325 2.325 0 0 1 -2.325 2.325h-12.09A2.325 2.325 0 0 1 3.63 17.615v-4.417Z'/></g></g></svg>"
+    }
+   ],
+   "note": "Folder (agent-composer geometry) with the bookmark ribbon: a bookmark folder, as browsers draw 'Other bookmarks'. Tray alt would collide with inbox.",
+   "replaces": [
+    "tray"
+   ]
+  },
+  {
+   "name": "brand.arxiv",
+   "meaning": "arXiv citation mark (neutral stand-in)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M13.5 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8.5Z'/><path d='M13.5 3v3.5a2 2 0 0 0 2 2H19'/><path d='M8.5 11.5h7M8.5 14.5h7M8.5 17.5h4'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-brand-arxiv' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M13.5 3v3.5a2 2 0 0 0 2 2H19'/><path d='M8.5 11.5h7M8.5 14.5h7M8.5 17.5h4'/></g></mask></defs><g mask='url(#cmxs-brand-arxiv)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M13.5 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8.5Z'/></g></g></svg>",
+   "alts": [
+    {
+     "label": "archive box (pun on arXiv)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.594' y='4.528' width='16.812' height='4.203' rx='1.167'/><path d='M4.995 8.731v8.406A2.335 2.335 0 0 0 7.33 19.472h9.34a2.335 2.335 0 0 0 2.335 -2.335v-8.406M10.132 12h3.736'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-brand-arxiv-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M10.132 12h3.736'/></g></mask></defs><g mask='url(#cmxs-brand-arxiv-alt1)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.594' y='4.528' width='16.812' height='4.203' rx='1.167'/><path d='M4.995 8.731h14.01v8.406A2.335 2.335 0 0 1 16.67 19.472H7.33a2.335 2.335 0 0 1 -2.335 -2.335Z'/></g></g></svg>"
+    }
+   ],
+   "note": "NOT the arXiv logo: a neutral 'preprint paper' stand-in (file with three text lines; file.text has two). Archive-box alt reads as 'archive' action.",
+   "replaces": [
+    "ArxivMark (svg)"
+   ]
+  },
+  {
+   "name": "brand.github",
+   "meaning": "GitHub link mark (neutral stand-in)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M10 9l-3 3 3 3M14 9l3 3-3 3'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-brand-github' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M10 9l-3 3 3 3M14 9l3 3-3 3'/></g></mask></defs><g mask='url(#cmxs-brand-github)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/></g></g></svg>",
+   "alts": [
+    {
+     "label": "branch in a ring",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M9.75 8v8M14.25 9.5c0 3-4.5 2.5-4.5 5.5'/><circle cx='14.25' cy='8.25' r='1.25'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-brand-github-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9.75 8v8M14.25 9.5c0 3-4.5 2.5-4.5 5.5'/><circle cx='14.25' cy='8.25' r='1.25'/></g></mask></defs><g mask='url(#cmxs-brand-github-alt1)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/></g></g></svg>"
+    }
+   ],
+   "note": "NOT the GitHub logo: a neutral stand-in (code brackets in a ring = 'code host link'). Swap in the official mark if brand use is cleared. Branch alt mush at 13 px.",
+   "replaces": [
+    "GitHubMark (svg)"
+   ]
+  },
+  {
+   "name": "browser",
+   "meaning": "Browser / web page / site",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.415'/><ellipse cx='12' cy='12' rx='3.506' ry='8.415'/><path d='M3.585 12h16.83'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-browser' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><ellipse cx='12' cy='12' rx='3.506' ry='8.883'/><path d='M2.65 12h18.7'/></g></mask></defs><g mask='url(#cmxs-browser)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9.116' stroke='none'/></g></g></svg>",
+   "alts": [],
+   "note": "Approved browser reference glyph, verbatim (= link.web, tool.web).",
+   "replaces": [
+    "globe"
+   ]
+  },
+  {
+   "name": "browser.incognito",
+   "meaning": "Incognito / private window",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 10.5 8.1 5.4a1 1 0 0 1 1.35-.62L12 5.75l2.55-.97a1 1 0 0 1 1.35.62l1.6 5.1Z'/><path d='M3 10.5h18'/><circle cx='7.5' cy='16.25' r='3'/><circle cx='16.5' cy='16.25' r='3'/><path d='M10.5 16.25c1-.75 2-.75 3 0'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 10.5 8.1 5.4a1 1 0 0 1 1.35-.62L12 5.75l2.55-.97a1 1 0 0 1 1.35.62l1.6 5.1Z'/><circle cx='7.5' cy='16.25' r='3'/><circle cx='16.5' cy='16.25' r='3'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.5h18'/><path d='M10.5 16.25c1-.75 2-.75 3 0'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7.5' cy='16.25' r='3'/><circle cx='16.5' cy='16.25' r='3'/><path d='M10.5 16.25c1-.75 2-.75 3 0'/><path class='accent' stroke='var(--accent)' d='M4 11.5V5.5l4 3.5h8l4-3.5v6'/></svg>",
+   "alts": [
+    {
+     "label": "eyeglasses only (source)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6.5' cy='13' r='3.5'/><circle cx='17.5' cy='13' r='3.5'/><path d='M10 13c1.25 -1 2.75 -1 4 0M3 13 4.75 7.25M21 13l-1.75 -5.75'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6.5' cy='13' r='3.5'/><circle cx='17.5' cy='13' r='3.5'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10 13c1.25 -1 2.75 -1 4 0M3 13 4.75 7.25M21 13l-1.75 -5.75'/></g></svg>"
+    }
+   ],
+   "note": "Preferred: hat over glasses, the browser 'incognito' idiom; bare eyeglasses (alt) reads as 'reading/view' at 16 px. Cat: the hat becomes cat ears over the glasses (a cat in disguise).",
+   "replaces": [
+    "eyeglasses"
+   ]
+  },
+  {
+   "name": "browser.new",
+   "meaning": "New browser tab / browser toggle",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-browser-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.574' cy='17.574' r='4.413' stroke='none'/></g></mask></defs><g mask='url(#cmxl-browser-new)'><circle cx='12' cy='12' r='8.361'/><ellipse cx='12' cy='12' rx='3.484' ry='8.361'/><path d='M3.639 12h16.722'/></g><path d='M17.574 15.252v4.645M15.252 17.574h4.645'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-browser-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><ellipse cx='12' cy='12' rx='3.484' ry='8.825'/><path d='M2.71 12h18.58'/></g><circle cx='17.574' cy='17.574' r='4.645' fill='#000'/></mask></defs><g mask='url(#cmxs-browser-new)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9.058' stroke='none'/></g></g><path d='M17.574 15.252v4.645M15.252 17.574h4.645' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [],
+   "note": "Globe + the shared bottom-right plus badge (SPEC 'new X'). 'Disable cmux Browser' should use plain browser (or state.off) rather than a back-chevron badge.",
+   "replaces": [
+    "globe",
+    "globe.badge.chevron.backward"
+   ]
+  },
+  {
+   "name": "browser.stop",
+   "meaning": "Stop loading",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 5.25l13.5 13.5M18.75 5.25 5.25 18.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 5.25l13.5 13.5M18.75 5.25 5.25 18.75'/></svg>",
+   "alts": [],
+   "note": "Same x as action.close; it swaps with action.reload in the toolbar.",
+   "replaces": [
+    "xmark"
+   ]
+  },
+  {
+   "name": "extension",
+   "meaning": "Browser extension",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25h8.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/><path class='accent' stroke='var(--accent)' d='M5.5 8.25V4.75l2.75 2.5M13.75 8.25V4.75L11 7.25'/></svg>",
+   "alts": [],
+   "note": "Puzzle piece, knobs top and right. Cat: the top knob becomes ears.",
+   "replaces": [
+    "puzzlepiece.extension"
+   ]
+  },
+  {
+   "name": "extension.crashed",
+   "meaning": "Extension crashed",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-extension-crashed' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M10.5 8l-1.75 4.5 3 2.25L9.5 21.5' fill='none' stroke-width='2.75'/></g></mask></defs><g mask='url(#cmxl-extension-crashed)'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-extension-crashed' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><path d='M10.5 8l-1.75 4.5 3 2.25L9.5 21.5' fill='none' stroke='#000' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'/></mask></defs><g mask='url(#cmxs-extension-crashed)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></g></g></svg>",
+   "alts": [
+    {
+     "label": "puzzle + bang badge",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-extension-crashed-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='18' cy='18' r='4.75' stroke='none'/></g></mask></defs><g mask='url(#cmxl-extension-crashed-alt1)'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></g><path d='M18 15v3'/><circle cx='18' cy='20.75' r='1' fill='currentColor' stroke='none'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-extension-crashed-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><circle cx='18' cy='18' r='5' fill='#000'/></mask></defs><g mask='url(#cmxs-extension-crashed-alt1)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></g></g><path d='M18 15v3' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='18' cy='20.75' r='1.15' fill='currentColor' stroke='none'/></svg>"
+    }
+   ],
+   "note": "Preferred: the extension piece split by a crack (knockout zigzag), so it stays an extension and reads broken; no warning triangle (SPEC reserves it for status.warning). Badge alt is busier at 12 px. No cat (error).",
+   "replaces": [
+    "exclamationmark.triangle"
+   ]
+  },
+  {
+   "name": "location",
+   "meaning": "Location (history / permission)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20.25 3.75 3.75 10.75l7.5 2 2 7.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20.25 3.75 3.75 10.75l7.5 2 2 7.5Z'/></g></svg>",
+   "alts": [],
+   "note": "Navigation arrow, as the source. site.permission.location is the same glyph.",
+   "replaces": [
+    "location"
+   ]
+  },
+  {
+   "name": "network",
+   "meaning": "Network / remote terminal / ports",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='9' y='3.5' width='6' height='5' rx='1.5'/><rect x='3.5' y='15.5' width='6' height='5' rx='1.5'/><rect x='14.5' y='15.5' width='6' height='5' rx='1.5'/><path d='M12 8.5V12M6.5 15.5v-2A1.5 1.5 0 0 1 8 12h8a1.5 1.5 0 0 1 1.5 1.5v2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='9' y='3.5' width='6' height='5' rx='1.5'/><rect x='3.5' y='15.5' width='6' height='5' rx='1.5'/><rect x='14.5' y='15.5' width='6' height='5' rx='1.5'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 8.5V12M6.5 15.5v-2A1.5 1.5 0 0 1 8 12h8a1.5 1.5 0 0 1 1.5 1.5v2'/></g></svg>",
+   "alts": [
+    {
+     "label": "three linked nodes",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='5.5' r='2.5'/><circle cx='5.5' cy='17.5' r='2.5'/><circle cx='18.5' cy='17.5' r='2.5'/><path d='M10.75 7.65 6.75 15.35M13.25 7.65l4 7.7M8 17.5h8'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='5.5' r='2.5'/><circle cx='5.5' cy='17.5' r='2.5'/><circle cx='18.5' cy='17.5' r='2.5'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10.75 7.65 6.75 15.35M13.25 7.65l4 7.7M8 17.5h8'/></g></svg>"
+    }
+   ],
+   "note": "Preferred: one node wired down to two (topology); differs from the browser globe the source symbol resembled. Node triangle alt reads as 'share'.",
+   "replaces": [
+    "network"
+   ]
+  },
+  {
+   "name": "security.dangerous",
+   "meaning": "Dangerous site",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-security-dangerous-line' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 9.681v3.696'/><circle cx='12' cy='16.38' r='1.016' fill='#000' stroke='none'/></g></mask></defs><g mask='url(#cmxs-security-dangerous-line)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M10.401 5.292a1.848 1.848 0 0 1 3.197 0l6.533 11.319a1.848 1.848 0 0 1 -1.599 2.772H5.467a1.848 1.848 0 0 1 -1.599 -2.772Z'/></g></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-security-dangerous' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 9.681v3.696'/><circle cx='12' cy='16.38' r='1.016' fill='#000' stroke='none'/></g></mask></defs><g mask='url(#cmxs-security-dangerous)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M10.401 5.292a1.848 1.848 0 0 1 3.197 0l6.533 11.319a1.848 1.848 0 0 1 -1.599 2.772H5.467a1.848 1.848 0 0 1 -1.599 -2.772Z'/></g></g></svg>",
+   "alts": [
+    {
+     "label": "filled shield + bang",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-security-dangerous-alt1-line' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 8.137v4.545'/><circle cx='12' cy='15.636' r='1' fill='#000' stroke='none'/></g></mask></defs><g mask='url(#cmxs-security-dangerous-alt1-line)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.819 18.817 6.319V11.091c0 4.318 -2.954 7.499 -6.817 9.09 -3.863 -1.591 -6.817 -4.772 -6.817 -9.09V6.319Z'/></g></g></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-security-dangerous-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 8.137v4.545'/><circle cx='12' cy='15.636' r='1' fill='#000' stroke='none'/></g></mask></defs><g mask='url(#cmxs-security-dangerous-alt1)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.819 18.817 6.319V11.091c0 4.318 -2.954 7.499 -6.817 9.09 -3.863 -1.591 -6.817 -4.772 -6.817 -9.09V6.319Z'/></g></g></svg>"
+    }
+   ],
+   "note": "Preferred: status.warning's triangle, filled in both styles (one step heavier than warning, as status.critical does for the octagon). Shield alt stays in the security family but competes with grant/trust.source.",
+   "replaces": [
+    "exclamationmark.triangle.fill"
+   ]
+  },
+  {
+   "name": "security.insecure",
+   "meaning": "Not secure (http / mixed content)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='5' y='10.5' width='14' height='10' rx='2.5'/><path d='M8 10.5V7.5a4 4 0 0 1 7.6-1.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-security-insecure' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 14.25v2.5'/></g></mask></defs><g mask='url(#cmxs-security-insecure)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='5' y='10.5' width='14' height='10' rx='2.5'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 10.5V7.5a4 4 0 0 1 7.6-1.75'/></g></g></svg>",
+   "alts": [
+    {
+     "label": "closed lock + slash (source lock.slash)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-security-insecure-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-security-insecure-alt1)'><rect x='5' y='10.5' width='14' height='10' rx='2.5'/><path d='M8 10.5V7.5a4 4 0 0 1 8 0v3'/></g><path d='M4 4l16 16'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-security-insecure-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxs-security-insecure-alt1)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='5' y='10.5' width='14' height='10' rx='2.5'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 10.5V7.5a4 4 0 0 1 8 0v3'/></g></g><path d='M4 4l16 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>"
+    }
+   ],
+   "note": "Preferred: open padlock, the lock family's 'off' state. A slashed lock (alt) would read as 'lock permission blocked' under the .blocked grammar, and the triangle belongs to status.warning. Open lock + slash is site.permission.insecurecontent.blocked.",
+   "replaces": [
+    "lock.slash",
+    "exclamationmark.triangle"
+   ]
+  },
+  {
+   "name": "security.lock",
+   "meaning": "Secure / locked / managed",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='5' y='10.5' width='14' height='10' rx='2.5'/><path d='M8 10.5V7.5a4 4 0 0 1 8 0v3'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-security-lock' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 14.25v2.5'/></g></mask></defs><g mask='url(#cmxs-security-lock)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='5' y='10.5' width='14' height='10' rx='2.5'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 10.5V7.5a4 4 0 0 1 8 0v3'/></g></g></svg>",
+   "alts": [],
+   "note": "Padlock, no keyhole in Line so it holds at 10 px; Solid knocks a keyhole out of the body.",
+   "replaces": [
+    "lock",
+    "lock.fill"
+   ]
+  },
+  {
+   "name": "site.info",
+   "meaning": "Site information / configuration",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 8h8.5M17.5 8H20M4 16h2.5M11.5 16H20'/><circle cx='15' cy='8' r='2.5'/><circle cx='9' cy='16' r='2.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='15' cy='8' r='2.5'/><circle cx='9' cy='16' r='2.5'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 8h8.5M17.5 8H20M4 16h2.5M11.5 16H20'/></g></svg>",
+   "alts": [],
+   "note": "Two sliders (the site-info 'tune' button). Solid fills the knobs, rails go to 2.",
+   "replaces": [
+    "slider.horizontal.3"
+   ]
+  },
+  {
+   "name": "site.permission.automaticdownloads",
+   "meaning": "Site permission: automatic downloads",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5v10.5M7.75 9.75 12 14l4.25-4.25'/><path d='M4 14.5v3A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5v-3'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5v10.5M7.75 9.75 12 14l4.25-4.25'/><path d='M4 14.5v3A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5v-3'/></g></svg>",
+   "alts": [],
+   "note": "Arrow into a tray (save to disk); the circled arrow stays action.download.",
+   "replaces": [
+    "arrow.down.circle"
+   ]
+  },
+  {
+   "name": "site.permission.autopictureinpicture",
+   "meaning": "Site permission: auto picture-in-picture",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='11.547' y='12' width='5.889' height='4.53' rx='0.906' fill='currentColor'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-autopictureinpicture' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><rect x='10.867' y='11.321' width='7.248' height='5.889' rx='1.359'/></g></mask></defs><g mask='url(#cmxs-site-permission-autopictureinpicture)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></g><rect x='11.547' y='12' width='5.889' height='4.53' rx='0.906' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "Frame with a filled inset video. Solid separates the inset with a knockout ring.",
+   "replaces": [
+    "pip"
+   ]
+  },
+  {
+   "name": "site.permission.backgroundsync",
+   "meaning": "Site permission: background sync",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.95 9.43A7.5 7.5 0 0 1 19.05 9.43'/><path d='M20.32 6.72L19.05 9.43L16.33 8.17'/><path d='M19.05 14.57A7.5 7.5 0 0 1 4.95 14.57'/><path d='M3.68 17.28L4.95 14.57L7.67 15.83'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.95 9.43A7.5 7.5 0 0 1 19.05 9.43'/><path d='M20.32 6.72L19.05 9.43L16.33 8.17'/><path d='M19.05 14.57A7.5 7.5 0 0 1 4.95 14.57'/><path d='M3.68 17.28L4.95 14.57L7.67 15.83'/></g></svg>",
+   "alts": [],
+   "note": "action.sync arrows verbatim.",
+   "replaces": [
+    "arrow.triangle.2.circlepath"
+   ]
+  },
+  {
+   "name": "site.permission.bluetooth",
+   "meaning": "Site permission: Bluetooth devices",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='1.75' fill='currentColor' stroke='none'/><path d='M15.18 8.82A4.5 4.5 0 0 1 15.18 15.18M8.82 15.18A4.5 4.5 0 0 1 8.82 8.82M18.32 6.7A8.25 8.25 0 0 1 18.32 17.3M5.68 17.3A8.25 8.25 0 0 1 5.68 6.7'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15.18 8.82A4.5 4.5 0 0 1 15.18 15.18M8.82 15.18A4.5 4.5 0 0 1 8.82 8.82M18.32 6.7A8.25 8.25 0 0 1 18.32 17.3M5.68 17.3A8.25 8.25 0 0 1 5.68 6.7'/></g><circle cx='12' cy='12' r='2.25' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "Dot with radio waves both sides (source). The Bluetooth rune is a trademark, so it is not drawn.",
+   "replaces": [
+    "dot.radiowaves.left.and.right"
+   ]
+  },
+  {
+   "name": "site.permission.camera",
+   "meaning": "Site permission: camera",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='2.75' y='6.5' width='12.75' height='11' rx='2.5'/><path d='M15.5 10.25l4.4-2.75a.75.75 0 0 1 1.1.65v7.7a.75.75 0 0 1-1.1.65l-4.4-2.75Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='2.75' y='6.5' width='12.75' height='11' rx='2.5'/><path d='M15.5 10.25l4.4-2.75a.75.75 0 0 1 1.1.65v7.7a.75.75 0 0 1-1.1.65l-4.4-2.75Z'/></g></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "video"
+   ]
+  },
+  {
+   "name": "site.permission.camera.blocked",
+   "meaning": "Site permission: camera (blocked)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-site-permission-camera-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-site-permission-camera-blocked)'><rect x='2.75' y='6.5' width='12.75' height='11' rx='2.5'/><path d='M15.5 10.25l4.4-2.75a.75.75 0 0 1 1.1.65v7.7a.75.75 0 0 1-1.1.65l-4.4-2.75Z'/></g><path d='M4 4l16 16'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-camera-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxs-site-permission-camera-blocked)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='2.75' y='6.5' width='12.75' height='11' rx='2.5'/><path d='M15.5 10.25l4.4-2.75a.75.75 0 0 1 1.1.65v7.7a.75.75 0 0 1-1.1.65l-4.4-2.75Z'/></g></g><path d='M4 4l16 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [],
+   "note": "Noun + the shared slash (1.5 knockout gap on its lower-left), as action.hide. No cat.",
+   "replaces": [
+    "video.slash"
+   ]
+  },
+  {
+   "name": "site.permission.clipboard",
+   "meaning": "Site permission: clipboard",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.5 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1.5'/><rect x='8.5' y='3' width='7' height='4' rx='1.25'/><path d='M9 12h6M9 15.5h4'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-clipboard' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9 12h6M9 15.5h4'/><path d='M8.5 7.5h7' stroke-width='2.5'/></g></mask></defs><g mask='url(#cmxs-site-permission-clipboard)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 5h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z'/></g></g><rect x='8.5' y='2.75' width='7' height='3.75' rx='1.25' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "mode.plan's board with plain text lines instead of the checklist.",
+   "replaces": [
+    "doc.on.clipboard"
+   ]
+  },
+  {
+   "name": "site.permission.fileediting",
+   "meaning": "Site permission: file editing (File System Access)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M13.5 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8.5Z'/><path d='M13.5 3v3.5a2 2 0 0 0 2 2H19'/><path d='M8.75 17.75l.6-2.35 4.65-4.65a1.15 1.15 0 0 1 1.65 1.65L11 17.1Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-fileediting' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M13.5 3v3.5a2 2 0 0 0 2 2H19'/><path d='M8.75 17.75l.6-2.35 4.65-4.65a1.15 1.15 0 0 1 1.65 1.65L11 17.1Z'/></g></mask></defs><g mask='url(#cmxs-site-permission-fileediting)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M13.5 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8.5Z'/></g></g></svg>",
+   "alts": [],
+   "note": "Document with a pencil: edit local files. Gear badge dropped (too small at 14 px).",
+   "replaces": [
+    "doc.badge.gearshape"
+   ]
+  },
+  {
+   "name": "site.permission.hid",
+   "meaning": "Site permission: HID devices",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7.5 6.5h9a4.5 4.5 0 0 1 4.5 4.5v4.25a2.75 2.75 0 0 1-5 1.6L15 15.5H9l-1 1.35a2.75 2.75 0 0 1-5-1.6V11a4.5 4.5 0 0 1 4.5-4.5Z'/><path d='M7.5 9.5v3.5M5.75 11.25h3.5'/><circle cx='15.5' cy='10.25' r='1.1' fill='currentColor' stroke='none'/><circle cx='17.75' cy='12.5' r='1.1' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-hid' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.5 9.5v3.5M5.75 11.25h3.5'/><circle cx='15.5' cy='10.25' r='1.2' fill='#000' stroke='none'/><circle cx='17.75' cy='12.5' r='1.2' fill='#000' stroke='none'/></g></mask></defs><g mask='url(#cmxs-site-permission-hid)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7.5 6.5h9a4.5 4.5 0 0 1 4.5 4.5v4.25a2.75 2.75 0 0 1-5 1.6L15 15.5H9l-1 1.35a2.75 2.75 0 0 1-5-1.6V11a4.5 4.5 0 0 1 4.5-4.5Z'/></g></g></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "gamecontroller"
+   ]
+  },
+  {
+   "name": "site.permission.images",
+   "meaning": "Site permission: images",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.702' y='5.085' width='16.596' height='13.83' rx='2.305'/><path d='M4.163 17.071 8.773 12.461l4.149 4.149 2.305 -2.305 4.61 4.61'/><circle cx='15.227' cy='9.234' r='1.614'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-images' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M4.163 17.071 8.773 12.461l4.149 4.149 2.305 -2.305 4.61 4.61'/><circle cx='15.227' cy='9.234' r='1.614'/></g></mask></defs><g mask='url(#cmxs-site-permission-images)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.702' y='5.085' width='16.596' height='13.83' rx='2.305'/></g></g></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "photo"
+   ]
+  },
+  {
+   "name": "site.permission.insecurecontent.blocked",
+   "meaning": "Site permission: insecure content (blocked)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-site-permission-insecurecontent-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-site-permission-insecurecontent-blocked)'><rect x='5' y='10.5' width='14' height='10' rx='2.5'/><path d='M8 10.5V7.5a4 4 0 0 1 7.6-1.75'/></g><path d='M4 4l16 16'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-insecurecontent-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxs-site-permission-insecurecontent-blocked)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='5' y='10.5' width='14' height='10' rx='2.5'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 10.5V7.5a4 4 0 0 1 7.6-1.75'/></g></g><path d='M4 4l16 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [
+    {
+     "label": "shield + bang (source)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3 19.5 5.75V11c0 4.75-3.25 8.25-7.5 10-4.25-1.75-7.5-5.25-7.5-10V5.75Z'/><path d='M12 7.75v5'/><circle cx='12' cy='16' r='1' fill='currentColor' stroke='none'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-insecurecontent-blocked-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 7.75v5'/><circle cx='12' cy='16' r='1.1' fill='#000' stroke='none'/></g></mask></defs><g mask='url(#cmxs-site-permission-insecurecontent-blocked-alt1)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3 19.5 5.75V11c0 4.75-3.25 8.25-7.5 10-4.25-1.75-7.5-5.25-7.5-10V5.75Z'/></g></g></svg>"
+    }
+   ],
+   "note": "Noun = insecure (open padlock, security.insecure) + the .blocked slash, so it follows the family rule. Shield-bang alt reads as a warning, which is the opposite of 'blocked, you are safe'. No cat.",
+   "replaces": [
+    "exclamationmark.shield",
+    "shield.slash"
+   ]
+  },
+  {
+   "name": "site.permission.javascript",
+   "meaning": "Site permission: JavaScript",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 4H8a2 2 0 0 0-2 2v3.5A2.5 2.5 0 0 1 3.5 12 2.5 2.5 0 0 1 6 14.5V18a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3.5a2.5 2.5 0 0 0 2.5 2.5A2.5 2.5 0 0 0 18 14.5V18a2 2 0 0 1-2 2h-1'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 4H8a2 2 0 0 0-2 2v3.5A2.5 2.5 0 0 1 3.5 12 2.5 2.5 0 0 1 6 14.5V18a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3.5a2.5 2.5 0 0 0 2.5 2.5A2.5 2.5 0 0 0 18 14.5V18a2 2 0 0 1-2 2h-1'/></g></svg>",
+   "alts": [],
+   "note": "config.json braces verbatim; code is </>, so JS keeps the source braces.",
+   "replaces": [
+    "curlybraces"
+   ]
+  },
+  {
+   "name": "site.permission.localfonts",
+   "meaning": "Site permission: local fonts",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 19 8.75 5l5.25 14M5.5 14h6.5'/><circle cx='17.75' cy='16.25' r='2.75'/><path d='M20.5 13.5V19'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 19 8.75 5l5.25 14M5.5 14h6.5'/><circle cx='17.75' cy='16.25' r='2.75'/><path d='M20.5 13.5V19'/></g></svg>",
+   "alts": [],
+   "note": "Drawn 'Aa' (paths, no font).",
+   "replaces": [
+    "textformat"
+   ]
+  },
+  {
+   "name": "site.permission.location",
+   "meaning": "Site permission: location",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20.25 3.75 3.75 10.75l7.5 2 2 7.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20.25 3.75 3.75 10.75l7.5 2 2 7.5Z'/></g></svg>",
+   "alts": [],
+   "note": "= location.",
+   "replaces": [
+    "location"
+   ]
+  },
+  {
+   "name": "site.permission.location.blocked",
+   "meaning": "Site permission: location (blocked)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-site-permission-location-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-site-permission-location-blocked)'><path d='M20.25 3.75 3.75 10.75l7.5 2 2 7.5Z'/></g><path d='M4 4l16 16'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-location-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxs-site-permission-location-blocked)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20.25 3.75 3.75 10.75l7.5 2 2 7.5Z'/></g></g><path d='M4 4l16 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [],
+   "note": "Noun + the shared slash (1.5 knockout gap on its lower-left), as action.hide. No cat.",
+   "replaces": [
+    "location.slash"
+   ]
+  },
+  {
+   "name": "site.permission.microphone",
+   "meaning": "Site permission: microphone",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='9' y='3' width='6' height='11.5' rx='3'/><path d='M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='9' y='3' width='6' height='11.5' rx='3'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3'/></g></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "mic"
+   ]
+  },
+  {
+   "name": "site.permission.microphone.blocked",
+   "meaning": "Site permission: microphone (blocked)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-site-permission-microphone-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-site-permission-microphone-blocked)'><rect x='9' y='3' width='6' height='11.5' rx='3'/><path d='M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3'/></g><path d='M4 4l16 16'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-microphone-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxs-site-permission-microphone-blocked)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='9' y='3' width='6' height='11.5' rx='3'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3'/></g></g><path d='M4 4l16 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [],
+   "note": "Noun + the shared slash (1.5 knockout gap on its lower-left), as action.hide. No cat.",
+   "replaces": [
+    "mic.slash"
+   ]
+  },
+  {
+   "name": "site.permission.midi",
+   "meaning": "Site permission: MIDI devices",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M9.282 13.359V19.248M14.718 13.359V19.248'/><rect x='7.923' y='4.752' width='2.718' height='8.607' rx='0.679' fill='currentColor'/><rect x='13.359' y='4.752' width='2.718' height='8.607' rx='0.679' fill='currentColor'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-midi' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9.282 13.359V19.248M14.718 13.359V19.248'/><path d='M7.244 4.752v7.928a0.906 0.906 0 0 0 0.906 0.906h2.265a0.906 0.906 0 0 0 0.906 -0.906V4.752M12.68 4.752v7.928a0.906 0.906 0 0 0 0.906 0.906h2.265a0.906 0.906 0 0 0 0.906 -0.906V4.752'/></g></mask></defs><g mask='url(#cmxs-site-permission-midi)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></g></svg>",
+   "alts": [],
+   "note": "Keyboard: two black keys over three white keys.",
+   "replaces": [
+    "pianokeys"
+   ]
+  },
+  {
+   "name": "site.permission.notifications",
+   "meaning": "Site permission: notifications",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3a6 6 0 0 0-6 6v4.5l-1.5 3.25h15L18 13.5V9a6 6 0 0 0-6-6Z'/><path d='M10.25 19.25a1.75 1.75 0 0 0 3.5 0'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3a6 6 0 0 0-6 6v4.5l-1.5 3.25h15L18 13.5V9a6 6 0 0 0-6-6Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M10.25 19.25a1.75 1.75 0 0 0 3.5 0'/></g></svg>",
+   "alts": [],
+   "note": "notification bell verbatim.",
+   "replaces": [
+    "bell"
+   ]
+  },
+  {
+   "name": "site.permission.notifications.blocked",
+   "meaning": "Site permission: notifications (blocked)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-site-permission-notifications-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-site-permission-notifications-blocked)'><path d='M12 3a6 6 0 0 0-6 6v4.5l-1.5 3.25h15L18 13.5V9a6 6 0 0 0-6-6Z'/><path d='M10.25 19.25a1.75 1.75 0 0 0 3.5 0'/></g><path d='M4 4l16 16'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-notifications-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxs-site-permission-notifications-blocked)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3a6 6 0 0 0-6 6v4.5l-1.5 3.25h15L18 13.5V9a6 6 0 0 0-6-6Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M10.25 19.25a1.75 1.75 0 0 0 3.5 0'/></g></g><path d='M4 4l16 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [],
+   "note": "Noun + the shared slash (1.5 knockout gap on its lower-left), as action.hide. No cat.",
+   "replaces": [
+    "bell.slash"
+   ]
+  },
+  {
+   "name": "site.permission.popups",
+   "meaning": "Site permission: pop-ups and redirects",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-site-permission-popups' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><rect x='10.5' y='2' width='12' height='11' rx='3.5' stroke='none'/></g></mask></defs><g mask='url(#cmxl-site-permission-popups)'><rect x='3' y='8' width='13.5' height='12' rx='2.5'/></g><rect x='12' y='3.5' width='9' height='8' rx='2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-popups' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><rect x='10.5' y='2' width='12' height='11' rx='3.5' fill='#000'/></mask></defs><g mask='url(#cmxs-site-permission-popups)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='8' width='13.5' height='12' rx='2.5'/></g></g><rect x='12' y='3.5' width='9' height='8' rx='2' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "A small window popping out over a page's top-right corner (knockout gap). Not the box-arrow: that is link.open.newtab.",
+   "replaces": [
+    "arrow.up.forward.app"
+   ]
+  },
+  {
+   "name": "site.permission.sensors",
+   "meaning": "Site permission: motion sensors",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='8' y='3.5' width='8' height='17' rx='2'/><path d='M5 8.5a5.5 5.5 0 0 0 0 7M19 8.5a5.5 5.5 0 0 1 0 7'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-sensors' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M11 17.75h2'/></g></mask></defs><g mask='url(#cmxs-site-permission-sensors)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='8' y='3.5' width='8' height='17' rx='2'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 8.5a5.5 5.5 0 0 0 0 7M19 8.5a5.5 5.5 0 0 1 0 7'/></g></g></svg>",
+   "alts": [
+    {
+     "label": "gyroscope (source)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><ellipse cx='12' cy='12' rx='8.5' ry='3.25' transform='rotate(-35 12 12)'/><circle cx='12' cy='12' r='1.5' fill='currentColor' stroke='none'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><ellipse cx='12' cy='12' rx='8.5' ry='3.25' transform='rotate(-35 12 12)'/></g><circle cx='12' cy='12' r='2' fill='currentColor' stroke='none'/></svg>"
+    }
+   ],
+   "note": "Preferred: phone with motion arcs (device moves). The gyroscope alt is a ring + orbit that reads as the browser globe at 14 px.",
+   "replaces": [
+    "gyroscope"
+   ]
+  },
+  {
+   "name": "site.permission.serial",
+   "meaning": "Site permission: serial ports",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.9 7h16.2a1 1 0 0 1 .97 1.25l-1.9 7.5A2.25 2.25 0 0 1 16.99 17.5H7.01a2.25 2.25 0 0 1-2.18-1.75l-1.9-7.5A1 1 0 0 1 3.9 7Z'/><circle cx='8.25' cy='10.5' r='1.2' fill='currentColor' stroke='none'/><circle cx='12' cy='10.5' r='1.2' fill='currentColor' stroke='none'/><circle cx='15.75' cy='10.5' r='1.2' fill='currentColor' stroke='none'/><circle cx='10.1' cy='14' r='1.2' fill='currentColor' stroke='none'/><circle cx='13.9' cy='14' r='1.2' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-serial' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='8.25' cy='10.5' r='1.25' fill='#000' stroke='none'/><circle cx='12' cy='10.5' r='1.25' fill='#000' stroke='none'/><circle cx='15.75' cy='10.5' r='1.25' fill='#000' stroke='none'/><circle cx='10.1' cy='14' r='1.25' fill='#000' stroke='none'/><circle cx='13.9' cy='14' r='1.25' fill='#000' stroke='none'/></g></mask></defs><g mask='url(#cmxs-site-permission-serial)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.9 7h16.2a1 1 0 0 1 .97 1.25l-1.9 7.5A2.25 2.25 0 0 1 16.99 17.5H7.01a2.25 2.25 0 0 1-2.18-1.75l-1.9-7.5A1 1 0 0 1 3.9 7Z'/></g></g></svg>",
+   "alts": [],
+   "note": "D-shaped serial connector with pins; usb is the upright plug.",
+   "replaces": [
+    "cable.connector.horizontal"
+   ]
+  },
+  {
+   "name": "site.permission.sound",
+   "meaning": "Site permission: sound",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></g></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "speaker.wave.2"
+   ]
+  },
+  {
+   "name": "site.permission.sound.blocked",
+   "meaning": "Site permission: sound (blocked)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-site-permission-sound-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-site-permission-sound-blocked)'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></g><path d='M4 4l16 16'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-sound-blocked' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxs-site-permission-sound-blocked)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.25v5.5a.75.75 0 0 0 .75.75H7.5l4.25 3.75V4.75L7.5 8.5H4.75a.75.75 0 0 0-.75.75Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M14.83 9.17A4 4 0 0 1 14.83 14.83M17.48 6.52A7.75 7.75 0 0 1 17.48 17.48'/></g></g><path d='M4 4l16 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [],
+   "note": "Speaker + waves + the shared slash (SPEC: same noun, no 'speaker.slash' wave drop). No cat.",
+   "replaces": [
+    "speaker.slash"
+   ]
+  },
+  {
+   "name": "site.permission.thirdpartysignin",
+   "meaning": "Site permission: third-party sign-in",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='9.5' cy='8' r='3.75'/><path d='M3 20.5a6.5 6.5 0 0 1 10.5 -5.1'/><circle cx='14.75' cy='17.25' r='2.25'/><path d='M17 17.25h3.75M19.5 17.25v2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='9.5' cy='8' r='3.75'/><path d='M2.25 20.5a7.25 7.25 0 0 1 10 -6.7'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='14.75' cy='17.25' r='2.25'/><path d='M17 17.25h3.75M19.5 17.25v2'/></g></svg>",
+   "alts": [
+    {
+     "label": "arrow into a door (sign in)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14M3.5 12h11M10.5 8l4 4-4 4'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14M3.5 12h11M10.5 8l4 4-4 4'/></svg>"
+    }
+   ],
+   "note": "Person with a key (source). The sign-in arrow alt is cleaner at 12 px but loses 'identity'.",
+   "replaces": [
+    "person.badge.key"
+   ]
+  },
+  {
+   "name": "site.permission.usb",
+   "meaning": "Site permission: USB devices",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='8.5' y='3' width='7' height='5.5' rx='1'/><path d='M10.75 5.5h.5M12.75 5.5h.5'/><path d='M6.5 8.5h11v5a3 3 0 0 1-3 3h-5a3 3 0 0 1-3-3Z'/><path d='M12 16.5V21'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-usb' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M10.75 5.5h.5M12.75 5.5h.5'/></g></mask></defs><g mask='url(#cmxs-site-permission-usb)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='8.5' y='3' width='7' height='5.5' rx='1'/><path d='M6.5 8.5h11v5a3 3 0 0 1-3 3h-5a3 3 0 0 1-3-3Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 16.5V21'/></g></g></svg>",
+   "alts": [],
+   "note": "Upright plug with cable. The USB trident is a trademark, so it is not drawn.",
+   "replaces": [
+    "cable.connector"
+   ]
+  },
+  {
+   "name": "site.permission.windowmanagement",
+   "meaning": "Site permission: window management (multi-screen)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='2.5' y='5' width='8.25' height='7.5' rx='1.5'/><rect x='13.25' y='5' width='8.25' height='7.5' rx='1.5'/><path d='M7 12.5v2.5h10v-2.5M12 15v3.5M8.5 18.5h7'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='2.5' y='5' width='8.25' height='7.5' rx='1.5'/><rect x='13.25' y='5' width='8.25' height='7.5' rx='1.5'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 12.5v2.5h10v-2.5M12 15v3.5M8.5 18.5h7'/></g></svg>",
+   "alts": [
+    {
+     "label": "window over window (source)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.54' y='8.71' width='12.22' height='10.81' rx='1.88'/><path d='M3.54 11.765h12.22'/><path d='M7.3 8.71V6.83A2.35 2.35 0 0 1 9.65 4.48h8.46A2.35 2.35 0 0 1 20.46 6.83v6.58a2.35 2.35 0 0 1 -2.35 2.35H15.76'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-site-permission-windowmanagement-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3.54 11.765h12.22'/></g></mask></defs><g mask='url(#cmxs-site-permission-windowmanagement-alt1)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.54' y='8.71' width='12.22' height='10.81' rx='1.88'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7.3 8.71V6.83A2.35 2.35 0 0 1 9.65 4.48h8.46A2.35 2.35 0 0 1 20.46 6.83v6.58a2.35 2.35 0 0 1 -2.35 2.35H15.76'/></g></g></svg>"
+    }
+   ],
+   "note": "Preferred: two screens on one stand (the permission places windows across displays). The window-on-window alt collides with popups at 14 px.",
+   "replaces": [
+    "macwindow.on.rectangle"
+   ]
+  }
+ ]
+}

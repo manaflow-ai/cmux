@@ -27,6 +27,10 @@ public struct SpawnOptions: Sendable, Hashable {
     /// Caller-chosen host id (`terminal-placement-env-v1`). Set by
     /// `DaemonConnection`, which also names it in `env`; callers leave it nil.
     public var terminalID: TerminalID?
+    /// Arguments for the terminal's shell (`terminal-shell-args-v1`): Ghostty's
+    /// argv-based shell integration. Set by `DaemonConnection` from `env`
+    /// (`GhosttyShellIntegration.shellArguments(for:)`); callers leave it nil.
+    public var shellArgs: [String]?
 
     public init(cwd: String? = nil, size: CellSize? = nil, argv: [String]? = nil, command: String? = nil, name: String? = nil,
                 env: [String: String]? = nil, workspace: WorkspaceKey? = nil, keep: Bool? = nil) {
@@ -40,7 +44,10 @@ public struct SpawnOptions: Sendable, Hashable {
         self.keep = keep
     }
 
-    enum CodingKeys: String, CodingKey { case cwd, cols, rows, argv, command, name, env, keep, terminalID }
+    enum CodingKeys: String, CodingKey {
+        case cwd, cols, rows, argv, command, name, env, keep, terminalID
+        case shellArgs = "shell_args"
+    }
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(cwd, forKey: .cwd)
@@ -52,6 +59,7 @@ public struct SpawnOptions: Sendable, Hashable {
         try c.encodeIfPresent(env, forKey: .env)
         try c.encodeIfPresent(keep, forKey: .keep)
         try c.encodeIfPresent(terminalID, forKey: .terminalID)
+        try c.encodeIfPresent(shellArgs, forKey: .shellArgs)
     }
 }
 

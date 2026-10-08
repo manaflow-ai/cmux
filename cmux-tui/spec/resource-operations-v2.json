@@ -26,9 +26,83 @@
     "workspace_group",
     "room",
     "screen_group",
-    "closed"
+    "closed",
+    "window_record",
+    "sidebar_layout",
+    "git_checkpoint"
   ],
   "types": {
+    "RequestOrigin": {
+      "kind": "enum",
+      "values": [
+        "page",
+        "agent",
+        "app",
+        "user"
+      ]
+    },
+    "OriginForbiddenDetails": {
+      "kind": "object",
+      "fields": {
+        "derived": {
+          "required": true,
+          "description": "The request's origin: derived from its connection, then narrowed by its claim.",
+          "type": {
+            "kind": "ref",
+            "name": "RequestOrigin"
+          }
+        },
+        "required": {
+          "required": false,
+          "description": "The origin the operation needs.",
+          "type": {
+            "kind": "ref",
+            "name": "RequestOrigin"
+          }
+        },
+        "claim": {
+          "required": false,
+          "description": "The refused origin claim.",
+          "type": {
+            "kind": "ref",
+            "name": "RequestOrigin"
+          }
+        },
+        "reason": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "OriginConfirmation": {
+      "kind": "object",
+      "fields": {
+        "token": {
+          "required": true,
+          "description": "Opaque single-use confirmation token: 32 random bytes, base64url without padding.",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 43,
+            "max_length": 43
+          }
+        },
+        "expires_at": {
+          "required": true,
+          "description": "Expiry in milliseconds since the Unix epoch.",
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
     "JsonValue": {
       "kind": "primitive",
       "name": "json"
@@ -1706,7 +1780,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -1878,7 +1952,8 @@
             "kind": "enum",
             "values": [
               "terminal",
-              "browser"
+              "browser",
+              "conversation"
             ]
           }
         },
@@ -3271,12 +3346,56 @@
             "kind": "ref",
             "name": "LayoutNode"
           }
+        },
+        "dock": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "LayoutColumnDock"
+            }
+          }
         }
       },
       "extra": false,
       "constraints": [
         "column_id is stable for the lifetime of the viewport column.",
-        "width is finite and greater than or equal to 0.1 and less than or equal to 1."
+        "width is finite and greater than or equal to 0.1 and less than or equal to 1.",
+        "dock is omitted from a document the daemon returns while the column scrolls. In workspace.layout.apply, null clears the flag, an object sets it, and an omitted dock keeps the flag of the column with the same column_id.",
+        "When workspace.layout.apply sets a flag that differs from the stored flag of that column_id, the document must have at most one docked column per edge and at least one scrolling column. Flags that are kept or echoed unchanged are normalized: a second flag on one edge is cleared, and all flags are cleared when no column scrolls."
+      ]
+    },
+    "LayoutColumnDock": {
+      "kind": "object",
+      "fields": {
+        "edge": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "left",
+              "right",
+              "top",
+              "bottom"
+            ]
+          }
+        },
+        "mode": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "docked",
+              "overlay"
+            ]
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "docked takes the column width out of the scrolling area; overlay floats above the scrolling columns.",
+        "top and bottom are the edge docks of edge-docks-v1 (column.update edge): the column becomes a screen-wide band."
       ]
     },
     "LayoutViewport": {
@@ -3539,7 +3658,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. extra.state holds the state resources: tab_groups, saved_tab_groups, workspace_groups, workspace_placements, rooms, screen_groups, closed, and workspace_status arrays, each item the snapshot a StateUpsert of that resource carries. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. extra.state holds the state resources: tab_groups, saved_tab_groups, workspace_groups, workspace_placements, rooms, screen_groups, closed, and workspace_status arrays, each item the snapshot a StateUpsert of that resource carries, and sidebar_layout, the one SidebarLayoutSnapshot (sidebar-layout-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -5578,6 +5697,36 @@
             "kind": "primitive",
             "name": "uint32"
           }
+        },
+        "top_index": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "personal-mixed-order-v1: the index of the personal workspace the group shows right before, or null for after every loose workspace. Absent from daemons without the capability."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string), or null for none. Absent from daemons without the capability."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "workspace-group-pin-v1: the group is pinned (saved): it stays when its workspaces close, and clients keep it as an empty saved group. Absent from daemons without the capability (not pinned)."
         }
       },
       "extra": false
@@ -6021,6 +6170,150 @@
             }
           },
           "description": "What reopen recreates; a closed tab has one screen with one tab."
+        },
+        "window": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Window record id (`install_id/window_id`) that listed the closed objects; null when no window listed them."
+        },
+        "member_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members of the group (one close gesture)."
+        },
+        "members": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ClosedMemberRecord"
+            }
+          },
+          "description": "Every closed object of the group in restore order. The top-level fields mirror the first member."
+        },
+        "group": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ClosedWorkspaceGroupRecord"
+          },
+          "description": "Present when the item is a deleted personal workspace group (Ungroup, Delete Group). Its workspaces stayed open, so it has no member; `closed.reopen` forms the group again with its id, place and open members."
+        }
+      },
+      "extra": false
+    },
+    "ClosedWorkspaceGroupRecord": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          },
+          "description": "The deleted group's id; reopen restores this id."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the deleted group's icon (the shared icon string), or null for none. Absent from daemons without the capability."
+        }
+      },
+      "extra": false
+    },
+    "ClosedMemberRecord": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "tab",
+              "screen",
+              "workspace"
+            ]
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "pane"
+            }
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "screens": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ClosedScreenRecord"
+            }
+          }
         }
       },
       "extra": false
@@ -6053,6 +6346,25 @@
             "resource": "workspace"
           }
         },
+        "workspace_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "Every workspace the reopened members went to; `workspace_id` is the first."
+        },
+        "remaining": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members still in the group after a partial reopen."
+        },
         "screen_ids": {
           "required": true,
           "type": {
@@ -6072,6 +6384,92 @@
               "resource": "tab"
             }
           }
+        }
+      },
+      "extra": false
+    },
+    "WindowRecordSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "<install_id>/<window_id>; the id of the record's state_upsert and state_delete changes."
+        },
+        "install_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "window_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The install that hosts the window and is the record's only writer; always equal to install_id. install_unadopted owns records migrated from the windows frontend projection until an app adopts them."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The record's own revision; every put advances it."
+        },
+        "record": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "The app's window state (shown workspace, listed workspaces, frame, selected tab per pane, focused pane). Always a JSON object."
+        },
+        "updated_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WindowRecordDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The revision the record had when it was deleted."
         }
       },
       "extra": false
@@ -6269,7 +6667,8 @@
         "room",
         "screen_group",
         "closed",
-        "workspace_status"
+        "workspace_status",
+        "window_record"
       ]
     },
     "StateEntitySnapshot": {
@@ -6306,6 +6705,10 @@
         {
           "kind": "ref",
           "name": "WorkspaceStatusSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "WindowRecordSnapshot"
         }
       ],
       "constraints": [
@@ -6404,6 +6807,1403 @@
         "warning",
         "error"
       ]
+    },
+    "GitDiffScope": {
+      "kind": "enum",
+      "values": [
+        "uncommitted",
+        "unstaged",
+        "staged",
+        "committed",
+        "branch"
+      ]
+    },
+    "GitChangeStatus": {
+      "kind": "enum",
+      "values": [
+        "added",
+        "modified",
+        "deleted",
+        "renamed",
+        "untracked"
+      ]
+    },
+    "GitChangedFile": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root."
+        },
+        "previous_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The path before a rename."
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitChangeStatus"
+          }
+        },
+        "additions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "deletions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "binary": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Present and true for a binary file, which has no patch."
+        },
+        "patch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The file's unified diff from its first @@ line. Only with include_patch, and never for an untracked file."
+        },
+        "patch_truncated": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Present and true when the patch stopped at max_patch_bytes or the reply's patch budget."
+        }
+      },
+      "extra": false
+    },
+    "GitDiffResult": {
+      "kind": "object",
+      "fields": {
+        "scope": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitDiffScope"
+          }
+        },
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level; join it to a file's path."
+        },
+        "head": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The HEAD commit, absent before the first commit."
+        },
+        "base": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The compared commit: the merge base for branch, HEAD's first parent for committed."
+        },
+        "files": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitChangedFile"
+            }
+          }
+        },
+        "additions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Across every changed file, including omitted ones."
+        },
+        "deletions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Across every changed file, including omitted ones."
+        },
+        "total_files": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Changed files before max_files."
+        },
+        "files_omitted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "total_files minus the files returned."
+        },
+        "untracked_skipped": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Untracked files left out to keep the read bounded."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointSkipCode": {
+      "kind": "enum",
+      "values": [
+        "not_selected",
+        "over_limit",
+        "excluded",
+        "credential",
+        "ignored",
+        "nested_repository",
+        "submodule",
+        "unsupported_type",
+        "unreadable"
+      ]
+    },
+    "GitCheckpointSkip": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root; a folder ends with /."
+        },
+        "code": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointSkipCode"
+          }
+        },
+        "bytes": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The file's size, when known; saturates at 4294967295."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointPin": {
+      "kind": "object",
+      "fields": {
+        "pin_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Pins beginning handoff: or restore: are managed; unpin refuses them."
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointBase": {
+      "kind": "object",
+      "fields": {
+        "head": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "The HEAD commit at capture; null before the first commit. Context only: capture never moves HEAD."
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "The branch HEAD named, or null when detached."
+        },
+        "detached": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointCoverage": {
+      "kind": "object",
+      "fields": {
+        "included": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Worktree paths stored: tracked files and selected untracked files."
+        },
+        "omitted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Paths left out by selection, bounds, exclusions or ignore rules."
+        },
+        "unavailable": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Paths that cannot be stored: nested repositories, submodule contents, devices, unreadable files."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointIncluded": {
+      "kind": "object",
+      "fields": {
+        "tracked": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Tracked worktree files stored."
+        },
+        "untracked": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Untracked files stored."
+        },
+        "staged_entries": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Index entries in the index tree."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointBytes": {
+      "kind": "object",
+      "fields": {
+        "logical": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Bytes of worktree content the checkpoint holds."
+        },
+        "newly_stored": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Bytes whose content differs from the index: an upper bound on new object storage."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointLimits": {
+      "kind": "object",
+      "fields": {
+        "max_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Newly stored bytes one capture may write; more refuses it with budget_exceeded."
+        },
+        "max_files": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The cap on skipped entries returned, on candidates and on selected untracked files."
+        },
+        "max_untracked_file_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "An untracked file is eligible only when strictly smaller (10000000)."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpoint": {
+      "kind": "object",
+      "fields": {
+        "checkpoint_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "repository_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Daemon-minted; names the repository's common git directory."
+        },
+        "worktree_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Daemon-minted; names the worktree's own git directory."
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "refs/cmux/checkpoints/<worktree_id>/<checkpoint_id>: a local ref, never a branch, stash or HEAD."
+        },
+        "object_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The immutable synthetic commit the ref names. Its tree holds index, worktree and untracked trees and metadata.json."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The record's own revision; pin and unpin advance it."
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when any eligible path was not stored; ignored and credential paths do not count."
+        },
+        "skipped": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointSkip"
+            }
+          },
+          "description": "At most limits.max_files entries."
+        },
+        "skipped_total": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Every skipped path, including those past the cap."
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "RFC 3339, UTC."
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "When an unpinned record becomes eligible for pruning; null while pinned."
+        },
+        "base": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointBase"
+          }
+        },
+        "coverage": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointCoverage"
+          }
+        },
+        "included": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointIncluded"
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointBytes"
+          }
+        },
+        "limits": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointLimits"
+          }
+        },
+        "pins": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointPin"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointCandidate": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root; a folder ends with /."
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Saturates at 4294967295; 0 for a folder."
+        },
+        "eligible": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "reason": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointSkipCode"
+          },
+          "description": "Why an ineligible candidate cannot be selected."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointList": {
+      "kind": "object",
+      "fields": {
+        "repository_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "worktree_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "checkpoints": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpoint"
+            }
+          },
+          "description": "This worktree's checkpoints, newest first."
+        },
+        "next_cursor": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "candidates": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointCandidate"
+            }
+          },
+          "description": "With include_candidates: untracked files and folders, in path order, then at most 200 ignored paths."
+        },
+        "ignored_total": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "With include_candidates: how many ignored paths there are. Ignored paths never count against max_files."
+        },
+        "limits": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointLimits"
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitFileMatch": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to search_root, '/'-separated."
+        },
+        "matches": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "UTF-16 offsets into path of the characters the query matched, ascending, for highlighting."
+        }
+      },
+      "extra": false
+    },
+    "GitFilesSearchResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level, as in every git operation."
+        },
+        "search_root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The folder searched: root or a folder under it. Every result path is relative to search_root, not root."
+        },
+        "results": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitFileMatch"
+            },
+            "max_items": 200
+          },
+          "description": "Best first, at most limit."
+        },
+        "truncated": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "More files matched than limit, or the candidate listing was cut at its size bound."
+        },
+        "total_matches": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many candidates matched, before limit."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointDiffResult": {
+      "kind": "object",
+      "fields": {
+        "from": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The earlier checkpoint."
+        },
+        "to": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The later checkpoint; absent when the working tree was compared."
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when either side left eligible files out (too large, over the file limit), so their changes are missing."
+        },
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level; join it to a file's path."
+        },
+        "head": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The HEAD commit, absent before the first commit."
+        },
+        "files": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitChangedFile"
+            }
+          }
+        },
+        "additions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Across every changed file, including omitted ones."
+        },
+        "deletions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Across every changed file, including omitted ones."
+        },
+        "total_files": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Changed files before max_files."
+        },
+        "files_omitted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "total_files minus the files returned."
+        },
+        "untracked_skipped": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Untracked files left out to keep the read bounded."
+        }
+      },
+      "extra": false
+    },
+    "GitStatusResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "branch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Absent when HEAD is detached."
+        },
+        "detached": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "head": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The HEAD commit, absent before the first commit."
+        },
+        "upstream": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "For example origin/main."
+        },
+        "base": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The branch the branch scope compares with: origin's default branch, else main or master."
+        },
+        "ahead": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Commits ahead of upstream; 0 without one."
+        },
+        "behind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Commits behind upstream; 0 without one."
+        }
+      },
+      "extra": false
+    },
+    "SidebarItemRef": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "built_in, app, workspace, tab, room, saved_group, url; unknown kinds are kept."
+        },
+        "value": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarSectionPatch": {
+      "kind": "object",
+      "fields": {
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Null clears; 1 to 80 Unicode scalars (else invalid_title)."
+        },
+        "look": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "built_in or list; a newer value is kept."
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          },
+          "description": "Null shows the section in every room."
+        },
+        "max_rows": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Null clears; 1 to 50 (else invalid_max_rows)."
+        },
+        "shows_title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "layout": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "list, inline, grid or tiles; a newer value is kept."
+        },
+        "align": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "leading, center, trailing or fill; a newer value is kept."
+        },
+        "gap": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Null clears; 0 to 32 points (else invalid_arrangement)."
+        },
+        "columns": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Null clears; 1 to 12 (else invalid_arrangement)."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionAdd": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.add"
+            ]
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "A section object as the app's SidebarLayoutDocument encodes it: id (sec_...), title?, shows_title?, region (top, middle, bottom; another value is refused because the app decodes it strictly), look (built_in, list), arrangement? {layout (list, inline, grid, tiles), align (leading, center, trailing, fill), gap? 0-32, columns? 1-12}, room?, max_rows? 1-50, content (items, workspaces, app; another value is refused like region), contribution? (<app id>#<section id>, content app), items? [item]. A JSON object rather than a closed type so values and keys from a newer app are stored verbatim (sidebar-sections.md L5); the reducer validates it."
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Among the region's sections; clamped. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionUpdate": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.update"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "patch": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarSectionPatch"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionMove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.move"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "region": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "top",
+              "middle",
+              "bottom"
+            ]
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Excludes the section itself; clamped. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionRemove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.remove"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemAdd": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.add"
+            ]
+          }
+        },
+        "item": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "An item object: id (itm_..., unique across sections and items), ref {kind, value} (kinds built_in, app, workspace, tab, room, saved_group, url; unknown kinds and built-in ids are kept), shows_label? (default true), span? 1-12 (grid columns). A JSON object rather than a closed type so a newer app's keys are stored verbatim (L5); the reducer validates it."
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Clamped; the same ref twice in one section is a no-op. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemMove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.move"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Excludes the item itself; clamped. Any integer; the app sends Int.max to append, so this is not int32."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemRemove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.remove"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemRemoveRef": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.remove_ref"
+            ]
+          }
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarItemRef"
+          },
+          "description": "Every item with this kind and value, in every section."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemUpdate": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.update"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "shows_label": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpReset": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "layout.reset"
+            ]
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOp": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionAdd"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionUpdate"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionMove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionRemove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemAdd"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemMove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemRemove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemRemoveRef"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemUpdate"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpReset"
+        }
+      ],
+      "discriminator": "kind"
+    },
+    "SidebarLayoutSnapshot": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Increases by one per committed change; 0 for the defaults."
+        },
+        "sections": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Section objects in order (regions top, middle, bottom; plans/cmux-next/sidebar-sections.md 4), as SidebarLayoutOpSectionAdd.section describes; stored values and keys come back verbatim."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -6567,6 +8367,40 @@
         "extra": false
       }
     },
+    "home.not_closable": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "workspace_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "The home workspace (workspace-kind-v1). It is never closed."
+          }
+        },
+        "extra": false
+      }
+    },
+    "home.pinned_first": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "workspace_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "The home workspace (workspace-kind-v1). It stays first and ungrouped in the personal order."
+          }
+        },
+        "extra": false
+      }
+    },
     "idempotency.conflict": {
       "retryable": false,
       "details": {
@@ -6713,6 +8547,13 @@
         "extra": false
       }
     },
+    "origin.forbidden": {
+      "retryable": false,
+      "details": {
+        "kind": "ref",
+        "name": "OriginForbiddenDetails"
+      }
+    },
     "resource.not_found": {
       "retryable": false,
       "details": {
@@ -6745,7 +8586,9 @@
                 "workspace_group",
                 "room",
                 "screen_group",
-                "closed"
+                "closed",
+                "window_record",
+                "git_checkpoint"
               ]
             }
           },
@@ -6915,7 +8758,8 @@
                 "workspace_group",
                 "room",
                 "screen_group",
-                "closed"
+                "closed",
+                "window_record"
               ]
             }
           },
@@ -7002,6 +8846,33 @@
         "extra": false
       }
     },
+    "terminal_host.unavailable": {
+      "retryable": true,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "terminal_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          },
+          "reason": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "timeout",
+                "disconnected"
+              ]
+            },
+            "description": "timeout: the terminal host did not answer within the daemon's control deadline. disconnected: the daemon's connection to the host ended before the answer (the host stopped, was replaced, or refused the request by closing the connection)."
+          }
+        },
+        "extra": false
+      }
+    },
     "transport.closed": {
       "retryable": true,
       "details": {
@@ -7083,6 +8954,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -7158,6 +9030,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -7213,6 +9086,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -7293,6 +9167,7 @@
         "cursor.gap",
         "cursor.invalid",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -7349,6 +9224,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -7405,6 +9281,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -7461,6 +9338,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -7500,6 +9378,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -7585,6 +9464,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -7699,6 +9579,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -7762,6 +9643,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -7858,6 +9740,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -7899,6 +9782,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -7962,6 +9846,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8018,6 +9903,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8067,6 +9953,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8132,6 +10019,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8180,6 +10068,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8210,6 +10099,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8240,6 +10130,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8271,6 +10162,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8292,6 +10184,20 @@
           "client": "required"
         },
         "fields": {
+          "capabilities": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "max_items": 64
+            },
+            "description": "Additive capabilities of the requesting connection, as in raw set-client-info (for example conversation-tabs-v1). Only the requesting connection may declare them."
+          },
           "name": {
             "required": false,
             "type": {
@@ -8328,6 +10234,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8363,6 +10270,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8415,6 +10323,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8436,7 +10345,29 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "window": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 257
+            },
+            "description": "The caller's window record id (`install_id/window_id`). Scopes the groups to that window and to groups no live window owns."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "default": 100,
+            "description": "Newest groups to return."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -8448,6 +10379,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -8470,11 +10402,35 @@
         },
         "fields": {
           "closed": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "ref",
               "name": "StateId"
-            }
+            },
+            "description": "The group to reopen. Omit to reopen the newest group of `window`, else the newest group no live window owns."
+          },
+          "window": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 257
+            },
+            "description": "The caller's window record id (`install_id/window_id`). Scopes the groups to that window and to groups no live window owns."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "uint32"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Indexes into the group's `members` to reopen. Omit to reopen every member; the rest stay in the group."
           },
           "expected_revision": {
             "required": false,
@@ -8487,7 +10443,8 @@
         },
         "extra": false,
         "constraints": [
-          "A tab reopens in its pane when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
+          "One close gesture is one group; reopen restores its members in order.",
+          "A tab reopens in its pane at its old index when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
         ]
       },
       "result": {
@@ -8503,12 +10460,117 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
         "validation.invalid"
+      ]
+    },
+    "column.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "required"
+        },
+        "fields": {
+          "column": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "split"
+            },
+            "description": "The column's stable id, its column_id in the screen's layout document."
+          },
+          "dock": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true pins the column to edge; false unpins it. Omit to leave the flag unchanged."
+          },
+          "edge": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "left",
+                "right",
+                "top",
+                "bottom"
+              ]
+            },
+            "description": "Viewport edge for dock:true. Default right. top and bottom are the edge docks of edge-docks-v1."
+          },
+          "mode": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "docked",
+                "overlay"
+              ]
+            },
+            "description": "Presentation for dock:true. Default docked."
+          },
+          "width": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "float64"
+            },
+            "description": "Column width as a fraction of the viewport. Omit to leave the width unchanged."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ScreenSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "At least one of dock or width is required. edge and mode require the dock field and apply only when dock is true.",
+        "width is finite, at least 0.1, and at most 1.",
+        "A screen keeps at most one docked column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
+        "The layout document of the resulting ScreenSnapshot does not carry dock flags; the JSON-lines Screen.columns[].dock does."
       ]
     },
     "frontend_projection.get": {
@@ -8534,6 +10596,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8613,10 +10676,821 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "git.checkpoint.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "expected_repository_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Refuse with repository_changed when the target now names another repository."
+          },
+          "expected_worktree_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Refuse with repository_changed when the target now names another worktree."
+          },
+          "include_untracked": {
+            "required": false,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "max_items": 5000
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "eligible"
+                  ]
+                }
+              ],
+              "constraints": [
+                "Exactly one variant is sent; absent means []."
+              ]
+            },
+            "description": "Untracked files to store, relative to the root, or eligible for every eligible candidate. An eligible file left out is skipped as not_selected."
+          },
+          "exclude_paths": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "max_items": 256
+            },
+            "description": "Files or folders, relative to the root, left out of every tree; they are skipped as excluded."
+          },
+          "reason": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "manual",
+                "handoff",
+                "turn"
+              ]
+            },
+            "default": "manual"
+          },
+          "limits": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "max_bytes": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "uint32",
+                    "minimum": 1,
+                    "maximum": 1073741824
+                  },
+                  "description": "Default 134217728."
+                },
+                "max_files": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "uint32",
+                    "minimum": 1,
+                    "maximum": 5000
+                  },
+                  "description": "Default 1000."
+                }
+              },
+              "extra": false
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpoint"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Capture never changes HEAD, the index or the worktree: trees are built in a temporary index, raw bytes are hashed without filters and hooks never run.",
+        "Unsupported index modes (sparse checkout, split index, unresolved stages, intent-to-add, assume-unchanged, skip-worktree) refuse with unsupported_index.",
+        "A change to HEAD, the index or a captured file during capture refuses with repository_changed; nothing is published.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.diff": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "from": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The earlier checkpoint."
+          },
+          "to": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The later checkpoint; absent compares with the working tree now."
+          },
+          "paths": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Only these files or folders, relative to the root, taken literally."
+          },
+          "include_patch": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Counts and statuses only unless true."
+          },
+          "max_patch_bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 4194304
+            },
+            "default": 262144,
+            "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
+          },
+          "max_files": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "default": 500,
+            "description": "Files returned, in path order; the rest are counted in files_omitted."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitCheckpointDiffResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A checkpoint's files are its worktree files with its stored untracked files over them.",
+        "Without to, the working tree includes untracked, nonignored files (at most 2000; the rest are counted in untracked_skipped); a file untracked at both ends compares by content.",
+        "Reads only: HEAD, the user's index and the worktree never change; tree objects may be written.",
+        "A checkpoint of another worktree, or one pruned, is resource.not_found.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, budget_exceeded, store_failed or git_failed."
+      ]
+    },
+    "git.checkpoint.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "idempotency_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The key a create used: recovers an uncertain reply before a retry."
+          }
+        },
+        "extra": false,
+        "one_of": [
+          {
+            "required": [
+              "checkpoint_id"
+            ],
+            "forbidden": [
+              "idempotency_key"
+            ]
+          },
+          {
+            "required": [
+              "idempotency_key"
+            ],
+            "forbidden": [
+              "checkpoint_id"
+            ]
+          }
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitCheckpoint"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Exactly one of checkpoint_id and idempotency_key.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "next_cursor from the previous page."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "default": 50
+          },
+          "include_candidates": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Also list untracked candidates for selection."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitCheckpointList"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "More untracked, nonignored candidates than limits.max_files refuses with budget_exceeded and extra.candidate_total.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.pin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "pin_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Distinct pin ids commute. Ids beginning handoff: or restore: are managed."
+          },
+          "reason": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpoint"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A pinned record is never pruned.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.unpin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "pin_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Distinct pin ids commute. Ids beginning handoff: or restore: are managed."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpoint"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A managed pin (handoff: or restore:) refuses with managed_pin. Unpin never deletes a checkpoint.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.diff": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "scope": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GitDiffScope"
+            },
+            "description": "uncommitted: the working tree against HEAD, with untracked files. unstaged: the working tree against the index, with untracked files. staged: the index against HEAD. committed: HEAD against its first parent. branch: the working tree against the merge base with the base branch, with untracked files."
+          },
+          "paths": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Only these files or folders, relative to the root, taken literally."
+          },
+          "include_patch": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Counts and statuses only unless true."
+          },
+          "max_patch_bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 4194304
+            },
+            "default": 262144,
+            "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
+          },
+          "max_files": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "default": 500,
+            "description": "Files returned, in path order; the rest are counted in files_omitted."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitDiffResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "git.files.search": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a folder inside a repository; only files under it are searched. A file path searches the folder it is in. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
+          },
+          "query": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 256
+            },
+            "description": "Matched case-insensitively as a subsequence of each file's path; whitespace is ignored. At most 256 bytes of UTF-8. An empty query returns no results."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "default": 50
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitFilesSearchResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Candidates are tracked files still in the working tree and untracked files no ignore rule hides, under the searched folder.",
+        "Results are best first: matches in the file name, at word starts and in runs rank higher, then shorter paths, then path order.",
+        "Submodules are folders and never results. Paths over 1024 characters are listed by git but not ranked. A search that would fill more than its scoring budget ranks part of the candidates and sets truncated.",
+        "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
+      ]
+    },
+    "git.status": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitStatusResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
         "validation.invalid"
       ]
     },
@@ -8638,6 +11512,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8663,6 +11538,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "validation.invalid"
       ]
     },
@@ -8726,6 +11602,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8779,6 +11656,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8866,6 +11744,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8910,10 +11789,76 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
         "validation.invalid"
+      ]
+    },
+    "origin.confirmation.issue": {
+      "class": "connection_control",
+      "idempotency": "forbidden",
+      "target": "client",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "operation": {
+            "required": true,
+            "description": "The cmux.protocol/2 operation the token confirms, exactly as the relay sends it.",
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "params_sha256": {
+            "required": true,
+            "description": "64 lowercase hex digits: SHA-256 of the exact request params in canonical JSON (object keys sorted by code point at every depth, no whitespace, UTF-8, no escaping of / or non-ASCII). The digest is over serde_json's compact re-serialization of the received params; a client must hash the exact encoding it sends. Floats whose shortest form differs between encoders (for example exponent notation) make the digest differ, and the claim fails closed with origin.forbidden; confirmed page operations carry integer params.",
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            }
+          },
+          "relay_connection_id": {
+            "required": true,
+            "description": "The page relay connection's connection_id from its client-hello.",
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "OriginConfirmation"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only a verified cmux app connection (client-hello role main plus a proof) may call it; every other connection gets origin.forbidden. No connection is verified before peer verification ships, so until then it is refused everywhere.",
+        "A page relay connection may never call it.",
+        "relay_connection_id must name a live page relay connection of the same peer as the caller (peer key install:<id> when proven, else token:<pid>.<pid version>).",
+        "The token is 32 random bytes in base64url without padding, valid for 60 seconds of monotonic time (a wall clock step neither extends nor cuts it; expires_at is wall-clock time for display only) and single use: the relay presents it once as origin {claim: user, confirmation: <token>} on a request with exactly this operation and params; any other presentation consumes it and is refused.",
+        "The token is a host-to-daemon value; page JavaScript never sees it."
       ]
     },
     "pairing_request.list": {
@@ -8941,6 +11886,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8996,6 +11942,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9044,9 +11991,11 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9135,6 +12084,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9186,6 +12136,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9249,6 +12200,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9284,6 +12236,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9320,6 +12273,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9367,6 +12321,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9428,6 +12383,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9578,6 +12534,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9699,6 +12656,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9767,6 +12725,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9839,6 +12798,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9898,6 +12858,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9956,6 +12917,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9991,6 +12953,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "transport.closed",
         "validation.invalid"
       ],
@@ -10074,6 +13037,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10138,6 +13102,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10205,6 +13170,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10238,6 +13204,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -10297,6 +13264,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10354,6 +13322,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10401,6 +13370,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10514,6 +13484,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10567,6 +13538,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10608,6 +13580,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -10668,6 +13641,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10732,6 +13706,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -10779,9 +13754,11 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -10850,6 +13827,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -10899,6 +13877,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -10932,6 +13911,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -10964,6 +13944,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11032,6 +14013,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11075,6 +14057,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11131,6 +14114,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -11192,6 +14176,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11272,6 +14257,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -11338,6 +14324,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -11411,6 +14398,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -11449,6 +14437,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -11482,6 +14471,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -11543,6 +14533,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -11596,6 +14587,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -11673,6 +14665,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -11712,6 +14705,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11768,6 +14762,7 @@
         "cursor.gap",
         "cursor.invalid",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11796,6 +14791,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11819,6 +14815,7 @@
         "idempotency.conflict",
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11836,7 +14833,7 @@
         "extra": false
       },
       "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalCheckpointCreateResult"}]},
-      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.checkpoint.list": {
       "class": "read",
@@ -11849,7 +14846,7 @@
         "extra": false
       },
       "result": {"kind": "ref", "name": "JournalCheckpointListResult"},
-      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.hook.list": {
       "class": "read",
@@ -11865,6 +14862,7 @@
       "errors": [
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11888,6 +14886,7 @@
         "idempotency.conflict",
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11908,6 +14907,7 @@
       "errors": [
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11931,6 +14931,7 @@
         "idempotency.conflict",
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11950,7 +14951,7 @@
         "extra": false
       },
       "result": {"kind": "ref", "name": "JournalRestorePreview"},
-      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.segment.list": {
       "class": "read",
@@ -11963,7 +14964,7 @@
         "extra": false
       },
       "result": {"kind": "ref", "name": "JournalSegmentListResult"},
-      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.segment.seal": {
       "class": "mutation",
@@ -11978,7 +14979,7 @@
         "extra": false
       },
       "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalSegmentSealResult"}]},
-      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.subscribe": {
       "class": "stream_open",
@@ -12062,6 +15063,7 @@
         "cursor.invalid",
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -12092,6 +15094,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -12136,6 +15139,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12164,6 +15168,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -12208,6 +15213,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12267,6 +15273,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12295,6 +15302,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -12438,6 +15446,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12483,6 +15492,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12535,7 +15545,89 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar_layout.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SidebarLayoutSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar_layout.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "op": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "SidebarLayoutOp"
+            },
+            "description": "One layout op of the app's reducer, tagged by kind."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A rejected op is validation.invalid whose message is the reducer's reason (workspaces_required, unknown_section, unknown_item, duplicate_id, duplicate_ref, invalid_title, invalid_max_rows, invalid_arrangement, invalid_contribution, items_not_allowed, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same layout revision.",
+          "The op is at most 64 KiB and the stored layout at most 1 MiB."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarLayoutSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -12587,6 +15679,7 @@
         "cursor.gap",
         "cursor.invalid",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -12657,6 +15750,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12687,6 +15781,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -12740,6 +15835,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12787,6 +15883,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12849,6 +15946,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12879,6 +15977,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -12932,9 +16031,11 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13034,6 +16135,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13132,6 +16234,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13185,6 +16288,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13222,6 +16326,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -13260,6 +16365,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -13340,6 +16446,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13396,6 +16503,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13489,6 +16597,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13542,6 +16651,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13607,6 +16717,27 @@
             },
             "description": "A browser tab's forward URLs, nearest first."
           },
+          "owner": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Install id of the app that hosts a frontend-rendered browser tab, stored on its browser record and shown as the tab's extra.owner. Only that app sends it; the CLI never does. Not authenticated yet."
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The tab's user icon: an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the tab's extra.icon on every client."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -13618,7 +16749,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one field is present. back and forward apply only to browser tabs."
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon applies to every tab kind."
         ]
       },
       "result": {
@@ -13634,6 +16765,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13708,6 +16840,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13764,6 +16897,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13841,6 +16975,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13879,6 +17014,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -13920,6 +17056,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -13988,6 +17125,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -14050,6 +17188,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -14103,6 +17242,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -14180,6 +17320,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -14268,6 +17409,7 @@
         "cursor.gap",
         "cursor.invalid",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14321,9 +17463,11 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14376,6 +17520,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14414,6 +17559,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14469,6 +17615,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14534,6 +17681,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14596,6 +17744,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14663,6 +17812,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14779,6 +17929,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14870,6 +18021,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14911,6 +18063,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14993,6 +18146,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15052,6 +18206,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15097,6 +18252,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15187,6 +18343,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15237,15 +18394,18 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "terminal_host.unavailable",
         "transport.closed",
         "validation.invalid"
       ],
       "constraints": [
         "The returned token is a connection-bound, one-use renderer capability and expires after ttl_ms.",
+        "A terminal host that does not answer the mint fails it with retryable terminal_host.unavailable; the message keeps the root cause.",
         "SDK Debug, toString, exception, and log rendering redacts the token."
       ]
     },
@@ -15280,6 +18440,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15318,6 +18479,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15366,6 +18528,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15431,6 +18594,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15499,6 +18663,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15554,6 +18719,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15605,6 +18771,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15616,6 +18783,244 @@
         "A timeout returns the pending result variant and is not an error.",
         "The exited result is reconnect-safe and uses the terminal registry's durable exit record.",
         "Explicit terminal.close wakes active waiters with terminal.closed; detaching the last view does not settle them."
+      ]
+    },
+    "window_record.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "window_record",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "install_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "window_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The record's own revision (0 = the record must not exist). Omit for no precondition. A mismatch is revision.conflict and writes nothing."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WindowRecordDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "window_record.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "window_record",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "WindowRecordSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "window_record.put": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "window_record",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "install_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The putting app's install id; the record's owner. Not authenticated yet: the daemon trusts it."
+          },
+          "window_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "record": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "A JSON object of at most 64 KiB; replaces the stored record."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The record's own revision (0 = the record must not exist). Omit for no precondition. A mismatch is revision.conflict and writes nothing."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "install_id and window_id are 1 to 128 ASCII letters, digits, '-', '_', '.' or ':'; install_unadopted is reserved.",
+          "The first put of a window_id held by install_unadopted adopts that record: expected_revision is compared with the unadopted record's revision (list first), its revision continues, and the batch deletes the unadopted record."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WindowRecordSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.agent_folder.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The folder new agent chats of the workspace start in: an absolute path of an existing directory in canonical form (no symlink, no . or .. step, no trailing slash), at most 4096 bytes. null clears it."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only origin user (a verified cmux app connection, gate A2) may send it; the app sends it after a real user gesture. Any other origin is refused with origin.forbidden before the request is parsed. The result and every later workspace snapshot carry extra.agent_folder until it is cleared (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
       ]
     },
     "workspace.close": {
@@ -15655,9 +19060,11 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15744,7 +19151,47 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.ensure_home": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "The hosting app sends it on every connect when the server advertises workspace-kind-v1. The store creates the one home workspace (extra.kind home) on the first call, places it first and ungrouped in the personal order, and replays it after that. The idempotency key does not select the home: every call names the same workspace. workspace.create never accepts kind."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CreatedWorkspaceOnly"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15790,6 +19237,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15820,6 +19268,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15873,6 +19322,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15893,7 +19343,20 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "order": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "session",
+                "personal"
+              ]
+            },
+            "default": "session",
+            "description": "personal-mixed-order-v1. session: the session's workspace order. personal: the personal sidebar order (loose workspaces, and each group's members at the group's place), then this session's workspaces without a personal row in session order."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -15905,6 +19368,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15957,6 +19421,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -16023,8 +19488,10 @@
         ]
       },
       "errors": [
+        "home.pinned_first",
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16058,6 +19525,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -16112,6 +19580,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -16257,6 +19726,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -16342,6 +19812,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16425,6 +19896,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16478,6 +19950,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16520,6 +19993,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -16580,6 +20054,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16642,6 +20117,36 @@
             },
             "description": "Moves the group and pins its workspaces to this room."
           },
+          "top_index": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "uint32"
+              }
+            },
+            "description": "personal-mixed-order-v1: the group's place among the loose workspaces, as the index (workspace.placement.list index) of the personal workspace it shows right before; the count or more puts it after every workspace. null puts it after every loose workspace (the order before mixed order). A group shows before a loose workspace at the same place."
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the group's icon on every client."
+          },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "workspace-group-pin-v1: true pins (saves) the group, false unpins it."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -16653,7 +20158,8 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, collapsed, or room is present."
+          "At least one of name, color, collapsed, room, top_index, icon, or pinned is present.",
+          "A top_index at or before the home workspace's index is refused with home.pinned_first."
         ]
       },
       "result": {
@@ -16667,8 +20173,10 @@
         ]
       },
       "errors": [
+        "home.pinned_first",
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16745,6 +20253,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16792,6 +20301,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16837,6 +20347,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -16883,6 +20394,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16950,6 +20462,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -17007,6 +20520,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -17040,6 +20554,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -17121,6 +20636,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",

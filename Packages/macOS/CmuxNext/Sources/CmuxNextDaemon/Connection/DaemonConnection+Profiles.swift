@@ -5,10 +5,10 @@ public import Foundation
 /// `missingCapabilities` on a daemon without it instead of sending a
 /// command it would reject.
 extension DaemonConnection {
-    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.profiles) == true }
+    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.shared.profiles) == true }
 
     private func requireProfiles() throws {
-        guard supportsProfiles else { throw DaemonError.missingCapabilities([DaemonCapabilities.profiles]) }
+        guard supportsProfiles else { throw DaemonError.missingCapabilities([DaemonCapabilities.shared.profiles]) }
     }
 
     public func listPersonal() async throws -> PersonalState {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 /// One tab, drawn entirely with CALayers inside the strip's single view (no
@@ -13,11 +14,14 @@ final class TabCell {
     let accessibility = TabAccessibilityElement()
 
     private(set) var item: TabItem
-    var isSelected = false { didSet { if oldValue != isSelected { stateChanged() } } }
+    /// Instant (L4): the content switches in one frame, so the highlight does too.
+    var isSelected = false { didSet { if oldValue != isSelected { stateChanged(animated: false) } } }
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
+    /// Hover may start the title marquee (off while a drag or rename runs).
+    var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
     var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
     var style: TabStripStyle = .chrome { didSet { if oldValue != style { layoutLayers() } } }
     var metrics: TabStripMetrics = .standard {
@@ -27,9 +31,10 @@ final class TabCell {
             updateColors(animated: false)
         }
     }
-    /// The strip's effective appearance; colors resolve against it.
-    var appearance = NSAppearance.currentDrawing() {
-        didSet { if oldValue !== appearance { updateColors(animated: false) } }
+    /// The strip's theme scope; colors resolve against it. The strip sets it
+    /// again on every theme change, so each assignment re-applies colors.
+    var themeScope: ThemeScope = .app {
+        didSet { updateColors(animated: false) }
     }
     /// Backing scale of the strip's window. Starts at 1 to match a new
     /// layer's `contentsScale`, so the first real assignment (2 on Retina)
@@ -37,7 +42,8 @@ final class TabCell {
     var scale: CGFloat = 1 {
         didSet {
             guard oldValue != scale else { return }
-            for sublayer in [titleLayer, iconLayer, spinnerLayer, closeGlyphLayer, machineLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
+            for sublayer in [titleLayer, iconLayer, closeGlyphLayer, machineLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
+            spinnerLayer?.contentsScale = scale
             updateColors(animated: false)
             layoutLayers()
         }
@@ -53,21 +59,27 @@ final class TabCell {
     }
 
     var bounds: CGRect { CGRect(origin: .zero, size: layer.bounds.size) }
+    /// The tab's rounded pill (its background) in this cell's coordinates.
+    var pillFrameInCell: CGRect { backgroundLayer.frame }
 
     private let backgroundLayer = CALayer()
     let iconLayer = CALayer()
     let titleLayer = ChromeTextLayer()
-    private let titleMask = CAGradientLayer()
+    /// Fades the clipped title and runs its hover marquee (one mask layer,
+    /// present only while the title is clipped).
+    private(set) lazy var titleFade = TitleFade(textLayer: titleLayer)
     private let separatorLayer = CALayer()
     // Created on first need and removed when unused, so 100 idle tabs cost
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
-    var spinnerLayer: CAShapeLayer?
+    var spinnerLayer: StatusIndicatorLayer?
     var badgeLayer: CALayer?
     var closeBackgroundLayer: CALayer?
     var closeGlyphLayer: CAShapeLayer?
     /// The machine badge, created while the item names a remote machine.
     var machineLayer: ChromeTextLayer?
+    var themeBadgeLayer: CALayer?
+    var profileLayer: CALayer? // browser profile dot (TabCell+ProfileBadge)
 
     var hasSpinnerLayer: Bool { spinnerLayer != nil }
     var hasBadgeLayer: Bool { badgeLayer != nil }
@@ -112,11 +124,6 @@ final class TabCell {
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        titleMask.startPoint = CGPoint(x: 0, y: 0.5)
-        titleMask.endPoint = CGPoint(x: 1, y: 0.5)
-        // Opaque, fading out, clear to the end (the x can sit over the end).
-        titleMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor, NSColor.clear.cgColor]
-        titleMask.actions = Self.noActions
         separatorLayer.opacity = 0
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
@@ -124,7 +131,8 @@ final class TabCell {
         }
         // Fills fade; geometry never implicitly animates.
         backgroundLayer.actions = ["backgroundColor": Self.fade, "shadowOpacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
-        separatorLayer.actions = ["opacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
+        // Separators switch at once (Chrome): no fade lag behind hover.
+        separatorLayer.actions = ["opacity": NSNull(), "bounds": NSNull(), "position": NSNull()]
     }
 
     static let noActions: [String: any CAAction] = [
@@ -141,8 +149,12 @@ final class TabCell {
             measuredTitle = nil
             titleLayer.string = displayTitle
         }
-        if previous?.isBusy != item.isBusy { updateSpinner() }
+        if previous?.indicator != item.indicator || previous?.busyStyle != item.busyStyle {
+            updateSpinner()
+        }
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
+        if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
+        if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         updateColors(animated: false)
         updateAccessibility()
         layoutLayers()
@@ -152,37 +164,35 @@ final class TabCell {
         item.title.isEmpty ? Strings.untitled : item.title
     }
 
-    private func stateChanged() {
-        updateColors(animated: true)
+    private func stateChanged(animated: Bool = true) {
+        updateColors(animated: animated)
         updateAccessibility()
         // Hover shows or hides the x: its fade and the title's fade under
         // it animate (Motion `hover`); nothing moves.
-        animatesCloseChange = true
+        animatesCloseChange = animated
         layoutLayers()
         animatesCloseChange = false
+        updateMarquee()
+    }
+
+    /// The pointer resting on a clipped title scrolls it after the hover
+    /// delay; leaving stops it at once (TitleFade, Motion `MotionMarquee`).
+    private func updateMarquee() {
+        if isHovered, allowsMarquee, !isLifted, visibility.showsTitle {
+            titleFade.startMarquee()
+        } else {
+            titleFade.stopMarquee()
+        }
     }
 
     private func updateLift() {
-        backgroundLayer.shadowColor = Palette.shadow.cgColor
+        themeScope.perform { backgroundLayer.shadowColor = Palette.shadow.cgColor }
         backgroundLayer.shadowRadius = Metrics.space3
         backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         backgroundLayer.shadowOpacity = isLifted ? 0.22 : 0
         layer.zPosition = isLifted ? 10 : 0
+        if isLifted { titleFade.stopMarquee(animated: false) }
         updateColors(animated: true)
-    }
-
-    private func updateSpinner() {
-        let key = "spin"
-        if item.isBusy {
-            let spinnerLayer = makeSpinner()
-            if spinnerLayer.animation(forKey: key) == nil, let spin = Motion.spinAnimation() {
-                spinnerLayer.add(spin, forKey: key)
-            }
-        } else {
-            spinnerLayer?.removeFromSuperlayer()
-            spinnerLayer = nil
-        }
-        layoutLayers()
     }
 
     func updateColors(animated: Bool) {
@@ -190,7 +200,8 @@ final class TabCell {
     }
 
     private func applyColors() {
-        appearance.performAsCurrentDrawingAppearance {
+        themeScope.perform {
+            backgroundLayer.shadowColor = Palette.shadow.cgColor
             let fill: NSColor? = (isSelected || isLifted) ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted {
@@ -200,7 +211,8 @@ final class TabCell {
             let text = isSelected ? Palette.textPrimary : item.isDormant ? Palette.textTertiary : Palette.textSecondary
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
-            spinnerLayer?.strokeColor = Palette.textSecondary.cgColor
+            applyProfileDotColors()
+            spinnerLayer?.colors = .current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             separatorLayer.backgroundColor = Palette.separator.cgColor
             iconLayer.contents = iconImage(tint: item.tint?.swatch ?? text)
         }
@@ -208,31 +220,13 @@ final class TabCell {
         applyBadgeColor()
     }
 
+    /// theme-scoped: resolved by callers inside `themeScope.perform`.
     var badgeColor: NSColor? {
         switch item.status {
         case .needsInput: return Palette.attention
         case .success: return Palette.success
         case .failure: return Palette.danger
         case .none: return item.isUnread ? Palette.textPrimary : nil
-        }
-    }
-
-    private func iconImage(tint: NSColor) -> CGImage? {
-        switch item.icon {
-        case .none:
-            // A colored tab with no icon shows its color as a dot.
-            guard item.tint != nil else { return nil }
-            return TabSymbolCache.shared.image(named: "circle.fill", tint: tint, pointSize: Metrics.smallIconSize * 0.6,
-                                               size: metrics.iconSize, scale: scale)
-        case .image(let image): return image.cgImage
-        case .symbol(let name):
-            return TabSymbolCache.shared.image(
-                named: name,
-                tint: tint,
-                pointSize: Metrics.smallIconSize,
-                size: metrics.iconSize,
-                scale: scale
-            )
         }
     }
 
@@ -244,10 +238,13 @@ final class TabCell {
     }
 
     func layoutLayers() {
-        let bounds = bounds
+        let slot = bounds
         let m = metrics
+        // The pill leaves the gap to the next tab at its trailing side (the
+        // first pill starts on the border's line); content lays out in it.
+        let bounds = m.pillFrame(slotWidth: slot.width, height: slot.height)
         visibility = TabChromeVisibility.resolve(
-            width: bounds.width,
+            width: slot.width,
             isPinned: item.isPinned,
             isSelected: isSelected,
             isHovered: isHovered,
@@ -259,11 +256,12 @@ final class TabCell {
         defer { CATransaction.commit() }
 
         let hairline = 1 / scale
-        backgroundLayer.frame = bounds.insetBy(dx: m.tabBackgroundInset, dy: 0)
+        backgroundLayer.frame = bounds
         backgroundLayer.cornerRadius = m.cornerRadius
+        // The separator sits in the middle of the gap after the pill.
         separatorLayer.frame = CGRect(
-            x: pixel(bounds.width) - hairline,
-            y: pixel((bounds.height - m.separatorHeight) / 2),
+            x: pixel(bounds.maxX + (slot.width - bounds.maxX - hairline) / 2),
+            y: pixel((slot.height - m.separatorHeight) / 2),
             width: hairline,
             height: m.separatorHeight
         )
@@ -285,18 +283,22 @@ final class TabCell {
                 : (bounds.width - iconSide) / 2
         }
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
-        let showsIconArt = visibility.showsIcon && !item.isBusy
+        // A working agent keeps its brand mark, with the spinner as a small badge on it.
+        let spinnerBadgesMark = spinnerLayer != nil && { if case .agentMark = item.icon { true } else { false } }()
+        let showsIconArt = visibility.showsIcon && (spinnerLayer == nil || spinnerBadgesMark)
         iconLayer.frame = iconFrame
+        layoutThemeBadge(iconFrame: iconFrame, visible: visibility.showsIcon)
         // A hibernated page's icon is dimmed until it is selected.
         iconLayer.opacity = showsIconArt ? (item.isDormant && !isSelected ? 0.55 : 1) : 0
         if let spinnerLayer {
-            spinnerLayer.opacity = visibility.showsIcon ? 1 : 0
-            let spinnerRect = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
-            if spinnerLayer.bounds.size != spinnerRect.size {
-                spinnerLayer.bounds = CGRect(origin: .zero, size: spinnerRect.size)
-                spinnerLayer.path = CGPath(ellipseIn: spinnerLayer.bounds, transform: nil)
+            spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0
+            if spinnerBadgesMark {
+                let side = pixel(iconFrame.width * 0.55)
+                spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
+                                            width: side, height: side)
+            } else {
+                spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
             }
-            spinnerLayer.position = CGPoint(x: spinnerRect.midX, y: spinnerRect.midY)
         }
 
         if visibility.showsIcon, badgeColor != nil {
@@ -341,42 +343,26 @@ final class TabCell {
         if visibility.showsTitle {
             // The title always spans to the trailing inset, so it never moves
             // or resizes when the x appears; the x overlays its end and the
-            // title fades out before it (Chrome, Safari).
+            // title fades out before it.
             let titleX = iconFrame.maxX + m.iconTitleSpacing
-            let width = max(0, bounds.width - m.contentTrailingInset - titleX)
+            let span = max(0, bounds.width - m.contentTrailingInset - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
-            titleLayer.frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: width, height: lineHeight)
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
-            let visible = max(0, layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY) - titleX)
-            applyTitleMask(width: width, visible: min(visible, width))
+            let visibleEnd = layoutProfileBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY)
+            // The marquee fades glyphs out across the icon-title gap.
+            let geometry = TitleFadeGeometry(
+                textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,
+                leadingPadding: m.iconTitleSpacing, trailingPadding: 0, fadeWidth: m.titleFadeWidth
+            )
+            let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
+            titleFade.apply(geometry, frame: frame, animated: animatesCloseChange)
         } else {
+            titleFade.stopMarquee(animated: false)
             titleLayer.opacity = 0
             titleLayer.mask = nil
             machineLayer?.opacity = 0
-        }
-    }
-
-    /// Clipped titles fade out instead of showing an ellipsis: opaque,
-    /// then a fade that ends at `visible` (title coordinates), clear after.
-    private func applyTitleMask(width: CGFloat, visible: CGFloat) {
-        guard width > 0, titleWidth() > visible else {
-            titleLayer.mask = nil
-            return
-        }
-        let fade = min(metrics.titleFadeWidth, max(visible, 1) * 0.5)
-        let end = max(0, visible / width)
-        let start = max(0, (visible - fade) / width)
-        let locations: [NSNumber] = [0, NSNumber(value: Double(start)), NSNumber(value: Double(end)), 1]
-        titleMask.frame = titleLayer.bounds
-        let wasMasked = titleLayer.mask === titleMask
-        titleLayer.mask = titleMask
-        if animatesCloseChange, (titleMask.locations ?? []) != locations {
-            // A title that was not clipped starts fully visible.
-            let from: [NSNumber]? = wasMasked ? nil : [0, 1, 1, 1]
-            Motion.set(titleMask, "locations", to: locations, fade: .hover, from: from)
-        } else {
-            titleMask.locations = locations
+            profileLayer?.opacity = 0
         }
     }
 

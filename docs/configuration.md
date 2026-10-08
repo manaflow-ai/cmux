@@ -124,6 +124,21 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
+## `tabs.cmdWClosesPinnedTabs`
+
+What Cmd-W does on a pinned tab.
+
+```json
+{
+  "tabs": { "cmdWClosesPinnedTabs": true }
+}
+```
+
+- `false` (default): Cmd-W on a pinned tab selects the next tab and keeps the pinned tab, as in Chrome. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
+- `true`: Cmd-W closes a pinned tab like any other tab.
+
+A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.
@@ -183,6 +198,61 @@ agents resume from their saved session exactly as routine Agent Hibernation does
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux settings set terminal.agentHibernation.enabled true`.
 
+## `navigation.history.scope`
+
+What a Go Back / Go Forward step is (the toolbar arrows, Ctrl-- and Ctrl-Shift--, the palette, `cmux history back` / `forward`).
+
+```json
+{
+  "navigation": {
+    "history": { "scope": "workspaces" }
+  }
+}
+```
+
+- `workspaces` (default): a step is a workspace or a top page (Home, the App Store). Focus changes inside a workspace are not steps; going back to a workspace returns to the tab and pane it last had focused.
+- `everything`: every tab, pane and page focus is a step, as in earlier builds.
+
+A web page's own Back and Forward (⌘[ and ⌘] in a browser tab) stay the page's history. Change it in **Settings > General > History** or with `cmux settings set navigation.history.scope everything`.
+
+## `layout.newPanePlacement` and `layout.tileBrowsers`
+
+Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, the strip's +, the palette).
+
+```json
+{
+  "layout": { "newPanePlacement": "split", "tileBrowsers": false }
+}
+```
+
+- `newPanePlacement: "tab"` (default): a new tab in the focused pane.
+- `newPanePlacement: "split"`: a new pane, the same as New Pane (Auto Layout) (Ctrl-Cmd-N). The largest pane on screen splits along its longer side, like Zellij. A docked column never splits. The new terminal starts in the focused terminal's folder.
+- `tileBrowsers` (default `false`): with `split`, new browsers also get their own pane instead of a tab.
+
+The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
+
+## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
+
+How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: every visible top-section item (Home, the App Store, any item you add on top), then the workspace rows in the order the sidebar shows them. Rows inside an expanded group count one by one; a collapsed group is one stop, and going to it shows its first workspace. The Settings and account row at the bottom is not part of the walk.
+
+```json
+{
+  "sidebar": {
+    "numbering": "allItems",
+    "cmd9": "last",
+    "stepping": "allItems",
+    "steppingWraps": true
+  }
+}
+```
+
+- `numbering`: `allItems` counts every item (Home = ⌘1, App Store = ⌘2, the first workspace = ⌘3); `workspacesOnly` numbers only the rows (the first workspace = ⌘1, as in classic cmux). Default: `allItems`.
+- `cmd9`: `last` makes ⌘9 the last item, as in browsers; `ninth` makes it the ninth. Default: `last`.
+- `stepping`: what ⌘⌃] and ⌘⌃[ step through, `allItems` or `workspacesOnly`. Default: `allItems`.
+- `steppingWraps`: past the last item the next one is the first again. Default: `true`.
+
+Change them in **Settings > Appearance > Sidebar** or with `cmux settings set sidebar.numbering workspacesOnly`.
+
 ## `sidebar.showAgentActivity`
 
 Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders.
@@ -223,6 +293,8 @@ The glyph shows the loudest state that applies:
 | --- | --- |
 | An agent reported an error | red warning triangle |
 | An agent needs input | amber dot |
+| An agent is running through subagents | pulsing gray connected-points glyph |
+| An agent is waiting on a background command, a scheduled wakeup or a CI run | gray hourglass |
 | An agent is running | pulsing gray dot, in place of the loading spinner |
 | An agent is starting (no state reported yet) | dashed ring |
 | Unread notifications | blue dot, in place of the unread count badge |
@@ -233,9 +305,11 @@ The glyph shows the loudest state that applies:
 | Branch, no pull request | gray branch glyph |
 | Plain terminal | none; the title starts at the row's edge |
 
+The hourglass only goes up when every running agent in the workspace reported that it is waiting, so a second agent still working keeps the row running.
+
 cmux does not fetch a pull request's checks or mergeability, so an open pull request is gray whatever CI says. A pull request whose state repeated refresh failures could not confirm does not set the glyph at all.
 
-Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `running`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
+Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `subagents`, `running`, `waiting`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
 
 ```json
 {
@@ -273,6 +347,18 @@ Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected wo
 Cmd+Shift+Y creates a workspace on the machine that owns the most recently selected Cloud workspace. If no valid Cloud workspace is remembered, it uses the first machine in the current right-hand Cloud sidebar order, including pins and manual reordering. Cmd+Y opens the New Machine flow to provision a machine deliberately. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
 
 When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Shift+Y), `cmux.newCloudMachine` (Cmd+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
+
+## Search Tabs shortcut
+
+Cmd+Shift+A opens Search Tabs: every tab in every window, workspace, pane and connected machine, with recently closed tabs below. Type to match a tab's title, URL, folder or the agent running in it. Return focuses and reveals the tab (or reopens a closed one), and Cmd+W closes the selected tab, or removes a closed one from the list, without closing the search. Rebind or unbind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["tab.search"]`, for example `"tab.search": "cmd+shift+f"` or `"tab.search": null`. A focused Simulator keeps Cmd+Shift+A for its own Toggle Appearance. Focus TextBox moved to Cmd+Option+A so a terminal does not take the chord.
+
+## `palette.scopes.<scope>.prefix`
+
+The character that enters a built-in command palette scope when you type it into an empty query. Scopes: `tabs` (default `@`), `workspaces` (`#`), `commands` (`>`), `settings` (`,`) and `scopes` (`?`, the list of every scope). The value is one of `@ # > , ? ! / ; : % & + = ~ $ ^ * .`, or `"none"` to turn the prefix off. A prefix you assign moves from the built-in scope that has it by default. A keyword plus Tab (for example `tabs` Tab) enters a scope whatever its prefix.
+
+```json
+{ "palette": { "scopes": { "workspaces": { "prefix": "@" }, "tabs": { "prefix": "%" } } } }
+```
 
 ## `terminal.textBoxSubmitActions`
 
@@ -397,6 +483,34 @@ Opt-in AI auto-naming of workspaces and tabs from agent conversation content. Wh
 
 Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) always win: a workspace or tab you renamed yourself is never auto-named again until you clear its custom name. Enable it from **Settings > Automation > Workspace Auto-Naming**.
 
+## `automation.agentAutoResume`
+
+Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstream error, such as the model being at capacity, an overloaded API, or a lost connection. Retries back off between attempts. When the error says when capacity returns, as Subrouter's `retry after <N>s` does once every pooled account is exhausted, the resume waits at least until then plus 30 seconds to 3 minutes, so machines sharing one pool do not all resume at once. The sidebar's **Auto-resumed ×N** marker clears once the agent finishes a turn on its own. A turn that ended waiting on a human (a question, a permission prompt, or a normal finish) is never resumed.
+
+```json
+{
+  "automation": {
+    "agentAutoResume": false
+  }
+}
+```
+
+Default: `true`. Toggle it from **Settings > Automation > Auto-Resume Agents After Errors** or the command palette.
+
+## `agentMessages.enabled`
+
+The app-wide switch for `cmux agent message`. When `false`, sends fail with "Agent messages are turned off (agentMessages.enabled is false).", nothing is stored, and messages already queued are marked `failed` instead of being delivered. Turning it back on does not resend them.
+
+```json
+{
+  "agentMessages": {
+    "enabled": false
+  }
+}
+```
+
+Default: `true`. Toggle it from **Settings > Automation > Agent Messages**. To turn messages off for one agent or workspace instead, see [Turning messages off](agent-messages.md#turning-messages-off).
+
 ## `diffViewer.defaultLayout`
 
 Controls the initial layout for newly opened diff viewers.
@@ -443,6 +557,15 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
 
+## `mcp.enabled` and agent sessions
+
+Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
+and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+`"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
+To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
+daemon (or in one acpmux profile's `env`). A Claude profile that passes
+`--strict-mcp-config` opts out too and keeps only the MCP servers it names.
+
 ## `agents.launchers`
 
 cmux resolves resume commands for the wrapper launchers it owns (Claude Teams and Codex Teams, started with `cmux agent launch-claude-teams` and `cmux agent launch-codex-teams`). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided (account fallback, quota spreading, request logging) is gone from the restored pane.
@@ -477,3 +600,73 @@ Behavior notes:
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux agent hook install claude`.
+
+## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
+
+The address bar's search engine and suggestions. Settings > Browser > Address Bar
+shows the same keys.
+
+```jsonc
+{
+  "browser": {
+    "searchEngine": "google",
+    "customSearchEngine": {
+      "search": "https://example.com/search?q=%s",
+      "suggest": "https://example.com/suggest?q=%s"
+    },
+    "omnibar": {
+      "remoteSuggestions": true,
+      "inlineAutocomplete": true,
+      "maxRows": 8,
+      "calculator": true
+    }
+  }
+}
+```
+
+- `searchEngine`: `google` (default), `duckduckgo`, `bing`, `brave`, `kagi` or `custom`.
+  Each built-in engine also gives search suggestions.
+- `customSearchEngine.search`: the search address used when `searchEngine` is `custom`.
+  Put `%s` or `{searchTerms}` where the typed text goes. Without one, cmux uses Google.
+- `customSearchEngine.suggest`: optional suggest address that answers in the OpenSearch
+  suggestions format (`["query", ["suggestion", ...]]`), with the same placeholder.
+- `omnibar.remoteSuggestions`: send what you type to the search engine for suggestions.
+  Default: `true`. cmux never sends text that reads as an address, a file path, an IP
+  address, `localhost` or a `host:port`, or text longer than 2,048 characters. Requests
+  start 40 ms after the last keystroke and stop after 800 ms. Private (incognito) windows
+  follow this setting over an ephemeral session that keeps no cookies or cache.
+- `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
+  when the text is the start of the host and you typed that address before or visited it
+  at least 4 times. Default: `true`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
+  parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
+
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
+engine and remote suggestions decide what leaves the Mac, so only you change them.
+
+## `agentPane.editedFiles.*`
+
+The card in an agent chat that lists the files a turn edited, with Undo and View changes.
+Settings > General > Agent Chat shows the same keys.
+
+```jsonc
+{
+  "agentPane": {
+    "editedFiles": {
+      "show": "always",
+      "maxRows": 5,
+      "scope": "turn"
+    }
+  }
+}
+```
+
+- `show`: `always` (default) shows the card with its file rows, `collapsed` shows only the
+  header (its chevron shows the rows), and `never` shows no card (the turn keeps its plain
+  tool rows).
+- `maxRows`: file rows shown before "Show N more", `1` to `50`. Default: `5`.
+- `scope`: `turn` (default) gives each turn its own card; `session` shows one card for the
+  whole chat, at its latest edit.
+
+A value cmux does not know keeps that key's default and is reported as a diagnostic.

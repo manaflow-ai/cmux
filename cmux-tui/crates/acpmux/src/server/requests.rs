@@ -4,11 +4,22 @@ use super::*;
 
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
-fn attach(hub: &Hub, conn: &Conn, id: &str) {
+pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
     if conn.subscribe(id)
         && let Ok(s) = hub.resolve(id)
     {
         hub.attach_count(&s, 1);
+    }
+}
+
+fn resolved_session(
+    hub: &Hub,
+    resolved: Option<&Arc<crate::hub::Session>>,
+    params: &Value,
+) -> Result<Arc<crate::hub::Session>, RpcError> {
+    match resolved {
+        Some(session) => Ok(session.clone()),
+        None => hub.resolve(session_key(params)?),
     }
 }
 
@@ -30,84 +41,34 @@ pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &st
     }
 }
 
-const SESSION_SCOPED_EXCLUDED: &[&str] = &[
-    method::INITIALIZE,
-    method::AUTHENTICATE,
-    method::SESSION_NEW,
-    method::SESSION_LIST,
-    method::MUX_STATUS,
-    method::MUX_SESSIONS,
-    method::MUX_HARNESSES,
-    method::MUX_RELOAD_CONFIG,
-    method::MUX_WATCH,
-    method::MUX_IMPORT,
-    method::MUX_SHUTDOWN,
-    "_acpmux/peers",
-    "_acpmux/models",
-    "_acpmux/peer_add",
-    "_acpmux/peer_remove",
-    "_acpmux/peer_reconnect",
-];
-
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
-    params: Value,
+    mut params: Value,
 ) -> Result<Value, RpcError> {
-    // A session that lives on a peer: forward the whole request there.
-    if !SESSION_SCOPED_EXCLUDED.contains(&m)
-        && let Ok(key) = session_key(&params)
-        && hub.resolve(key).is_err()
-        && let Some((peer, id, _)) = hub.resolve_remote(key)
-    {
-        let mut p = if params.is_null() { json!({}) } else { params.clone() };
-        if let Some(obj) = p.as_object_mut() {
-            obj.remove("session");
-            obj.remove("name");
-            obj.insert("sessionId".into(), Value::String(id.clone()));
-        }
-        if matches!(
-            m,
-            method::MUX_ATTACH
-                | method::SESSION_PROMPT
-                | method::SESSION_LOAD
-                | method::SESSION_RESUME
-                | method::SESSION_FORK
-        ) {
-            if m == method::MUX_ATTACH {
-                let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
-                let event_stream =
-                    params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-                conn.subscribe_with(&id, SubOpts { event_stream, filter });
-            } else {
-                attach(hub, conn, &id);
-            }
-            if peer.mark_attached(&id) && m != method::MUX_ATTACH {
-                let _ =
-                    peer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
-            }
-        }
-        let mut result = peer.request(m, p).await.map_err(|e| {
-                        if e.message.contains("Method not found") {
-                            RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
-                        } else {
-                            e
-                        }
-                    })?;
-        if m == method::SESSION_FORK
-            && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
-        {
-            attach(hub, conn, new_id);
-            peer.mark_attached(new_id);
-        }
-        if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {
-            hub.forget_remote(&id);
-        }
-        if let Some(obj) = result.as_object_mut() {
-            obj.insert("peer".into(), Value::String(peer.name.clone()));
-        }
-        return Ok(result);
+    // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
+    if conn.origin != Origin::Local {
+        super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
+    }
+    let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
+    super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
+    let key = super::session_key(&params).ok().map(str::to_owned);
+    let mut reply = dispatch_request(hub, conn, m, params, resolved).await;
+    super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
+    reply
+}
+
+async fn dispatch_request(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+    resolved: Option<Arc<crate::hub::Session>>,
+) -> Result<Value, RpcError> {
+    // A session that lives on a peer (`peer_forward.rs`).
+    if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
+        return reply;
     }
     match m {
         method::INITIALIZE => {
@@ -123,12 +84,17 @@ pub(super) async fn handle_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "extensions": [
-                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH,
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
+                // `local`: the unix socket or the proven local app
+                // (`local_app.rs`), which the session pool serves.
+                "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
+                "extensions": [
+                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
-                ], "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText"]}}
+                ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -141,10 +107,14 @@ pub(super) async fn handle_request(
                 let peer = hub
                     .peer_by_name(peer_name)
                     .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
+                if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
+                    return Err(super::trust_gate::peer_unsupported(&peer.name));
+                }
                 let mut p = params.clone();
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
                 }
+                super::remote_guard::mark_forwarded(conn.origin, &params, &mut p);
                 let mut result = peer.request(method::SESSION_NEW, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     attach(hub, conn, id);
@@ -155,10 +125,21 @@ pub(super) async fn handle_request(
                 }
                 return Ok(result);
             }
-            let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| {
-                dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
-            });
+            let mut cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
+            // The local app starts a preset by its id only: anything that
+            // would shape the harness command from the request is refused.
+            // LocalApp cwd: any existing directory of this user until the native transport limits it to workspace roots.
+            if conn.origin == Origin::LocalApp {
+                super::local_app::preset_by_id_only(&params, meta)?;
+                if super::local_app::names_preset(&params, meta)
+                    && let Some(given) = &cwd
+                {
+                    cwd = Some(super::local_app::canonical_cwd(given).await?);
+                }
+            }
+            let adopt =
+                crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
             let pick = |key: &str| {
                 meta.and_then(|m| m.get(key))
                     .and_then(Value::as_str)
@@ -176,8 +157,15 @@ pub(super) async fn handle_request(
                 policy,
                 model: pick("model"),
                 effort: pick("effort"),
+                adopt,
+                env: crate::session_env::parse(meta)?,
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
+                remote: conn.origin.web_class(),
             };
             let s = hub.new_session(req).await?;
+            if conn.origin.web_class() {
+                super::remote_guard::settle_web_session_mode(hub, &s).await?;
+            }
             attach(hub, conn, &s.id);
             let meta = s.meta();
             Ok(json!({
@@ -188,7 +176,7 @@ pub(super) async fn handle_request(
             }))
         }
         method::SESSION_LOAD | method::SESSION_RESUME => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
             // Replay history as ACP updates, then answer.
             let events =
@@ -235,7 +223,7 @@ pub(super) async fn handle_request(
             Ok(json!({"sessions": sessions}))
         }
         method::SESSION_PROMPT => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
             let blocks = params
                 .get("prompt")
@@ -271,6 +259,8 @@ pub(super) async fn handle_request(
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),
                 resend,
+                control: super::remote_guard::control_of(conn.origin, &params),
+                trust_gate: super::trust_gate::gated(conn.origin, &params),
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -285,14 +275,15 @@ pub(super) async fn handle_request(
             Ok(json!({}))
         }
         method::SESSION_FORK => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let cwd = str_param(&params, "cwd").map(PathBuf::from);
             let name = mux_meta(&params)
                 .and_then(|m| m.get("name"))
                 .and_then(Value::as_str)
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
-            let new = hub.fork(&s, name, cwd).await?;
+            let env = crate::session_env::parse(mux_meta(&params))?;
+            let new = hub.fork(&s, name, cwd, env).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(
@@ -300,13 +291,13 @@ pub(super) async fn handle_request(
             )
         }
         method::SESSION_SET_MODE => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let mode = str_param(&params, "modeId")
                 .ok_or_else(|| RpcError::invalid_params("modeId is required"))?;
             hub.set_mode(&s, mode).await
         }
         method::SESSION_SET_CONFIG_OPTION => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let id = str_param(&params, "configId")
                 .ok_or_else(|| RpcError::invalid_params("configId is required"))?;
             let value = params
@@ -334,6 +325,35 @@ pub(super) async fn handle_request(
         // ------------------------------------------------ acpmux extensions
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
+        method::MUX_WEB_MODES => hub.web_modes_view(&params),
+        method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
+        method::MUX_WARM => {
+            let requested: Vec<String> = params
+                .get("sessionIds")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+            let limit =
+                params.get("limit").and_then(Value::as_u64).unwrap_or(3).clamp(1, 8) as usize;
+            let warmed = hub.warm_sessions(&requested, limit).await;
+            Ok(json!({"warmed": warmed}))
+        }
+        method::MUX_PREWARM => {
+            let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
+            hub.prewarm(crate::hub::PrewarmRequest {
+                harness: s("harness"),
+                preset: s("preset"),
+                cwd: s("cwd").map(PathBuf::from),
+                wait: params.get("wait").and_then(Value::as_bool) == Some(true),
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
+                remote: conn.origin.web_class(),
+                trust_gate: super::trust_gate::gated(conn.origin, &params),
+            })
+            .await
+        }
         "_acpmux/set_default_policy" => {
             let policy: PermissionPolicy = str_param(&params, "policy")
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
@@ -341,6 +361,7 @@ pub(super) async fn handle_request(
                 .map_err(RpcError::invalid_params)?;
             let mut cfg = hub.config.write().await;
             cfg.permission_policy = policy;
+            hub.permission_defaults_changed();
             cfg.save().map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
             Ok(json!({"policy":policy.to_string()}))
         }
@@ -384,14 +405,10 @@ pub(super) async fn handle_request(
             }
             Ok(cat)
         }
+        crate::catalog::RPC_GET => Ok(hub.catalog.get()),
+        crate::catalog::RPC_REFRESH => Ok(hub.catalog.refresh(false).await),
         "_acpmux/peer_add" => {
-            let name = str_param(&params, "name")
-                .ok_or_else(|| RpcError::invalid_params("name is required"))?;
-            let url = str_param(&params, "url")
-                .ok_or_else(|| RpcError::invalid_params("url is required"))?;
-            let token = str_param(&params, "token").map(str::to_owned);
-            let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
-            hub.add_peer(name, url, token, wait).await?;
+            hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))
         }
         "_acpmux/peer_reconnect" => {
@@ -407,27 +424,7 @@ pub(super) async fn handle_request(
             hub.remove_peer(name).await?;
             Ok(json!({"peers": hub.peers()}))
         }
-        method::MUX_HARNESSES => {
-            let cfg = hub.config.read().await;
-            let mut agents = serde_json::Map::new();
-            for (name, p) in &cfg.harnesses {
-                let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
-                if let Some(o) = v.as_object_mut() {
-                    o.insert("family".into(), json!(crate::config::derive_family(name, p)));
-                    if let Some(r) = cfg.unavailable.get(name) {
-                        o.insert("unavailable".into(), json!(r));
-                    }
-                    let d = cfg.defaults_for(name);
-                    if !d.is_empty() {
-                        o.insert("defaults".into(), json!(d));
-                    }
-                }
-                agents.insert(name.clone(), v);
-            }
-            Ok(
-                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets}),
-            )
-        }
+        method::MUX_HARNESSES => hub.harnesses_reply(&params, conn.origin.web_class()).await,
         method::MUX_RELOAD_CONFIG => hub.reload_catalog().await,
         // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
         method::MUX_DEFAULTS => {
@@ -513,7 +510,7 @@ pub(super) async fn handle_request(
                 None => Ok(json!({"families": resolved, "defaults": cfg.defaults})),
             }
         }
-        // Read or change presets: {name?, set?: {harness, model, effort, policy, env}, clear?: bool}.
+        // Read or change presets: {name?, set?: {harness, model, effort, policy, env, args}, clear?: bool}.
         method::MUX_PRESETS => {
             let name = str_param(&params, "name").map(str::to_owned);
             let set = params.get("set").filter(|v| v.is_object());
@@ -523,8 +520,33 @@ pub(super) async fn handle_request(
                     RpcError::invalid_params("name is required to change a preset")
                 })?;
                 let mut cfg = hub.config.write().await;
+                // REMOTE-FLOOR v3: a remote-origin client builds its settings
+                // from scratch, so it never sets, changes or clears a preset
+                // that shapes the harness command line (args, systemPrompt).
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
+                let remote = conn.origin != Origin::Local;
+                if remote
+                    && (cfg.presets.get(&name).is_some_and(|p| p.shapes_command())
+                        || set.is_some_and(|s| {
+                            ["args", "systemPrompt"]
+                                .iter()
+                                .any(|k| s.get(*k).is_some_and(|v| !v.is_null()))
+                        }))
+                {
+                    return Err(RpcError::invalid_params(format!(
+                        "preset {name:?}: args and systemPrompt are set only over the local socket; a remote-origin connection builds its settings from scratch"
+                    )));
+                }
+                let presets_dir = cfg.presets_dir();
+                // The new system prompt text, written once the set is valid.
+                let mut new_prompt: Option<Option<String>> = None;
                 if clear {
                     cfg.presets.remove(&name);
+                    if let Some(dir) = &presets_dir {
+                        crate::config::remove_preset_dir(dir, &name).map_err(|e| {
+                            RpcError::internal(format!("remove preset directory: {e}"))
+                        })?;
+                    }
                 } else if let Some(set) = set {
                     let obj = set.as_object().unwrap();
                     let mut merged = cfg.presets.get(&name).cloned();
@@ -543,6 +565,8 @@ pub(super) async fn handle_request(
                         effort: None,
                         policy: None,
                         env: std::collections::BTreeMap::new(),
+                        args: Vec::new(),
+                        system_prompt_sha256: None,
                         description: None,
                     });
                     p.harness = harness;
@@ -562,6 +586,20 @@ pub(super) async fn handle_request(
                             }
                             ("description", Value::Null) => p.description = None,
                             ("description", Value::String(d)) => p.description = Some(d.clone()),
+                            ("systemPrompt", Value::Null) => new_prompt = Some(None),
+                            ("systemPrompt", Value::String(text)) => {
+                                new_prompt = Some(Some(text.clone()))
+                            }
+                            ("systemPrompt", _) => {
+                                return Err(RpcError::invalid_params(
+                                    "systemPrompt must be the prompt's text (a string) or null",
+                                ));
+                            }
+                            ("args", Value::Null) => p.args.clear(),
+                            ("args", v) => {
+                                p.args = crate::config::parse_preset_args(v)
+                                    .map_err(RpcError::invalid_params)?
+                            }
                             ("env", Value::Null) => p.env.clear(),
                             ("env", Value::Object(map)) => {
                                 for (ek, ev) in map {
@@ -582,12 +620,52 @@ pub(super) async fn handle_request(
                             }
                             (other, _) => {
                                 return Err(RpcError::invalid_params(format!(
-                                    "unknown preset key {other:?}; use harness, model, effort, policy, env, description"
+                                    "unknown preset key {other:?}; use harness, model, effort, policy, env, args, systemPrompt, description"
                                 )));
                             }
                         }
                     }
-                    let p = merged.unwrap();
+                    let mut p = merged.unwrap();
+                    // Checked against the profile the preset resolves to now.
+                    let profile =
+                        cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
+                    let kind = cfg.harnesses[&profile].kind;
+                    crate::config::check_preset_args(kind, &p.args)
+                        .map_err(RpcError::invalid_params)?;
+                    let keeps_prompt =
+                        p.system_prompt_sha256.is_some() && !matches!(new_prompt, Some(None));
+                    if (matches!(new_prompt, Some(Some(_))) || keeps_prompt)
+                        && kind != crate::config::HarnessKind::ClaudeStdio
+                    {
+                        return Err(RpcError::invalid_params(
+                            "systemPrompt: only Claude Code harnesses take a system prompt file",
+                        ));
+                    }
+                    match new_prompt {
+                        Some(Some(text)) => {
+                            crate::config::check_preset_dir_name(&name)
+                                .map_err(RpcError::invalid_params)?;
+                            let dir = presets_dir.as_ref().ok_or_else(|| {
+                                RpcError::invalid_params(
+                                    "systemPrompt: this daemon has no state directory for preset files",
+                                )
+                            })?;
+                            let sha = crate::config::write_system_prompt(dir, &name, &text)
+                                .map_err(|e| {
+                                    RpcError::internal(format!("write the system prompt file: {e}"))
+                                })?;
+                            p.system_prompt_sha256 = Some(sha);
+                        }
+                        Some(None) => {
+                            p.system_prompt_sha256 = None;
+                            if let Some(dir) = &presets_dir {
+                                crate::config::remove_preset_dir(dir, &name).map_err(|e| {
+                                    RpcError::internal(format!("remove preset directory: {e}"))
+                                })?;
+                            }
+                        }
+                        None => {}
+                    }
                     cfg.presets.insert(name.clone(), p);
                 }
                 if let Err(e) = cfg.save() {
@@ -600,7 +678,7 @@ pub(super) async fn handle_request(
                     Ok(x) => (Some(x), None),
                     Err(e) => (None, Some(e)),
                 };
-                json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "description": p.description})
+                json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description})
             };
             match name {
                 Some(n) if !clear => cfg
@@ -615,7 +693,16 @@ pub(super) async fn handle_request(
         }
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
-            Ok(hub.session_detail(&s))
+            let mut detail = hub.session_detail(&s);
+            // The session env reaches the unix socket only: no summary or
+            // event carries it, so a key added to the allowlist later never
+            // reaches another origin by default (session_env.rs).
+            if conn.origin == Origin::Local
+                && let Some(obj) = detail.as_object_mut()
+            {
+                obj.insert("sessionEnv".into(), json!(s.meta().session_env));
+            }
+            Ok(detail)
         }
         method::MUX_WAIT => wait::wait(hub, &params).await,
         method::MUX_SCHEMA => {
@@ -640,6 +727,12 @@ pub(super) async fn handle_request(
                 params.get("ttlSeconds").and_then(Value::as_u64),
             );
             Ok(hub.session_summary(&s))
+        }
+        method::MUX_HARNESS_ENABLE => {
+            super::harness_enable::handle(hub, conn.origin, &params).await
+        }
+        method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
+            super::trust_gate::answer(hub, m, &params).await
         }
         method::MUX_SET_RULES => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -721,13 +814,27 @@ pub(super) async fn handle_request(
             hub.kill(&s, purge).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
+        method::MUX_PERMISSION_GROUPS => {
+            let s = hub.resolve(session_key(&params)?)?;
+            hub.permission_groups(&s, &params)
+        }
+        method::MUX_PERMISSION_GROUP_RESPOND => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.respond_permission_group(&s, params, control).await
+        }
+        method::MUX_PERMISSION_CHAT_REVOKE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            Ok(hub.revoke_permission_chat(&s))
+        }
         method::MUX_PERMISSION_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
             let pid = str_param(&params, "permissionId")
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
-            hub.respond_permission(&s, pid, option, answers)?;
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.respond_permission(&s, pid, option, answers, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
@@ -757,12 +864,49 @@ pub(super) async fn handle_request(
             Ok(hub.session_summary(&s))
         }
         method::MUX_SHUTDOWN => {
+            // `endAgents: true` (the app's Quit Everything) ends agents that
+            // run under agent hosts; otherwise they keep running for the next
+            // daemon.
+            // `keepSessions` (session ids) keeps those sessions' hosted agents
+            // running even then (the app's Home Chief).
+            let end_agents = params.get("endAgents").and_then(Value::as_bool) == Some(true);
+            let keep: std::collections::HashSet<String> = params
+                .get("keepSessions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+            if end_agents {
+                hub.end_agents_at_shutdown(keep.clone())?;
+            }
+            hub.stop_idle_reaper();
             hub.shutdown.notify_waiters();
             hub.shutdown.notify_one();
-            Ok(json!({}))
+            let kept = if end_agents {
+                keep.iter().filter(|id| hub.resolve(id).is_ok()).count()
+            } else {
+                0
+            };
+            Ok(json!({"endAgents": end_agents, "keptSessions": kept}))
         }
-        // Anything else that names a session goes to the agent untouched.
+        method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params, conn.origin.web_class()).await,
+        method::MUX_HANDOFF_GET => hub.handoff_get(&params),
+        method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
+        method::MUX_HANDOFF_START => {
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.handoff_start(&params, control).await
+        }
+        method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
+        // Anything else that names a session goes to the agent untouched, from the
+        // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
         other => {
+            if conn.origin != Origin::Local && session_key(&params).is_ok() {
+                return Err(RpcError::invalid_params(format!(
+                    "{other} is passed to the harness only from the local unix socket"
+                )));
+            }
             if let Ok(key) = session_key(&params) {
                 let s = hub.resolve(key)?;
                 return hub.forward(&s, other, params).await;

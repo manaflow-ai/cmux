@@ -30,4 +30,12 @@ nonisolated struct CEFPlacementQueue: Equatable, Sendable {
         queues[window] = queue.isEmpty ? nil : queue
         return first
     }
+
+    /// Withdraws the newest placement of `window` (one recorded for a tab
+    /// that was never created).
+    mutating func withdrawLast(window: Int32) {
+        guard var queue = queues[window], !queue.isEmpty else { return }
+        queue.removeLast()
+        queues[window] = queue.isEmpty ? nil : queue
+    }
 }

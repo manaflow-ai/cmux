@@ -18,6 +18,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
 
 use super::*;
+use crate::state::kept_tab_store::{KeptTab, kept_title};
 
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
@@ -26,7 +27,7 @@ pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
 pub const MAX_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 const TERMINAL_REAP_MUTATION_ORIGIN: &str = "cmux-tui-terminal-reap";
-const END_TERMINALS_MUTATION_ORIGIN: &str = "cmux-tui-end-terminals";
+pub(super) const END_TERMINALS_MUTATION_ORIGIN: &str = "cmux-tui-end-terminals";
 
 /// Result of one reap attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,7 +222,7 @@ impl Mux {
             None,
             None,
             None,
-            &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+            &WorkspaceMutation::daemon_local(TERMINAL_REAP_MUTATION_ORIGIN),
             TerminalCloseGuard::UnplacedAndNotKept,
         ) {
             Ok(result) => {
@@ -275,7 +276,13 @@ impl Mux {
                         as Box<dyn FnOnce() -> anyhow::Result<ReapOutcome> + Send>
                 })
                 .collect();
-            self.terminal_work.run_all(jobs)
+            self.terminal_work
+                .run_all(jobs)
+                .into_iter()
+                .map(|outcome| {
+                    outcome.unwrap_or_else(|_| Err(anyhow::anyhow!("reap job panicked")))
+                })
+                .collect()
         };
         let mut reaped = Vec::new();
         for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
@@ -306,27 +313,62 @@ impl Mux {
     /// shutdown keeps hosts alive for the next owner. Returns the host ids
     /// it ended.
     pub fn end_all_terminals(&self) -> anyhow::Result<Vec<String>> {
+        self.end_terminals(false)
+    }
+
+    /// `shutdown-daemon` with `end_terminals` and `keep_layout`
+    /// (`end-terminals-keep-layout-v1`): end every live hosted terminal, but
+    /// keep the tabs of the placed ones. The workspace store records each
+    /// kept tab and its shell's directory (`kept_tabs`) before any terminal
+    /// ends, so neither the host's exit nor the next owner's reconciliation
+    /// detaches it: the next owner shows the same screens, splits and tabs,
+    /// each dead with `relaunch: {cwd}`, and a frontend starts a new shell
+    /// there. Terminals without a tab end as in [`Self::end_all_terminals`].
+    pub fn end_all_terminals_keeping_layout(&self) -> anyhow::Result<Vec<String>> {
+        self.end_terminals(true)
+    }
+
+    fn end_terminals(&self, keep_layout: bool) -> anyhow::Result<Vec<String>> {
         let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
+        // The workspace store records every kept tab before any terminal
+        // ends, so no exit can remove one (invariant 3 of
+        // plans/cmux-next/OWNERSHIP-PRINCIPLES.md).
+        let kept = if keep_layout { self.record_kept_tabs(&terminals)? } else { HashSet::new() };
         let mut ended = Vec::new();
         let mut failures = Vec::new();
         for terminal in terminals {
             if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                 continue;
             }
-            match self.close_terminal_with_mutation(
-                &terminal.terminal_id,
-                None,
-                None,
-                None,
-                &WorkspaceMutation::local(END_TERMINALS_MUTATION_ORIGIN),
-            ) {
-                Ok(_) => ended.push(terminal.terminal_id),
+            let outcome = if kept.contains(&terminal.terminal_id) {
+                self.end_terminal_keeping_tabs(&terminal)
+            } else {
+                self.close_terminal_with_mutation(
+                    &terminal.terminal_id,
+                    None,
+                    None,
+                    None,
+                    &WorkspaceMutation::daemon_local(END_TERMINALS_MUTATION_ORIGIN),
+                )
+                .map(|_| ())
+            };
+            match outcome {
+                Ok(()) => ended.push(terminal.terminal_id),
                 Err(error) => failures.push(format!("{}: {error}", terminal.terminal_id)),
             }
         }
         // Every host was asked to exit in parallel; wait for them so the
         // caller can rely on no host outliving this call.
         let drained = self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT);
+        if !failures.is_empty() && !kept.is_empty() {
+            // The handoff is cancelled and the daemon keeps serving: a
+            // terminal that did not end must not keep a keep-layout record,
+            // or its later normal exit would keep its tab.
+            let alive = kept.iter().filter(|id| !ended.contains(*id)).cloned().collect::<Vec<_>>();
+            if let Err(error) = self.forget_kept_tabs_of(&alive) {
+                eprintln!("cmux-tui: could not forget keep-layout records: {error:#}");
+            }
+        }
         anyhow::ensure!(
             failures.is_empty(),
             "could not end {} terminal(s): {}",
@@ -351,6 +393,117 @@ impl Mux {
             );
         }
         Ok(ended)
+    }
+}
+
+impl Mux {
+    /// Writes a keep-layout record (`kept_tabs`) for every tab of every live
+    /// placed terminal, with the directory its shell is in (the session
+    /// host's fact: the foreground process's directory, else the OSC 7 or
+    /// launch directory) and the terminal's title. Returns the host ids of
+    /// those terminals.
+    fn record_kept_tabs(&self, terminals: &[RegistryTerminal]) -> anyhow::Result<HashSet<String>> {
+        // Tab ids and process ids under the locks; directories after.
+        let mut placed = Vec::new();
+        {
+            let registry = self.workspace_registry.lock().unwrap();
+            let state = self.state.lock().unwrap();
+            for terminal in terminals {
+                if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                    continue;
+                }
+                let Some(public_id) = registry.terminal_resource_id(&terminal.terminal_id)? else {
+                    continue;
+                };
+                let tab_ids = Self::terminal_tab_ids(&state, &public_id);
+                if tab_ids.is_empty() {
+                    continue;
+                }
+                let runtime = state.terminal_catalog.get(&public_id).cloned();
+                placed.push((terminal.terminal_id.clone(), tab_ids, runtime));
+            }
+        }
+        let mut rows = Vec::new();
+        let mut kept = HashSet::new();
+        for (terminal_id, tab_ids, runtime) in placed {
+            let cwd = runtime.as_ref().and_then(|surface| {
+                surface
+                    .process_id()
+                    .and_then(crate::platform::foreground_cwd)
+                    .or_else(|| surface.local_cwd())
+            });
+            // The title the tab shows now; the next owner has no surface to
+            // ask once the terminal ended.
+            let title = runtime.as_ref().and_then(|surface| kept_title(&surface.title()));
+            rows.extend(tab_ids.into_iter().map(|tab_id| KeptTab {
+                tab_id,
+                cwd: cwd.clone(),
+                title: title.clone(),
+            }));
+            kept.insert(terminal_id);
+        }
+        self.commit_kept_tabs(&rows)?;
+        Ok(kept)
+    }
+
+    /// Removes the keep-layout records of the tabs of `terminal_ids`.
+    fn forget_kept_tabs_of(&self, terminal_ids: &[String]) -> anyhow::Result<()> {
+        let tab_ids = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let state = self.state.lock().unwrap();
+            let mut tab_ids = Vec::new();
+            for terminal_id in terminal_ids {
+                if let Some(public_id) = registry.terminal_resource_id(terminal_id)? {
+                    tab_ids.extend(Self::terminal_tab_ids(&state, &public_id));
+                }
+            }
+            tab_ids
+        };
+        self.forget_kept_tabs(&tab_ids)
+    }
+
+    /// Public ids of the tabs that show `public_id`.
+    fn terminal_tab_ids(state: &State, public_id: &TerminalPublicId) -> Vec<String> {
+        state
+            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+            .iter()
+            .filter_map(|slot| state.resource_indexes.tab_ids.get(slot).map(|id| id.to_string()))
+            .collect()
+    }
+
+    /// Asks the host of a terminal whose tabs the store keeps to exit. The
+    /// host's own exit event records the terminal's outcome (a session-host
+    /// fact); the store's records keep its tabs.
+    fn end_terminal_keeping_tabs(&self, terminal: &RegistryTerminal) -> anyhow::Result<()> {
+        let runtime = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let public_id = registry.terminal_resource_id(&terminal.terminal_id)?;
+            drop(registry);
+            let state = self.state.lock().unwrap();
+            public_id.and_then(|public_id| state.terminal_catalog.get(&public_id).cloned())
+        };
+        match runtime {
+            Some(runtime) => self.terminate_terminal_runtime(&runtime),
+            None => self.terminate_discovered_terminal_host(
+                &terminal.terminal_id,
+                terminal.incarnation.as_deref(),
+            ),
+        }
+        Ok(())
+    }
+
+    /// Whether the workspace store keeps any tab of `public_id`
+    /// (`kept_tabs`). Callers hold the registry and state locks.
+    pub(super) fn terminal_tabs_kept_locked(
+        registry: &WorkspaceRegistry,
+        state: &State,
+        public_id: &TerminalPublicId,
+    ) -> anyhow::Result<bool> {
+        let tab_ids = Self::terminal_tab_ids(state, public_id);
+        if tab_ids.is_empty() {
+            return Ok(false);
+        }
+        registry.any_kept_tab(&tab_ids)
     }
 }
 
@@ -461,6 +614,9 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
             }
             let Some(mux) = weak.upgrade() else { break };
             mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+            // Never hold the mux across the wait: the thread must not keep
+            // the mux alive after its other owners are gone.
+            drop(mux);
             let wait =
                 schedule.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
             let event = match wait {
@@ -479,11 +635,15 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
                     }
                     // The mailbox overflowed: resubscribe, then rescan. The
                     // loop checks `stop` again before it next waits.
+                    let Some(mux) = weak.upgrade() else { break };
                     thread_events = mux.subscribe_terminal_reaper();
                     *shared_events.lock().unwrap() = thread_events.clone();
                 }
             }
-            drop(mux);
+        }
+        // Stopped: `identify` no longer advertises a running reaper.
+        if let Some(mux) = weak.upgrade() {
+            mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
         }
     });
     let thread = match thread {
@@ -497,6 +657,12 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
 }
 
 impl Mux {
+    /// Whether this owner's unplaced-terminal reaper runs
+    /// (`terminal-reaper-active-v1`).
+    pub fn terminal_reaper_running(&self) -> bool {
+        self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+    }
+
     /// Subscribe the reaper to the events that can change the reapable set,
     /// and keep a handle so keep and grace changes can wake it.
     fn subscribe_terminal_reaper(&self) -> MuxEventReceiver {
@@ -588,6 +754,39 @@ mod tests {
     }
 
     #[test]
+    fn a_tabless_terminal_keeps_its_lifecycle_when_the_tree_is_republished() {
+        let mux = Mux::new_for_test("terminal-tabless-lifecycle", SurfaceOptions::default());
+        let scratch = mux.new_workspace(Some("scratch".into()), Some((80, 24))).unwrap();
+        let detached = mux.new_workspace(Some("detached".into()), Some((80, 24))).unwrap();
+        let detached_id = host_id(&mux, &detached);
+        let public_id = detached.terminal_public_id().cloned().unwrap().to_string();
+        close_workspace_of(&mux, &detached);
+        // Any later full projection (a tab drag, a docked column) republishes
+        // the terminal whose last tab closed; clients decode `lifecycle` as
+        // required on every terminal record.
+        let projection = mux.resource_effect_projection().unwrap();
+        let records = format!("{:?}", projection.patch);
+        assert!(records.contains(&public_id), "the projection publishes the tab-less terminal");
+        for change in projection.changes.as_array().unwrap() {
+            if change["resource"] == "terminal" && change["kind"] != "delete" {
+                assert!(
+                    change["value"]["lifecycle"].is_string(),
+                    "terminal record without lifecycle: {change}"
+                );
+            }
+        }
+        mux.close_terminal_with_mutation(
+            &detached_id,
+            None,
+            None,
+            None,
+            &WorkspaceMutation::daemon_local("test-cleanup"),
+        )
+        .unwrap();
+        mux.close_surface(scratch.id).unwrap();
+    }
+
+    #[test]
     fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
         let mux = Mux::new_for_test("terminal-reap", SurfaceOptions::default());
         let grace = mux.terminal_reap_grace();
@@ -664,7 +863,7 @@ mod tests {
             usize::MAX,
             None,
             None,
-            &WorkspaceMutation::local("test-terminal-reap-projection"),
+            &WorkspaceMutation::daemon_local("test-terminal-reap-projection"),
         )
         .unwrap();
         assert!(mux.reap_unplaced_terminals(&mut schedule, start + grace).is_empty());
@@ -679,7 +878,7 @@ mod tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("test-cleanup"),
+            &WorkspaceMutation::daemon_local("test-cleanup"),
         )
         .unwrap();
         mux.close_surface(scratch.id).unwrap();
@@ -721,6 +920,24 @@ mod tests {
         assert_eq!(lifecycle(&mux, &placed_id), TerminalLifecycle::Tombstoned);
         assert_eq!(lifecycle(&mux, &detached_id), TerminalLifecycle::Tombstoned);
         assert_eq!(mux.terminal_host_closes.pending(), 0);
+    }
+
+    #[test]
+    fn end_all_terminals_keeps_emptied_workspaces() {
+        let mux = Mux::new_for_test("terminal-end-all-layout", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("first".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("second".into()), Some((80, 24))).unwrap();
+        // The host identity is read before the end: an ended terminal's surface has none.
+        let (first_id, second_id) = (host_id(&mux, &first), host_id(&mux, &second));
+
+        mux.end_all_terminals().unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 2);
+            assert!(state.workspaces.iter().all(|workspace| workspace.screens.is_empty()));
+        });
+        assert_eq!(lifecycle(&mux, &first_id), TerminalLifecycle::Tombstoned);
+        assert_eq!(lifecycle(&mux, &second_id), TerminalLifecycle::Tombstoned);
     }
 
     #[test]

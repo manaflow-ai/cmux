@@ -12,7 +12,7 @@ use cmux_tui_core::resource::ResourceOperation as Op;
 use serde_json::{Map, Number, Value};
 
 use super::{
-    CommandPlan, Flags, Resolve, Selectors, UsageError, group_collapse, group_number,
+    CommandPlan, Flags, Resolve, Selectors, UsageError, ZoomStep, group_collapse, group_number,
     insert_optional_clearable_string, insert_optional_string, insert_u32, parse_bool,
     parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
 };
@@ -139,6 +139,26 @@ fn required_index(params: &mut Params, flags: &mut Flags) -> Result<(), UsageErr
 }
 
 /// `--<flag> <value>` sets the field, `--clear-<flag>` sends null.
+/// `--top-index <n>` (the personal workspace index the group shows right
+/// before) or `--clear-top-index` (after every loose workspace).
+fn top_index(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError> {
+    let clear = flags.boolean("clear-top-index");
+    match (group_number(flags, "top-index")?, clear) {
+        (Some(_), true) => {
+            Err(UsageError::new("--top-index and --clear-top-index are mutually exclusive"))
+        }
+        (Some(index), false) => {
+            params.insert("top_index", index);
+            Ok(())
+        }
+        (None, true) => {
+            params.insert("top_index", Value::Null);
+            Ok(())
+        }
+        (None, false) => Ok(()),
+    }
+}
+
 fn nullable(
     params: &mut Params,
     flags: &mut Flags,
@@ -319,6 +339,16 @@ fn status_target(
 
 /// `workspace group …`: personal workspace groups of the home session.
 /// `add` and `remove` place a workspace with `workspace.place`.
+/// `workspace list [--order session|personal]`.
+pub(super) fn workspace_list(
+    selectors: &Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    let mut params = Params::default();
+    insert_optional_string(&mut params.fields, flags, "order", "order");
+    params.send(Op::WorkspaceList, selectors, flags)
+}
+
 pub(super) fn parse_workspace_group(
     words: &[&str],
     selectors: &mut Selectors,
@@ -352,8 +382,13 @@ pub(super) fn parse_workspace_group(
                 "update" => {
                     insert_optional_string(&mut params.fields, flags, "name", "name");
                     nullable(&mut params, flags, "color", "color")?;
+                    nullable(&mut params, flags, "icon", "icon")?;
+                    if let Some(pinned) = flags.take("pinned") {
+                        params.insert("pinned", Value::Bool(parse_bool("--pinned", &pinned)?));
+                    }
                     params.room(flags, "room", "room")?;
                     group_collapse(flags, &mut params.fields)?;
+                    top_index(&mut params, flags)?;
                     Op::WorkspaceGroupUpdate
                 }
                 "delete" => Op::WorkspaceGroupDelete,
@@ -378,7 +413,16 @@ pub(super) fn parse_workspace_group(
 
 // tab
 
-/// `tab <selector> pin|unpin|zoom <n>|update`.
+/// `tab <selector> pin|unpin|zoom <n>|reset|in|out|update`.
+///
+/// `update --icon <value>|--clear-icon` sets or clears the tab's user icon
+/// (`tab.update {icon}`), which the daemon owns for every tab kind.
+///
+/// Zoom is a terminal's font zoom, which the daemon owns (`tab.update`). A
+/// browser tab's page zoom belongs to the app that hosts the page, so the CLI
+/// never writes a browser tab's record: a read before the request finds the
+/// tab's kind and sends a browser tab's zoom to the app's page-zoom action
+/// (`Resolve::TabZoom`).
 pub(super) fn tab_change(
     action: &str,
     rest: &[&str],
@@ -389,29 +433,55 @@ pub(super) fn tab_change(
     let operation = match (action, rest) {
         ("pin", []) => Op::TabPin,
         ("unpin", []) => Op::TabUnpin,
+        ("zoom", [step @ ("in" | "out")]) => {
+            params.resolve.push(Resolve::TabZoom {
+                step: if *step == "in" { ZoomStep::In } else { ZoomStep::Out },
+            });
+            Op::TabUpdate
+        }
         ("zoom", ["reset"]) => {
             params.insert("zoom", Value::Null);
+            params.resolve.push(Resolve::TabZoom { step: ZoomStep::Reset });
             Op::TabUpdate
         }
         ("zoom", [value]) => {
             params.insert("zoom", float("zoom", value, 0.25, 5.0)?);
+            params.resolve.push(Resolve::TabZoom { step: ZoomStep::Value });
             Op::TabUpdate
         }
         ("update", []) => {
-            match (flags.take("zoom"), flags.boolean("clear-zoom")) {
+            // The icon is the daemon's field on every tab kind. A browser
+            // tab's page zoom is an app action, so one request cannot carry
+            // both: an icon with a zoom flag is a usage error.
+            nullable(&mut params, flags, "icon", "icon")?;
+            let step = match (flags.take("zoom"), flags.boolean("clear-zoom")) {
                 (Some(_), true) => {
                     return Err(UsageError::new("--zoom and --clear-zoom are mutually exclusive"));
                 }
-                (Some(value), false) => params.insert("zoom", float("--zoom", &value, 0.25, 5.0)?),
-                (None, true) => params.insert("zoom", Value::Null),
-                (None, false) => {}
-            }
-            for name in ["back", "forward"] {
-                if let Some(urls) = flags.take(name) {
-                    params.insert(name, string_list(&urls));
+                (Some(value), false) => {
+                    params.insert("zoom", float("--zoom", &value, 0.25, 5.0)?);
+                    Some(ZoomStep::Value)
+                }
+                (None, true) => {
+                    params.insert("zoom", Value::Null);
+                    Some(ZoomStep::Reset)
+                }
+                (None, false) => None,
+            };
+            match step {
+                Some(_) if params.fields.contains_key("icon") => {
+                    return Err(UsageError::new(
+                        "tab update sets the icon or the zoom, not both; run two commands",
+                    ));
+                }
+                Some(step) => params.resolve.push(Resolve::TabZoom { step }),
+                None if params.fields.contains_key("icon") => {}
+                None => {
+                    return Err(UsageError::new(
+                        "tab update needs --zoom, --clear-zoom, --icon or --clear-icon",
+                    ));
                 }
             }
-            require_change(&params, "tab update")?;
             Op::TabUpdate
         }
         _ => return usage("tab action"),
@@ -658,23 +728,48 @@ pub(super) fn parse_screen_group(
 
 // closed
 
-/// `closed list` and `closed <id> reopen`: recently closed tabs, screens and
-/// workspaces of the session.
+/// `closed list [--window W] [--limit N]`, `closed reopen [--window W]`
+/// (the newest group of that window: Cmd-Shift-T) and
+/// `closed <id> reopen [--members 0,2]`: the closed groups of the session.
 pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     let mut params = Params::default();
     let operation = match words {
-        ["list"] => Op::ClosedList,
+        ["list"] => {
+            insert_optional_string(&mut params.fields, flags, "window", "window");
+            if let Some(limit) = flags.take("limit") {
+                super::insert_bounded_u32(&mut params.fields, "limit", "--limit", limit, 1, 1000)?;
+            }
+            Op::ClosedList
+        }
+        ["reopen"] => {
+            insert_optional_string(&mut params.fields, flags, "window", "window");
+            Op::ClosedReopen
+        }
         [closed, "reopen"] => {
             if closed.is_empty() || closed.len() > 64 {
                 return Err(UsageError::new("closed id must contain 1 to 64 UTF-8 bytes"));
             }
             params.insert("closed", Value::String((*closed).into()));
+            insert_optional_string(&mut params.fields, flags, "window", "window");
+            if let Some(members) = flags.take("members") {
+                params.insert("members", closed_members(&members)?);
+            }
             Op::ClosedReopen
         }
         _ => return usage("closed action"),
     };
     params.send(operation, &selectors, flags)
+}
+
+/// `--members 0,2`: member indexes of a closed group.
+fn closed_members(value: &str) -> Result<Value, UsageError> {
+    let members = value
+        .split(',')
+        .map(|member| member.trim().parse::<u32>().map(Value::from))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| UsageError::new("--members must be member indexes like 0,2"))?;
+    Ok(Value::Array(members))
 }
 
 #[cfg(test)]

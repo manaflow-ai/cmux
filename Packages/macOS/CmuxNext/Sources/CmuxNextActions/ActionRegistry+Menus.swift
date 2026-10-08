@@ -39,14 +39,27 @@ extension ActionRegistry {
     }
 }
 
-/// What a menu item runs: an action and, for context menus, its target.
+extension ActionRegistry {
+    /// The action, target and arguments a generated menu item runs (nil
+    /// for items the registry did not make). Callers that retitle a row
+    /// (Search Google for "…") and tests read it.
+    public static func menuRun(of item: NSMenuItem) -> (id: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue])? {
+        guard let payload = item.representedObject as? ActionMenuPayload else { return nil }
+        return (payload.id, payload.target, payload.arguments)
+    }
+}
+
+/// What a menu item runs: an action and, for context menus, its target
+/// (and, for a choices submenu, the chosen argument).
 final class ActionMenuPayload: NSObject {
     let id: ActionID
     let target: ActionTargetRef?
+    let arguments: [String: ActionValue]
 
-    init(id: ActionID, target: ActionTargetRef?) {
+    init(id: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue] = [:]) {
         self.id = id
         self.target = target
+        self.arguments = arguments
     }
 }
 
@@ -60,14 +73,22 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
 
     @objc func performAction(_ sender: NSMenuItem) {
         guard let registry, let payload = Self.payload(of: sender) else { return }
-        registry.perform(payload.id, invocation: ActionInvocation(target: payload.target))
+        registry.perform(payload.id, invocation: ActionInvocation(target: payload.target, arguments: payload.arguments))
     }
 
     /// A key equivalent also asks the registry's `menuKeyEquivalentGate`,
     /// so a chord the key router gave to a page or text field cannot fire
     /// the menu item afterwards. Clicks in an open menu are not gated.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard let registry, let payload = Self.payload(of: menuItem), registry.canPerform(payload.id) else { return false }
+        guard let registry, let payload = Self.payload(of: menuItem) else { return false }
+        // A feature an administrator turned off leaves the menu (DisabledFeatures).
+        menuItem.isHidden = registry.disabledFeature(for: payload.id) != nil
+        if menuItem.isHidden { return false }
+        // A standalone key window claims the run: its close items stay
+        // enabled (they close it), actions on main window content are off.
+        let invocation = ActionInvocation(target: payload.target, arguments: payload.arguments)
+        if let route = registry.keyWindowRoute?(registry.canonicalID(for: payload.id), invocation) { return route.enablesMenuItem }
+        guard ActionTargetReasons.canPerform(payload.id, invocation: ActionInvocation(target: payload.target), in: registry) else { return false }
         if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {
             return gate(payload.id)
         }

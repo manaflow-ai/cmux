@@ -30,6 +30,16 @@ public final class LayoutRootView: NSView {
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
     var dragTab: TabID?
+    /// The drop preview's rect for the current tab drag target, in screen
+    /// coordinates; nil when nothing is highlighted. The drag session flies
+    /// the ghost to it, so the ghost lands where the preview showed (R47).
+    public internal(set) var tabDragHighlightOnScreen: CGRect?
+    /// The zone hit the drop preview shows now; the next hit test holds it
+    /// near its line (`DropZoneGeometry.zone`). Nil while nothing shows.
+    var tabDropHit: DropTarget?
+    /// Overlay sync observers by id (`observeOverlaySync`).
+    var overlaySyncObservers: [Int: () -> Void] = [:]
+    var nextOverlaySyncObserver = 0
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -42,18 +52,23 @@ public final class LayoutRootView: NSView {
         var centerRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
+        var scrollbar: StripScrollbarMode
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
-    public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider) {
+    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
+    /// tests inject a manual clock.
+    public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
+                scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
-        self.context = LayoutViewContext(model: model, provider: contentProvider)
+        self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.frame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
+        highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType])
@@ -80,7 +95,7 @@ public final class LayoutRootView: NSView {
     @discardableResult
     public func moveFocus(_ direction: LayoutDirection) -> PaneID? {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return nil }
-        return model.moveFocus(direction, frames: view.geometry.panes)
+        return model.moveFocus(direction, frames: view.navigationFrames)
     }
 
     /// The hosted content view of `pane`, if it has been created.
@@ -95,6 +110,13 @@ public final class LayoutRootView: NSView {
     public func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID? = nil) -> SplitPlacement {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return .split }
         return view.splitPlacement(splitting: pane, axis: axis, removing: removing)
+    }
+
+    /// Pane frames of the active screen for directional focus: docked
+    /// columns placed before and after the strip (one logical line).
+    public var navigationFrames: [PaneID: CGRect] {
+        guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }
+        return view.navigationFrames
     }
 
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
@@ -115,7 +137,8 @@ public final class LayoutRootView: NSView {
             gestureActive: model.isGestureActive,
             centerRequest: model.centerRequest,
             centerMode: model.centerFocusedColumn,
-            attention: model.attention
+            attention: model.attention,
+            scrollbar: model.stripScrollbar
         )
     }
 
@@ -127,18 +150,28 @@ public final class LayoutRootView: NSView {
                     screens: model.screens,
                     activeScreen: model.activeScreenID,
                     focused: model.focusedPane,
-                            dimsInactive: model.dimsInactivePanes,
+                    dimsInactive: model.dimsInactivePanes,
                     style: model.style,
                     gestureActive: model.isGestureActive,
                     centerRequest: model.centerRequest,
                     centerMode: model.centerFocusedColumn,
-                    attention: model.attention
+                    attention: model.attention,
+                    scrollbar: model.stripScrollbar
                 )
             }) {
                 guard let self else { return }
                 if snapshot != self.lastSnapshot { self.sync(snapshot) }
             }
         }
+    }
+
+    /// Mirrors the model now instead of on the observation's next turn.
+    /// The App calls it after applying a daemon tree, so the frame that
+    /// shows a workspace (or a split, close or new tab in it) already has
+    /// its panes and tab strips; the observation then finds nothing new.
+    public func syncWithModel() {
+        let current = snapshot()
+        if current != lastSnapshot { sync(current) }
     }
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
@@ -185,8 +218,11 @@ public final class LayoutRootView: NSView {
             // on layout changes, reveals focus, and springs back after a close.
             let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
             let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
+            // Only a snap that stands in for Reduce Motion's spring shows the
+            // scrollbar, not one at launch or while out of the window.
             if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive) {
+                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive,
+                               showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
                 needsFrames = true
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
@@ -309,6 +345,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
+        observeKeyWindow()
         guard window != nil else {
             updateVisibility()
             return

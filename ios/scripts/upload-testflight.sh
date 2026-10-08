@@ -1531,13 +1531,10 @@ PY
   plutil -replace keychain-access-groups \
     -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
     "$MERGED_ENTITLEMENTS"
-  if [[ "$LANE" == "appstore" ]]; then
-    # The production profile also carries the newer hotspot-provider value,
-    # which Apple rejects for this app's current iOS package. Remove only that
-    # value; packet-tunnel-provider and Personal VPN allow-vpn remain available
-    # for the upcoming VPN feature.
-    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
-  fi
+  # Distribution profiles can authorize hotspot-provider even though Apple
+  # rejects it in iOS uploads, including TestFlight. Preserve packet-tunnel
+  # and Personal VPN permissions while filtering unsupported host values.
+  python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   # The archive is built unsigned, so $(AppIdentifierPrefix) in Info.plist

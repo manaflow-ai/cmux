@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 
@@ -40,9 +41,12 @@ enum DebugLayers {
                 "home_rect_in_window": plane.homeRectInWindow.map(rect) ?? .null,
                 "plane_frame": rect(plane.frame),
                 "rings": .array((root?.overlayRings ?? []).map { ring in
-                    .object(["pane": .string(ring.pane), "frame_in_window": rect(ring.frameInWindow), "shows_ring": .bool(ring.showsRing)])
+                    .object(["pane": .string(ring.pane), "frame_in_window": rect(ring.frameInWindow), "shows_ring": .bool(ring.showsRing),
+                             "ring_in_window": rect(ring.ringInWindow), "content_in_window": rect(ring.contentInWindow),
+                             "ring_in_sync": .bool(ring.ringInWindow == ring.contentInWindow)])
                 }),
                 "drop_highlight_in_window": root?.dropHighlightFrameInWindow.map(rect) ?? .null,
+                "drop_highlight_material": root.map { .string(String(describing: $0.dropHighlightMaterial)) } ?? .null,
             ])
         }
         let pageWindows = WindowOverlayLayer.contentChildWindows(of: window)
@@ -71,7 +75,17 @@ enum DebugLayers {
         }
         let above = layer.isOverlayAboveContent
         let inSync = layer.adoptedPlanes.allSatisfy(\.isInSync)
-        return .object([
+        // Every displayed ring strokes its pane's rounded content rect.
+        let ringsInSync = layer.adoptedPlanes.allSatisfy { plane in
+            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInWindow == $0.contentInWindow }
+        }
+        var fields: [String: JSONValue] = [:]
+        #if DEBUG
+        fields["ring_layout_passes"] = .number(Double(layer.ringLayoutPasses))
+        fields["ring_lag_passes"] = .number(Double(layer.ringLagPasses))
+        fields["last_ring_lag"] = layer.lastRingLag.map(JSONValue.string) ?? .null
+        #endif
+        let base: [String: JSONValue] = [
             "id": .string(controller.state.id),
             "window_number": .number(Double(window.windowNumber)),
             "frame": rect(window.frame),
@@ -86,9 +100,12 @@ enum DebugLayers {
             "divider_areas_in_window": .array(layer.dividerAreas.map { rect($0.rect) }),
             "divider_catchers_in_window": .array(layer.catchers.framesInWindow.sorted { $0.key < $1.key }.map { rect($0.value) }),
             "reorders": .number(Double(layer.reorderCount)),
+            "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),
             "pages_in_sync": .bool(pagesInSync),
-            "consistent": .bool(above && inSync && pagesInSync),
-        ])
+            "rings_in_sync": .bool(ringsInSync),
+            "consistent": .bool(above && inSync && pagesInSync && ringsInSync),
+        ]
+        return .object(fields.merging(base) { _, new in new })
     }
 
     private static func distance(_ a: CGRect, _ b: CGRect) -> CGFloat {
@@ -130,6 +147,11 @@ enum DebugLayers {
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let layout = controller.content?.layoutView else { return .object(["error": .string("no window")]) }
         let tab = LayoutTabID("debug-drop-highlight")
+        // "material": "liquidGlass" | "vibrancy" | "opaque" pins it; "auto" follows this Mac.
+        if let name = params["material"]?.stringValue {
+            let pinned: [String: OverlayMaterial] = ["liquidGlass": .liquidGlass, "vibrancy": .vibrancy, "opaque": .opaque]
+            layout.pinDropHighlightMaterial(pinned[name])
+        }
         if params["end"]?.boolValue == true {
             layout.cancelTabDrag()
             return .object(["ended": .bool(true)])
@@ -140,6 +162,7 @@ enum DebugLayers {
         let local = CGPoint(x: frame.minX + frame.width * (fractions.first ?? 0.5), y: frame.minY + frame.height * (fractions.last ?? 0.5))
         let target = layout.updateTabDrag(tab, locationInWindow: layout.convert(local, to: nil))
         return .object(["target": target.map { .string(String(describing: $0)) } ?? .null,
+                        "material": .string(String(describing: layout.dropHighlightMaterial)),
                         "highlight_in_window": layout.dropHighlightFrameInWindow.map(rect) ?? .null])
     }
     #endif

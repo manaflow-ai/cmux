@@ -15,7 +15,8 @@ import Testing
     @Test func unsetUsesTheDefaults() throws {
         let result = try parse("{}")
         #expect(result.tabBar.usesDefaults)
-        #expect(result.tabBar.buttons.map(\.actionID) == ["newSurface", "splitRight", "splitDown"])
+        // R120: no trailing buttons by default; users add them back.
+        #expect(result.tabBar.buttons.isEmpty)
         #expect(result.diagnostics.isEmpty)
     }
 
@@ -40,7 +41,7 @@ import Testing
         #expect(claude.title == "Start Claude Code YOLO")
         #expect(claude.icon == .image(URL(filePath: "/tmp/cmux-config-test/icons/claude.svg")))
         #expect(claude.target == .newTabInCurrentPane)
-        #expect(result.diagnostics.isEmpty)
+        #expect(result.diagnostics.map(\.message) == [SurfaceTabBarParser.removedMessage])
     }
 
     @Test func emptyListHidesEveryButton() throws {
@@ -81,7 +82,7 @@ import Testing
         #expect(byName["codex-new-tab"]?.target == .currentTerminal)
         #expect(byName["command.npm test"]?.command == "npm test")
         #expect(byName["ship"]?.command == "claude -p ship")
-        #expect(result.diagnostics.isEmpty)
+        #expect(result.diagnostics.map(\.message) == [SurfaceTabBarParser.removedMessage])
     }
 
     @Test func badEntriesAreReportedAndSkipped() throws {
@@ -130,9 +131,7 @@ import Testing
             #expect(entry?.configID == id)
             #expect(entry.flatMap { registry.descriptor(for: ActionID(rawValue: $0.actionID)) } != nil, "\(id)")
         }
-        for spec in SurfaceTabBarConfig.defaultButtons {
-            #expect(registry.descriptor(for: ActionID(rawValue: spec.actionID)) != nil)
-        }
+        #expect(SurfaceTabBarConfig.defaultButtons.isEmpty)
     }
 
     @Test func aliasesResolveToTheCanonicalEntry() {
@@ -143,32 +142,56 @@ import Testing
         #expect(BuiltInButtonActions.entry(for: "splitLeft") == nil)
     }
 
-    @Test func unknownButtonActionsAreDiagnosed() throws {
+    /// TAB-STRIP-TRAILING-BUTTONS-REMOVED: the strip draws no buttons, so
+    /// their action names are not checked; the key itself is reported as
+    /// ignored (by the file parse, ``SurfaceTabBarRemovedTests``).
+    @Test func buttonActionNamesAreNotReported() throws {
         let registry = ActionRegistry.standard()
         let applier = SettingsApplier(design: DesignSettings(), registry: registry)
         let root = try JSONC.parse(#"{"ui": {"surfaceTabBar": {"buttons": ["splitRight", "does.not.exist"]}}}"#)
         let diagnostics = applier.apply(CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
                                                                 validMetrics: SettingsApplier.validMetrics))
-        #expect(diagnostics.filter { $0.kind == .unknownAction }.map(\.message) == ["no action 'does.not.exist' for button 'does.not.exist'"])
+        #expect(diagnostics.filter { $0.path == "ui.surfaceTabBar.buttons" && $0.kind == .unknownAction }.isEmpty)
+    }
+}
+
+/// TAB-STRIP-TRAILING-BUTTONS-REMOVED: a cmux.json that still sets the tab
+/// bar buttons gets one diagnostic saying the key is ignored, instead of
+/// silence (or a report of action names nothing runs).
+@MainActor
+@Suite struct SurfaceTabBarRemovedTests {
+    static let message = "ignored: the tab bar buttons were removed"
+
+    func diagnostics(_ text: String) throws -> [SettingsDiagnostic] {
+        let root = try JSONC.parse(text)
+        return CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
+                                        validMetrics: SettingsApplier.validMetrics).diagnostics
+    }
+
+    @Test func aSetButtonListIsReportedAsIgnored() throws {
+        let set = try diagnostics(#"{"ui": {"surfaceTabBar": {"buttons": ["splitRight", "does.not.exist"]}}}"#)
+        #expect(set.filter { $0.message == Self.message }.map(\.path) == ["ui.surfaceTabBar.buttons"])
+        #expect(set.filter { $0.message == Self.message }.map(\.kind) == [.removedSetting])
+        let empty = try diagnostics(#"{"ui": {"surfaceTabBar": {"buttons": []}}}"#)
+        #expect(empty.filter { $0.message == Self.message }.map(\.path) == ["ui.surfaceTabBar.buttons"])
+        let wrongType = try diagnostics(#"{"ui": {"surfaceTabBar": {"buttons": "splitRight"}}}"#)
+        #expect(wrongType.map(\.message) == [Self.message])
+        let legacy = try diagnostics(#"{"surfaceTabBarButtons": ["splitDown"]}"#)
+        #expect(legacy.filter { $0.message == Self.message }.map(\.path) == ["surfaceTabBarButtons"])
+    }
+
+    @Test func anUnsetButtonListIsNotReported() throws {
+        #expect(try diagnostics("{}").filter { $0.message == Self.message }.isEmpty)
     }
 }
 
 /// File on disk -> watcher -> `snapshot.tabBar`, live.
 @MainActor
-@Suite(.serialized) struct SurfaceTabBarLiveReloadTests {
-    /// Waits (bounded) until `condition` holds, one settings load at a time.
+@Suite(.serialized, .timeLimit(.minutes(1))) struct SurfaceTabBarLiveReloadTests {
+    /// Waits for each settings watcher lifecycle event until `condition` holds.
     func eventually(_ controller: SettingsController, line: Int = #line, _ condition: () -> Bool) async throws {
         for _ in 0..<20 where !condition() {
-            let target = controller.loadCount + 1
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { await controller.waitForLoad(atLeast: target) }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(5))
-                    throw CancellationError()
-                }
-                try await group.next()
-                group.cancelAll()
-            }
+            await controller.waitForLoad(atLeast: controller.loadCount + 1)
         }
         #expect(condition(), "line \(line)")
     }

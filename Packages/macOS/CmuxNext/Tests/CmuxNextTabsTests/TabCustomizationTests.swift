@@ -62,6 +62,16 @@ import Testing
         view.beginInlineRename("missing")
         #expect(view.inlineRenameField == nil)
     }
+
+    @Test func f2RenamesTheSelectedTab() throws {
+        let (view, _, _) = strip([TabItem(id: "a", title: "Logs"), TabItem(id: "b", title: "Build")])
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+            context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 120
+        ))
+        view.keyDown(with: event)
+        #expect(view.inlineRenameField?.stringValue == "Logs")
+    }
 }
 
 @MainActor private final class IntentLog {

@@ -4,7 +4,7 @@ public import Observation
 
 /// Visual mode of a strip.
 public enum TabStripStyle: Hashable, Sendable {
-    /// Chrome sizing: tabs shrink evenly between a max and min width, then scroll.
+    /// Tab sizing: tabs shrink evenly between a max and min width, then scroll.
     case chrome
     /// Bonsplit-like: every tab has the same fixed width, overflow scrolls.
     case compact
@@ -22,9 +22,6 @@ public final class TabStripModel {
     public var selectedID: TabID?
     public var style: TabStripStyle
     public var showsNewTabButton: Bool
-    /// Buttons pinned to the strip's trailing edge, in order. Empty hides
-    /// the group.
-    public var trailingButtons: [TabStripButton]
 
     /// Receives every intent. Set by the App (or the demo).
     @ObservationIgnored public var intentHandler: ((TabStripIntent) -> Void)?
@@ -35,8 +32,7 @@ public final class TabStripModel {
         groups: [TabGroupItem] = [],
         selectedID: TabID? = nil,
         style: TabStripStyle = .chrome,
-        showsNewTabButton: Bool = true,
-        trailingButtons: [TabStripButton] = []
+        showsNewTabButton: Bool = true
     ) {
         self.stripID = stripID
         self.tabs = tabs
@@ -44,7 +40,6 @@ public final class TabStripModel {
         self.selectedID = selectedID
         self.style = style
         self.showsNewTabButton = showsNewTabButton
-        self.trailingButtons = trailingButtons
     }
 
     /// Display order: pinned tabs first, then unpinned tabs in `tabs` order
@@ -75,7 +70,7 @@ public final class TabStripModel {
         tabs.filter(\.isPinned) + tabs.filter { !$0.isPinned }
     }
 
-    /// Chrome's rule: closing the selected tab selects its right neighbor,
+    /// Closing the selected tab selects its right neighbor,
     /// or the left one when it was last. Returns the current selection when
     /// the closed tab was not selected.
     public static func selectionAfterClosing(_ closed: TabID, in ordered: [TabID], selected: TabID?) -> TabID? {

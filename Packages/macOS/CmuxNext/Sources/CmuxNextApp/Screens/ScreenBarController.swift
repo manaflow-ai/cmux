@@ -7,7 +7,7 @@ import CmuxNextTabs
 import Observation
 
 /// The bottom screen tab bar of one workspace: a `TabStripView` whose tabs
-/// are the workspace's screens (Chrome sizing, hover card, drag reorder,
+/// are the workspace's screens (tab sizing, hover card, drag reorder,
 /// groups). It mirrors the daemon through `ScreenBarMapping` and turns
 /// strip intents into `ScreenCommands` / `ScreenGroupCommands`.
 @MainActor
@@ -55,7 +55,7 @@ final class ScreenBarController {
     private func snapshot() -> Snapshot { Self.snapshot(content) }
 
     private static func snapshot(_ content: WorkspaceContentController) -> Snapshot {
-        Snapshot(bar: ScreenBarMapping.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon),
+        Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon),
                  active: content.layoutModel.activeScreenID?.rawValue)
     }
 
@@ -86,7 +86,7 @@ final class ScreenBarController {
         }
         guard let active, state.activeScreenID != active else { return }
         state.activeScreenID = active
-        content.services.windows.stateDidChange(state)
+        content.services.windows.recordSaver.stateDidChange(state)
     }
 
     /// Opens the inline editor on `screen` when the bar shows it.
@@ -119,7 +119,7 @@ final class ScreenBarController {
             ScreenCommands.close(Array(workspace.screens[(index + 1)...]), in: workspace, daemon: daemon, services: services)
         case .reorder(let id, _, let to):
             // A daemon without move-screen keeps the daemon's order.
-            guard daemon.supports(DaemonCapabilities.screenMetadata), let screen = screen(id) else {
+            guard daemon.supports(DaemonCapabilities.shared.screenMetadata), let screen = screen(id) else {
                 return view.discardPendingReorder()
             }
             ScreenCommands.move(screen, to: to, daemon: daemon)
@@ -145,9 +145,20 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn, .trailingButton:
+        case .moveToNewSplit, .moveToNewColumn:
             break
         }
+    }
+
+    /// The position inside `group` for a drop that puts screen `moving` at
+    /// `displayIndex` of the screen bar (`add-screens-to-screen-group`
+    /// takes an index inside the group, cmux-tui spec commands.md).
+    static func groupIndex(_ displayIndex: Int, moving: StripTabID, group: CmuxNextTabs.TabGroupID,
+                            in model: TabStripModel) -> Int {
+        let ordered = model.orderedTabs
+        let members = Set(ordered.filter { $0.groupID == group }.map(\.id.rawValue))
+        return TabMoveIndex.groupIndex(display: ordered.map(\.id.rawValue), members: members, moving: moving.rawValue,
+                                       displayIndex: displayIndex)
     }
 
     private func groupRef(_ id: CmuxNextTabs.TabGroupID) -> ScreenGroupRef? {
@@ -164,7 +175,8 @@ final class ScreenBarController {
         case .moveGroup(let id, let to):
             ScreenGroupCommands.move(ScreenGroupID(rawValue: id.rawValue), to: to, daemon: daemon)
         case .addToGroup(let id, let group, let index):
-            if let screen = screen(id) { ScreenGroupCommands.add([screen], to: ScreenGroupID(rawValue: group.rawValue), index: index, daemon: daemon) }
+            let inGroup = index.map { Self.groupIndex($0, moving: id, group: group, in: model) }
+            if let screen = screen(id) { ScreenGroupCommands.add([screen], to: ScreenGroupID(rawValue: group.rawValue), index: inGroup, daemon: daemon) }
         case .removeFromGroup(let id, _):
             if let screen = screen(id) { ScreenGroupCommands.remove([screen], daemon: daemon) }
         case .createGroup(let item, let ids):
@@ -202,8 +214,7 @@ final class ScreenBarController {
         case .group(let id), .savedGroup(let id):
             return registry.makeContextMenu(for: .screenGroup, target: ActionTargetRef(kind: .screenGroup, id: id.rawValue))
         case .emptyStrip, .newTabButton:
-            return registry.makeContextMenu(for: .screen, entries: [.action("screen.new"), .action("screen.newWith"),
-                                                                     .action("screen.reopenClosed")])
+            return registry.makeContextMenu(for: .screenBar)
         }
     }
 }

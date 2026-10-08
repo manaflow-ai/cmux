@@ -13,13 +13,20 @@ extension ControlRouter {
     func readBarrier(_ after: JSONValue, method: String, deadline: ContinuousClock.Instant) async throws -> ControlSnapshot {
         let sequence: UInt64
         switch after {
-        case .number(let value) where value >= 0 && value == value.rounded():
+        // `Double(UInt64.max)` rounds up to 2^64, which `UInt64` cannot hold;
+        // a full-width sequence goes as a string.
+        case .number(let value) where value.isFinite && value >= 0 && value < Double(UInt64.max) && value == value.rounded():
             sequence = UInt64(value)
         case .string(let text) where UInt64(text) != nil:
             sequence = UInt64(text) ?? 0
         case .string("sync"):
-            guard let barrier = syncBarrier else { return snapshots.current }
-            sequence = try await ControlDeadline.run(method: method, deadline: deadline) { try await barrier() }
+            // Not registered yet (the socket serves before the App wires the
+            // daemon): answering from the current snapshot would skip the sync.
+            guard let barrier = syncBarrier else {
+                throw ControlError(code: "unavailable", message: ControlStrings.text("control.error.syncBarrierUnavailable",
+                                                                                     "after: \"sync\" is not available yet; retry"))
+            }
+            sequence = try await ControlDeadline.shared.run(method: method, deadline: deadline) { try await barrier() }
         default:
             throw ControlError.invalidParams(ControlStrings.text("control.error.afterShape",
                                                                  "after must be a sequence number from an earlier reply or \"sync\""))

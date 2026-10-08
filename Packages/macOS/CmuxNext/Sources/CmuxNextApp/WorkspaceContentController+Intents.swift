@@ -24,15 +24,44 @@ extension WorkspaceContentController {
             sendGesture(transaction, phase: phase, label: "set-viewport-pane-width") { connection in
                 try await connection.setColumnWidth(of: handle, width: width, transaction: daemonTransaction)
             }
+        case .setColumnDock(_, let anyPane, let dock, let transaction):
+            // Hidden until the daemon serves it; a stale intent rolls back.
+            guard daemon.supports(DaemonCapabilities.shared.dockColumns), let handle = handles.panes[anyPane] else {
+                return layoutModel.rejectTransaction(transaction)
+            }
+            // A top or bottom dock needs edge-docks-v1; a daemon without it
+            // would refuse the edge, so the intent rolls back here.
+            if dock?.edge.isBand == true, !daemon.supports(DaemonCapabilities.shared.edgeDocks) {
+                return layoutModel.rejectTransaction(transaction)
+            }
+            let daemonTransaction = gestureTransaction(transaction, phase: .ended)
+            let wire = dock.map(LayoutMapping.snapshot)
+            sendGesture(transaction, phase: .ended, label: "set-column-dock") { connection in
+                try await connection.setColumnDock(of: handle, dock: wire, transaction: daemonTransaction)
+            }
+        case .setRowHeights(let column, let heights, let fit):
+            setRowHeights(column, heights: heights, fit: fit)
+        case .newRow(let below, let height):
+            guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.panes[below] else {
+                return services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.rows))
+            }
+            let cwd = panes[below]?.selectedTab?.cwd
+            let key = workspace.key
+            spawnPane("new-row") {
+                try await RowCommands($0).newRow(below: handle, height: height, options: SpawnOptions(cwd: cwd, workspace: key))
+            }
         case .selectScreen(let screen):
             // Every screen switch (switcher click, screen actions) focuses the
-            // screen's most recently focused pane, like a tmux window's
-            // active pane, through the coordinator so history and the window's
+            // screen's most recently focused pane (its active
+            // pane), through the coordinator so history and the window's
             // remembered focus move too.
             focusRememberedPane(on: screen)
-            services.windows.stateDidChange(state)
+            services.windows.recordSaver.stateDidChange(state)
         case .scrollTo:
-            services.windows.stateDidChange(state)
+            services.windows.recordSaver.stateDidChange(state)
+        case .cancelGesture(let transaction):
+            // No `.ended` will come for this gesture (its target went away).
+            gestureTransactions[transaction] = nil
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, let width):
@@ -48,14 +77,15 @@ extension WorkspaceContentController {
             let cwd = panes[pane]?.selectedTab?.cwd
             let direction: SplitDirection = axis == .horizontal ? .right : .down
             let key = workspace.key
+            // A split stays in its column: never a new column, never a scroll.
             switch services.splitRoom(for: model, edge: axis == .horizontal ? .right : .bottom) {
             case .split:
-                spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key)) }
-            case .newColumn(_, let anchor):
-                let request = layoutModel.prepareNewColumn(nextTo: pane)
-                spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
-                    try await $0.newColumn(rightOf: anchor, width: request.width, options: SpawnOptions(cwd: cwd, workspace: key))
+                let sizing = layoutModel.splitSizingChanges(splitting: pane, axis: axis)
+                spawnPane("split", then: { [layoutModel] in layoutModel.applySplitSizing(sizing) }) {
+                    try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key))
                 }
+            case .newColumn:
+                services.registry.refuse(RefusalStrings.columnTooNarrowToSplit)
             case .refused(let reason):
                 services.registry.refuse(reason)
             }
@@ -74,6 +104,28 @@ extension WorkspaceContentController {
                 then?()
             } catch {
                 daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// A row divider release: one typed intent in the store's log, shown
+    /// over the mirror until the daemon settles or refuses it (rows.md Z1;
+    /// the layout model keeps no copy).
+    private func setRowHeights(_ column: LayoutColumnID, heights: [RowHeight], fit: Bool) {
+        guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.columns[column] else { return }
+        var mapped: [RowHeightValue] = []
+        for height in heights {
+            guard let row = handles.rows[height.row] else { return }
+            mapped.append(RowHeightValue(row: row, height: height.height))
+        }
+        let values = mapped
+        // The daemon echoes the uint64 transaction as a decimal string in
+        // the commit's screen-changed delta, which settles the intent.
+        let wire = RowCommands.makeTransaction()
+        Task {
+            _ = await daemon.intend("set-row-heights", .setRowHeights(column: handle, heights: values),
+                                    transaction: ClientTransactionID(rawValue: String(wire))) { connection in
+                try await RowCommands(connection).setRowHeights(column: handle, heights: values, fit: fit, transaction: wire)
             }
         }
     }
@@ -123,10 +175,15 @@ extension WorkspaceContentController {
             }
         case .newColumn(let screen, let after):
             let column = after.flatMap { id in layoutModel.screens.first { $0.id == screen }?.layout.columns.first { $0.id == id } }
-                ?? layoutModel.screens.first { $0.id == screen }?.layout.columns.last
+                ?? layoutModel.screens.first { $0.id == screen }?.layout.columns.last { $0.dock == nil }
             guard let anchor = column?.root.panes.last, let handle = handles.panes[anchor],
                   let paneModel = daemon.store.pane(handle) else { return }
             TabMoves.toNewColumn(tab, anchor: paneModel, afterColumn: column.flatMap { handles.columns[$0.id] }, services: services, completion: restore)
+        case .newDock(let screen, let edge):
+            // The anchor names the screen only; the daemon places the band.
+            guard let anchor = layoutModel.screens.first(where: { $0.id == screen })?.layout.panes.first,
+                  let handle = handles.panes[anchor], let paneModel = daemon.store.pane(handle) else { return restore(false) }
+            TabMoves.toNewDockColumn(tab, anchor: paneModel, edge: edge, services: services, completion: restore)
         }
     }
 }

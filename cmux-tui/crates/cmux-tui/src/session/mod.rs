@@ -95,12 +95,10 @@ pub enum Session {
     Remote(Arc<RemoteSession>),
 }
 
-/// Stable frontend boundary for session reads.
-///
-/// This is deliberately small: mutations and transport recovery remain on
-/// `Session` until their command and acknowledgement semantics are migrated.
-/// Agent metadata is exposed through this boundary while the normal tree read
-/// remains on `Session::tree`.
+/// Stable frontend boundary for session reads. It is deliberately small:
+/// mutations and transport recovery remain on `Session` until their command
+/// and acknowledgement semantics are migrated. Agent metadata is exposed
+/// through this boundary while the normal tree read remains on `Session::tree`.
 pub(crate) trait SessionPort: Send + Sync {
     fn agents(&self) -> Vec<AgentInfo>;
 }
@@ -218,6 +216,7 @@ fn localized_layout_ratio_error(error: LayoutRatioError) -> anyhow::Error {
         LayoutRatioError::UnrepresentableViewportWidth { split, ratio, width } => {
             messages.unrepresentable_viewport_width(split, ratio, width)
         }
+        LayoutRatioError::RowSplitCompatReadonly { .. } => messages.row_split_readonly.into(),
     };
     anyhow::anyhow!(message)
 }
@@ -428,7 +427,7 @@ fn creation_fields(size: Option<(u16, u16)>) -> Map<String, Value> {
 }
 
 fn creation_mutation(receipt: &CreationReceipt) -> anyhow::Result<WorkspaceMutation> {
-    WorkspaceMutation::new(receipt.id.clone(), receipt.origin.clone())
+    WorkspaceMutation::by_local_user(receipt.id.clone(), receipt.origin.clone())
 }
 
 fn creation_selector_fallbacks(
@@ -743,16 +742,22 @@ impl Session {
         }
     }
 
-    /// `detach-client {client: <participant>}`: disconnects one participant
-    /// (a relay sub-view alone, otherwise its whole client).
-    pub fn disconnect_size_participant(&self, participant: &str) -> anyhow::Result<()> {
+    /// `detach-client {client: <participant>, surface}`: disconnects one
+    /// participant of this terminal: a relay sub-view alone, the own view of
+    /// a client with `sizing-view-detach-v1` (a Mac keeps its connection and
+    /// the phones it relays), otherwise its whole client.
+    pub fn disconnect_size_participant(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+    ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                cmux_tui_core::server::detach_size_participant(mux, 0, participant)
+                cmux_tui_core::server::detach_size_participant(mux, 0, participant, Some(surface))
             }
-            Session::Remote(remote) => {
-                remote.request(json!({"cmd": "detach-client", "client": participant})).map(|_| ())
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "detach-client", "client": participant, "surface": surface}))
+                .map(|_| ()),
         }
     }
 
@@ -1634,7 +1639,7 @@ impl Session {
         };
         match self {
             Session::Local(mux) => {
-                let mutation = WorkspaceMutation::new(receipt.id.clone(), receipt.origin.clone())?;
+                let mutation = creation_mutation(receipt)?;
                 let mut fields = Map::new();
                 fields.insert("direction".to_string(), json!(direction));
                 if let Some((cols, rows)) = size {

@@ -125,7 +125,7 @@ CEF child window was key at open, the palette's parent is that child window.
 R9. **Key routing has no order.** `ShellWindow.performKeyEquivalent` runs every registry
 shortcut before any view, regardless of what has the keyboard (`WindowController.swift:138-141`).
 Text fields lose editing chords to content-scoped actions (R3). A web page can never
-receive a chord that any registry action claims, so web apps (Figma, Linear, Docs) lose
+receive a chord that any registry action claims, so web apps (design tools, issue trackers, document editors) lose
 their shortcuts. `TerminalSurfaceView.performKeyEquivalent` then asks the main menu
 before a Ghostty keybind (`TerminalSurfaceView+Keyboard.swift:93-108`), and CEF skips
 the registry completely (R5). `toggleBrowserFocusMode` is declared but refused as
@@ -178,10 +178,11 @@ Reducer `(FocusState, FocusEvent) -> (FocusState, [FocusEffect])`, pure, rules:
 - Initial placement and workspace switch: remembered pane if it exists, else the first
   pane. The target becomes `content`, except that keyboard navigation in the sidebar
   keeps `sidebar(keyboard: true)`.
-- The focused pane disappears: successor is the most recently focused surviving pane
-  (closing a split you just made returns to where you were), else the next surviving pane
-  after it in the old layout order, else the previous one. Deterministic, never a
-  dictionary order.
+- The focused pane disappears: successor per `layout.closeFocus` (close-focus.md):
+  default the previous pane in its column, else the next one there, else the column to the
+  left (its most recently focused pane), else the column to the right, on the same screen;
+  `mostRecent` takes the newest surviving pane of the history first. Deterministic, never
+  a dictionary order.
 - A tab moved to another pane by a shortcut, menu or CLI verb is followed: focus lands
   on it in its new pane once the daemon reports the move.
 - The focused pane's selected tab changes: focus follows it; `addressBar`/`findBar` of
@@ -228,29 +229,12 @@ state behind it is per window.
 
 ## 4a. Directional focus with history
 
-Dogfood report (nxdog9): "left then right" must return to the pane you came from, as in
-zellij and tmux, not to the geometrically nearest pane.
+Dogfood report (nxdog9): "left then right" must return to the pane you came from, not to
+the geometrically nearest pane.
 
-Reference rules, read from the sources on 2026-09-30:
-
-- tmux, `window.c`: `window_pane_find_up`, `window_pane_find_down`, `window_pane_find_left`
-  and `window_pane_find_right` collect every pane whose near edge touches the current pane's
-  edge (`yoff + sy + 1 == edge` and the like; at the window edge they wrap to the opposite
-  side) and that overlaps it on the other axis (spans it, or starts or ends inside it).
-  `window_pane_choose_best` returns the candidate with the highest `active_point`, the first
-  in pane order on a tie (`next->active_point > best->active_point`). `active_point` is
-  assigned only in `window_set_active_pane` (`w->active->active_point = next_active_point++`),
-  which every focus change goes through: a click, `select-pane`, a directional move, a
-  script. A pane that was never active has `active_point` 0, so pane order decides.
-- zellij, `zellij-server/src/panes/tiled_panes/tiled_pane_grid.rs`:
-  `next_selectable_pane_id_to_the_left` (and `_to_the_right`, `_above`, `_below`) filter the
-  selectable panes with `is_directly_left_of` plus `horizontally_overlaps_with` (and the
-  vertical pair), then take `max_by_key(|p| p.active_at())`. `active_at` starts at the pane's
-  creation time (`TerminalPane::new`: `active_at: Instant::now()`) and is set by
-  `set_pane_active_at` in `tiled_panes/mod.rs` (`move_focus_left` and the other moves,
-  `focus_next_pane`, `focus_last_pane`, stacked-pane focus). Ties fall to HashMap order.
-
-cmux-next matches tmux: history from every focus source, pane position on a tie.
+Rule: a directional move picks among the panes adjacent in that direction, and the most
+recently focused one wins. Every focus source updates the history (a click, the CLI, the
+palette, a directional move, a script). A pane position breaks a tie.
 
 - History: `FocusState.history[workspace]`, newest first, at most 64 panes per workspace, per
   window, in memory, never persisted. `FocusReducer.finish` records the focused pane after
@@ -262,26 +246,25 @@ cmux-next matches tmux: history from every focus source, pane position on a tie.
   pane's edge (1.5 pt tolerance). The adjacent ones overlap it on the other axis at the
   smallest distance, which allows the gaps between panes. Among them the most recently
   focused wins. Without history among them: the largest overlap, the nearest center, then
-  the top-left pane (tmux's first in pane order). When nothing overlaps, the nearest edge,
+  the top-left pane (first in pane order). When nothing overlaps, the nearest edge,
   then the nearest center. History never skips a pane: in A | B | C, left from C is B even
   if A was focused after B.
-- niri columns: a left or right move that lands in another column goes to that column's
-  most recently focused pane (niri keeps an active tile per column), else to the geometric
+- strip columns: a left or right move that lands in another column goes to that column's
+  most recently focused pane (each column keeps an active tile), else to the geometric
   choice. `column.focusLeft` and `column.focusRight` pick the column's most recently focused
   pane, else its first.
 - Screens: every screen switch (switcher click, `screen.next`, `screen.previous`,
   `screen.select`) sends `LayoutIntent.selectScreen`; the window focuses that screen's most
-  recently focused pane, else its first (tmux: a window keeps its active pane).
+  recently focused pane, else its first (a screen keeps its active pane).
 - Entry points: `focusLeft`/`focusRight`/`focusUp`/`focusDown` (Cmd-Opt-arrows, the palette,
   the CLI, Ghostty `goto_split:*` keybinds such as Cmd-Ctrl-HJKL through
   `TerminalHostActionRoute`) and the tab moves to a neighbor pane, all through
   `PaneHandlers.neighbor`.
-- Differences from tmux: no wrap at the window edge (cmux refuses with "no pane left of the
-  focused pane"), and a pane never focused has no history (tmux's 0, not zellij's creation
-  time).
+- No wrap at the window edge (cmux refuses with "no pane left of the focused pane"). A pane
+  never focused has no history, so position decides.
 
 Tests: `FocusHistoryNavigationTests` (reducer plus navigation in several split layouts,
-niri columns, screens, workspaces, closed panes, every source), `FocusNavigationTests`.
+strip columns, screens, workspaces, closed panes, every source), `FocusNavigationTests`.
 
 ## 5. Keyboard routing (one router, `KeyRouter`)
 
@@ -319,6 +302,13 @@ page is `browserReload`, not `renameTab`), then the tier decides whether it may 
 A Ghostty keybind that collides with a tier 1 or tier 2 action loses, unless the user
 unbinds the action (`shortcuts.bindings.<id>: null`) or moves it to a lower tier in
 `cmux.json`. `focusBrowserAddressBar` (Cmd-L) is tier 1 although it needs a browser tab.
+Browser chrome exception (R88): Back, Forward, Reload, Hard Reload, History, Copy Page URL
+(Cmd-Shift-C) and Find Previous in Page (Shift-Cmd-G) are tier 2, but they also run while the
+address bar or the find bar has the keyboard (`KeyRouter.browserChromeActions`), as in Chrome
+and Safari; their chords edit no text. Cmd-Return and Shift-Cmd-Return in the address bar are
+`omnibar.openInBackgroundTab` and `omnibar.openInForegroundTab` (context bit `omnibarFocused`),
+which win over Toggle Pane Zoom only there. Shift-Cmd-G needs a browser focused, so elsewhere it
+stays Group Selected Workspaces.
 Main-menu key equivalents run the same check: `ActionRegistry.menuKeyEquivalentGate`
 (the App's `KeyRouter`) refuses a menu item's chord during a key-down when its tier may
 not take the key from the key window's focus, so a chord the router gave to a page in
@@ -326,13 +316,37 @@ focus mode or to a text field cannot fire the menu item afterwards. A panel or s
 over the window (palette, rename sheet) counts as a text field. Clicks in an open menu
 are not gated.
 
+Leader key (Cmd-J, `LeaderLayer`). Before step 1, a two-key chord's first key arms it
+(`ChordTracker`). Cmd-J is the leader: it arms whenever some binding sits under it, even
+one that cannot run in this focus, and a which-key overlay (`WhichKeyController`,
+`WhichKeyPanel`) lists every key under it, bottom center of the window, until the next
+key. That key runs its action, or, when it completes nothing (Escape, an unbound key,
+Cmd-J again), dismisses the overlay and reaches no view. Defaults: Cmd-J J Scroll to
+Selection (`terminal.scrollToSelection`, Ghostty's macOS Cmd-J, so cmux loads
+`keybind = super+j=unbind` before the user's Ghostty files), Cmd-J S New Agent Chat
+(which keeps Shift-Cmd-I), Cmd-J ? (Shift-/) Search Keyboard Shortcuts. Each is an
+ordinary chord in `cmux.json` (`"terminal.scrollToSelection": ["cmd+j", "k"]`); a single
+key or `null` for an action drops its leader chord, and a user's own single-key `cmd+j`
+binding for any action makes the default leader chords step aside, so that action runs. A chord of the user's own under `cmd+j` keeps the leader armed, so a single-key `cmd+j`
+binding next to it never runs; pick one.
+The leader arms before a terminal sees the key, so cmux cannot tell that a Ghostty
+config binds `super+j` (a later `keybind` line only replaces cmux's unbind inside
+Ghostty's config); to give Cmd-J back to Ghostty, unbind the three leader chords in
+`cmux.json` (`terminal.scrollToSelection`, `palette.newAgentChat`,
+`palette.searchShortcuts` set to `null`). Where it arms (`KeyRouter.canArm`): Cmd-J is
+the app leader everywhere content shortcuts run (a terminal, a page, an agent chat, the
+sidebar list), never in a native text field, DevTools or browser focus mode, and never
+while an input method has marked text. In a page this shadows the site's own Cmd-J (VS
+Code for the web's Toggle Panel, for one); rebind or unbind the leader chords in
+`cmux.json` to give it back. Holding Cmd-J keeps the leader armed (repeats are
+ignored); a focus change in its window, a click or a window closing ends it.
+
 Browser context (a page, the address bar or the find bar has the keyboard). A chord
 resolves in this order: a cmux registry action (catalog default or `cmux.json`; the
 most specific performable one, so Cmd-[ is `browserBack` with a browser focused),
 then the tier decides; only when the registry has no action for the chord may the
-Ghostty keybind fallback run, and in a browser context never for a chord Chrome
-defines (`BrowserChordTable.chromeReserved`). Chrome for Mac reference chords
-(support.google.com/chrome/answer/157179): Cmd-[ / Cmd-] and Cmd-Left / Cmd-Right
+Ghostty keybind fallback run, and in a browser context never for a standard browser
+chord (`BrowserChordTable.chromeReserved`). The standard browser chords: Cmd-[ / Cmd-] and Cmd-Left / Cmd-Right
 (Back, Forward), Cmd-R, Cmd-Shift-R, Cmd-. (reload, hard reload, stop), Cmd-L, Cmd-T,
 Cmd-Shift-T, Cmd-W, Cmd-Shift-W, Cmd-N, Cmd-Shift-N, Cmd-F, Cmd-G, Cmd-Shift-G, Cmd-E,
 Cmd-D, Cmd-Shift-D, Cmd-Shift-B, Cmd-Opt-B, Cmd-Y, Cmd-Shift-J, Cmd-P, Cmd-S, Cmd-O,
@@ -341,13 +355,25 @@ Cmd-Opt-Left / Right, Cmd-Shift-[ / ], Ctrl-Tab, Ctrl-Shift-Tab, and the edit ch
 Cmd-A/C/V/X/Z, Cmd-Shift-Z, Cmd-Shift-V, Cmd-Opt-Shift-V. Where cmux binds one of
 these itself (Cmd-D split, Cmd-T new tab, Cmd-W close, Cmd-1..9 tab, Cmd-Opt-arrows
 pane focus, Cmd-L address bar), cmux's action wins, as before. A chord in the list
-without a cmux action goes to the page (or the field), except Chrome's tab-switching
+without a cmux action goes to the page (or the field), except the browser tab-switching
 chords (Ctrl-Tab, Ctrl-Shift-Tab, Ctrl-PageDown, Ctrl-PageUp, and Cmd-Opt-Right/Left
 and Cmd-Shift-]/[ when cmux does not bind them): cmux tabs are the browser's tabs, so
 `BrowserChordTable.tabNavigation` runs cmux's next/previous tab (tier 1) for them;
 unbinding `nextSurface`/`prevSurface` in `cmux.json` removes these aliases. The Ghostty fallback applies
-only to chords neither cmux nor Chrome defines (for example `cmd+ctrl+h`). In a
+only to chords that are neither cmux actions nor standard browser chords (for example `cmd+ctrl+h`). In a
 terminal the terminal runs its own Ghostty keybinds, still after cmux's registry.
+
+Browser-only chords (user 2026-09-30: "cmd[] in terminal should do nothing.
+should only do stuff in browsers. consistency is most important for keyboard
+shortcuts"): the effective chords of `browserBack` and `browserForward`
+(Cmd-[ / Cmd-] by default, or the user's rebinding) act only in a browser
+context. Anywhere else (a terminal, the sidebar, a text field of the window)
+the app-wide interceptor consumes them and runs nothing: no Ghostty keybind
+(`super+[` is `goto_split:previous` by default), no shell input, no menu
+item (`BrowserChordTable.browserOnlyActions`, `KeyRouter.consumesBrowserOnlyChord`;
+`BrowserOnlyChordTests`). A cmux action the user binds to the same chord in
+another context still runs first. The location trail's Go Back / Go Forward
+are Ctrl-Cmd-Left / Ctrl-Cmd-Right in every context (history.md 4.2).
 
 Sidebar inline rename: Return, Escape or Tab ends it and gives the keyboard back to the
 focused content through the coordinator; a click elsewhere keeps the clicked target.
@@ -438,9 +464,9 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
 
 ### Rules
 
-- Selection and focus follow Chrome for Mac; see the table below.
+- Selection and focus follow the table below.
 - Focus lost (a click outside, Tab, another pane) never commits. It closes the card and keeps
-  the typed text in the idle field (Chrome). The next focus restores it, all selected. A page
+  the typed text in the idle field. The next focus restores it, all selected. A page
   navigation replaces the retained text.
 - Typing asks for suggestions with a new generation. Results with any other generation, or
   results that arrive after editing ended, are dropped. The popup rows stay on screen but are `stale` until fresh
@@ -474,7 +500,7 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
 - Enter with modifiers reports `.open(url, disposition)`, and the page stays. The chrome calls
   `onOpenURL` (the App must wire it; until then, the current tab loads the URL).
 
-### Selection and focus (Chrome for Mac)
+### Selection and focus
 
 Reference: Chromium `main`, fetched 2026-09-30. `OVV` is
 chrome/browser/ui/views/omnibox/omnibox_view_views.cc, `OEM` is
@@ -501,10 +527,10 @@ chrome/browser/ui/omnibox/omnibox_edit_model.cc, `SC` is ui/views/selection_cont
 | A navigation while focused and untyped shows the new display text, all selected. Typed text never changes. | `OVV` `Update`, `OEM` `ResetDisplayTexts` |
 | Copy of the whole untouched URL, elided or full, copies the full page URL (also as a URL). Other text from the start that reads as a URL on the page's host gets the page's scheme; anything else copies as is. | `OEM` `AdjustTextForCopy`, `OTU` `AdjustTextForCopy`, `OVV` `OnBeforeCutOrCopy` |
 
-Differences: Chrome's Opt-Cmd-F (`IDC_FOCUS_SEARCH`, `LocationBarView::FocusSearch`) enters
+Differences: Chromium's Opt-Cmd-F (`IDC_FOCUS_SEARCH`, `LocationBarView::FocusSearch`) enters
 keyword mode for the default search engine; cmux has no keyword mode and binds nothing to it.
 Focus by Tab traversal does not restore the selection saved at blur (`OVV` `OnFocus`); it
-selects all. A drag that exceeds Chrome's drag threshold but ends with an empty selection
+selects all. A drag that exceeds Chromium's drag threshold but ends with an empty selection
 still selects all (AppKit reports no threshold). Selection color is `Palette.textSelection` and
 the caret `Palette.textPrimary`, both derived from the Ghostty theme (`ThemeTokens`); both
 engines use this one omnibar (`BrowserChromeView` for every `BrowserTab`).
@@ -543,11 +569,60 @@ ends and outside an edit, so an edit reaches the machine as one event with its f
 Status: implemented 2026-09-30. The ring is an overlay: `PaneOverlayView` in the layout's
 `OverlayPlane` (above Chromium page windows), stroked inside the pane's content area, so
 it never changes a pane frame, inset or the hosted view's frame
-(`FocusRingNoShiftTests` moves focus across splits and niri columns under every ring
+(`FocusRingNoShiftTests` moves focus across splits and strip columns under every ring
 style, width and corner setting). cmux.json `focusRing.{enabled, style (ring | glow |
 none), color (default: the Ghostty theme's focus gray), width, cornerRadius (default: the
-pane radius), showWhenSinglePane}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
+pane radius), showWhenSinglePane, contrast (subtle | standard | strong)}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
 Style, Toggle Focus Ring for a Single Pane. The glow is a stroke with a shadow clipped to
 the content rect, so it falls inward only. The attention ring of an unread notification
 shares the overlay (plans/cmux-next/notifications.md). Column scrolling:
-plans/cmux-next/niri.md.
+plans/cmux-next/column-scroll.md.
+
+Contrast (2026-10-02, user: "we need focus ring to be subtler by default somehow. color
+subtler"): `focusRing.contrast` sets the pane ring's share of the theme focus color (the
+Ghostty foreground; it replaces the token's own alpha): subtle 0.20 (the default),
+standard 0.55 (the previous look), strong 0.85. `FocusRingSettings.ringColor(in:override:)`
+is the one rule the overlay draws (`Palette.paneFocusRing`) and `FocusRingContrastTests`
+checks: subtle stays at least 1.4 times a pane border's visibility in every fixture theme,
+so the focused pane is still findable. No accent hue. The accent uses of `Palette.focusRing`
+(Settings tint, omnibar and page info rings) do not change. Settings: Appearance > Focus
+Ring > Contrast; Debug Settings: Focus > Focus ring alpha overrides it.
+
+Focus indicator and tab bar background (2026-10-02, user: "ensure bg of tabbar negative
+space is same as rest of app. also we should visually differ the focused pane's tabs from
+unfocused panes tabs by making the latter more subtle. all this should be configurable by
+the user."):
+- `appearance.tabBarBackground`: `window` (default) paints no strip fill, so the space
+  around and between the tabs is the window's own background (the titlebar and pane gaps,
+  whatever the backdrop: opaque, translucent or glass); where the sheet shows another color
+  (a workspace theme of the other lightness than its space) the strip paints the pane's
+  window color instead (`TabBarBackground.paintsStripFill`). `darker` is the previous
+  shaded strip (`Palette.stripBackground`). The sidebar has its own vibrancy backdrop, so in
+  a translucent or glass window it differs from the sheet (as before this change).
+- `appearance.focusIndicator`: `border` (the ring only), `tabs` (no ring; the other panes'
+  tabs draw subtler), `both` (default, with the subtle ring), `none`. With one pane nothing
+  is marked. The tabs cue needs no border, so it works with `appearance.borders` none.
+- Mechanism: `ScreenContentView.updateChrome` computes `ChromeEmphasis.forPane` per pane
+  and gates the ring on `marksBorder`; `PaneContentChrome.setChromeEmphasis` reaches
+  `PaneContentView`, whose strip roots its own child `ThemeScope`; `ThemeScope.setEmphasis`
+  applies `ThemeTokens.emphasized` to that scope's own views only (children and the content
+  keep the plain colors), and the scope repaint is the same path a theme change uses.
+  No Tabs code changes; no accent hue.
+- Debug Settings (Focus): `focus.indicator` and `focus.tabBarBackground` override the
+  settings; `focus.inactiveTabStyle` overrides the cmux.json key of the same name (`fade` default: text, icons
+  and pills fade toward the background; `tonal`: every text tier steps down, the selected
+  pill takes the hover fill; `quiet`: no pill, the selection is the text tier);
+  `focus.inactiveTabStrength` (0.35). Subtle text never drops below 3.5:1 (selected),
+  2.5:1 and 2:1 against the page (`ThemeTokens.subtle*Floor`). Panels and hover cards
+  opened from a subtle strip adopt `ThemeScope.fullStrength`, so they draw at full strength.
+- With `appearance.borders` none the unfocused panes' dim stands in for the ring only when
+  `focusIndicator` is `border`; with `tabs` or `both` the tab cue is the focus cue.
+- Chrome lane (WindowBackdrop, cc-pane-chrome) reads `DesignSettings.shared
+  .effectiveFocusIndicator` and `.effectiveTabBarBackground`.
+
+Resize rule (2026-09-30): the ring's layers move in the same call that sets the overlay's
+frame (`PaneOverlayView.setFrameSize`), so the pass that places the panes places the ring,
+even when the plane lives in the overlay panel above Chromium pages, whose own layout pass
+runs later (`FocusRingResizeTests`; `debug.layers` `ring_in_sync`, DEBUG `ring_lag_passes`).
+A page window the fork adds goes below the overlay inside `ShellWindow.addChildWindow`, so
+no frame shows a new page over the ring (`OverlayPageOrderTests`).

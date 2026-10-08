@@ -2,7 +2,8 @@ public import AppKit
 public import CmuxNextDesign
 
 /// Mock data and a standalone window for demoing the strip without the daemon.
-public enum TabStripDemo {
+public struct TabStripDemo {
+    public init() {}
     private static var counter = 0
 
     public static func makeTab(title: String? = nil) -> TabItem {
@@ -27,7 +28,7 @@ public enum TabStripDemo {
 
     private static var groupCounter = 0
 
-    /// A new demo group with the next Chrome color.
+    /// A new demo group with the next group color.
     public static func makeGroup(name: String = "") -> TabGroupItem {
         groupCounter += 1
         let color = GroupColor.allCases[groupCounter % GroupColor.allCases.count]

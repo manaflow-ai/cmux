@@ -12,7 +12,6 @@ final class PageInfoPanel: ActiveAppKeyPanel {
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
-        ThemeStore.shared.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
@@ -45,25 +44,40 @@ final class PageInfoPanel: ActiveAppKeyPanel {
 
 /// Glass card that hosts one page and reports the size it needs.
 final class PageInfoCardView: NSView {
-    private let glass = Glass.makePanel(cornerRadius: PageInfoStyle.cornerRadius)
-    private let body = OverlayBackingView()
+    private let body: OverlayBackingView
+    /// The card's material: glass, or opaque under Reduce Transparency.
+    let glass: OverlaySurfaceView
     private var content: NSView?
 
     override init(frame: NSRect) {
+        let body = OverlayBackingView()
+        self.body = body
+        glass = Glass.makeOverlayPanel(content: body, cornerRadius: PageInfoStyle.cornerRadius)
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = false
         glass.translatesAutoresizingMaskIntoConstraints = true
-        glass.contentView = body
         body.wantsLayer = true
         addSubview(glass)
-        shadow = {
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    /// Shadow and glass tint of the bubble's theme scope (the panel adopts
+    /// the omnibar's scope when it opens).
+    private func applyColors() {
+        performWithTheme {
             let shadow = NSShadow()
             shadow.shadowColor = Palette.shadow.withAlphaComponent(0.24)
             shadow.shadowBlurRadius = PageInfoStyle.shadowMargin * 0.6
             shadow.shadowOffset = NSSize(width: 0, height: -2)
-            return shadow
-        }()
+            self.shadow = shadow
+            glass.applyTheme()
+        }
     }
 
     @available(*, unavailable)

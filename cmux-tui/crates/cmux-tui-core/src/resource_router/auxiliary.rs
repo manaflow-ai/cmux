@@ -562,15 +562,7 @@ fn parse_terminal_id(value: &Value) -> Result<TerminalPublicId, ResourceError> {
 }
 
 fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)
+    request.mutation().map_err(resource_operation_error)
 }
 
 fn decode_intent<T: serde::de::DeserializeOwned>(
@@ -591,7 +583,7 @@ fn stored_intent_error(operation: &str, message: &str) -> ResourceError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resource::{EnvelopeType, PROTOCOL, RequestEnvelope, RequestId};
+    use crate::resource::{RequestEnvelope, RequestId};
     use crate::{SidebarPluginOptions, SurfaceOptions};
     use std::time::{Duration, Instant};
 
@@ -606,16 +598,15 @@ mod tests {
         fields: Value,
     ) -> ParsedResourceRequest {
         ParsedResourceRequest {
-            envelope: RequestEnvelope {
-                protocol: PROTOCOL.to_string(),
-                envelope_type: EnvelopeType::Request,
-                id: RequestId::parse(format!("aux-{operation:?}")).unwrap(),
+            envelope: RequestEnvelope::request(
+                RequestId::parse(format!("aux-{operation:?}")).unwrap(),
                 operation,
-                params: json!({}),
-                idempotency_key: key.map(str::to_string),
-            },
+                json!({}),
+                key.map(str::to_string),
+            ),
             selectors,
             fields: fields.as_object().unwrap().clone(),
+            actor: crate::Actor::local_user(),
         }
     }
 

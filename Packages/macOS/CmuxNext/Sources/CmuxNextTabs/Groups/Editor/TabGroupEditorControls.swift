@@ -55,7 +55,7 @@ final class TabGroupSwatchView: NSView {
     }
 
     private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             fill.backgroundColor = color.swatch.cgColor
             ring.borderColor = (isChosen ? Palette.textPrimary : (isHovered ? Palette.separator : NSColor.clear)).cgColor
         }
@@ -87,7 +87,6 @@ final class TabGroupEditorRow: NSView {
         layer?.cornerRadius = Metrics.itemCornerRadius
         layer?.cornerCurve = .continuous
         label.font = Typography.body
-        label.textColor = Palette.textPrimary
         label.stringValue = title
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -102,6 +101,7 @@ final class TabGroupEditorRow: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel(title)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        updateColors()
     }
 
     @available(*, unavailable)
@@ -123,8 +123,9 @@ final class TabGroupEditorRow: NSView {
     }
 
     private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = isHovered ? Palette.hoverFill.cgColor : nil
+            label.textColor = Palette.textPrimary
         }
     }
 

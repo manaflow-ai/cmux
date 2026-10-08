@@ -72,6 +72,9 @@ pub enum Command {
         #[arg(long, short)]
         effort: Option<String>,
     },
+    /// Continue a session's work on another harness: prepare a reviewed
+    /// first message for a new session there, then start or discard it.
+    Continue(crate::cli::handoff::ContinueArgs),
     /// One turn per turn: prompt preview, status, tools, tokens, wall time.
     History {
         session: String,
@@ -96,7 +99,7 @@ pub enum Command {
     #[command(alias = "guide")]
     Skill,
     /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
-    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude`,
+    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
     /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
     /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
@@ -104,7 +107,7 @@ pub enum Command {
     #[command(alias = "presets")]
     Preset {
         name: Option<String>,
-        /// key=value pairs: harness, model, effort, policy, description, env.KEY
+        /// key=value pairs: harness, model, effort, policy, description, env.KEY, args (a JSON list)
         pairs: Vec<String>,
         #[arg(long)]
         clear: bool,
@@ -197,16 +200,30 @@ pub enum Command {
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
+        /// Replace the dashboard token now: the old link, `ws://` peers that
+        /// were given it and open dashboard connections stop working.
+        #[arg(long)]
+        rotate_token: bool,
     },
     /// Remote daemons: add, ls, rm.
     #[command(subcommand, alias = "hosts")]
     Host(PeerCmd),
-    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, export, import, tail.
+    /// Bring your own harness: list, add, doctor and reload harness profile
+    /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
+    #[command(subcommand)]
+    Harness(HarnessCmd),
+    /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
+    #[command(subcommand)]
+    Chats(crate::cli::chats::ChatsCmd),
+    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
     /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
+    /// Serve the local CodeRouter in a separate process.
+    #[command(subcommand)]
+    Router(RouterCmd),
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -256,6 +273,12 @@ pub enum Command {
     #[command(hide = true)]
     Deny { session: String },
     #[command(hide = true)]
+    Answer {
+        session: String,
+        #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
+        answer: Vec<String>,
+    },
+    #[command(hide = true)]
     Export {
         session: String,
         #[arg(long)]
@@ -277,7 +300,11 @@ pub enum Command {
     #[command(hide = true)]
     DaemonStart,
     #[command(hide = true, alias = "kill-server")]
-    Shutdown,
+    Shutdown {
+        /// Leave hosted agents running for the next daemon to adopt.
+        #[arg(long)]
+        keep_agents: bool,
+    },
     #[command(hide = true)]
     Config,
     #[command(subcommand, hide = true)]
@@ -300,7 +327,107 @@ pub enum Command {
         /// inherited file descriptor once the socket and listen address are bound.
         #[arg(long)]
         ready_fd: Option<i32>,
+        /// A loopback page dev server origin the web listener also accepts
+        /// (`http://127.0.0.1:<port>` or `http://localhost:<port>`). Only a
+        /// Debug app passes it, for its agent pane dev server; it is not saved.
+        #[arg(long = "allow-dev-origin")]
+        allow_dev_origin: Vec<String>,
+        /// A development launch: `--allow-dev-origin` is honored only with it
+        /// (or in a debug build). Release launchers never pass it.
+        #[arg(long)]
+        dev: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum HarnessCmd {
+    /// Every harness with its kind, source file and problems.
+    #[command(alias = "ls")]
+    List {
+        /// Also list the folder profiles in DIR/.cmux/harnesses with their state.
+        #[arg(long)]
+        folder: Option<PathBuf>,
+    },
+    /// Write a new profile file into ~/.config/cmux/harnesses and check it.
+    Add {
+        /// Profile id (file name); default: the example's id or the command's name.
+        id: Option<String>,
+        /// The program to run: a name on PATH or an absolute path.
+        #[arg(long)]
+        command: Option<String>,
+        /// acp (Agent Client Protocol over stdio) or terminal (a CLI/TUI without ACP).
+        #[arg(long, default_value = "acp")]
+        protocol: String,
+        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider.
+        #[arg(long)]
+        example: Option<String>,
+        /// Replace an existing file.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Start the harness in a temp folder, run the ACP handshake and one
+    /// prompt, and print each step with an exact fix. Never prints env values.
+    /// An id that is no catalog harness is looked up as a folder profile
+    /// (DIR/.cmux/harnesses/ID.toml in --folder or the current folder, or
+    /// their nearest parent); an enabled one starts inside its folder.
+    Doctor {
+        id: String,
+        /// Where to look for a folder profile (default: the current folder).
+        #[arg(long)]
+        folder: Option<PathBuf>,
+        /// Stop after session/new: send no prompt (no model call).
+        #[arg(long)]
+        no_prompt: bool,
+        /// Seconds each step may wait for the harness.
+        #[arg(long, default_value_t = 120)]
+        timeout: u64,
+    },
+    /// Allow a folder profile (DIR/.cmux/harnesses/ID.toml) in chats inside
+    /// DIR: shows the command and env, then asks. The folder must be trusted.
+    Enable {
+        id: String,
+        #[arg(long)]
+        folder: PathBuf,
+        /// Confirm without the prompt (needed without a terminal).
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Withdraw a folder profile's confirmation.
+    Disable {
+        id: String,
+        #[arg(long)]
+        folder: PathBuf,
+    },
+    /// Run a protocol = "terminal" harness (a CLI/TUI without ACP) in this
+    /// terminal with its profile env; `--tab` (cmux) opens it in a new tab.
+    Run {
+        id: String,
+        /// The folder to run in (default: the current folder).
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+        /// The model for `${model}` (default: the profile's).
+        #[arg(long)]
+        model: Option<String>,
+        /// Open a new tab in the current pane (cmux only).
+        #[arg(long)]
+        tab: bool,
+    },
+    /// Secrets for harness env keys, kept in the system secret store.
+    #[command(subcommand)]
+    Secret(SecretCmd),
+    /// Tell the running daemon to read the profile files again.
+    Reload,
+    /// Print the guide an agent follows to integrate a harness (schema,
+    /// doctor loop, examples, security rules).
+    Guide,
+}
+
+#[derive(Subcommand)]
+pub enum SecretCmd {
+    /// Store a value for ID's env KEY (Keychain on macOS, secret-tool
+    /// elsewhere) and write `KEY = { keychain = "cmux-harness/ID/KEY" }` into
+    /// the profile file. Reads a hidden prompt, or stdin; never prints it.
+    Set { id: String, key: String },
 }
 
 #[derive(Subcommand)]
@@ -333,6 +460,15 @@ pub enum SessionCmd {
     Allow { session: String, option: Option<String> },
     /// Reject a pending permission request.
     Deny { session: String },
+    /// Answer a pending agent question: one --answer per question, keyed by
+    /// question text, id or header; the choice is option labels or ids
+    /// (comma-separated for multi-select) or your own text. With no
+    /// --answer, print the questions and the command.
+    Answer {
+        session: String,
+        #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
+        answer: Vec<String>,
+    },
     /// Export a session bundle.
     Export {
         session: String,
@@ -400,14 +536,30 @@ pub enum DaemonCmd {
         /// inherited file descriptor once the socket and listen address are bound.
         #[arg(long)]
         ready_fd: Option<i32>,
+        /// A loopback page dev server origin the web listener also accepts
+        /// (`http://127.0.0.1:<port>` or `http://localhost:<port>`). Only a
+        /// Debug app passes it, for its agent pane dev server; it is not saved.
+        #[arg(long = "allow-dev-origin")]
+        allow_dev_origin: Vec<String>,
+        /// A development launch: `--allow-dev-origin` is honored only with it
+        /// (or in a debug build). Release launchers never pass it.
+        #[arg(long)]
+        dev: bool,
     },
     /// Daemon status, hosts, and the web URL.
     Status,
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
     Start,
-    /// Stop the daemon and every agent process; returns once it exited.
+    /// Stop the daemon and every agent process, agent hosts included;
+    /// returns once they all exited, and fails naming any host left.
+    /// `--keep-agents` leaves hosted agents running for the next daemon to
+    /// adopt (a restart); pooled hosts end anyway.
     #[command(alias = "kill-server")]
-    Shutdown,
+    Shutdown {
+        /// Leave hosted agents running for the next daemon to adopt.
+        #[arg(long)]
+        keep_agents: bool,
+    },
     /// Print the config path and contents.
     Config,
     /// Show configured harnesses with their family and defaults.
@@ -521,6 +673,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
+            SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
             SessionCmd::Tail { session, last, follow, since } => {
@@ -535,12 +688,12 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::History { session, limit } => Command::History { session, limit },
         },
         Command::Daemon(dc) => match dc {
-            DaemonCmd::Run { listen, token, memory, log, ready_fd } => {
-                Command::DaemonRun { listen, token, memory, log, ready_fd }
+            DaemonCmd::Run { listen, token, memory, log, ready_fd, allow_dev_origin, dev } => {
+                Command::DaemonRun { listen, token, memory, log, ready_fd, allow_dev_origin, dev }
             }
             DaemonCmd::Status => Command::Status,
             DaemonCmd::Start => Command::DaemonStart,
-            DaemonCmd::Shutdown => Command::Shutdown,
+            DaemonCmd::Shutdown { keep_agents } => Command::Shutdown { keep_agents },
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
@@ -548,6 +701,13 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
         Command::Host(pc) => Command::Peer(pc),
+        Command::Router(RouterCmd::Serve) => Command::Router(RouterCmd::Serve),
         other => other,
     }
+}
+
+#[derive(Subcommand)]
+pub enum RouterCmd {
+    /// Start the phase-one local router listeners.
+    Serve,
 }

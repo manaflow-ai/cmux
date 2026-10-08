@@ -111,6 +111,9 @@ pub fn classify(e: &anyhow::Error) -> AppError {
     {
         return AppError::new(Code::NoSession, "no_session", msg);
     }
+    if e.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| d.0.code == -32602) {
+        return AppError::new(Code::Usage, "usage", msg);
+    }
     if lower.contains("cursor_future")
         || lower.contains("cursor_expired")
         || lower.starts_with("usage:")
@@ -156,6 +159,11 @@ mod tests {
         );
         assert_eq!(classify(&anyhow::anyhow!("turn timed out after 5s")).code, Code::Timeout);
         assert_eq!(classify(&anyhow::anyhow!("something broke")).code, Code::Runtime);
+        let bad: anyhow::Error =
+            crate::client::DaemonError(crate::rpc::RpcError::invalid_params("modeId is required"))
+                .into();
+        assert_eq!(classify(&bad).code, Code::Usage);
+        assert_eq!(classify(&bad).message, "modeId is required");
         let closed = classify(&crate::client::closed_error("waiting", Some("abc 2026-01-01")));
         assert_eq!(closed.detail, "daemon_closed");
         assert!(closed.retryable);

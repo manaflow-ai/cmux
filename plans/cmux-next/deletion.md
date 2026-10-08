@@ -215,8 +215,8 @@ Gate key: **M** = must land before merging `feat-cmux-next` to `main` (main is n
 | CEF artifact in CI | `manaflow-ai/cef` release is private; CI and fleet cannot fetch it (REWRITE.md) | M |
 | Bundled cmux-tui with cmux-next daemon features | nightly overwrites `Contents/Resources/bin/cmux-tui` with main's published client (`resolve-nightly-cmux-tui-client`) that lacks them | M |
 | Localization: 20 locales (`Resources/Localizable.xcstrings`, `InfoPlist.xcstrings`) | 13 catalogs, en + ja only; app bundle has no CLI strings table, so CLI output is English only | M for CLI table and InfoPlist strings; R for 18 more locales |
-| CLI resources: agent wrappers `Resources/bin/cmux-claude-wrapper` etc., `cmux-sudo`, `opencode-plugin.js`, `feed-tui`, `markdown-viewer`, `cmux-diff-sidecar`, Ghostty CLI helper | not bundled by the cmux-next target (only `cmux`, `cmux-tui`, Ghostty resources); users' installed hooks and wrapper PATH shims break | M |
-| CLI compat | 17/98 tests_v2 pass; terminals lack `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID` (hooks, feed.push, agent journal miss); bundled `cmux --help` crashes | M |
+| CLI resources: agent wrappers `Resources/bin/cmux-claude-wrapper` etc., `cmux-sudo`, `opencode-plugin.js`, `feed-tui`, `markdown-viewer`, `cmux-diff-sidecar`, Ghostty CLI helper | not bundled by the cmux-next target (only `cmux`, `cmux-tui`, Ghostty resources). Agent hooks and shims are covered by cmux-tui (`cmux agent hooks` installs hooks for every old wrapper's agent, Claude, Codex, Amp, Pi, Hermes, Grok, OpenCode and more, plus the `claude` PATH shim; PR 16174); the old CLI had no shell completions. Still missing: `cmux sudo`, the `open` URL wrapper, `feed-tui`, `markdown-viewer`, `cmux-diff-sidecar`, the Ghostty CLI helper | M |
+| CLI compat | 17/98 tests_v2 pass; superseded by the Rust CLI (PR 16174); every terminal gets `CMUX_TUI_TERMINAL_ID`/`CMUX_TUI_SOCKET` from the daemon, which the Rust CLI and agent hooks use (cli-compat.md) | M |
 | iOS: `mobile.*` for shipped phones incl. `terminal.render_grid`, `mobile.simulator.*` | compat adapter landed (PR 15601); simulator streaming not linked (CmuxSimulator not in closure); render-grid fidelity R1 | M |
 | Cloud tunnel system extension | not embedded; nightly and release steps fail on its absence (section 4) | M (change pipeline) |
 | Sentry crash reporting, PostHog analytics | not linked; dSYM upload still runs | M for Sentry (decision), R for analytics |
@@ -296,3 +296,45 @@ returns:
 | Diff viewer app UI (the CLI part merged) | 6010, 15576, 14538 |
 | Sidebar ellipsis cut, pane drop target, subtle selection follow-ups | 15893, 15550, 15195 |
 | Legacy CI lanes (app-host shards, e2e, pr-media upload helpers) | main changes to deleted CI files |
+
+## 6. Main catch-up merge 2026-10-01 (main `874ed61e221`)
+
+The merge kept every deletion above. Git reported 935 deleted-by-us and 67
+renamed-into-`CLI/` legacy paths (rename detection matched main's legacy
+`Sources/` files to CLI files); all are removed, plus 118 files main added under
+deleted package roots (`cmuxTests`, `cmuxUITests`, `Examples`, CmuxBrowser,
+CmuxSettingsUI, CmuxWorkspaces, CmuxCloud, CmuxSwiftRenderUI, CmuxGit,
+CmuxSidebar, CmuxTerminal, CmuxTerminalSharing, CmuxCloudTui) and main's
+`artifacts/tabclose-*` media.
+
+Kept from main: the CLI verbs `agent-hibernation`, `agent message`, `record`,
+`shot`/`screenshot`, diff viewer review labels and `VMReadyPollInterval`
+(wired into `cmux-cli` and `cmuxCLITests`), CmuxSettings' setting-change planner
+and custom sidebar template catalog, cmux-tui `reattach-view` (188 commands),
+and main's owned-pool sweeper, runner-pool and manual-dispatch guard changes.
+
+Dropped with the legacy app. Reimplement in cmux-next only when the feature
+returns:
+
+| Area | Main PRs |
+| --- | --- |
+| Ghostty submodule 324c0273815 (local-only binding flag, blank-cell formatter fix). The branch keeps b1a49b6015, which matches its GhosttyKit artifact | issue 16457 |
+| `cmux pr` handoff for workspace sidebar links (`CMUXCLI+PullRequest.swift` and its `pr` dispatch) | 12809 |
+| `cmux sidebar templates/try/new` dispatch; its implementation lived in main's legacy CLI code. The template catalog stays in CmuxSettings | 15931 |
+| cmux-capture skill and its guard (`tests/test_cmux_capture_skill.py`), which check docs against the legacy app's `window.record.*` and `window.screenshot` handlers. The CLI verbs remain and need a cmux-next socket implementation | 15409 |
+| E2E full-rerun rescue tests (`test-e2e.yml` is deleted here) | 16027 |
+| Full-suite coverage marker job and coverage fingerprint output in `ci.yml`, and the reverse-impact and suite-coverage jobs. The manual-dispatch guard still runs; without the marker it never treats a pull request run as covering, so it only cancels dispatches the branch has moved past | 16185 |
+| Computer Use helper notarization steps in `release.yml` and `nightly.yml` (removed on this branch; main moved them to the App Store Connect key, which the surviving notarization steps did take) | 16291 |
+| 242 `Resources/Localizable.xcstrings` keys no surviving Swift file references (legacy UI strings) | many |
+
+Main reverted the automatic update install (PR 15296, reverted by 16369), so the
+two `UpdateActionDelegate` methods section 5 ported into
+`CmuxNextUpdater/UpdaterService.swift` are removed again.
+
+Adapted to this branch: the iOS package-test routing case now uses a package
+in the branch's Swift package lane (CmuxMobileShellModel), the cosmetic-binary
+lane test targets CmuxTerminalCore instead of the deleted CmuxCloud, the
+feature-flag collector test no longer requires a Swift registry, main's seven
+new cmux.json paths are added to `tests/fixtures/cmux-json-supported-paths.txt`,
+and `docs/cli-contract.md` gains rows for `resources` and `list-machines`, which
+main's new verb guard requires.

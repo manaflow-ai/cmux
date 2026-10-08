@@ -27,7 +27,11 @@ import Testing
         #expect(service.disabledReason == .developmentBuild)
         let failure = await service.checkForUpdates()?.value
         #expect(failure == nil)
-        #expect(presented == 1)
+        // Nothing asks: the result is a note beside the rail circle.
+        #expect(presented == 0)
+        #expect(service.indicatorPhase == .note(UpdaterStrings.upToDate, isError: false))
+        service.dismissIndicatorNote()
+        #expect(service.indicatorPhase == .hidden)
         #expect(fetcher.requested.count == 1)
         #expect(service.lastProbe?.outcome == .upToDate(latest: AppcastItem(version: "106", displayVersion: "0.64.25",
             title: "0.64.25", minimumSystemVersion: SystemVersion("14.0"),
@@ -51,7 +55,11 @@ import Testing
 
     @Test func managedPolicyNeverTouchesTheFeed() async {
         let (service, fetcher) = service(AppcastFixtures.identity(), data: AppcastFixtures.feed(), managed: true)
+        var presented = 0
+        service.presentUpdateUI = { presented += 1 }
         #expect(service.checkForUpdates() == nil)
+        // The managed explanation is the one check result that still opens the sheet.
+        #expect(presented == 1)
         #expect(fetcher.requested.isEmpty)
         #expect(service.disabledReason == .managedPolicy)
         #expect(throws: UpdaterUnavailable.self) { try service.installAvailableUpdate() }
@@ -69,6 +77,10 @@ import Testing
         #expect(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey) == 3600)
         #expect(service.status.automaticChecks)
         #expect(!service.status.automaticDownloads)
+        // cmux-next downloads in the background on its own updater only:
+        // SUAutomaticallyUpdate stays off for the legacy app sharing the domain.
+        #expect(service.controller?.installsUpdatesInBackground == true)
+        #expect(!defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
     @Test func channelSwitchOnlyToTheCounterpart() {
@@ -81,6 +93,28 @@ import Testing
     @Test func relaunchIsNeverBlocked() {
         let (service, _) = service(AppcastFixtures.identity(), data: nil)
         #expect(service.updaterRelaunchBlockers() == .empty)
+    }
+
+    /// With the window rail off there is no circle, so a check falls back to the sheet.
+    @Test func checksOpenTheSheetWhenThereIsNoCircle() async {
+        let feed = AppcastFixtures.feed(AppcastFixtures.item("106", short: "0.64.25", minimum: "14.0"))
+        let (updater, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.updtr", build: "106"), data: feed)
+        var presented = 0
+        updater.presentUpdateUI = { presented += 1 }
+        updater.showsIndicator = { false }
+        _ = await updater.checkForUpdates()?.value
+        #expect(presented == 1)
+    }
+
+    /// A probe's sheet reads the probe itself, so its note clears on time
+    /// even while the sheet is open (no later event would clear it).
+    @Test func aProbeNoteClearsOnTimeEvenWithTheSheetOpen() async {
+        let (updater, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.t"), data: nil)
+        _ = await updater.checkForUpdates()?.value
+        #expect(updater.indicatorPhase == .note(UpdaterStrings.checkFailed, isError: true))
+        updater.isSheetPresented = { true }
+        updater.dismissIndicatorNote()
+        #expect(updater.indicatorPhase == .hidden)
     }
 }
 
@@ -133,4 +167,5 @@ import Testing
         let ready = UpdateSheetContent.sparkle(.installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {})), current: identity)
         #expect(ready?.buttons == [.later, .relaunch])
     }
+
 }

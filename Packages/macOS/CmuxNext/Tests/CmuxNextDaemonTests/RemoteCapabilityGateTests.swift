@@ -18,7 +18,7 @@ import Testing
         defer { server.stop() }
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
         try await connection.start()
-        await #expect(throws: DaemonError.missingCapabilities([DaemonCapabilities.tabMetadata])) {
+        await #expect(throws: DaemonError.missingCapabilities([DaemonCapabilities.shared.tabMetadata])) {
             _ = try await connection.setTabPinned(SurfaceID(rawValue: 3), true)
         }
         #expect(!seen.withLock { $0 }.contains("set-tab-pinned"))

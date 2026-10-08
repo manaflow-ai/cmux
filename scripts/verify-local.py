@@ -25,12 +25,15 @@ import verification_receipt as receipt
 CHECKS = (
     ("xcstrings", "static_analysis", "XCStrings structure", ["python3", "scripts/lint-xcstrings.py"]),
     ("localization", "static_analysis", "Localization parity", ["python3", "scripts/localization_catalog.py", "check"]),
+    ("localization-defaults", "static_analysis", "Swift defaultValue parity", ["python3", "scripts/localization_defaults.py"]),
     ("project-tests", "tests", "Project normalizer tests", ["python3", "tests/test_normalize_pbxproj.py"]),
     ("project", "static_analysis", "Xcode project normalization and version", ["bash", "scripts/check-pbxproj.sh"]),
     ("launch-policy", "static_analysis", "Generated Claude launch policy", ["python3", "scripts/generate-claude-launch-environment-policy.py", "--check"]),
     ("test-wiring", "static_analysis", "Swift test wiring and regression guard", ["bash", "tests/test_ci_pbxproj_test_wiring.sh"]),
     ("package-groups", "static_analysis", "Workspace Swift package groups", ["python3", "scripts/check-workspace-package-groups.py", "--check"]),
     ("feature-flags", "static_analysis", "Feature flag policy", ["python3", "scripts/lint-feature-flags.py"]),
+    ("backend-migrations", "static_analysis", "cmux-next backend migrations only through a PR",
+     ["python3", "scripts/check-backend-migration-flow.py"]),
 )
 
 
@@ -41,6 +44,9 @@ CHECK_INPUTS = {
     "xcstrings": ("*.xcstrings",),
     "localization": ("*.xcstrings", "scripts/localization-allowed-omissions.json",
                      "scripts/localization-plurals.json"),
+    "localization-defaults": ("*.xcstrings", "Sources/*", "Packages/*", "CLI/*", "ios/*", "TunnelExtension/*",
+                              "scripts/localization_catalog.py", "scripts/localize_changes.py",
+                              "scripts/localization-default-mismatches.json"),
     "project-tests": ("scripts/normalize-pbxproj.py", "scripts/check-pbxproj-group-membership.py"),
     "project": ("scripts/normalize-pbxproj.py", "scripts/check-pbxproj-group-membership.py",
                 "cmux.xcodeproj/project.pbxproj",
@@ -52,6 +58,7 @@ CHECK_INPUTS = {
     "package-groups": ("Packages/*", "cmux.xcworkspace/contents.xcworkspacedata"),
     "feature-flags": ("web/*", "Packages/*", "ios/*",
                       "scripts/retired-feature-flags.txt"),
+    "backend-migrations": ("backend/db/migrations/*",),
 }
 
 
@@ -232,7 +239,15 @@ def changed_files(repo, base, include_deleted=False):
         kind = "inputs" if include_deleted else "Swift files"
         raise ValueError(f"Cannot select changed {kind} against {base!r}; "
                          "check the Git checkout and local base ref") from error
-    names = sorted({os.fsdecode(p) for p in (changed + untracked).split(b"\0") if p and (include_deleted or p.endswith(b".swift"))})
+    # Interpreted custom-sidebar templates use `.swift` as their runtime file
+    # extension, but are SwiftUI-style source snippets rather than Swift files
+    # for the compiler. Keep them out of the native syntax preflight.
+    names = sorted({
+        os.fsdecode(p) for p in (changed + untracked).split(b"\0")
+        if p and (include_deleted or p.endswith(b".swift"))
+        and b"/Resources/CustomSidebarTemplates/" not in p
+        and b"Examples/CustomSidebars/" not in p
+    })
     return names, {"base_ref": base, "base_sha": base_sha, "merge_base_sha": merge_base,
                    "excluded_untracked_prefixes": [".glaeda/apple-build/"],
                    "contents": "current working tree, including staged/unstaged and nonignored untracked files"}

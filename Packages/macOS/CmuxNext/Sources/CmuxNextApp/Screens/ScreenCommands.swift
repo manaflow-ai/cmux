@@ -35,7 +35,7 @@ enum ScreenCommands {
         guard let connection = daemon.connection else { return }
         let handle = workspace.handle
         let intent = content?.beginFocusIntent()
-        let extended = daemon.supports(DaemonCapabilities.screenMetadata)
+        let extended = daemon.supports(DaemonCapabilities.shared.screenMetadata)
         let options = SpawnOptions(cwd: cwd, workspace: workspace.key)
         Task {
             do {
@@ -66,7 +66,7 @@ enum ScreenCommands {
     /// period, so Reopen Closed Screen can bring the first one back.
     static func close(_ screens: [ScreenModel], in workspace: WorkspaceModel, daemon: DaemonService, services: AppServices) {
         for screen in screens {
-            services.closedScreens.record(screen, in: workspace)
+            services.closedScreens.record(screen, in: workspace, daemon: daemon.store)
             let handle = screen.handle
             daemon.send("close-screen") { try await $0.closeScreen(handle) }
         }
@@ -79,19 +79,34 @@ enum ScreenCommands {
         daemon.send("rename-screen") { try await $0.renameScreen(handle, to: name) }
     }
 
+    /// The screen's public id when its daemon takes `screen.update` and
+    /// `screen.move` (state resources); nil keeps the raw commands.
+    static func stateID(_ screen: ScreenModel, _ daemon: DaemonService) -> ResourceID? {
+        daemon.store.servesStateResources ? screen.resourceID : nil
+    }
+
     static func setColor(_ screen: ScreenModel, _ color: String?, daemon: DaemonService) {
-        let handle = screen.handle
-        daemon.send("set-screen-metadata") { _ = try await $0.setScreenMetadata(handle, color: color.map(FieldUpdate.set) ?? .clear) }
+        let handle = screen.handle, resource = stateID(screen, daemon), update = color.map(FieldUpdate.set) ?? .clear
+        daemon.send("set-screen-metadata") {
+            if let resource { return try await $0.state.updateScreen(resource, color: update) }
+            _ = try await $0.setScreenMetadata(handle, color: update)
+        }
     }
 
     static func setIcon(_ screen: ScreenModel, _ icon: String?, daemon: DaemonService) {
-        let handle = screen.handle
-        daemon.send("set-screen-metadata") { _ = try await $0.setScreenMetadata(handle, icon: icon.map(FieldUpdate.set) ?? .clear) }
+        let handle = screen.handle, resource = stateID(screen, daemon), update = icon.map(FieldUpdate.set) ?? .clear
+        daemon.send("set-screen-metadata") {
+            if let resource { return try await $0.state.updateScreen(resource, icon: update) }
+            _ = try await $0.setScreenMetadata(handle, icon: update)
+        }
     }
 
     static func setPinned(_ screen: ScreenModel, _ pinned: Bool, daemon: DaemonService) {
-        let handle = screen.handle
-        daemon.send("set-screen-pinned") { _ = try await $0.setScreenPinned(handle, pinned) }
+        let handle = screen.handle, resource = stateID(screen, daemon)
+        daemon.send("set-screen-pinned") {
+            if let resource { return try await $0.state.updateScreen(resource, pinned: pinned) }
+            _ = try await $0.setScreenPinned(handle, pinned)
+        }
     }
 
     // MARK: Order and moves
@@ -99,8 +114,11 @@ enum ScreenCommands {
     /// Moves `screen` to `index` in its workspace (the daemon keeps pinned
     /// screens first and groups contiguous).
     static func move(_ screen: ScreenModel, to index: Int, daemon: DaemonService) {
-        let handle = screen.handle
-        daemon.send("move-screen") { _ = try await $0.moveScreen(handle, to: index) }
+        let handle = screen.handle, resource = stateID(screen, daemon)
+        daemon.send("move-screen") {
+            if let resource { return try await $0.state.moveScreen(resource, to: index) }
+            _ = try await $0.moveScreen(handle, to: index)
+        }
     }
 
     static func move(_ screen: ScreenModel, toWorkspace target: WorkspaceModel, daemon: DaemonService, services: AppServices) {

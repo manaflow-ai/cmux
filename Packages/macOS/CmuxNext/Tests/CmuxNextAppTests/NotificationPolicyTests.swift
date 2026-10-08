@@ -4,6 +4,16 @@ import Testing
 
 /// The notification rules as tables (plans/cmux-next/notifications.md).
 struct NotificationPolicyTests {
+    /// The daemon names the source (`notification-source-v1`); `daemon`
+    /// producers and daemons without sources use the agent settings.
+    @Test func daemonSourcesMapToTheSourceSettings() {
+        #expect(NotificationCenterService.source("cli") == .cli)
+        #expect(NotificationCenterService.source("terminal") == .terminal)
+        #expect(NotificationCenterService.source("agent") == .agent)
+        #expect(NotificationCenterService.source("daemon") == .agent)
+        #expect(NotificationCenterService.source(nil) == .agent)
+    }
+
     @Test func dismissalModesClearOnTheirTriggers() {
         let table: [NotificationDismissal: Set<NotificationTrigger>] = [
             .focus: [.focus, .click, .keystroke, .open],

@@ -28,15 +28,16 @@ public enum ShortcutBinding: Sendable, Hashable {
     /// `unbound`, `disabled`, or the recorder's empty-key object).
     case unbound
     case stroke(ShortcutStrokeSpec)
-    /// A two-stroke chord (`["ctrl+b", "c"]`). The cmux-next registry cannot
-    /// dispatch chords yet, so the loader reports these instead of applying.
+    /// A two-stroke chord (`["ctrl+b", "c"]`); the first key needs Command
+    /// or Control.
     case chord(ShortcutStrokeSpec, ShortcutStrokeSpec)
 }
 
 /// Reads and writes the cmux.json shortcut formats the old app accepts:
 /// `"cmd+shift+p"`, `["ctrl+b", "c"]`, the unbind tokens, and the Settings
 /// recorder's object form `{ "first": { "key": "p", "command": true, ... } }`.
-public enum ShortcutBindingFormat {
+public struct ShortcutBindingFormat {
+    public init() {}
     static let unboundTokens: Set<String> = ["", "none", "clear", "unbound", "disabled"]
 
     /// Parses one binding value. Nil when the value is not a valid binding.

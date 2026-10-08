@@ -60,7 +60,7 @@ final class RemoteLocalhostService {
         let name = machineName(of: daemon)
         let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
         guard setting.isEnabled(workspace: workspace?.id) else { return .thisMacInstead(name, .turnedOff) }
-        guard daemon.supports(DaemonCapabilities.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
+        guard daemon.supports(DaemonCapabilities.shared.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
         guard engine == .cef else { return .thisMacInstead(name, .webKit) }
         return .machine(name)
     }
@@ -119,7 +119,7 @@ final class RemoteLocalhostService {
     /// The machine chip of a browser tab showing `url`: shown only for a
     /// loopback page of a tab whose machine is not this Mac.
     func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {
-        guard let url, LoopbackHost.isLoopback(url: url) else { return nil }
+        guard let url, LoopbackHost(url: url)?.isLoopback == true else { return nil }
         switch route(for: tab, engine: engine) {
         case .thisMac:
             return nil

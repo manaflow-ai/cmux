@@ -77,6 +77,16 @@ public struct ControlMethod: Sendable {
         }
     }
 
+    /// Chooses a longer limit for one request (nil: the deadline's own).
+    private(set) var limitOverride: (@Sendable (ControlRequest, ControlSnapshot) -> Duration?)?
+
+    /// This method with a per-request limit that wins over its deadline's.
+    public func withLimit(_ choose: @escaping @Sendable (ControlRequest, ControlSnapshot) -> Duration?) -> ControlMethod {
+        var method = self
+        method.limitOverride = choose
+        return method
+    }
+
     /// The limit a `.fixed` deadline sets, else nil (the router's default).
     var fixedLimit: Duration? {
         if case .fixed(let limit) = deadline { return limit }

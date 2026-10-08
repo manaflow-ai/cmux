@@ -25,7 +25,7 @@ import Testing
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
             switch request["cmd"]?.stringValue {
             case "identify":
-                let caps = DaemonCapabilities.required.map { "\"\($0)\"" }.joined(separator: ",")
+                let caps = DaemonCapabilities.shared.required.map { "\"\($0)\"" }.joined(separator: ",")
                 return [#"{"id":\#(id),"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"3412812eae76","protocol":12,"capabilities":[\#(caps)],"session":"local","pid":7,"registry_id":"r","generation":"g1","workspace_revision":0}}"#]
             case "list-workspaces":
                 return [#"{"id":\#(id),"ok":true,"data":{"generation":"g1","registry_id":"r","workspace_revision":0,"workspaces":[]}}"#]
@@ -39,10 +39,10 @@ import Testing
         }
     }
 
-    func waitUntil(_ condition: () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(10))
-        while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) } // test-only wait
+    /// Waits up to 10 s; a timeout records an Issue at the caller (``waitForCondition``).
+    func waitUntil(_ what: String? = nil, sourceLocation: SourceLocation = #_sourceLocation,
+                   _ condition: () -> Bool) async throws {
+        try await waitForCondition(what, timeout: .seconds(10), sourceLocation: sourceLocation, condition)
     }
 
     @Test func aDaemonRejectionFromAnUntrackedHandlerTaskFailsTheRun() async throws {

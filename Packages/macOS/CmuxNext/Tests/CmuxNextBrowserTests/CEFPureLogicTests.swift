@@ -5,7 +5,16 @@ import Testing
 @Suite struct CEFSwitchesTests {
     @Test func forkBuildGetsTabbedWindowsAndNoFieldTrials() {
         let switches = CEFSwitches(forkAPIVersion: 2, useMockKeychain: false, loadExtensions: [])
-        #expect(switches.arguments == ["cmux-tabbed-windows", "disable-field-trial-config"])
+        #expect(switches.arguments == ["cmux-tabbed-windows", "disable-field-trial-config", "disable-notifications"])
+    }
+
+    /// The code-sign clone protects running helpers during an update; its
+    /// cleanup helper exits by itself after quit (cx-dj33).
+    @Test func codeSignCloneStaysEnabled() {
+        for bundle in ["com.cmuxterm.app", "com.cmuxterm.app.debug.x"] {
+            let switches = CEFSwitches.current(forkAPIVersion: 2, bundleIdentifier: bundle, environment: [:])
+            #expect(!switches.arguments.contains { $0.hasPrefix("disable-features") && $0.contains("MacAppCodeSignClone") })
+        }
     }
 
     @Test func stockCEFHasNoTabbedWindows() {
@@ -22,8 +31,9 @@ import Testing
         #expect(switches.useMockKeychain)
         #expect(switches.loadExtensions == ["/tmp/a", "/tmp/b"])
         #expect(switches.arguments.contains("load-extension=/tmp/a,/tmp/b"))
-        // Passing --disable-features would replace Chromium's own default
-        // list (GlicActorUi, ...) and crash in ActorUiContentsContainerController.
+        // The shim merges disable-features into CEF's own list (GlicActorUi,
+        // ...; CEFShim/src/command_line_switches.h); replacing that list
+        // crashes in ActorUiContentsContainerController. cmux adds none.
         #expect(!switches.arguments.contains { $0.hasPrefix("disable-features") })
     }
 
@@ -147,5 +157,36 @@ import Testing
         sequence.begin()
         sequence.browserClosed(remaining: 0)
         #expect(sequence.phase == .readyToShutdown)
+    }
+}
+
+/// Imported passwords are never stored under Chromium's mock Keychain key
+/// (a public constant): development bundles cannot import them.
+@MainActor @Suite struct PasswordImportKeyTests {
+    @Test func mockKeychainBuildsRefusePasswordImport() {
+        #expect(PasswordImportKey.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app.debug.tag", environment: [:]))
+        #expect(PasswordImportKey.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app", environment: ["CMUX_MOCK_KEYCHAIN": "1"]))
+        #expect(!PasswordImportKey.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app", environment: [:]))
+        #if DEBUG
+        #expect(!PasswordImportKey.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app.debug.tag",
+                                               environment: ["CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY": "throwaway"]),
+                "throwaway test data only")
+        #endif
+    }
+}
+
+/// The caller's passwords are zeroed once, as soon as the shim has copied the rows.
+@Suite struct PasswordRowsCopyTests {
+    @Test func copiedRunsTheZeroingOnce() {
+        final class Count: @unchecked Sendable { var value = 0 }
+        let count = Count()
+        let secret: [UInt8] = Array("hunter2".utf8)
+        secret.withUnsafeBytes { bytes in
+            let rows = ChromiumPasswordRows([(url: "https://example.com/", signonRealm: "https://example.com/", username: "u", password: bytes, created: nil)],
+                                            afterCopy: { count.value += 1 })
+            rows.copied()
+            rows.copied()
+        }
+        #expect(count.value == 1)
     }
 }

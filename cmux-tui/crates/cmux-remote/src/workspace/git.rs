@@ -119,6 +119,8 @@ pub(crate) async fn diff(
     let scope = diff_page_scope(&normalized, staged, diff_context, format);
     let mut arguments = vec![
         "diff".to_string(),
+        // Scope output to the opened folder and print paths relative to it.
+        "--relative".to_string(),
         "--no-ext-diff".to_string(),
         "--no-textconv".to_string(),
         "--no-color".to_string(),
@@ -290,6 +292,9 @@ async fn run_git(
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_PAGER", "cat")
+        // Client paths are file names, never pathspec magic such as `:(top)`,
+        // which would reach files outside the opened folder.
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .env("LC_ALL", "C")
         .kill_on_drop(true);
     #[cfg(not(unix))]
@@ -351,6 +356,7 @@ async fn read_diff_path_metadata(
 ) -> Result<Vec<u8>, RpcError> {
     let mut arguments = vec![
         "diff".to_string(),
+        "--relative".to_string(),
         "--name-status".to_string(),
         "-z".to_string(),
         "--no-ext-diff".to_string(),
@@ -761,6 +767,43 @@ mod tests {
         (directory, root)
     }
 
+    /// A workspace opened at a subdirectory of a repository never diffs files
+    /// outside that directory: Git pathspec magic such as `:(top)` would name
+    /// paths from the repository top, and a diff without paths would cover
+    /// the whole repository.
+    #[tokio::test]
+    async fn sec_audit_diff_stays_inside_a_subdirectory_workspace() {
+        let directory = tempdir().unwrap();
+        git(directory.path(), &["init", "-q"]);
+        git(directory.path(), &["config", "user.email", "test@example.com"]);
+        git(directory.path(), &["config", "user.name", "Test"]);
+        write_test_file(directory.path(), "outside.txt", b"secret before\n");
+        write_test_file(directory.path(), "sub/inside.txt", b"before\n");
+        git(directory.path(), &["add", "."]);
+        git(directory.path(), &["commit", "-qm", "initial"]);
+        write_test_file(directory.path(), "outside.txt", b"secret after\n");
+        write_test_file(directory.path(), "sub/inside.txt", b"after\n");
+        let sub = directory.path().join("sub");
+        let root =
+            WorkspaceRoot::open(WorkspaceId("sub".into()), sub.to_str().unwrap()).await.unwrap();
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+        for paths in [vec![":(top)outside.txt".to_string()], vec![]] {
+            let text = match diff(&context, &paths, false, 3, DiffFormat::Unified, None, None).await
+            {
+                Ok(prepared) => match prepared.commit() {
+                    WorkspaceResponse::Diff { data, .. } => {
+                        String::from_utf8_lossy(&data.decode().unwrap()).into_owned()
+                    }
+                    other => format!("{other:?}"),
+                },
+                Err(error) => format!("{error:?}"),
+            };
+            assert!(!text.contains("secret"), "{paths:?} leaked the parent repository: {text}");
+        }
+    }
+
     #[tokio::test]
     async fn status_and_structured_diff_are_bounded_and_typed() {
         let (_directory, root) = git_root().await;
@@ -827,13 +870,13 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn status_disables_repository_fsmonitor() {
-        use std::os::unix::fs::PermissionsExt;
-
         let (_directory, root) = git_root().await;
         let hook = root.canonical_root().join("fsmonitor-hook");
         let marker = root.canonical_root().join("fsmonitor-hook.invoked");
-        std::fs::write(&hook, "#!/bin/sh\n: > \"$0.invoked\"\nprintf 'cmux-token\\n'\n").unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_exec::write_executable(
+            &hook,
+            "#!/bin/sh\n: > \"$0.invoked\"\nprintf 'cmux-token\\n'\n",
+        );
         git(root.canonical_root(), &["config", "core.fsmonitor", hook.to_str().unwrap()]);
 
         assert!(Command::new(&hook).status().unwrap().success());

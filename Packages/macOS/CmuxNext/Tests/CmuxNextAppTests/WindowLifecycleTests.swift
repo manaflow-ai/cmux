@@ -93,6 +93,25 @@ struct WindowLifecycleTests {
         Self.closeAll(services)
     }
 
+    /// Option on a drop, or a move this client's user did not start: the
+    /// new workspace is filed into the window and the window keeps showing
+    /// what it showed, even when the daemon reports the workspace after
+    /// the claim (the reply comes before the echo).
+    @Test func aQuietClaimBeforeTheDaemonReportsItDoesNotShowIt() throws {
+        let services = Self.services(workspaces: 2)
+        let a = try #require(services.windows.openWindow(workspaces: [Self.id(1)]))
+        services.windows.reconcileMembership()
+        services.windows.claim(workspaceID: Self.id(3), in: a.state, select: false)
+        Self.apply(services, keys: Array(Self.keys.prefix(3)))
+        #expect(services.windows.registry.members(of: a.state.id).contains(Self.id(3)))
+        #expect(a.state.workspaceID == Self.id(1))
+        // A shown claim still switches (the user's own move).
+        services.windows.claim(workspaceID: Self.id(4), in: a.state)
+        Self.apply(services, keys: Array(Self.keys.prefix(4)))
+        #expect(a.state.workspaceID == Self.id(4))
+        Self.closeAll(services)
+    }
+
     @Test func aWindowForAnUnmirroredWorkspaceStaysOffScreenUntilItsContentShows() async throws {
         let services = Self.services(workspaces: 1)
         services.windows.reconcileMembership()

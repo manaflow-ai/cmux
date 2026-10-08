@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474. */
+/* cmux-tui mux protocol 12, IR cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474" as const;
+export const SDK_IR_SHA256 = "cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -42,6 +42,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "notification-ack-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "add-screens-to-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -90,6 +100,26 @@ export const COMMAND_METADATA = {
       "rows": {
         "since": null,
         "capability": "attach-initial-size"
+      },
+      "snapshot": {
+        "since": null,
+        "capability": "terminal-snapshot-v1"
+      },
+      "snapshot_images": {
+        "since": null,
+        "capability": "terminal-snapshot-images-v1"
+      },
+      "snapshot_local_history": {
+        "since": null,
+        "capability": "terminal-snapshot-local-history-v1"
+      },
+      "snapshot_version": {
+        "since": null,
+        "capability": "terminal-snapshot-v1"
+      },
+      "viewer_backlog_bytes": {
+        "since": null,
+        "capability": "terminal-snapshot-v1"
       }
     },
     "stream": {
@@ -141,6 +171,16 @@ export const COMMAND_METADATA = {
     },
     "constraints": []
   },
+  "bind-conversation-tab-session": {
+    "authority": "control",
+    "since": 12,
+    "capability": "agent-session-tabs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. See spec/commands.md."
+    ]
+  },
   "browser-activate": {
     "authority": "frontend",
     "since": 6,
@@ -180,6 +220,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Acknowledges the exact rendered browser frame for this connection.",
       "Requires browser-pointer-frame-guard-v1."
+    ]
+  },
+  "browser-host-provider": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "browser-host-provider-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
+      "The secret is never journaled, logged or put in an event."
     ]
   },
   "browser-insert-text": {
@@ -282,6 +333,16 @@ export const COMMAND_METADATA = {
       "Requires browser-pointer-frame-guard-v1."
     ]
   },
+  "chief-inspect": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "chief-inspect-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Read-only: one of seven /api paths, GET, forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+    ]
+  },
   "clear-history": {
     "authority": "control",
     "since": 9,
@@ -350,6 +411,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "close-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "close-surface": {
     "authority": "control",
     "since": 5,
@@ -377,7 +448,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "batch-close-v1",
-    "fields": {},
+    "fields": {
+      "reason": {
+        "since": null,
+        "capability": "close-reason-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -426,6 +502,266 @@ export const COMMAND_METADATA = {
       "Provider-managed workspaces reject this ordinary mutation."
     ]
   },
+  "cloud-conversation-history": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-op": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. One cloud op tagged by kind, forwarded with the client's idempotency key and origin; unsupported kinds are refused with reason unsupported_op. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-snapshot": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. tail is 1-50. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-subscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Shares one upstream socket per conversation; at most 64. Replies {conversation, state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-unsubscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-inbox-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-inbox-subscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Shares one upstream inbox socket among local clients. Replies {state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-inbox-unsubscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Ends this connection's inbox interest. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-mux-ack": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. mux.ack for the lease's own chief (agent from the token; an agent field is refused): the wakes of conversation up to seq are handled. Idempotency key mux-ack:<conversation>:<seq>, so a repeated ack is a replay. Replies with the owner's mutation result."
+    ]
+  },
+  "cloud-mux-subscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Subscribes this connection to the leased chief's MuxDO wake queue (mux:<agent>); the agent is the lease token's agt claim, never a request field (no fields are accepted). Refused with mux_needs_chief for a person's session. Replies like cloud-inbox-subscribe, then emits cloud-subscription-state (scope mux). See spec/commands.md."
+    ]
+  },
+  "cloud-mux-unsubscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Releases this connection's interest in the leased chief's wake queue."
+    ]
+  },
+  "cloud-session-clear": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Drops the lease. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-session-set": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback). See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-session-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Returns state signed_out, active or expired; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "conversation-agent-token": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections bound to the local user only. Mints a new token; the old one stops working. See spec/commands.md."
+    ]
+  },
+  "conversation-attachment-read": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-attachments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. variant original (default), poster or preview; length at most 4 MiB. The hash must be referenced by a message of the conversation or uploaded there by the caller. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview). See spec/commands.md."
+    ]
+  },
+  "conversation-attachment-upload": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-attachments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; the caller's principal must be a participant of conversation. op begin(conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?|preview?) | chunk(upload, piece, offset, data base64 <= 4 MiB decoded) | commit(upload) | cancel(upload). Cloud attachment allow list and limits (100 MB per file). Rejects: attachment_rejected. See spec/commands.md."
+    ]
+  },
+  "conversation-bind": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Binds the connection to an agent participant for its lifetime. See spec/commands.md."
+    ]
+  },
+  "conversation-create": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. A replay of the same idempotency key and request returns the created conversation with replayed:true. See spec/commands.md."
+    ]
+  },
+  "conversation-history": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. limit is 1-500. See spec/commands.md."
+    ]
+  },
+  "conversation-import": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local user connections only (an agent-bound connection is refused; the remote relay does not admit it). Appends history from another store once: authors, times and ids are kept, the owner assigns seqs and one rev, skips a message whose author and client_msg_id (or id) it holds, and refuses times that go backward, pass the newest message it holds, or lie in the future. See spec/commands.md."
+    ]
+  },
+  "conversation-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. See spec/commands.md."
+    ]
+  },
+  "conversation-op": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Rejects use error_code conversation_rejected with the reason as the error text. See spec/commands.md."
+    ]
+  },
+  "conversation-search": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-search-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. query is trimmed, 1-200 characters, no control characters; limit is 1-100 (rejects: conversation_rejected with reason invalid_query or invalid_limit). See spec/commands.md."
+    ]
+  },
+  "conversation-snapshot": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. tail is 1-500. See spec/commands.md."
+    ]
+  },
+  "conversation-typing": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Ephemeral: never stored. See spec/commands.md."
+    ]
+  },
   "copy": {
     "authority": "control",
     "since": 6,
@@ -434,6 +770,26 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "PTY surfaces only."
+    ]
+  },
+  "create-bookmark": {
+    "authority": "control",
+    "since": 12,
+    "capability": "bookmarks-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "create-browser-profile": {
+    "authority": "control",
+    "since": 12,
+    "capability": "browser-profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "create-personal-group": {
@@ -450,6 +806,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "create-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -495,6 +861,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
+      },
       "terminal_id": {
         "since": 9,
         "capability": null
@@ -523,6 +893,26 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "delete-bookmark": {
+    "authority": "control",
+    "since": 12,
+    "capability": "bookmarks-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "delete-browser-profile": {
+    "authority": "control",
+    "since": 12,
+    "capability": "browser-profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "delete-personal-group": {
     "authority": "control",
     "since": 12,
@@ -537,6 +927,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "delete-saved-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -587,10 +987,16 @@ export const COMMAND_METADATA = {
       "by": {
         "since": 12,
         "capability": "shared-sizing-v1"
+      },
+      "surface": {
+        "since": 12,
+        "capability": "shared-sizing-v1"
       }
     },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
+    ]
   },
   "export-layout": {
     "authority": "control",
@@ -645,6 +1051,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "get-frontend-browser-history": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-browser-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "get-frontend-projection": {
     "authority": "control",
     "since": 7,
@@ -681,6 +1097,16 @@ export const COMMAND_METADATA = {
       "Short ids are snapshot-local labels; command parameters accept numeric ids only."
     ]
   },
+  "import-bookmarks": {
+    "authority": "control",
+    "since": 12,
+    "capability": "bookmarks-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "import-session-organization": {
     "authority": "control",
     "since": 12,
@@ -709,6 +1135,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "list-bookmarks": {
+    "authority": "control",
+    "since": 12,
+    "capability": "bookmarks-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "list-clients": {
     "authority": "control",
     "since": 6,
@@ -731,6 +1167,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "list-saved-screen-groups": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -831,6 +1277,26 @@ export const COMMAND_METADATA = {
       "The terminal resource ID is resolved atomically to the live terminal-host-backed PTY before minting a one-use renderer credential."
     ]
   },
+  "move-bookmark": {
+    "authority": "control",
+    "since": 12,
+    "capability": "bookmarks-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-browser-profile": {
+    "authority": "control",
+    "since": 12,
+    "capability": "browser-profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "move-personal-group": {
     "authority": "control",
     "since": 12,
@@ -845,6 +1311,26 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-screen": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-metadata-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -910,7 +1396,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "tab-drag-v1",
-    "fields": {},
+    "fields": {
+      "dock": {
+        "since": 12,
+        "capability": "dock-columns-v1"
+      },
+      "respawn": {
+        "since": 12,
+        "capability": "tab-column-respawn-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -920,7 +1415,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "tab-drag-v1",
-    "fields": {},
+    "fields": {
+      "name": {
+        "since": null,
+        "capability": "tab-workspace-name-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -930,7 +1430,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "tab-drag-v1",
-    "fields": {},
+    "fields": {
+      "respawn": {
+        "since": 12,
+        "capability": "tab-split-respawn-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -1020,6 +1525,29 @@ export const COMMAND_METADATA = {
       "Bootstrap and navigation failures are asynchronous browser-state outcomes."
     ]
   },
+  "new-conversation-tab": {
+    "authority": "control",
+    "since": 12,
+    "capability": "conversation-tabs-v1",
+    "fields": {
+      "agent_session": {
+        "since": null,
+        "capability": "agent-session-tabs-v1"
+      },
+      "page": {
+        "since": null,
+        "capability": "page-tabs-v1"
+      },
+      "transaction": {
+        "since": null,
+        "capability": "conversation-tab-transaction-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+    ]
+  },
   "new-frontend-browser-tab": {
     "authority": "control",
     "since": 12,
@@ -1046,6 +1574,10 @@ export const COMMAND_METADATA = {
       "keep": {
         "since": 12,
         "capability": "terminal-reap-v1"
+      },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
       },
       "terminal_id": {
         "since": 12,
@@ -1074,23 +1606,64 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "kind": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
+      },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
+      },
       "terminal_id": {
         "since": 12,
         "capability": "terminal-placement-env-v1"
+      },
+      "url": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
       }
     },
     "stream": null,
     "constraints": [
-      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
+      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
+    ]
+  },
+  "new-row": {
+    "authority": "control",
+    "since": 12,
+    "capability": "rows-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Opens a new row of height_permille below the row of pane in that pane's column, holding one new pane with one new terminal. On a split screen the screen's tree first becomes the only row of one column.",
+      "transaction (1-128 printable ASCII) is echoed in the result and in the screen-changed delta of the commit.",
+      "See spec/commands.md for the result object and error codes."
     ]
   },
   "new-screen": {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "env": {
+        "since": 12,
+        "capability": "screen-terminal-env-v1"
+      },
+      "shell_args": {
+        "since": 12,
+        "capability": "screen-terminal-env-v1"
+      },
+      "terminal_id": {
+        "since": 12,
+        "capability": "screen-terminal-env-v1"
+      }
+    },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "screen_name, color, icon, pinned, index, and group need capability screen-metadata-v1 (group: screen-groups-v1); the result then also carries screen.",
+      "env, terminal_id, and shell_args need capability screen-terminal-env-v1: the new screen's terminal takes them as on new-pane, and the result then also carries terminal_id."
+    ]
   },
   "new-tab": {
     "authority": "control",
@@ -1104,6 +1677,10 @@ export const COMMAND_METADATA = {
       "keep": {
         "since": 12,
         "capability": "terminal-reap-v1"
+      },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
       },
       "terminal_id": {
         "since": 12,
@@ -1139,7 +1716,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 6,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "source": {
+        "since": 12,
+        "capability": "notification-source-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -1237,6 +1819,16 @@ export const COMMAND_METADATA = {
       "PTY surfaces only; row indexes are snapshot-relative and not durable."
     ]
   },
+  "reattach-view": {
+    "authority": "control",
+    "since": 12,
+    "capability": "sizing-view-detach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only a view detached by detach-client can be reattached."
+    ]
+  },
   "register-browser-provider": {
     "authority": "local-admin",
     "since": 10,
@@ -1282,6 +1874,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "remove-screens-from-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "remove-tabs-from-tab-group": {
     "authority": "control",
@@ -1364,6 +1966,16 @@ export const COMMAND_METADATA = {
       "Provider-managed workspaces reject this ordinary mutation."
     ]
   },
+  "reopen-saved-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "reopen-saved-tab-group": {
     "authority": "control",
     "since": 12,
@@ -1441,6 +2053,16 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": []
+  },
+  "save-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "save-tab-group": {
     "authority": "control",
@@ -1534,6 +2156,10 @@ export const COMMAND_METADATA = {
     "since": 6,
     "capability": null,
     "fields": {
+      "device_id": {
+        "since": 12,
+        "capability": "shared-sizing-v1"
+      },
       "device_kind": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -1561,6 +2187,23 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "set-column-dock": {
+    "authority": "control",
+    "since": 12,
+    "capability": "dock-columns-v1",
+    "fields": {
+      "role": {
+        "since": 12,
+        "capability": "dock-column-role-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\"). role is \"agent_chat\" with dock-column-role-v1 (default none).",
+      "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
+      "See spec/commands.md for the result object."
+    ]
   },
   "set-default-colors": {
     "authority": "control",
@@ -1602,6 +2245,26 @@ export const COMMAND_METADATA = {
       "With complete:true, absent optional values reset to built-in defaults."
     ]
   },
+  "set-frontend-browser-history": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-browser-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "set-personal-terminal": {
+    "authority": "control",
+    "since": 12,
+    "capability": "personal-terminals-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "set-personal-workspace": {
     "authority": "control",
     "since": 12,
@@ -1629,6 +2292,38 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "set-row-heights": {
+    "authority": "control",
+    "since": 12,
+    "capability": "rows-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "heights names every row of column exactly once; a stale row set, a height outside 100..1000, or fit with a sum other than 1000 is refused and changes nothing.",
+      "transaction is echoed in the result and, as a decimal string, in the screen-changed delta.",
+      "See spec/commands.md for the result object and error codes."
+    ]
+  },
+  "set-screen-metadata": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-metadata-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "set-screen-pinned": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-metadata-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "set-size-counts": {
     "authority": "control",
@@ -1671,6 +2366,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "set-terminal-command-history": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "terminal-command-journal-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Off by default and after a daemon restart.",
+      "When on, finished OSC 133 shell commands are journaled as sensitive shell.command.finished records."
     ]
   },
   "set-terminal-idle-policy": {
@@ -1722,7 +2428,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "workspace-metadata-v1",
-    "fields": {},
+    "fields": {
+      "marked_unread": {
+        "since": 12,
+        "capability": "notification-mark-unread-v1"
+      },
+      "pinned": {
+        "since": 12,
+        "capability": "workspace-pin-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -1740,6 +2455,10 @@ export const COMMAND_METADATA = {
       "force": {
         "since": 10,
         "capability": "daemon-handoff-force-v1"
+      },
+      "keep_layout": {
+        "since": 12,
+        "capability": "end-terminals-keep-layout-v1"
       }
     },
     "stream": null,
@@ -1748,6 +2467,7 @@ export const COMMAND_METADATA = {
       "force bypasses native-browser ownership only; the identity fence and trusted-local authority still apply.",
       "Clients must require daemon-handoff-force-v1 before sending force:true.",
       "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
+      "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
       "The daemon exits only after the success response is queued."
     ]
   },
@@ -1758,6 +2478,19 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "snapshot-request": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "terminal-snapshot-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Requires a snapshot attach (attach-surface with snapshot ghostsnp) of the same surface on this connection, else not_attached.",
+      "A request while a snapshot is pending collapses into it; at most one requested snapshot per viewer per 500 ms.",
+      "Raw v12 form of the terminal channel message snapshot_request (sync-and-transport.md).",
+      "reason, when present, is digest_mismatch, gap, generation_mismatch or attach; request_id is at most 128 bytes; otherwise invalid."
+    ]
   },
   "split": {
     "authority": "control",
@@ -1776,15 +2509,28 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "kind": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
+      },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
+      },
       "terminal_id": {
         "since": 12,
         "capability": "terminal-placement-env-v1"
+      },
+      "url": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
       }
     },
     "stream": null,
     "constraints": [
       "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
-      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
+      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
     ]
   },
   "subscribe": {
@@ -1870,6 +2616,24 @@ export const COMMAND_METADATA = {
       "surface filtering occurs before the bounded mailbox."
     ]
   },
+  "subscribe-activity": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "vm-activity-v1",
+    "fields": {},
+    "stream": {
+      "event_names": [
+        "activity-changed"
+      ],
+      "kind": "subscribe",
+      "ordering": "Registration response with the current snapshot, then activity-changed after each change, at most one per second (leading edge plus one trailing event); no replay. Closing the connection ends the subscription.",
+      "terminal_event": null
+    },
+    "constraints": [
+      "Trusted local (Unix socket) connections only. The Cloud VM agent uses it to report activity for the idle pause (plans/cmux-next/cloud-automation.md 27).",
+      "At most 16 subscribers."
+    ]
+  },
   "swap-pane": {
     "authority": "control",
     "since": 6,
@@ -1877,6 +2641,34 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "terminal-clipboard-reply": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+    ]
+  },
+  "terminal-clipboard-subscribe": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "fields": {},
+    "stream": {
+      "event_names": [
+        "terminal-clipboard-read",
+        "terminal-clipboard-read-cancelled"
+      ],
+      "kind": "subscribe",
+      "ordering": "Registration response followed by targeted read requests and their cancellations; no replay. Closing the connection refuses its open reads.",
+      "terminal_event": null
+    },
+    "constraints": [
+      "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+    ]
   },
   "terminal-events": {
     "authority": "control",
@@ -1886,6 +2678,31 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Consumers apply only contiguous revisions for one registry_id and generation."
+    ]
+  },
+  "terminal-history": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-snapshot-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "max_bytes defaults to 1048576 and must be 1..=8388608; at least one page is returned when any exists.",
+      "A before marker of another marker_epoch or one that left scrollback is range_evicted.",
+      "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
+    ]
+  },
+  "terminal-read-range": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-snapshot-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "format is text (default; unwrapped lines joined with newline) or vt.",
+      "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted.",
+      "max_bytes defaults to 1048576 and must be 1..=8388608; a longer range is cut at a character boundary and answers truncated: true.",
+      "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
     ]
   },
   "terminal-resources": {
@@ -1907,6 +2724,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Clients must reject incomplete or contradictory result variants."
+    ]
+  },
+  "ungroup-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "ungroup-tab-group": {
@@ -1939,10 +2766,40 @@ export const COMMAND_METADATA = {
       "Only the calling connection's provider lease is removed."
     ]
   },
+  "unsave-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "unsave-tab-group": {
     "authority": "control",
     "since": 12,
     "capability": "saved-tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "update-bookmark": {
+    "authority": "control",
+    "since": 12,
+    "capability": "bookmarks-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "update-browser-profile": {
+    "authority": "control",
+    "since": 12,
+    "capability": "browser-profiles-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -1973,6 +2830,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "update-screen-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "screen-groups-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -2076,6 +2943,14 @@ export const COMMAND_METADATA = {
   }
 } as const;
 export const EVENT_METADATA = {
+  "activity-changed": {
+    "since": 12,
+    "capability": "vm-activity-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "agent-changed": {
     "since": 11,
     "capability": null,
@@ -2087,6 +2962,14 @@ export const EVENT_METADATA = {
   "bell": {
     "since": 5,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "bookmarks-changed": {
+    "since": 12,
+    "capability": "bookmarks-v1",
     "streams": [
       "subscribe"
     ],
@@ -2132,6 +3015,70 @@ export const EVENT_METADATA = {
     ],
     "emission": "serialized-never-emitted"
   },
+  "cloud-conversation-changed": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-conversation-resynced": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-inbox-changed": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-inbox-reset": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-mux-resynced": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-mux-wake": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-session-needed": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-subscription-state": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "colors-changed": {
     "since": 6,
     "capability": null,
@@ -2143,6 +3090,22 @@ export const EVENT_METADATA = {
   "config-reload-requested": {
     "since": 6,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "conversation-changed": {
+    "since": 12,
+    "capability": "local-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "conversation-typing": {
+    "since": 12,
+    "capability": "local-conversations-v1",
     "streams": [
       "subscribe"
     ],
@@ -2315,6 +3278,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "screen-changed": {
+    "since": 12,
+    "capability": "screen-metadata-v1",
+    "streams": [
+      "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
   "screen-closed": {
     "since": 7,
     "capability": null,
@@ -2424,6 +3395,22 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "terminal-clipboard-read": {
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "terminal-clipboard-read-cancelled": {
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "terminal-reaped": {
     "since": 12,
     "capability": "terminal-reap-v1",
@@ -2527,6 +3514,65 @@ export interface CommandSchema {
   readonly result: TypeSchema;
 }
 export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "ActivitySnapshot": {
+    "additional_properties": false,
+    "constraints": [
+      "attached_clients counts attached connections whose set-client-info kind is tui, web, mac or frontend (a person's client); automation connections never count.",
+      "live_agents counts agents whose state is working or blocked.",
+      "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
+      "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+      "Times and counts only: no content and no surface ids."
+    ],
+    "fields": {
+      "attached_clients": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "last_agent_action_at_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "last_user_input_at_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "live_agents": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ActivitySubscribeResult": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ActivitySnapshot"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "AgentRecord": {
     "additional_properties": false,
     "fields": {
@@ -2579,6 +3625,51 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "socket",
       "hook"
     ]
+  },
+  "AgentSessionSource": {
+    "additional_properties": false,
+    "fields": {
+      "harness": {
+        "default": null,
+        "description": "The agent kind the chat was started with.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "host": {
+        "description": "install: and the stable install id of the machine whose acpmux runs the session.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "host_name": {
+        "default": null,
+        "description": "Display name of the host machine: 1 to 255 bytes, no control characters.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "default": null,
+        "description": "The acpmux session id; null for a new chat until bind-conversation-tab-session.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
   },
   "AgentSource": {
     "kind": "enum",
@@ -2707,6 +3798,189 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "name": "string"
     }
   },
+  "Bookmark": {
+    "additional_properties": true,
+    "fields": {
+      "browser_profile_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "created_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "favicon_key": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "description": "`bm_` and 32 lowercase hex digits.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "index": {
+        "description": "Dense 0-based position among the node's siblings.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kind": {
+        "description": "Known values: url, folder. Other values are future kinds.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "last_used_ms": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "parent": {
+        "description": "`bar`, `other`, or a folder's id.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "source_key": {
+        "description": "Folders only.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "description": "url nodes.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BookmarkChangeResult": {
+    "additional_properties": true,
+    "fields": {
+      "bookmark": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Bookmark"
+        }
+      },
+      "changed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "replayed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BookmarkImportNode": {
+    "additional_properties": false,
+    "fields": {
+      "children": {
+        "description": "A folder's nodes.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "BookmarkImportNode"
+          },
+          "kind": "array"
+        }
+      },
+      "created_ms": {
+        "description": "Defaults to now.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kind": {
+        "description": "url or folder.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "description": "Required for a url node; refused for a folder.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "BrowserFrame": {
     "additional_properties": false,
     "fields": {
@@ -2740,6 +4014,44 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserHostProviderResult": {
+    "additional_properties": false,
+    "fields": {
+      "host_pid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "listener_pid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "secret": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "socket": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -3070,6 +4382,12 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "ws"
     ]
   },
+  "CloseReason": {
+    "kind": "enum",
+    "values": [
+      "session_end"
+    ]
+  },
   "CloseTerminalResult": {
     "additional_properties": false,
     "fields": {
@@ -3146,6 +4464,678 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "kind": "scalar",
       "name": "string"
     }
+  },
+  "ColumnPin": {
+    "additional_properties": false,
+    "fields": {
+      "edge": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "mode": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "role": {
+        "capability": "dock-column-role-v1",
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationChange": {
+    "additional_properties": true,
+    "fields": {
+      "conversation": {
+        "description": "kind conversation.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationSummary"
+        }
+      },
+      "kind": {
+        "description": "Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "message": {
+        "description": "kind message or message-updated.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationMessage"
+        }
+      },
+      "participant": {
+        "description": "kind read-cursor.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "description": "kind read-cursor.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationImportMessage": {
+    "additional_properties": false,
+    "fields": {
+      "author": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "client_msg_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "created_at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "parts": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ConversationPart"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationMessage": {
+    "additional_properties": false,
+    "fields": {
+      "author": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "client_msg_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "created_at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "edited_at": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "parts": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ConversationPart"
+          },
+          "kind": "array"
+        }
+      },
+      "reactions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ConversationReaction"
+          },
+          "kind": "array"
+        }
+      },
+      "reply_to": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationPartRef"
+        }
+      },
+      "retracted_at": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationPart": {
+    "additional_properties": true,
+    "fields": {
+      "host": {
+        "description": "type work.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "preview": {
+        "description": "type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "runs": {
+        "description": "type text.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ConversationTextRun"
+          },
+          "kind": "array"
+        }
+      },
+      "session": {
+        "description": "type work.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "status": {
+        "description": "type work. Known values: running, done, failed, waiting.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "text": {
+        "description": "type text.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "type": {
+        "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationPartRef": {
+    "additional_properties": false,
+    "fields": {
+      "message_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "part_index": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationParticipant": {
+    "additional_properties": false,
+    "fields": {
+      "acp_session": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "agent_class": {
+        "description": "Known values: mux, agent. Other values are future classes.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "display_name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "description": "Known values: human, agent. Other values are future kinds.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationReaction": {
+    "additional_properties": false,
+    "fields": {
+      "at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "author": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationReactionKind"
+        }
+      },
+      "part_index": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationReactionKind": {
+    "additional_properties": true,
+    "fields": {
+      "emoji": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "tapback": {
+        "description": "Known values: love, like, dislike, laugh, emphasize, question.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationSearchHit": {
+    "additional_properties": false,
+    "fields": {
+      "author": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "created_at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "message_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "snippet": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationSummary": {
+    "additional_properties": false,
+    "fields": {
+      "created_at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "last_message": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationMessage"
+        }
+      },
+      "last_seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "owner": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "participants": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ConversationParticipant"
+          },
+          "kind": "array"
+        }
+      },
+      "read_cursors": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "map",
+          "values": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "rev": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "updated_at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationTabRecord": {
+    "additional_properties": false,
+    "fields": {
+      "agent_session": {
+        "capability": "agent-session-tabs-v1",
+        "description": "Agent session source (agent-session-tabs-v1); exclusive with the other sources.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "AgentSessionSource"
+        }
+      },
+      "conversation": {
+        "description": "Conversation source: a conv_ id, with owner.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "owner": {
+        "description": "Conversation source: local or cloud.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page": {
+        "capability": "page-tabs-v1",
+        "description": "Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationTextRun": {
+    "additional_properties": false,
+    "fields": {
+      "length": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "link": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "mention": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "start": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
   },
   "CopyResult": {
     "additional_properties": false,
@@ -3942,6 +5932,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "launch_snapshot_path": {
+        "capability": "launch-snapshot-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "lifecycle_ready": {
         "default": true,
         "nullable": false,
@@ -4629,6 +6629,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint32"
         }
       },
+      "supports_viewer_size_priority": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
       "terminal_id": {
         "nullable": false,
         "presence": "required",
@@ -4766,6 +6775,52 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "NewRowResult": {
+    "additional_properties": false,
+    "fields": {
+      "pane": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "terminal_id": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_incarnation": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "transaction": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "NoteSizeActivityResult": {
     "additional_properties": false,
     "fields": {
@@ -4815,6 +6870,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "source": {
+        "capability": "notification-source-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "NotificationSource"
+        }
+      },
       "unread": {
         "nullable": false,
         "presence": "required",
@@ -4825,6 +6890,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "NotificationSource": {
+    "kind": "enum",
+    "values": [
+      "cli",
+      "terminal",
+      "agent",
+      "daemon"
+    ]
   },
   "NotifyResult": {
     "additional_properties": false,
@@ -4860,6 +6934,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "right",
       "up",
       "down"
+    ]
+  },
+  "PaneKind": {
+    "kind": "enum",
+    "values": [
+      "pty",
+      "browser"
     ]
   },
   "PaneNeighborResult": {
@@ -5057,6 +7138,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ReattachViewResult": {
+    "additional_properties": false,
+    "fields": {
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "SizeState"
         }
       }
     },
@@ -5831,6 +7934,59 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "RowHeight": {
+    "additional_properties": false,
+    "fields": {
+      "height": {
+        "constraints": [
+          {
+            "maximum": 1000,
+            "minimum": 100
+          }
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "row": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "RowMarkerPoint": {
+    "additional_properties": false,
+    "constraints": [
+      "row_marker is a host row marker of the primary screen (terminal-history page markers)."
+    ],
+    "fields": {
+      "col": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "row_marker": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "RunResult": {
     "additional_properties": false,
     "fields": {
@@ -5918,6 +8074,133 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SavedTabGroupMember": {
+    "additional_properties": true,
+    "fields": {
+      "cwd": {
+        "description": "kind terminal.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "engine": {
+        "description": "kind browser. Known values: webkit, cef.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "description": "Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "profile_id": {
+        "description": "kind browser.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "description": "kind terminal.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "description": "kind browser.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SavedTabGroupRecord": {
+    "additional_properties": true,
+    "fields": {
+      "color": {
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "members": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "SavedTabGroupMember"
+          },
+          "kind": "array"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "room": {
+        "description": "The room whose bar shows the saved group (`default` for groups saved by these commands).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "updated_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -6705,6 +8988,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "kind": "object"
   },
   "SizeDeviceKind": {
+    "fallback": "unknown",
     "kind": "enum",
     "values": [
       "mac",
@@ -6712,6 +8996,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "ipad",
       "tui",
       "browser",
+      "linux",
+      "windows",
       "unknown"
     ]
   },
@@ -6742,6 +9028,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "boolean"
+        }
+      },
+      "device_id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "device_kind": {
@@ -6936,9 +9230,21 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "SizingIdentity": {
     "additional_properties": false,
     "fields": {
+      "device_id": {
+        "constraints": [
+          "Stable per-install device id; tells two devices of one user apart."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "device_kind": {
         "constraints": [
-          "mac, iphone, ipad, tui, browser; anything else is unknown."
+          "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown."
         ],
         "default": null,
         "nullable": true,
@@ -6981,12 +9287,187 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "SnapshotRequestHave": {
+    "additional_properties": false,
+    "constraints": [
+      "The snapshot state the viewer holds; a snapshot_version other than the host's is unsupported_version."
+    ],
+    "fields": {
+      "generation": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "offset": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "snapshot_version": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SnapshotRequestResult": {
+    "additional_properties": false,
+    "constraints": [
+      "accepted: the viewer's next attach event is a READY snapshot. collapsed: a snapshot is already pending and answers this request. snapshot_throttled: the viewer got a snapshot less than 500 ms ago; retry after retry_after_ms. Every status echoes request_id."
+    ],
+    "fields": {
+      "reason": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "request_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "retry_after_ms": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "status": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "accepted",
+            "collapsed",
+            "snapshot_throttled"
+          ]
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "SplitDirection": {
     "kind": "enum",
     "values": [
       "right",
       "down"
     ]
+  },
+  "SplitRespawn": {
+    "additional_properties": false,
+    "fields": {
+      "cwd": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "engine": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "env": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "map",
+          "values": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "profile_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "shell_args": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "terminal_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
   },
   "SurfaceResult": {
     "additional_properties": false,
@@ -7080,7 +9561,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "enum",
           "values": [
             "pty",
-            "browser"
+            "browser",
+            "conversation"
           ]
         }
       },
@@ -7184,9 +9666,281 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TabGroupEndedTerminal": {
+    "additional_properties": true,
+    "fields": {
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_incarnation": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TabGroupOutcome": {
+    "additional_properties": true,
+    "fields": {
+      "group": {
+        "description": "Null when the command left no group.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TabGroupRecord"
+        }
+      },
+      "pane": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "surfaces": {
+        "description": "Members in strip order.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "workspace": {
+        "description": "The workspace of the group's pane.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TabGroupRecord": {
+    "additional_properties": true,
+    "fields": {
+      "collapsed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "color": {
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "description": "May be empty: the group shows only its color.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "saved_id": {
+        "description": "The linked saved group.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TabGroupRun": {
+    "additional_properties": true,
+    "fields": {
+      "collapsed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "color": {
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "count": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pane": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "saved_id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "start": {
+        "description": "Strip index of the first member.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "surfaces": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TabRef": {
     "kind": "opaque_json",
     "reason": "A tab named by its numeric surface id or its public tab_ id."
+  },
+  "TerminalClipboardHost": {
+    "additional_properties": false,
+    "fields": {
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalClipboardHostKind"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalClipboardHostKind": {
+    "kind": "enum",
+    "values": [
+      "local",
+      "remote",
+      "cloud"
+    ]
+  },
+  "TerminalClipboardLocation": {
+    "kind": "enum",
+    "values": [
+      "standard",
+      "selection",
+      "primary"
+    ]
+  },
+  "TerminalClipboardReplyResult": {
+    "additional_properties": false,
+    "fields": {
+      "accepted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "granted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalClipboardSubscribeResult": {
+    "additional_properties": false,
+    "fields": {
+      "clipboard_read_ready": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
   },
   "TerminalColorOverrides": {
     "additional_properties": false,
@@ -7302,6 +10056,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ColorHex"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalCommandHistoryResult": {
+    "additional_properties": false,
+    "fields": {
+      "enabled": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -7459,6 +10227,100 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "kind": "object"
       }
     }
+  },
+  "TerminalHistoryPage": {
+    "additional_properties": false,
+    "constraints": [
+      "data is one base64 GHOSTSNP PAGE record (header, payload, CRC32C); marker is the page's first row."
+    ],
+    "fields": {
+      "data": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "marker": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalHistoryPagesResult": {
+    "additional_properties": false,
+    "constraints": [
+      "Pages are newest first; pass next_before as before for older pages until done."
+    ],
+    "fields": {
+      "done": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "marker_epoch": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "next_before": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pages": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "TerminalHistoryPage"
+          },
+          "kind": "array"
+        }
+      },
+      "snapshot_version": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
   },
   "TerminalKey": {
     "kind": "enum",
@@ -7867,6 +10729,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalReadRangeResult": {
+    "additional_properties": false,
+    "fields": {
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "text": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "truncated": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -8527,6 +11419,46 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "add-screens-to-screen-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "screens": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "add-tabs-to-tab-group": {
     "request": {
       "additional_properties": false,
@@ -8567,7 +11499,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "apply-layout": {
@@ -8636,7 +11568,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "constraints": [
         "cols and rows must be supplied together.",
         "Browser surfaces reject mode:render.",
-        "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal."
+        "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal.",
+        "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot."
       ],
       "fields": {
         "cols": {
@@ -8692,9 +11625,96 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "snapshot": {
+          "capability": "terminal-snapshot-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "snapshot_images": {
+          "capability": "terminal-snapshot-images-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "snapshot_local_history": {
+          "capability": "terminal-snapshot-local-history-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "snapshot_version": {
+          "capability": "terminal-snapshot-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
           "nullable": true,
           "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "viewer_backlog_bytes": {
+          "capability": "terminal-snapshot-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "bind-conversation-tab-session": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_session": {
+          "description": "The tab's current session, or null for a tab without one; the bind applies only when it matches.",
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "session": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
           "type": {
             "kind": "ref",
             "name": "Id"
@@ -8704,8 +11724,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "EmptyResult"
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationTabRecord"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "browser-activate": {
@@ -8794,6 +11840,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "browser-host-provider": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserHostProviderResult"
     }
   },
   "browser-insert-text": {
@@ -9259,6 +12316,66 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "chief-inspect": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "path": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "query": {
+          "default": {},
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "body": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "error": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "status": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "clear-history": {
     "request": {
       "additional_properties": false,
@@ -9440,6 +12557,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "close-screen-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "end_terminals": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "close-surface": {
     "request": {
       "additional_properties": false,
@@ -9487,8 +12633,41 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "closed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
+          }
+        },
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "terminals": {
+          "description": "With end_terminals: the member terminals the close ended.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabGroupEndedTerminal"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "close-tabs": {
@@ -9546,6 +12725,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "reason": {
+          "capability": "close-reason-v1",
+          "default": null,
+          "description": "The close is not recorded in the closed history (session_end).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "CloseReason"
           }
         },
         "surfaces": {
@@ -9737,6 +12927,1201 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "WorkspaceMutationResult"
     }
   },
+  "cloud-conversation-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "before_seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-op": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "op": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "origin": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-snapshot": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "tail": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-unsubscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-inbox-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "include_archived": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-inbox-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-inbox-unsubscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-mux-ack": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-mux-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-mux-unsubscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-session-clear": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-session-set": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "access_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "api_base_url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "client_version": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expires_at": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-session-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "conversation-agent-token": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "participant": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "participant": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-attachment-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "hash": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "length": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "offset": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "variant": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "byte_count": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "data": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "eof": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "hash": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mime_type": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "offset": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-attachment-upload": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "byte_count": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "data": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "duration_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "height": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "mime_type": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "offset": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "op": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "piece": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "poster": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "preview": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "sha256": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "upload": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "width": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "needs": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "received": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "stored": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "additional_properties": false,
+            "fields": {
+              "byte_count": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "scalar",
+                  "name": "uint64"
+                }
+              },
+              "hash": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "scalar",
+                  "name": "string"
+                }
+              },
+              "mime_type": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "scalar",
+                  "name": "string"
+                }
+              },
+              "poster": {
+                "default": null,
+                "nullable": true,
+                "presence": "optional",
+                "type": {
+                  "additional_properties": false,
+                  "fields": {
+                    "byte_count": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "uint64"
+                      }
+                    },
+                    "hash": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    },
+                    "mime_type": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "kind": "object"
+                }
+              },
+              "preview": {
+                "default": null,
+                "nullable": true,
+                "presence": "optional",
+                "type": {
+                  "additional_properties": false,
+                  "fields": {
+                    "byte_count": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "uint64"
+                      }
+                    },
+                    "hash": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    },
+                    "mime_type": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "kind": "object"
+                }
+              }
+            },
+            "kind": "object"
+          }
+        },
+        "upload": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-bind": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "participant": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "participant": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-create": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "actor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "participants": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "title": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "before_seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "messages": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationMessage"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-import": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "messages": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationImportMessage"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        },
+        "imported": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "kind": "array"
+          }
+        },
+        "skipped": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversations": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationSummary"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-op": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "actor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "op": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "change": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationChange"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "rev": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "seq": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "transaction": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-search": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "limit": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "query": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "hits": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationSearchHit"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-snapshot": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "tail": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        },
+        "messages": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationMessage"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-typing": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "actor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "on": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
   "copy": {
     "request": {
       "additional_properties": false,
@@ -9767,6 +14152,187 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "CopyResult"
+    }
+  },
+  "create-bookmark": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "bookmark": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "browser_profile_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "created_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "favicon_key": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "kind": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "parent": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "source_key": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "title": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BookmarkChangeResult"
+    }
+  },
+  "create-browser-profile": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "name": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "source": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "create-personal-group": {
@@ -9928,6 +14494,47 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "create-screen-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "screens": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
           }
         }
       },
@@ -10146,7 +14753,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "create-terminal": {
@@ -10289,6 +14896,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
           }
         },
         "terminal_id": {
@@ -10463,6 +15084,86 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "delete-bookmark": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "bookmark": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": true,
+      "fields": {
+        "deleted": {
+          "description": "The deleted node's id first, then its descendants.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "delete-browser-profile": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "delete-personal-group": {
     "request": {
       "additional_properties": false,
@@ -10512,7 +15213,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
-  "delete-saved-tab-group": {
+  "delete-saved-screen-group": {
     "request": {
       "additional_properties": false,
       "fields": {
@@ -10530,6 +15231,44 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "delete-saved-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "saved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": true,
+      "fields": {
+        "deleted": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "saved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "delete-workspace-group": {
@@ -10622,6 +15361,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "DetachClientTarget"
+          }
+        },
+        "surface": {
+          "capability": "shared-sizing-v1",
+          "constraints": [
+            "Resolves a participant id on this terminal only; participant ids are per terminal."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "Id"
           }
         }
       },
@@ -10753,6 +15506,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "GetCellPixelsResult"
     }
   },
+  "get-frontend-browser-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "get-frontend-projection": {
     "request": {
       "additional_properties": false,
@@ -10844,6 +15617,121 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "IdsResult"
+    }
+  },
+  "import-bookmarks": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "nodes": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "BookmarkImportNode"
+            },
+            "kind": "array"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "parent": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "replace": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "source_key": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": true,
+      "fields": {
+        "count": {
+          "description": "Nodes in the request, descendants included.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "root_ids": {
+          "description": "Top-level nodes written; in replace mode the kept folder first.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "import-session-organization": {
@@ -10950,6 +15838,48 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "ListAgentsResult"
     }
   },
+  "list-bookmarks": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": true,
+      "fields": {
+        "bookmarks": {
+          "description": "The whole tree in depth-first pre-order: the bar tree, then the other tree.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Bookmark"
+            },
+            "kind": "array"
+          }
+        },
+        "bookmarks_revision": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "list-clients": {
     "request": {
       "additional_properties": false,
@@ -10996,7 +15926,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
-  "list-saved-tab-groups": {
+  "list-saved-screen-groups": {
     "request": {
       "additional_properties": false,
       "fields": {},
@@ -11007,6 +15937,30 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "list-saved-tab-groups": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": true,
+      "fields": {
+        "saved_groups": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "SavedTabGroupRecord"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "list-tab-groups": {
     "request": {
       "additional_properties": false,
@@ -11014,8 +15968,21 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "groups": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabGroupRun"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "list-terminals": {
@@ -11168,6 +16135,88 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "MintTerminalRendererResult"
     }
   },
+  "move-bookmark": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "bookmark": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "parent": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BookmarkChangeResult"
+    }
+  },
+  "move-browser-profile": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "move-personal-group": {
     "request": {
       "additional_properties": false,
@@ -11214,6 +16263,100 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-screen": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "new_workspace": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "screen": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-screen-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "new_workspace": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
           }
         }
       },
@@ -11315,7 +16458,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "move-tab-group-to-column": {
@@ -11380,7 +16523,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "move-tab-group-to-new-workspace": {
@@ -11427,7 +16570,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "move-tab-group-to-split": {
@@ -11481,7 +16624,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "move-tab-to-column": {
@@ -11497,6 +16640,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "dock": {
+          "capability": "dock-columns-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "ColumnPin"
+          }
+        },
         "pane": {
           "default": null,
           "nullable": true,
@@ -11504,6 +16658,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "respawn": {
+          "capability": "tab-column-respawn-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "SplitRespawn"
           }
         },
         "screen": {
@@ -11571,6 +16736,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint64"
           }
         },
+        "name": {
+          "capability": "tab-workspace-name-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "surface": {
           "nullable": false,
           "presence": "required",
@@ -11623,6 +16798,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "float32"
+          }
+        },
+        "respawn": {
+          "capability": "tab-split-respawn-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "SplitRespawn"
           }
         },
         "surface": {
@@ -12021,10 +17207,194 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "SurfaceResult"
     }
   },
+  "new-conversation-tab": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "agent_session": {
+          "capability": "agent-session-tabs-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AgentSessionSource"
+          }
+        },
+        "cols": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "conversation": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "owner": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "page": {
+          "capability": "page-tabs-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "rows": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "transaction": {
+          "capability": "conversation-tab-transaction-v1",
+          "default": null,
+          "description": "Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "content_resource_id": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationTabRecord"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "tab_resource_id": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transaction": {
+          "description": "The request's transaction, when it sent one.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "new-frontend-browser-tab": {
     "request": {
       "additional_properties": false,
       "fields": {
+        "activate": {
+          "default": true,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "after": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
         "cols": {
           "default": null,
           "nullable": true,
@@ -12043,6 +17413,24 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "favicon_url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "owner": {
           "default": null,
           "nullable": true,
           "presence": "optional",
@@ -12172,6 +17560,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "terminal_id": {
           "capability": "terminal-placement-env-v1",
           "constraints": [
@@ -12250,6 +17652,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "boolean"
           }
         },
+        "kind": {
+          "capability": "pane-browser-kind-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "PaneKind"
+          }
+        },
         "pane": {
           "nullable": false,
           "presence": "required",
@@ -12267,6 +17680,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "terminal_id": {
           "capability": "terminal-placement-env-v1",
           "constraints": [
@@ -12275,6 +17702,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
             }
           ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "capability": "pane-browser-kind-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",
@@ -12307,12 +17745,9 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "SurfaceResult"
     }
   },
-  "new-screen": {
+  "new-row": {
     "request": {
       "additional_properties": false,
-      "constraints": [
-        "cols and rows affect sizing only when both are present."
-      ],
       "fields": {
         "cols": {
           "default": null,
@@ -12323,6 +17758,58 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "cwd": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "env": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
+        "height_permille": {
+          "constraints": [
+            {
+              "maximum": 1000,
+              "minimum": 100
+            }
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "keep": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
         "rows": {
           "default": null,
           "nullable": true,
@@ -12330,6 +17817,183 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "shell_args": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "terminal_id": {
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes)",
+              "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "NewRowResult"
+    }
+  },
+  "new-screen": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "cols and rows affect sizing only when both are present."
+      ],
+      "fields": {
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "cols": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "cwd": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "env": {
+          "capability": "screen-terminal-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
+        "group": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "pinned": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "rows": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "screen_name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "shell_args": {
+          "capability": "screen-terminal-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "terminal_id": {
+          "capability": "screen-terminal-env-v1",
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes)",
+              "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "workspace": {
@@ -12415,6 +18079,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
           }
         },
         "terminal_id": {
@@ -12540,6 +18218,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "NotificationLevel"
+          }
+        },
+        "source": {
+          "capability": "notification-source-v1",
+          "default": "cli",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "NotificationSource"
           }
         },
         "surface": {
@@ -13025,6 +18714,38 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "ReadScrollbackResult"
     }
   },
+  "reattach-view": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "counts": {
+          "constraints": [
+            "false reattaches as a viewer; omitted keeps the counts choice."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ReattachViewResult"
+    }
+  },
   "register-browser-provider": {
     "request": {
       "additional_properties": false,
@@ -13173,6 +18894,29 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "remove-screens-from-screen-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "screens": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "remove-tabs-from-tab-group": {
     "request": {
       "additional_properties": false,
@@ -13204,8 +18948,33 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "groups": {
+          "description": "Ids of the groups the tabs left.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "surfaces": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "rename-pane": {
@@ -13436,6 +19205,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "WorkspaceMutationResult"
     }
   },
+  "reopen-saved-screen-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "saved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "reopen-saved-tab-group": {
     "request": {
       "additional_properties": false,
@@ -13470,7 +19268,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "report-agent": {
@@ -13815,7 +19613,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "RunResult"
     }
   },
-  "save-tab-group": {
+  "save-screen-group": {
     "request": {
       "additional_properties": false,
       "fields": {
@@ -13833,6 +19631,44 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "save-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": true,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "saved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "scroll-surface": {
@@ -14132,10 +19968,24 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "array"
           }
         },
+        "device_id": {
+          "capability": "shared-sizing-v1",
+          "constraints": [
+            "Stable per-install device id; tells two devices of one user apart."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "device_kind": {
           "capability": "shared-sizing-v1",
           "constraints": [
-            "mac, iphone, ipad, tui, browser; anything else is unknown; defaults to kind."
+            "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown; defaults to kind."
           ],
           "default": null,
           "nullable": true,
@@ -14270,6 +20120,81 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "set-column-dock": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "dock": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "edge": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mode": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "permanent": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "role": {
+          "capability": "dock-column-role-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "set-default-colors": {
     "request": {
       "additional_properties": false,
@@ -14374,6 +20299,75 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "set-frontend-browser-history": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "history is a JSON object or null; null clears the stored history.",
+        "Serialized history must be at most 65536 bytes."
+      ],
+      "fields": {
+        "history": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "set-personal-terminal": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "terminal_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "theme": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "set-personal-workspace": {
@@ -14511,6 +20505,121 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "set-row-heights": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "column": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "fit": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "heights": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "RowHeight"
+            },
+            "kind": "array"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "set-screen-metadata": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "screen": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "set-screen-pinned": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "pinned": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "screen": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "set-size-counts": {
@@ -14692,6 +20801,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "set-terminal-command-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "enabled": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalCommandHistoryResult"
     }
   },
   "set-terminal-idle-policy": {
@@ -14916,6 +21045,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "marked_unread": {
+          "capability": "notification-mark-unread-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "mutation_id": {
           "default": null,
           "nullable": true,
@@ -14932,6 +21072,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "pinned": {
+          "capability": "workspace-pin-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "title": {
@@ -14994,6 +21145,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "keep_layout": {
+          "capability": "end-terminals-keep-layout-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "pid": {
           "nullable": false,
           "presence": "required",
@@ -15045,6 +21207,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "SidebarPluginResult"
+    }
+  },
+  "snapshot-request": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "have": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "SnapshotRequestHave"
+          }
+        },
+        "reason": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "request_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SnapshotRequestResult"
     }
   },
   "split": {
@@ -15107,6 +21316,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "boolean"
           }
         },
+        "kind": {
+          "capability": "pane-browser-kind-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "PaneKind"
+          }
+        },
         "pane": {
           "nullable": false,
           "presence": "required",
@@ -15124,6 +21344,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "terminal_id": {
           "capability": "terminal-placement-env-v1",
           "constraints": [
@@ -15132,6 +21366,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
             }
           ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "capability": "pane-browser-kind-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",
@@ -15185,6 +21430,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "subscribe-activity": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ActivitySubscribeResult"
+    }
+  },
   "swap-pane": {
     "request": {
       "additional_properties": false,
@@ -15226,6 +21482,64 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "terminal-clipboard-reply": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "request_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "text": {
+          "constraints": [
+            "Absent or null refuses the read. Text over 1 MiB (UTF-8 bytes) is refused."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalClipboardReplyResult"
+    }
+  },
+  "terminal-clipboard-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_ids": {
+          "constraints": [
+            "At most 256 terminal public ids; each must be a valid term_ id. A new subscription replaces the connection's previous set."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalClipboardSubscribeResult"
+    }
+  },
   "terminal-events": {
     "request": {
       "additional_properties": false,
@@ -15245,6 +21559,114 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalEventsResult"
+    }
+  },
+  "terminal-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "before": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "marker_epoch": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "max_bytes": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalHistoryPagesResult"
+    }
+  },
+  "terminal-read-range": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "format": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "from": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "RowMarkerPoint"
+          }
+        },
+        "marker_epoch": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "max_bytes": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "to": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "RowMarkerPoint"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalReadRangeResult"
     }
   },
   "terminal-resources": {
@@ -15312,7 +21734,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "LayoutUndoResult"
     }
   },
-  "ungroup-tab-group": {
+  "ungroup-screen-group": {
     "request": {
       "additional_properties": false,
       "fields": {
@@ -15330,6 +21752,47 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "ungroup-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": true,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surfaces": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "unpin-workspace": {
@@ -15371,7 +21834,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "BrowserProviderUnregisterResult"
     }
   },
-  "unsave-tab-group": {
+  "unsave-screen-group": {
     "request": {
       "additional_properties": false,
       "fields": {
@@ -15391,11 +21854,179 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "unsave-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": true,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "unsaved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "update-bookmark": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "bookmark": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "favicon_key": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "last_used_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "title": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BookmarkChangeResult"
+    }
+  },
+  "update-browser-profile": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "update-frontend-browser-tab": {
     "request": {
       "additional_properties": false,
       "fields": {
         "favicon_url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "owner": {
           "default": null,
           "nullable": true,
           "presence": "optional",
@@ -15577,7 +22208,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
-  "update-tab-group": {
+  "update-screen-group": {
     "request": {
       "additional_properties": false,
       "fields": {
@@ -15622,6 +22253,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "update-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "collapsed": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TabGroupOutcome"
     }
   },
   "update-workspace-group": {
@@ -15868,6 +22546,28 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   }
 };
 export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "activity-changed": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ActivitySnapshot"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "activity-changed"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "agent-changed": {
     "additional_properties": false,
     "fields": {
@@ -15949,6 +22649,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "bookmarks-changed": {
+    "additional_properties": false,
+    "fields": {
+      "bookmarks_revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "browser_profile_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "bookmarks-changed"
         }
       }
     },
@@ -16168,6 +22898,366 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "cloud-conversation-changed": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "change": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-changed"
+        }
+      },
+      "rev": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "transaction": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-conversation-resynced": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-resynced"
+        }
+      },
+      "messages": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "rev": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "summary": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-inbox-changed": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "entries": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-inbox-changed"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "transaction": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-inbox-reset": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-inbox-reset"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-mux-resynced": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-mux-resynced"
+        }
+      },
+      "pending": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-mux-wake": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-mux-wake"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wakes": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-session-needed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-session-needed"
+        }
+      },
+      "expires_at": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-subscription-state": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-subscription-state"
+        }
+      },
+      "reason": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "scope": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "colors-changed": {
     "additional_properties": false,
     "fields": {
@@ -16282,6 +23372,90 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "conversation-changed": {
+    "additional_properties": false,
+    "fields": {
+      "change": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "conversation-changed"
+        }
+      },
+      "rev": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "transaction": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "conversation-typing": {
+    "additional_properties": false,
+    "fields": {
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "conversation-typing"
+        }
+      },
+      "on": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "daemon-shutdown": {
     "additional_properties": false,
     "fields": {
@@ -16323,6 +23497,18 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "DetachReason"
+        }
+      },
+      "scope": {
+        "constraints": [
+          "\"view\" when only the client's own view was detached; the connection stays."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "surface": {
@@ -16639,6 +23825,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "source": {
+        "capability": "notification-source-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "NotificationSource"
         }
       },
       "surface": {
@@ -17264,6 +24460,53 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "screen-changed": {
+    "additional_properties": false,
+    "fields": {
+      "entity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Screen"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "screen-changed"
+        }
+      },
+      "index": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "screen": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "workspace": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "screen-closed": {
     "additional_properties": false,
     "fields": {
@@ -17844,6 +25087,74 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-clipboard-read": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-clipboard-read"
+        }
+      },
+      "host": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalClipboardHost"
+        }
+      },
+      "location": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalClipboardLocation"
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-clipboard-read-cancelled": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-clipboard-read-cancelled"
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

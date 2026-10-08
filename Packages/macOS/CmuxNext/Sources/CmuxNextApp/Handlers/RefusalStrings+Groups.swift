@@ -12,10 +12,10 @@ nonisolated extension RefusalStrings {
     static var savedGroupAlreadyOpen: String { text("handlers.refusal.savedGroupAlreadyOpen", "the saved group is already open") }
     static func noSavedTabGroup(_ id: String) -> String { format("handlers.refusal.noSavedTabGroup", "no saved tab group %@", id) }
     static func workspaceHasNoPane(_ id: String) -> String { format("handlers.refusal.workspaceHasNoPane", "workspace %@ has no pane", id) }
+    static var otherMachine: String { text("handlers.refusal.groupOtherMachine", "the group and the target are on different machines") }
     static var groupAtEdge: String { text("handlers.refusal.groupAtEdge", "the group is already at the edge") }
     static var closedTabPaneGone: String { text("handlers.refusal.closedTabPaneGone", "the closed tab's pane is gone and no pane is focused") }
     static var browserReopenNeedsWindow: String { text("handlers.refusal.browserReopenNeedsWindow", "browser tabs reopen only in a pane shown in a window") }
-    static var noWindowForFind: String { text("handlers.refusal.noWindowForFind", "no window for the find prompt") }
     static var browserFindClosesWithEscape: String { text("handlers.refusal.browserFindClosesWithEscape", "the browser find bar closes with Escape") }
     static var nothingSelected: String { text("handlers.refusal.nothingSelected", "nothing is selected") }
     static var noActiveFind: String { text("handlers.refusal.noActiveFind", "no find is active; use Find first") }
@@ -23,9 +23,7 @@ nonisolated extension RefusalStrings {
     static var noScreenshot: String { text("handlers.refusal.noScreenshot", "no screenshot found in the screenshot folder") }
     static var noWorkingDirectory: String { text("handlers.refusal.noWorkingDirectory", "the tab has no known working directory") }
     static func ghosttyRejected(_ binding: String) -> String { format("handlers.refusal.ghosttyRejected", "Ghostty rejected %@", binding) }
-    static var copyModeUnported: String { text("handlers.refusal.copyModeUnported", "needs a keyboard copy mode in the cmux-next terminal") }
     static var textBoxUnported: String { text("handlers.refusal.textBoxUnported", "needs the TextBox composer, which cmux-next does not have yet") }
-    static var findPanelUnported: String { text("handlers.refusal.findPanelUnported", "needs the Find panel (not in cmux-next yet)") }
     static func colorMustBeOneOf(_ choices: String) -> String { format("handlers.refusal.colorMustBeOneOf", "color must be one of %@", choices) }
     static var resourceCardNotShown: String {
         text("handlers.refusal.resourceCardNotShown", "the tab or workspace is not shown in a window, so its resource card cannot open")
@@ -37,8 +35,18 @@ nonisolated extension RefusalStrings {
     static var workspaceNotInGroup: String { text("handlers.refusal.workspaceNotInGroup", "the workspace is not in a group") }
     static func noWindow(_ id: String) -> String { format("handlers.refusal.noWindow", "no window %@", id) }
     static func couldNotOpen(_ url: String) -> String { format("handlers.refusal.couldNotOpen", "could not open %@", url) }
-    static var settingsNotLoaded: String { text("handlers.refusal.settingsNotLoaded", "cmux.json is not loaded yet") }
-    static var settingArgumentRequired: String { text("handlers.refusal.settingArgumentRequired", "setting is required (a dotted cmux.json path)") }
+    static var settingsNotLoaded: String { text("handlers.refusal.settingsNotLoaded", "cmux-next.json is not loaded yet") }
+    static var debugSettingsUnavailable: String {
+        text("handlers.refusal.debugSettingsUnavailable", "Debug Settings exist only in DEV and NIGHTLY builds")
+    }
+    static func noSuchSettingsEntry(_ key: String) -> String {
+        format("handlers.refusal.noSuchSettingsEntry", "no setting %@ in Settings", key)
+    }
+    static var settingArgumentRequired: String { text("handlers.refusal.settingArgumentRequired", "setting is required (a dotted cmux-next.json path)") }
+    static func settingManaged(_ key: String) -> String {
+        format("handlers.refusal.settingManaged", "%@ is managed by your organization", key)
+    }
+
     static func settingNotToggle(_ key: String) -> String {
         format("handlers.refusal.settingNotToggle", "%@ is not an on/off setting; change it in Settings", key)
     }

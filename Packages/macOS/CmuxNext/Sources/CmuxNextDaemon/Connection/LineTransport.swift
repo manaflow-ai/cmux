@@ -28,9 +28,12 @@ final class LineTransport: Sendable {
 
     /// Inbound limit: the server may send up to 32 MiB (VT replay).
     static let maxLineBytes = 64 << 20
+    /// The event name a `cmux.protocol/2` stream line is routed under
+    /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
+    static let streamEvent = "cmux.protocol/2 stream"
 
-    private enum Waiter {
-        case continuation(cmd: String, CheckedContinuation<Response, any Error>)
+    enum Waiter {
+        case reply(cmd: String, ReplySlot)
         case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
         /// Its deadline passed; the late reply is dropped. The id stays in
         /// `order` so an id-less error still maps to the right request.
@@ -38,7 +41,7 @@ final class LineTransport: Sendable {
 
         var cmd: String {
             switch self {
-            case .continuation(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
+            case .reply(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
             }
         }
     }
@@ -52,6 +55,8 @@ final class LineTransport: Sendable {
         var sawShutdown = false
         /// Events routed so far; responses capture it as their barrier.
         var eventCount: UInt64 = 0
+        /// Gets resource API stream lines (`stream_item`, `stream_end`).
+        var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
     }
 
     /// An `ok:true` response line plus the number of events routed before it
@@ -74,10 +79,31 @@ final class LineTransport: Sendable {
     private let writer: SocketWriter
     let path: String
 
-    init(path: String) throws(DaemonError) {
+    /// The bridge child of this connection (``DaemonBridge``), killed and
+    /// reaped when the connection closes.
+    private let child: BridgeChild?
+
+    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
         self.path = path
+        let fd: Int32
+        if let bridge {
+            let opened = try bridge.open()
+            fd = opened.fd
+            child = opened.child
+        } else {
+            fd = try Self.connect(path)
+            child = nil
+        }
+        socket = Mutex(Socket(fd: fd))
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+    }
+
+    private static func connect(_ path: String) throws(DaemonError) -> Int32 {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
+        // Close-on-exec: a program the app execs must not inherit a daemon connection, whose
+        // peer key is this process's audit token (request-origin.md, peer key caveat).
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         var on: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_un()
@@ -103,9 +129,14 @@ final class LineTransport: Sendable {
             Darwin.close(fd)
             throw .connectFailed(path: path, errno: code)
         }
-        socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        return fd
     }
+
+    /// The bridge child's pid (tests).
+    var bridgePIDForTesting: pid_t? { child?.pid }
+
+    /// The socket descriptor (tests: close-on-exec).
+    var descriptorForTesting: Int32 { socket.withLock { $0.fd } }
 
     deinit {
         writer.close()
@@ -129,6 +160,7 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+    func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
@@ -136,25 +168,24 @@ final class LineTransport: Sendable {
     /// arrived in time fails the request with `DaemonError.timedOut`; the
     /// late reply is dropped when it comes (architecture.md 5a).
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
-        // A one-shot deadline, armed synchronously inside the continuation
-        // body, so the deferred cancel always runs after it.
+        let slot = ReplySlot()
+        // A failed submit resolved the slot already.
+        guard case .success(let id) = submit(.reply(cmd: cmd, slot), body) else { return try await slot.value() }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
-        return try await withCheckedThrowingContinuation { continuation in
-            guard case .success(let id) = submit(.continuation(cmd: cmd, continuation), body), let timeout else { return }
-            timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) }
-        }
+        if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
+        return try await slot.value()
     }
 
     /// Fails a still-pending request with `timedOut`.
-    private func expire(id: UInt64, after timeout: Duration) {
-        let continuation: (String, CheckedContinuation<Response, any Error>)? = state.withLock { state in
-            guard case .continuation(let cmd, let continuation)? = state.pending[id] else { return nil }
+    func expire(id: UInt64, after timeout: Duration) {
+        let pending: (String, ReplySlot)? = state.withLock { state in
+            guard case .reply(let cmd, let slot)? = state.pending[id] else { return nil }
             state.pending[id] = .expired(cmd: cmd)
-            return (cmd, continuation)
+            return (cmd, slot)
         }
-        guard let (cmd, continuation) = continuation else { return }
-        continuation.resume(throwing: DaemonError.timedOut("\(cmd) (no reply within \(timeout))"))
+        guard let (cmd, slot) = pending else { return }
+        slot.resolve(.failure(DaemonError.timedOut("\(cmd) (no reply within \(timeout))")))
     }
 
     /// Sends one command without waiting. The response is consumed and
@@ -181,7 +212,7 @@ final class LineTransport: Sendable {
     /// registration the waiter is resumed here; after it, `failAll` owns it.
     /// Returns the request id once the waiter is registered.
     @discardableResult
-    private func submit(_ waiter: Waiter, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+    func submit(_ waiter: Waiter, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
@@ -207,7 +238,7 @@ final class LineTransport: Sendable {
             return nil
         }
         if let early {
-            if case .continuation(_, let continuation) = waiter { continuation.resume(throwing: early) }
+            if case .reply(_, let slot) = waiter { slot.resolve(.failure(early)) }
             return .failure(early)
         }
         if let writeFailure {
@@ -223,6 +254,7 @@ final class LineTransport: Sendable {
         socket.withLock { socket in
             if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
         }
+        child?.terminate()
     }
 
     // MARK: - Private
@@ -246,47 +278,8 @@ final class LineTransport: Sendable {
         let error = Self.closedError(reason)
         for waiter in waiters {
             switch waiter {
-            case .continuation(_, let continuation): continuation.resume(throwing: error)
+            case .reply(_, let slot): slot.resolve(.failure(error))
             case .discard, .expired: break
-            }
-        }
-    }
-
-    /// Routing fields of a raw protocol line or a `cmux.protocol/2`
-    /// response. Resource responses carry the request id as a decimal
-    /// string and a structured `error` object.
-    private struct Envelope: Decodable {
-        var id: UInt64?
-        var ok: Bool?
-        var event: String?
-        var error: String?
-        var errorCode: String?
-
-        enum CodingKeys: String, CodingKey {
-            case id, ok, event, error
-            case errorCode = "error_code"
-        }
-
-        private struct ResourceError: Decodable {
-            var code: String?
-            var message: String?
-        }
-
-        init(from decoder: any Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            if let number = try? c.decodeIfPresent(UInt64.self, forKey: .id) {
-                id = number
-            } else if let text = try? c.decodeIfPresent(String.self, forKey: .id) {
-                id = UInt64(text)
-            }
-            ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
-            event = try? c.decodeIfPresent(String.self, forKey: .event)
-            errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
-            if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
-                error = text
-            } else if let structured = try? c.decodeIfPresent(ResourceError.self, forKey: .error) {
-                error = structured.message ?? structured.code
-                errorCode = errorCode ?? structured.code
             }
         }
     }
@@ -305,14 +298,21 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
+            // Only the new bytes can hold a newline: the buffered rest is one
+            // unfinished line. Rescanning it on every read was quadratic in
+            // the line size (a 10 MiB replay missed the attach deadline).
+            let scanFrom = buffer.count
             buffer.append(contentsOf: chunk[0..<count])
-            var start = buffer.startIndex
-            while let newline = buffer[start...].firstIndex(of: 0x0A) {
-                let line = buffer[start..<newline]
-                start = buffer.index(after: newline)
-                if !line.isEmpty { route(Data(line), decoder: decoder, onEvent: onEvent) }
+            let lineEnds = Self.newlineOffsets(in: buffer, from: scanFrom)
+            var start = 0
+            for end in lineEnds {
+                if end > start {
+                    let base = buffer.startIndex
+                    route(Data(buffer[(base + start)..<(base + end)]), decoder: decoder, onEvent: onEvent)
+                }
+                start = end + 1
             }
-            buffer.removeSubrange(buffer.startIndex..<start)
+            if start > 0 { buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + start)) }
             if buffer.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
@@ -333,13 +333,35 @@ final class LineTransport: Sendable {
         onClose(reason)
     }
 
+    /// Offsets (from `data.startIndex`) of every newline at or after `offset`.
+    static func newlineOffsets(in data: Data, from offset: Int) -> [Int] {
+        data.withUnsafeBytes { raw -> [Int] in
+            guard let base = raw.baseAddress, offset < raw.count else { return [] }
+            var offsets: [Int] = []
+            var position = offset
+            while position < raw.count, let hit = memchr(base + position, 0x0A, raw.count - position) {
+                let found = base.distance(to: UnsafeRawPointer(hit))
+                offsets.append(found)
+                position = found + 1
+            }
+            return offsets
+        }
+    }
+
     /// Events routed so far. Read after a command's reply, it bounds every
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
-        if let name = envelope.event {
+        // A v2 stream line goes to the stream handler of a dedicated
+        // connection (`SessionJournalRead`); on the control connection it
+        // travels with the raw events, in socket order (`session.events`).
+        let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
+        if streamed, let streamID = envelope.streamID, let handler = state.withLock({ $0.streamHandler }) {
+            return handler(streamID, line)
+        }
+        if let name = streamed ? Self.streamEvent : envelope.event {
             let index = state.withLock { state -> UInt64 in
                 if name == "daemon-shutdown" { state.sawShutdown = true }
                 state.eventCount += 1
@@ -357,14 +379,13 @@ final class LineTransport: Sendable {
         }
         guard let (barrier, waiter) = waiter else { return }
         if envelope.ok == true {
-            if case .continuation(_, let continuation) = waiter {
-                continuation.resume(returning: Response(line: line, eventBarrier: barrier))
-            }
+            if case .reply(_, let slot) = waiter { slot.resolve(.success(Response(line: line, eventBarrier: barrier))) }
             return
         }
-        let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode)
+        let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode,
+                                        details: envelope.errorDetails, retryable: envelope.retryable)
         switch waiter {
-        case .continuation(_, let continuation): continuation.resume(throwing: error)
+        case .reply(_, let slot): slot.resolve(.failure(error))
         case .discard(_, let onError): onError?(error)
         case .expired: break
         }

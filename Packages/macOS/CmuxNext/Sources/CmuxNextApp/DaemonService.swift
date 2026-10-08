@@ -17,6 +17,8 @@ final class DaemonService {
     /// `local`, or the Cloud machine id (`vm-…`).
     let machineID: String
     let store = DaemonStore()
+    /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
+    let policyBlock = PolicyBlock()
     private(set) var connection: DaemonConnection?
     private(set) var windowState: WindowStateStore?
     /// The current (or last) daemon's identity. The store owns it and
@@ -24,10 +26,22 @@ final class DaemonService {
     /// restarted or was handed off to a newer build after the first connect.
     var identity: DaemonIdentity? { store.identity }
     @ObservationIgnored private var runTask: Task<Void, Never>?
-    @ObservationIgnored private var reconciling: Task<Void, Never>?
-    @ObservationIgnored private var queuedReconcile: Task<Void, Never>?
+    /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
+    @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
+    /// The connection Quit's end choice runs on, kept after
+    /// `shutdownConnection` so Retry ends the same daemon (`endSessionsAndStop`).
+    @ObservationIgnored var endingConnection: DaemonConnection?
     @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
+    /// The window records of the daemon's launch snapshot, drawn before the
+    /// first connection (`LaunchSnapshotWindow`); nil without one.
+    @ObservationIgnored var launchSnapshotWindows: WindowStateDocument?
+    /// The local session whose launch snapshot path each handshake records.
+    @ObservationIgnored var launchSnapshotSession: String?
+    @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
+    /// Callers of `endpoint()` waiting for the first connection (terminals
+    /// drawn from the launch snapshot attach as soon as it exists).
+    @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(machineID: String = "local") {
         self.machineID = machineID
@@ -54,7 +68,7 @@ final class DaemonService {
     /// errors). Becomes `.unavailable` after `startupDeadline` or on an
     /// incompatible daemon; retrying continues in the background.
     private(set) var startup: DaemonStartupState = .connecting
-    @ObservationIgnored var startupDeadline: Duration = DaemonStartup.defaultDeadline
+    @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     @ObservationIgnored private var lastStartupError: DaemonError?
@@ -62,32 +76,71 @@ final class DaemonService {
     /// changing (watched by the connection), the app becoming active, and
     /// for a Cloud machine a network path change. Retries past their timed
     /// budget wait only for these (no polling).
-    @ObservationIgnored let retryWake: RetryWake
+    @ObservationIgnored private(set) var retryWake: RetryWake
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    /// How the connections reach this app's daemon (the page relay opens its own with it).
+    @ObservationIgnored private(set) var endpointProvider: DaemonConnection.EndpointProvider?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
+    /// `prestart` is the first connect attempt `main` began
+    /// (`DaemonService.prestart`); without one the first attempt starts here.
     func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
-               terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String]) {
+               terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
+               resolvesShellIntegration: Bool = false,
+               prestart: DaemonPrestart? = nil) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
-        do {
-            launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment)
-        } catch {
-            noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
-            return
+        if let prestart {
+            launcher = prestart.launcher
+            retryWake = prestart.wake
+        } else {
+            do {
+                launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment)
+            } catch {
+                noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+                return
+            }
         }
-        let configuration = DaemonConnection.Configuration(
-            retryWake: retryWake,
-            terminalEnvironment: terminalEnvironmentProvider)
-        start { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
+        endpointProvider = launcher.endpointProvider
+        if let session = try? DaemonLauncher.sessionName(tag: launch.tag) {
+            launchSnapshotSession = session
+            showLaunchSnapshot(session: session)
+        }
+        let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
+                                                    resolvesShellIntegration: resolvesShellIntegration,
+                                                    installKey: launcher.configuration.installKey, retryWake: retryWake)
+        var first: (@Sendable () async -> DaemonPrestart.Outcome)?
+        if let prestart {
+            // Cancelling the startup (shutdown) cancels the attempt too.
+            first = { @Sendable in
+                await withTaskCancellationHandler { await prestart.outcome() } onCancel: { prestart.cancel() }
+            }
+        }
+        // After an update the daemon may still be the previous build's: hand
+        // it off to the bundled build; terminals survive (their hosts are
+        // adopted by the new daemon) and the connection reconnects by itself.
+        let logger = logger
+        let afterConnect: @Sendable (DaemonConnection, DaemonIdentity) async -> Void = { connection, identity in
+            let decision = await launcher.handOffIfStale(identity: identity, using: connection)
+            if case .restart(let running, let bundled) = decision {
+                DebugTimings.markLaunch("daemon_version_handoff")
+                logger.info("daemon handoff \(running, privacy: .public) -> \(bundled, privacy: .public)")
+            }
+        }
+        start(first: first, afterConnect: afterConnect) {
+            DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
+        }
     }
+
 
     /// Connects with `makeConnection`, retrying the first connect until it
     /// succeeds (`DaemonStartup`), then mirrors the connection into `store`.
     /// The connection reconnects by itself afterwards.
-    func start(makeConnection: @escaping @Sendable () -> DaemonConnection) {
+    func start(first: (@Sendable () async -> DaemonPrestart.Outcome)? = nil,
+               afterConnect: (@Sendable (DaemonConnection, DaemonIdentity) async -> Void)? = nil,
+               makeConnection: @escaping @Sendable () -> DaemonConnection) {
         guard runTask == nil else { return }
         let store = store
         armStartupDeadline()
@@ -96,7 +149,8 @@ final class DaemonService {
         runTask = Task { [weak self, scheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
-            let connected = await DaemonStartup.connect(wake: wake, clock: clock, makeConnection: makeConnection) { error in
+            let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
+                                                               makeConnection: makeConnection) { error in
                 await weakSelf?.noteStartupFailure(error)
             }
             guard let (connection, identity) = connected else { return }
@@ -107,6 +161,12 @@ final class DaemonService {
             self.didConnect(connection, identity: identity)
             self.windowState = WindowStateStore(connection: connection)
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
+            // task-owner: one hop to read the endpoint; the store run below owns the connection
+            Task { await self.rememberSocket(identity, connection: connection) }
+            if let afterConnect {
+                // task-owner: one version check per first connect; its request carries the control deadline
+                Task { await afterConnect(connection, identity) }
+            }
             await store.run(connection: connection, scheduler: scheduler)
         }
     }
@@ -121,9 +181,15 @@ final class DaemonService {
     /// An incompatible daemon (`compatibility` says so) is retried only on
     /// such an event: the machine's daemon can be updated in place behind
     /// the same link, and the next event then connects to the new build.
-    func start(remote endpoint: @escaping @Sendable () async throws -> String) {
-        guard runTask == nil else { return }
+    /// `admit` checks each handshake's identity before use; when it throws,
+    /// the connection closes, the service stops and the store shows why.
+    /// `bridge`: each connection runs this child instead of connecting to the
+    /// socket (``DaemonEndpoint/bridge``). `onEnd` runs on each drop (EOF, heartbeat).
+    func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
+               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil) {
+        guard runTask == nil, !policyBlock.isBlocked else { return }
         let store = store
+        if let onEnd { store.onDisconnected = onEnd }
         let machineID = machineID
         armStartupDeadline()
         observeRetryEvents()
@@ -140,24 +206,43 @@ final class DaemonService {
             var ends = RetryPacer(.firstConnect)
             // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
             while !Task.isCancelled {
-                let connected = await DaemonStartup.connect(wake: wake, clock: clock) {
-                    DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil)) {
-                        DaemonEndpoint(socketPath: try await endpoint())
+                let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
+                    DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil,
+                                                                                    sessionEvents: true)) {
+                        DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
                     }
                 } onFailure: { error in
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")
                     // Before the failure is published: an event from then on
                     // (the machine updated, app activation) wakes the wait below.
-                    if DaemonStartup.isPermanent(error) { wake.rebaseline() }
+                    if DaemonStartup.shared.isPermanent(error) { wake.rebaseline() }
                     await weakSelf?.noteStartupFailure(error)
                 }
-                if Task.isCancelled { return }
+                if Task.isCancelled {
+                    await connected?.0.close()
+                    return
+                }
                 guard let (connection, identity) = connected else {
                     // Incompatible daemon: wait for an event only, then try again.
                     guard await wake.awaitWake(delay: nil, clock: clock) != .cancelled else { return }
                     continue
                 }
-                guard let self, !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled else {
+                    await connection.close()
+                    return
+                }
+                do {
+                    try admit?(identity)
+                } catch {
+                    logger.error("\(machineID, privacy: .public): refused the daemon after the handshake: \(String(describing: error), privacy: .public)")
+                    // Stop (no run, deadline or path monitor); show the refusal unless
+                    // `admit` already stopped the service with its own text.
+                    let show = !Task.isCancelled
+                    self.shutdownConnection()
+                    if show { store.markFailed(String(describing: error)) }
+                    await connection.close()
+                    return
+                }
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: scheduler)
@@ -171,11 +256,14 @@ final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         DebugTimings.markLaunch("daemon_connected")
         self.connection = connection
+        rememberLaunchSnapshot(identity)
+        resumeConnectionWaiters()
         store.noteHandshake(identity)
         startupDeadlineTimer?.cancel()
         startupDeadlineTimer = nil
         lastStartupError = nil
         startup = .connected
+        relaunchKeptLayoutIfNeeded(connection)
     }
 
     /// Records a failed first-connect attempt. Shows as unavailable once the
@@ -184,7 +272,10 @@ final class DaemonService {
         logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
         lastStartupError = error
         store.markFailed(error.description)
-        if startup.isUnavailable || DaemonStartup.isPermanent(error) { startup = .unavailable(error) }
+        if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) {
+            startup = .unavailable(error)
+            resumeConnectionWaiters()
+        }
     }
 
     private func armStartupDeadline() {
@@ -194,18 +285,24 @@ final class DaemonService {
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
+            self.resumeConnectionWaiters()
         }
     }
 
     func supports(_ capability: String) -> Bool {
-        identity?.supports(capability) ?? false
+        store.supports(capability)
     }
 
     /// The socket for dedicated terminal attachments (re-read on reconnect).
     func endpoint() async throws -> DaemonEndpoint {
+        if policyBlock.isBlocked { throw DaemonError.endpointBlocked("turned off by your organization") }
+        if connection == nil, startup == .connecting, isStarting { await firstConnection() }
         guard let connection, let endpoint = await connection.endpoint else { throw DaemonError.notConnected }
         return endpoint
     }
+
+    /// True once `start` began connecting.
+    var isStarting: Bool { runTask != nil }
 
     /// Runs a command and logs a failure. Returns false when it threw.
     @discardableResult
@@ -216,7 +313,8 @@ final class DaemonService {
     /// Outcome of a command whose reply may miss its deadline.
     enum CommandOutcome {
         case succeeded
-        case failed
+        /// The daemon refused or failed it; `code` is its `error_code` when it gave one.
+        case failed(code: String?)
         /// The deadline passed: the daemon may still apply the command.
         case unknown
     }
@@ -228,11 +326,11 @@ final class DaemonService {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return .failed
+            return .failed(code: nil)
         }
         do {
             try await body(connection)
-            await closeTicket(ticket, label: label, error: nil)
+            await closeTicket(ticket, label: label, error: nil, replying: connection)
             return .succeeded
         } catch DaemonError.timedOut(let what) {
             logger.info("\(label, privacy: .public) outcome unknown: \(what, privacy: .public)")
@@ -241,34 +339,9 @@ final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return .failed
+            if case DaemonError.command(_, _, let code, _, _) = error { return .failed(code: code) }
+            return .failed(code: nil)
         }
-    }
-
-    /// Fetches and applies a snapshot. Requests on the control connection
-    /// are answered in order, so the snapshot reflects every command sent
-    /// before it, including ones whose replies missed their deadline.
-    /// Concurrent callers share snapshots: a caller joins the snapshot
-    /// queued behind the one in flight (so it is ordered after the caller's
-    /// commands), and at most one is queued.
-    func reconcile() async {
-        if let queuedReconcile {
-            await queuedReconcile.value
-            return
-        }
-        let previous = reconciling
-        let task = Task { @MainActor [weak self] in
-            await previous?.value
-            guard let self else { return }
-            self.queuedReconcile = nil
-            if let connection = self.connection, let (tree, _) = try? await connection.snapshot() {
-                self.store.apply(snapshot: tree)
-            }
-        }
-        if previous != nil { queuedReconcile = task }
-        reconciling = task
-        await task.value
-        if reconciling == task { reconciling = nil }
     }
 
     /// Fire-and-forget variant for UI handlers.
@@ -296,7 +369,7 @@ final class DaemonService {
         }
         do {
             try await body(connection)
-            await closeTicket(ticket, label: label, error: nil)
+            await closeTicket(ticket, label: label, error: nil, replying: connection)
             return nil
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -309,53 +382,6 @@ final class DaemonService {
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored var workTracker: ((ActionWork) -> Void)?
 
-    /// Runs an intent with an optimistic store patch settled by the daemon's
-    /// transaction echo (or reverted on failure).
-    func perform(_ label: String, patch: OptimisticPatch, expectEcho: Bool = false,
-                 _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) async -> Bool {
-        let ticket = openTicket()
-        guard let connection else {
-            await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return false
-        }
-        do {
-            try await store.perform(patch, expectEcho: expectEcho) { transaction in
-                try await body(connection, transaction)
-            }
-            await closeTicket(ticket, label: label, error: nil)
-            return true
-        } catch {
-            logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
-            await closeTicket(ticket, label: label, error: error)
-            return false
-        }
-    }
-
-    /// Like `perform`, with a caller-chosen transaction (a drag commit keeps
-    /// one id from drop to settle). Returns the body's value, or nil when the
-    /// command threw (the patch is then reverted).
-    func commit<T: Sendable>(_ label: String, patch: OptimisticPatch, transaction: ClientTransactionID, expectEcho: Bool,
-                             _ body: @Sendable (DaemonConnection) async throws -> T) async -> T? {
-        let ticket = openTicket()
-        guard let connection else {
-            logger.error("\(label, privacy: .public): not connected")
-            await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return nil
-        }
-        store.applyOptimistic(patch, transaction: transaction)
-        do {
-            let value = try await body(connection)
-            if !expectEcho { store.settleOptimistic(transaction) }
-            await closeTicket(ticket, label: label, error: nil)
-            return value
-        } catch {
-            store.rejectOptimistic(transaction)
-            logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
-            await closeTicket(ticket, label: label, error: error)
-            return nil
-        }
-    }
-
     func shutdownConnection() {
         startupDeadlineTimer?.cancel()
         startupDeadlineTimer = nil
@@ -365,6 +391,8 @@ final class DaemonService {
         activationObserver = nil
         runTask?.cancel()
         runTask = nil
+        keptLayoutRelaunch?.cancel()
+        keptLayoutRelaunch = nil
         // task-owner: teardown hop; close() is idempotent and finishes the store pump
         if let connection { Task { await connection.close() } }
         connection = nil

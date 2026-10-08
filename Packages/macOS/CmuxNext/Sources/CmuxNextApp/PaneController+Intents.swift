@@ -7,24 +7,24 @@ import CmuxNextTabs
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
-// with an optimistic patch where the store has one.
+// shown at once through a store intent where the store has one.
 extension PaneController {
     func handle(_ intent: TabStripIntent) {
         switch intent {
         case .select(let id):
             select(id)
         case .close(let id, _):
-            close([id])
+            CloseUndoToasts.close(in: self, [id])
         case .closeOthers(let keep):
-            close(stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: self, stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
         case .closeToRight(let id):
             let ids = orderedIDs
             guard let index = ids.firstIndex(of: id) else { return }
-            close(Array(ids[(index + 1)...]))
+            CloseUndoToasts.close(in: self, Array(ids[(index + 1)...]))
         case .reorder(let id, _, let to):
-            move(id, toPane: self, index: to)
-        case .newTab:
-            newTerminalTab()
+            StripOrder.reorder(id, to: to, in: self)
+        case .newTab(_, let opensWorkspace):
+            StripNewTab.request(pane: paneKey, opensWorkspace: opensWorkspace) { _ = services.registry.perform($0, invocation: $1) }
         case .pin(let id), .unpin(let id):
             setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
         case .rename(let id):
@@ -39,8 +39,6 @@ extension PaneController {
         case .moveToNewColumn(let id):
             guard let tab = tab(id) else { return }
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
-        case .trailingButton(let id):
-            services.tabBarButtons.perform(id, paneKey: paneKey)
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
@@ -52,25 +50,26 @@ extension PaneController {
 
     /// A user selection (strip click, shortcut, palette, CLI): goes through
     /// the focus coordinator, which selects and focuses (`applySelection`).
+    /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
-        guard let workspace else { return applySelection(id) }
+        // A user's tab switch may end link-tab opener relations (Chrome's rule).
+        if source.isUserIntent, stripModel.selectedID != id {
+            services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
+        }
+        guard let workspace else {
+            guard ActionRunScope.viewChangeAllowed() else { return }
+            return applySelection(id)
+        }
         workspace.focus.send(.selectTab(pane: paneKey, tab: id.rawValue, source: source))
     }
 
-    /// Makes `id` the selected tab and shows it on the next display frame.
-    /// Called by the focus applier; never moves focus itself.
-    ///
-    /// The strip highlights the tab at once; the content follows once per
-    /// frame, for whatever tab is selected by then. Holding Ctrl-Tab (key
-    /// repeat, several selections per frame) therefore shows only the
-    /// latest one and never creates, attaches or reveals content for a tab
-    /// the user already moved past.
+    /// Selects `id` and shows it; called by the focus applier, never moves focus.
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         state.selection.select(id.rawValue, in: paneKey)
         stripModel.selectedID = id
-        services.presentation.setNeedsShowSelected(self)
-        services.windows.stateDidChange(state)
+        PaneSelectionPresenter(pane: self).present()
+        services.windows.recordSaver.stateDidChange(state)
     }
 
     /// Selects the neighbor `offset` tabs away, wrapping.
@@ -84,20 +83,33 @@ extension PaneController {
     /// New terminal tab in this pane. `typing` is sent to the new shell
     /// once the tab exists (config command actions). `keep` makes the
     /// terminal outlive the tab; by default the daemon ends it after the
-    /// reap grace period once its last tab closes.
-    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil) {
+    /// reap grace period once its last tab closes. `fromSelectedTab` (New
+    /// Terminal Tab itself) starts it in a selected agent's cwd (#16620);
+    /// other callers (config commands, account logins) keep the pane's.
+    /// `typingAhead` names a new tab page whose `!` type-ahead the shell
+    /// gets after `typing`, drained until nothing new arrived (NewTabTypeAhead).
+    /// `then` runs once the new tab is selected.
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
+                        fromSelectedTab: Bool = false, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let handle = pane.handle
+        // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
+        let agent = cwd == nil && fromSelectedTab ? selectedAgentView : nil
         let cwd = cwd ?? selectedTab?.cwd
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
         services.registry.track(Task {
             do {
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+                var start = cwd
+                if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
-                pendingSelectSurface = created.surface
-                apply(snapshot())
+                if let page {
+                    try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
+                }
+                selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
+                then?(created.surface)
                 return nil
             } catch {
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
@@ -106,56 +118,14 @@ extension PaneController {
         })
     }
 
-    /// New browser tab: daemon-owned when supported, on the engine
-    /// `BrowserTabService.resolve` picks (an explicit engine, else
-    /// `browser.defaultEngine`, Chromium, with the WebKit fallback), else
-    /// session-local. The new tab is selected and focused when it lands; a
-    /// blank tab focuses its address bar so the user can type a URL.
-    /// `inherited` is a reopened or duplicated tab's engine or a popup
-    /// opener's (falls back instead of refusing). `adopting` is a popup page
-    /// the engine already created (`BrowserPageRequests`). `background` (a
-    /// page's Cmd-click) creates the tab without selecting it.
+    /// New browser tab in this pane (`PaneBrowserTabOpener`), selected and
+    /// focused when it lands unless `background`. False when refused.
+    @discardableResult
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
-                       adopting child: (any BrowserTab)? = nil, background: Bool = false) {
-        let browserTabs = services.cache.browserTabs!
-        if browserTabs.isAvailable() {
-            var choice: BrowserEngineChoice
-            switch browserTabs.resolve(requested: requested, inherited: inherited) {
-            case .refuse(let reason): return services.registry.refuse(BrowserTabService.message(reason))
-            case .open(let resolved): choice = resolved
-            }
-            if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
-            let pageRequests = services.cache.pageRequests
-            let newTabAddress = services.newTabAddress(for: choice)
-            let handle = pane.handle
-            let intent = background ? nil : workspace?.beginFocusIntent()
-            services.registry.track(Task {
-                do {
-                    // A new tab the user asked for opens the New Tab page; an
-                    // adopted page (popup, extension tab) keeps its own.
-                    let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
-                    let surface = try await browserTabs.open(choice, in: handle, url: address)
-                    if let child { pageRequests.adopt(child, surface: surface) }
-                    guard !background else { return nil }
-                    pendingSelectSurface = surface
-                    apply(snapshot())
-                    workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
-                    return nil
-                } catch {
-                    child?.close()
-                    daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
-                    return "new-frontend-browser-tab: \(error)"
-                }
-            })
-            return
-        }
-        child?.close()  // Session-local tabs are WebKit pages made on demand.
-        let local = LocalBrowserTab.make(url: url)
-        state?.localBrowserTabs[paneKey, default: []].append(local)
-        apply(snapshot())
-        if background { return }
-        select(StripTabID(local.id))
-        if url == nil { workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
+                       adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
+                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+        PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
+                                                    profile: profile, notice: notice, opener: opener, then: then)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
@@ -173,31 +143,27 @@ extension PaneController {
                 services.cache.release(id.rawValue)
                 continue
             }
+            if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
+            if services.madeAgentTabs?.closeWhenCreated(id.rawValue, close: { [weak self] real in self?.close([StripTabID(real)]) }) == true { continue }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
             commands.append(daemon.closeCommand(for: tab))
+            // Its terminal's only view closes: that session may end it.
+            if tab.kind == .remoteTerminal { services.remoteTerminals.viewClosed(tab) }
         }
-        apply(snapshot())
+        BenchSpans.measure("pane.apply") { apply(snapshot()) }
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
-        let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.batchClose)
-            ? [("close-tabs", { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) })]
-            : commands
+        let runs = daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
+        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
         services.registry.track(Task {
-            var failed = false
-            var unknown = false
-            for command in runs {
-                switch await daemon.runReportingTimeout(command.0, command.1) {
-                case .succeeded: break
-                case .failed: failed = true
-                case .unknown: unknown = true
-                }
-            }
+            let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
+            if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
             // A close that missed its deadline under daemon load usually still
             // lands: keep the tabs hidden until a snapshot ordered after the
             // closes says which ones remain, instead of flashing them back.
-            if unknown { await daemon.reconcile() }
+            if unknown { await daemon.store.refresh() }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
@@ -208,9 +174,12 @@ extension PaneController {
     /// Moves a tab into `target` at `index` (display order), optimistic.
     func move(_ id: StripTabID, toPane target: PaneController, index: Int) {
         guard let tab = tab(id) else { return }
-        if target !== self { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
+        let index = StripOrder.paneIndex(forDisplayIndex: index, moving: id, in: target) // `index` is a display index
+        // Focus follows only a move this client's user started (CLI and
+        // agents never change this client's focus unless they ask).
+        if target !== self, ActionRunScope.viewChangeAllowed() { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
         TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
-            guard !ok else { return }
+            guard !ok else { return StripOrder.settle([self, target]) }
             self?.resyncStrip()
             target?.resyncStrip()
             self?.view.stripView.restoreDetachedTab(id)
@@ -220,12 +189,15 @@ extension PaneController {
     func setPinned(_ id: StripTabID, pinned: Bool) {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
-        guard daemon.supports(DaemonCapabilities.tabMetadata) else {
-            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.tabMetadata))
+        // `tab.pin`/`tab.unpin` on a daemon with state resources.
+        let resource = daemon.store.servesStateResources ? tab.resourceID : nil
+        guard resource != nil || daemon.supports(DaemonCapabilities.shared.tabMetadata) else {
+            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabMetadata))
             return
         }
         services.registry.track(Task {
-            let ok = await daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
+            let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
+                if let resource { return try await connection.state.setTabPinned(resource, pinned) }
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
@@ -243,7 +215,7 @@ extension PaneController {
     func commitRename(_ id: StripTabID, name: String) {
         guard let surface = tab(id)?.surface else { return }
         Task { [daemon] in
-            await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+            await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
                 try await connection.renameTab(surface, to: name)
             }
         }
@@ -258,16 +230,21 @@ extension PaneController {
             select(id)
             let target = ActionTargetRef(kind: .tab, id: id.rawValue)
             guard let tab = tab(id), tab.kind == .browser else {
-                return registry.makeContextMenu(for: .tab, target: target)
+                // Hibernation discards a page; a terminal has none.
+                let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: ["hibernateTab", "wakeTab"])
+                return registry.makeContextMenu(for: .tab, target: target, entries: entries)
             }
             // A browser tab offers the engine it is not on.
             let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
-            let entries = ContextMenuCatalog.entries(for: .tab).filter { $0 != .action(other) }
+            // Terminal themes and keep-running do not apply to a page.
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
-            return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))
+            let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
+            return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
+                                            entries: TabGroupPinMenu.entries(saved: saved))
         case .emptyStrip:
-            let entries = ContextMenuCatalog.entries(for: .newTab) + [.separator] + ContextMenuCatalog.entries(for: .pane)
+            let entries = ContextMenuCatalog.shared.entries(for: .newTab) + [.separator] + ContextMenuCatalog.shared.entries(for: .pane)
             return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).

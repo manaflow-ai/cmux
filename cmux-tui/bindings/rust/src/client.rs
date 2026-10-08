@@ -1,30 +1,37 @@
 use crate::CommandMetadata;
 use crate::codec::JsonLineConnection;
+use crate::codec::UnixStream;
 use crate::generated::{Event, IdentifyResult, decode_event};
+pub(crate) use crate::socket_paths::{
+    current_uid_component, fallback_root, runtime_base, unix_socket_path_fits,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fmt;
-use std::mem::{offset_of, size_of};
 use std::net::Shutdown;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+
+mod response;
+pub(crate) use response::ensure_success;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum CmuxError {
+    /// A protocol-v12 command failure. `error_code` and `error_details` are
+    /// the response's machine-readable fields when it carries them.
     Command {
         command: String,
         message: String,
         id: Option<Value>,
+        error_code: Option<String>,
+        error_details: Option<Box<Value>>,
     },
     /// Structured `cmux.protocol/2` operation failure.
     Protocol {
@@ -142,15 +149,6 @@ impl fmt::Display for CmuxError {
                 Ok(())
             }
             Self::Closed => formatter.write_str("stream is closed"),
-        }
-    }
-}
-
-impl std::error::Error for CmuxError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::MutationTransport { source, .. } => Some(source.as_ref()),
-            _ => None,
         }
     }
 }
@@ -519,7 +517,7 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
     if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    let canonical = PathBuf::from("/tmp").join(format!("cmux-tui-{uid}"));
+    let canonical = fallback_root().join(format!("cmux-tui-{uid}"));
     let sibling = parent.parent()?.join(format!("cmux-tui-{uid}"));
     let mut roots = vec![canonical];
     if sibling != roots[0] {
@@ -530,16 +528,21 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
         for entry in entries.flatten().take(256) {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
+            let session = name.strip_suffix(".sock").unwrap_or(name);
             if !name.ends_with(".sock")
-                || format!(
-                    "{:x}.sock",
-                    Sha256::digest(name.strip_suffix(".sock").unwrap_or(name).as_bytes())
-                ) != leaf
+                || crate::socket_hash::session_digest(session).map(|d| d + ".sock").as_deref()
+                    != Some(leaf)
             {
                 continue;
             }
             let Ok(file_type) = entry.file_type() else { continue };
+            #[cfg(unix)]
             if std::os::unix::fs::FileTypeExt::is_socket(&file_type) {
+                return Some(entry.path());
+            }
+            // Windows AF_UNIX sockets are plain files to the file system.
+            #[cfg(windows)]
+            if file_type.is_file() {
                 return Some(entry.path());
             }
         }
@@ -642,7 +645,7 @@ impl Drop for CmuxStream {
 
 #[derive(Clone)]
 pub struct StreamCloser {
-    control: Arc<StreamControl>,
+    pub(crate) control: Arc<StreamControl>,
 }
 
 impl StreamCloser {
@@ -658,9 +661,9 @@ impl StreamCloser {
     }
 }
 
-struct StreamControl {
-    socket: UnixStream,
-    closed: AtomicBool,
+pub(crate) struct StreamControl {
+    pub(crate) socket: UnixStream,
+    pub(crate) closed: AtomicBool,
 }
 
 fn request_envelope<Request: Serialize>(
@@ -681,22 +684,6 @@ fn request_envelope<Request: Serialize>(
     fields.insert("id".to_string(), id);
     fields.insert("cmd".to_string(), Value::String(command.to_string()));
     Ok(Value::Object(fields))
-}
-
-fn ensure_success(command: &str, response: &Value) -> Result<()> {
-    if response.get("ok") == Some(&Value::Bool(true)) {
-        return Ok(());
-    }
-    let message = response
-        .get("error")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown command error")
-        .to_string();
-    Err(CmuxError::Command {
-        command: command.to_string(),
-        message,
-        id: response.get("id").cloned(),
-    })
 }
 
 fn decode_response<Response: DeserializeOwned>(command: &str, response: Value) -> Result<Response> {
@@ -763,7 +750,7 @@ pub fn validate_session_name(session: &str) -> Result<()> {
 /// Resolves a session socket path and reports invalid session input.
 pub fn try_default_socket_path(session: &str) -> Result<PathBuf> {
     validate_session_name(session)?;
-    Ok(default_socket_path_for_session(session))
+    default_socket_path_for_session(session)
 }
 
 /// Resolves a session socket path without changing the historical signature.
@@ -780,21 +767,13 @@ pub fn default_socket_path(session: &str) -> PathBuf {
     }
 }
 
-fn default_socket_path_for_session(session: &str) -> PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .filter(|value| !value.is_empty())
-        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
+fn default_socket_path_for_session(session: &str) -> Result<PathBuf> {
+    let base = runtime_base();
     default_socket_path_in_runtime_dir(session, base.join(private_runtime_dir_name()))
 }
 
 fn invalid_session_socket_path(session: &str) -> PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .filter(|value| !value.is_empty())
-        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let base = runtime_base();
     invalid_session_socket_path_in_runtime_dir(session, base)
 }
 
@@ -805,60 +784,60 @@ fn invalid_session_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBu
     if unix_socket_path_fits(&preferred) {
         preferred
     } else {
-        PathBuf::from("/tmp")
+        fallback_root()
             .join(format!("cmux-tui-invalid-{}", current_uid_component()))
             .join(invalid_session_socket_leaf(session))
     }
 }
 
-fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
+pub(crate) fn default_socket_path_in_runtime_dir(
+    session: &str,
+    runtime_dir: PathBuf,
+) -> Result<PathBuf> {
     let file_name = format!("{session}.sock");
     let preferred = runtime_dir.join(&file_name);
     if !unix_socket_path_fits(&preferred) {
-        let fallback = PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
+        let fallback = fallback_root().join(private_runtime_dir_name()).join(file_name);
         if unix_socket_path_fits(&fallback) {
-            return fallback;
+            return Ok(fallback);
         }
-        let digest = Sha256::digest(session.as_bytes());
-        let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
+        let Some(digest) = crate::socket_hash::session_digest(session) else {
+            return Err(CmuxError::InvalidArgument(
+                crate::socket_hash::LONG_PATH_NEEDS_HASH.into(),
+            ));
+        };
+        let fallback = fallback_root();
+        let preferred_base = runtime_dir.parent().unwrap_or(&fallback);
         let hashed = preferred_base
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
-            .join(format!("{digest:x}.sock"));
+            .join(format!("{digest}.sock"));
         if unix_socket_path_fits(&hashed) {
-            return hashed;
+            return Ok(hashed);
         }
-        let hashed = PathBuf::from("/tmp")
+        let hashed = fallback_root()
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
-            .join(format!("{digest:x}.sock"));
+            .join(format!("{digest}.sock"));
         debug_assert!(unix_socket_path_fits(&hashed));
-        return hashed;
+        return Ok(hashed);
     }
-    preferred
+    Ok(preferred)
 }
 
 pub(crate) fn private_runtime_dir_name() -> String {
     format!("cmux-tui-{}", current_uid_component())
 }
 
-fn unix_socket_path_fits(path: &Path) -> bool {
-    const SUN_PATH_CAPACITY: usize =
-        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
-    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
-}
-
-fn current_uid_component() -> String {
-    // SAFETY: getuid has no preconditions and does not dereference pointers.
-    unsafe { libc::getuid() }.to_string()
-}
-
 fn invalid_session_socket_leaf(session: &str) -> String {
-    format!("{:x}.sock", Sha256::digest(session.as_bytes()))
+    crate::socket_hash::invalid_session_leaf(session)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
+    #![cfg_attr(not(feature = "socket-path-hash"), allow(dead_code, unused_imports))]
     use super::*;
     use std::io::{BufRead, BufReader, Write};
+    use std::mem::{offset_of, size_of};
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use std::thread;
@@ -933,6 +912,7 @@ mod tests {
         assert!(matches!(result, Err(CmuxError::Closed)));
     }
 
+    #[cfg(feature = "socket-path-hash")]
     #[test]
     fn session_socket_helpers_reject_unsafe_names_before_joining() {
         for session in [
@@ -995,7 +975,7 @@ mod tests {
         assert_eq!(isolated.parent().and_then(Path::parent), Some(expected_outer));
         let legacy_runtime = runtime_dir.join(private_runtime_dir_name());
         assert_eq!(
-            default_socket_path_in_runtime_dir("legacy name", legacy_runtime.clone()),
+            default_socket_path_in_runtime_dir("legacy name", legacy_runtime.clone()).unwrap(),
             legacy_runtime.join("legacy name.sock")
         );
         assert!(ClientConfig::try_from_env_or_default_session("../escape").is_err());
@@ -1014,17 +994,18 @@ mod tests {
         assert!(result.is_ok(), "source-compatible constructor must not panic");
     }
 
+    #[cfg(feature = "socket-path-hash")]
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
+        let root = crate::test_roots::TempRoot::new(); // the probe also scans its cmux-tui-<uid>
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
-        let session = format!("raw-fallback-{}-{id}", std::process::id());
-        let dir = PathBuf::from("/tmp").join(private_runtime_dir_name());
+        let session = format!("rf{}-{id}", std::process::id());
+        let dir = root.path().join(private_runtime_dir_name());
         std::fs::create_dir_all(&dir).unwrap();
         let legacy = SocketFile(dir.join(format!("{session}.sock")));
-        let hashed_dir =
-            PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{}", current_uid_component()));
+        let hashed_dir = root.path().join(format!("cmux-tui-hashed-{}", current_uid_component()));
         std::fs::create_dir_all(&hashed_dir).unwrap();
-        let digest = format!("{:x}.sock", Sha256::digest(session.as_bytes()));
+        let digest = crate::socket_hash::session_digest(&session).unwrap() + ".sock";
         let config = ClientConfig::from_socket_path(hashed_dir.join(digest));
         assert!(is_hashed_socket(&config.socket_path));
         let listener = UnixListener::bind(&legacy.0).unwrap();
@@ -1048,44 +1029,6 @@ mod tests {
     }
 
     #[test]
-    fn long_session_socket_path_uses_bindable_digest_fallback() {
-        const EXPECTED_DIGEST: &str =
-            "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
-        let session = format!("legacy-{}", "x".repeat(200));
-        let path = try_default_socket_path(&session).unwrap();
-        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
-
-        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
-        assert!(
-            path.parent()
-                .and_then(Path::file_name)
-                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
-        );
-        assert!(unix_socket_path_fits(&path), "unusable socket path: {path:?}");
-
-        let bind_session = format!("rust-sdk-bind-{}-{}", std::process::id(), "x".repeat(200));
-        let bind_path = try_default_socket_path(&bind_session).unwrap();
-        std::fs::create_dir_all(bind_path.parent().unwrap()).unwrap();
-        let _ = std::fs::remove_file(&bind_path);
-        let listener = UnixListener::bind(&bind_path)
-            .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
-        drop(listener);
-        std::fs::remove_file(bind_path).unwrap();
-    }
-
-    #[test]
-    fn long_session_hash_prefers_runtime_base_and_falls_back_to_tmp() {
-        let session = format!("legacy-{}", "x".repeat(200));
-        let preferred_runtime = PathBuf::from("/run/user/501/cmux-tui-501");
-        let preferred = default_socket_path_in_runtime_dir(&session, preferred_runtime);
-        assert!(preferred.to_string_lossy().starts_with("/run/user/501/cmux-tui-hashed-"));
-
-        let long_runtime = PathBuf::from("/tmp").join("x".repeat(200)).join("cmux-tui-501");
-        let fallback = default_socket_path_in_runtime_dir(&session, long_runtime);
-        assert!(fallback.to_string_lossy().starts_with("/tmp/cmux-tui-hashed-"));
-    }
-
-    #[test]
     fn unix_socket_path_boundary_reserves_trailing_nul() {
         const SUN_PATH_CAPACITY: usize =
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
@@ -1099,22 +1042,6 @@ mod tests {
         assert_eq!(first_over_limit.as_os_str().as_bytes().len(), SUN_PATH_CAPACITY);
         assert!(unix_socket_path_fits(&fit));
         assert!(!unix_socket_path_fits(&first_over_limit));
-    }
-
-    #[test]
-    fn non_ascii_long_session_uses_utf8_sha256_digest_fallback() {
-        const EXPECTED_DIGEST: &str =
-            "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
-        let session = "名前".repeat(100);
-        let path = try_default_socket_path(&session).unwrap();
-        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
-
-        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
-        assert!(
-            path.parent()
-                .and_then(Path::file_name)
-                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
-        );
     }
 
     #[test]

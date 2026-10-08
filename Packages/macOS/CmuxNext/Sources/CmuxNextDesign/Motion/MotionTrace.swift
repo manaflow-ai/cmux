@@ -4,7 +4,8 @@ public import QuartzCore
 /// Off by default: every hook is one Bool check. While on, a span opens at
 /// the first start of a named animation and closes when it settles, so a
 /// retargeted animation counts once, from first frame to rest.
-public enum MotionTrace {
+public struct MotionTrace {
+    public init() {}
     public struct Span: Sendable, Equatable {
         public var name: String
         public var start: CFTimeInterval

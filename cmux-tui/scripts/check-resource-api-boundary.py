@@ -1050,6 +1050,17 @@ def _validate_catalog_type(
                 "types.StreamError.fields.details",
                 "errors.operation.failed.details.fields.extra.values",
                 "operations.frontend_projection.put.params.fields.projection",
+                # The app's own window state, opaque to the daemon like a
+                # frontend projection (OWNERSHIP-PRINCIPLES window records).
+                "types.WindowRecordSnapshot.fields.record",
+                "operations.window_record.put.params.fields.record",
+                # Sidebar layout sections and items: the reducer validates
+                # them, and a newer app's values and keys must survive a
+                # round trip (sidebar-sections.md L5), which a closed
+                # object type would refuse.
+                "types.SidebarLayoutSnapshot.fields.sections.items",
+                "types.SidebarLayoutOpSectionAdd.fields.section",
+                "types.SidebarLayoutOpItemAdd.fields.item",
             }
             is_explicit_extra = (
                 context.startswith("types.")
@@ -2366,7 +2377,7 @@ def _operation_catalog(
                 "value": {"kind": "resource_id", "resource": "pane"},
             }
             or set(types.get("LayoutColumn", {}).get("fields", {}))
-            != {"column_id", "width", "root"}
+            != {"column_id", "width", "root", "dock"}
             or screen_layout != {"kind": "ref", "name": "LayoutDocument"}
             or (
                 "screen.create" in operations
@@ -3228,6 +3239,7 @@ def _is_test_or_example(path: Path) -> bool:
         or name.endswith("_test.go")
         or "_test." in name
         or name.startswith("test_")
+        or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
     )
 
@@ -3260,7 +3272,9 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
             end = text.find(terminator, content_start)
             if end < 0:
                 return
-            yield content_start, end
+            # A direct include argument names a source file, not public CLI text.
+            if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+                yield content_start, end
             index = end + len(terminator)
             continue
         if text[index] == '"':
@@ -3270,7 +3284,10 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
                 if text[cursor] == "\\":
                     cursor += 2
                 elif text[cursor] == '"':
-                    yield content_start, cursor
+                    # Keep help/diagnostic strings in the scan; exclude only
+                    # direct compile-time resource paths in include macros.
+                    if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+                        yield content_start, cursor
                     cursor += 1
                     break
                 else:
@@ -3438,6 +3455,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if diagnostics:
         print(
             f"resource API boundary check failed with {len(diagnostics)} diagnostic(s)",
+            file=sys.stderr,
+        )
+        print(
+            "Fix the named public resource declaration or scanner classification, then rerun "
+            "python3 cmux-tui/scripts/check-resource-api-boundary.py. "
+            "See cmuxterm-hq REPAIR.md#cmux-next-base-checks.",
             file=sys.stderr,
         )
         return 1

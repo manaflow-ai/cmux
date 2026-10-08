@@ -6,28 +6,37 @@ public import Foundation
 /// uint16 size, a uint8 id and `size - 1` payload bytes. Replaying the tab
 /// and window commands gives the tabs that were open, each at its selected
 /// navigation. Encrypted session files (versions 2 and 4) are skipped.
-public enum ChromiumSessionReader {
+public struct ChromiumSessionReader {
+    private let fileManager: FileManager
+
+    /// Creates a reader with the filesystem used to discover Chromium sessions.
+    ///
+    /// - Parameter fileManager: Filesystem access for discovery.
+    public init(fileManager: FileManager = FileManager()) {
+        self.fileManager = fileManager
+    }
+
     // session_service_commands.cc command ids.
-    static let setTabWindow: UInt8 = 0
-    static let setTabIndexInWindow: UInt8 = 2
-    static let updateTabNavigation: UInt8 = 6
-    static let setSelectedNavigationIndex: UInt8 = 7
-    static let setPinnedState: UInt8 = 12
-    static let tabClosed: UInt8 = 16
-    static let windowClosed: UInt8 = 17
+    let setTabWindow: UInt8 = 0
+    let setTabIndexInWindow: UInt8 = 2
+    let updateTabNavigation: UInt8 = 6
+    let setSelectedNavigationIndex: UInt8 = 7
+    let setPinnedState: UInt8 = 12
+    let tabClosed: UInt8 = 16
+    let windowClosed: UInt8 = 17
 
     /// The newest `Session_*` file in a profile's `Sessions` folder.
-    public static func latestSessionFile(in sessions: URL) -> URL? {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: sessions.path)) ?? []
+    public func latestSessionFile(in sessions: URL) -> URL? {
+        let names = (try? fileManager.contentsOfDirectory(atPath: sessions.path)) ?? []
         return names.filter { $0.hasPrefix("Session_") }
             .max { (Int64($0.dropFirst(8)) ?? 0) < (Int64($1.dropFirst(8)) ?? 0) }
             .map { sessions.appending(path: $0) }
     }
 
-    public static func sessionFile(profile: URL) -> URL? {
+    public func sessionFile(profile: URL) -> URL? {
         if let latest = latestSessionFile(in: profile.appending(path: "Sessions")) { return latest }
         let legacy = profile.appending(path: "Current Session")
-        return FileManager.default.fileExists(atPath: legacy.path) ? legacy : nil
+        return fileManager.fileExists(atPath: legacy.path) ? legacy : nil
     }
 
     private struct Tab {
@@ -38,7 +47,7 @@ public enum ChromiumSessionReader {
         var navigations: [Int32: (url: String, title: String)] = [:]
     }
 
-    public static func parse(_ data: Data) -> [ImportedTab] {
+    public func parse(_ data: Data) -> [ImportedTab] {
         let bytes = [UInt8](data)
         guard bytes.count >= 8, bytes[0..<4].elementsEqual("SNSS".utf8) else { return [] }
         let version = PickleReader.uint32(bytes, at: 4)
@@ -65,7 +74,7 @@ public enum ChromiumSessionReader {
         }
     }
 
-    private static func apply(_ id: UInt8, _ payload: Data, to tabs: inout [Int32: Tab], closedWindows: inout Set<Int32>) {
+    private func apply(_ id: UInt8, _ payload: Data, to tabs: inout [Int32: Tab], closedWindows: inout Set<Int32>) {
         switch id {
         case updateTabNavigation:
             guard var pickle = PickleReader(payload), let tab = pickle.int32(), let index = pickle.int32(),

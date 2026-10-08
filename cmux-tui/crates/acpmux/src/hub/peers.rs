@@ -12,10 +12,28 @@ impl Hub {
     pub(super) fn start_peer(
         &self,
         name: &str,
-        url: &str,
-        token: Option<String>,
+        pc: &crate::config::PeerConfig,
     ) -> tokio::sync::watch::Receiver<u64> {
-        let peer = crate::peer::Peer::new(name, url, token, self.peer_notices.clone());
+        let url = pc.url.as_str();
+        // A saved ssh peer the validator refuses never runs: its URL may have
+        // been set by a remote client before tokens stopped leaking to them.
+        // The log names the peer, never the URL.
+        if url.starts_with("ssh://")
+            && let Err(why) = crate::peer::ssh_target(url)
+        {
+            tracing::warn!(peer = %name, "peer refused: its ssh URL is not valid ({why}); fix or remove it");
+            if let Some(old) = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name) {
+                old.stop();
+            }
+            return tokio::sync::watch::channel(1).1;
+        }
+        let peer = crate::peer::Peer::new(
+            name,
+            url,
+            pc.token.clone(),
+            pc.peer_token.clone(),
+            self.peer_notices.clone(),
+        );
         let settled = peer.settled();
         if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
             old.stop();
@@ -27,11 +45,14 @@ impl Hub {
     /// Add (or replace) a peer. With `wait`, answer once its first connect
     /// attempt settled (connected with its sessions listed, or failed), at
     /// most `PEER_SETTLE_BUDGET` later, so the caller's listing is real.
+    /// `peer_token`: the peer's peer token (`server/peer_auth.rs`) for a
+    /// `ws://` peer; without it that peer serves this daemon as Web.
     pub async fn add_peer(
         &self,
         name: &str,
         url: &str,
         token: Option<String>,
+        peer_token: Option<String>,
         wait: bool,
     ) -> Result<(), RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
@@ -40,21 +61,36 @@ impl Hub {
                 "peer url must start with ws://, wss://, or ssh://host",
             ));
         }
+        if url.starts_with("ssh://")
+            && let Err(why) = crate::peer::ssh_target(url)
+        {
+            return Err(RpcError::invalid_params(format!("refusing that ssh peer URL: {why}")));
+        }
+        let pc = crate::config::PeerConfig { url: url.to_owned(), token, peer_token };
         {
             let mut cfg = self.config.write().await;
-            cfg.peers.insert(
-                name.to_owned(),
-                crate::config::PeerConfig { url: url.to_owned(), token: token.clone() },
-            );
+            cfg.peers.insert(name.to_owned(), pc.clone());
             if let Err(e) = cfg.save() {
                 tracing::warn!("save config failed: {e}");
             }
         }
-        let mut settled = self.start_peer(name, url, token);
+        let mut settled = self.start_peer(name, &pc);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
         Ok(())
+    }
+
+    /// `_acpmux/peer_add {name, url, token?, peerToken?, wait?}`.
+    pub async fn add_peer_from(&self, params: &Value) -> Result<(), RpcError> {
+        let text = |k: &str| params.get(k).and_then(Value::as_str);
+        let required =
+            |k: &str| text(k).ok_or_else(|| RpcError::invalid_params(format!("{k} is required")));
+        let (name, url) = (required("name")?, required("url")?);
+        let token = text("token").map(str::to_owned);
+        let peer_token = text("peerToken").map(str::to_owned);
+        let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+        self.add_peer(name, url, token, peer_token, wait).await
     }
 
     /// Reconnect a configured peer now (its daemon was restarted), without
@@ -65,7 +101,7 @@ impl Hub {
         let Some(peer) = peer else {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
-        let mut settled = self.start_peer(name, &peer.url, peer.token);
+        let mut settled = self.start_peer(name, &peer);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
@@ -78,7 +114,19 @@ impl Hub {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
         peer.stop();
-        self.remote_sessions.lock().unwrap().retain(|_, r| r.peer != name);
+        let gone: Vec<String> = {
+            let mut map = self.remote_sessions.lock().unwrap();
+            let ids: Vec<String> =
+                map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
+            for id in &ids {
+                map.remove(id);
+            }
+            ids
+        };
+        // Clients watching the list drop these rows.
+        for id in gone {
+            self.announce_remote(name, json!({"sessionId": id}), "purged");
+        }
         let mut cfg = self.config.write().await;
         cfg.peers.remove(name);
         if let Err(e) = cfg.save() {
@@ -153,6 +201,7 @@ impl Hub {
                 dir: "peer".into(),
                 kind: kind.into(),
                 msg: Value::Null,
+                host_seq: None,
             },
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
         });
@@ -161,11 +210,16 @@ impl Hub {
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
         let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
         use crate::peer::PeerNotice;
-        while let Some((peer, notice)) = rx.recv().await {
+        while let Some((peer, generation, notice)) = rx.recv().await {
+            // Only the registered instance speaks for a name: a replaced or
+            // removed peer's queued notices are stale.
+            let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
+                continue;
+            };
             let settles = matches!(notice, PeerNotice::Connected | PeerNotice::Disconnected(_));
             self.apply_peer_notice(&peer, notice);
-            if settles && let Some(p) = self.peer(&peer) {
-                p.mark_settled();
+            if settles {
+                current.mark_settled();
             }
         }
     }
@@ -241,6 +295,7 @@ impl Hub {
                                 dir: "peer".into(),
                                 kind,
                                 msg: Value::Null,
+                                host_seq: None,
                             },
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
@@ -262,6 +317,7 @@ impl Hub {
                             dir: "peer".into(),
                             kind,
                             msg: Value::Null,
+                            host_seq: None,
                         },
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
@@ -296,6 +352,7 @@ impl Hub {
                                 .unwrap_or("session/update")
                                 .to_owned(),
                             msg: json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": params}),
+                            host_seq: None,
                         },
                         method::MUX_EVENT => EventRecord {
                             seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
@@ -311,6 +368,7 @@ impl Hub {
                                 .unwrap_or("")
                                 .to_owned(),
                             msg: params.get("msg").cloned().unwrap_or(Value::Null),
+                            host_seq: None,
                         },
                         // permission_pending is derived from the permission_request event locally.
                         _ => return,

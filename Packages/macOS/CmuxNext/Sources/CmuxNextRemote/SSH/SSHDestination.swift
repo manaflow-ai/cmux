@@ -105,7 +105,8 @@ public enum SSHDestinationError: Error, Equatable, Sendable {
 }
 
 /// A cmux-tui session name on the remote machine (`--session`).
-public enum RemoteSessionName {
+public struct RemoteSessionName {
+    public init() {}
     public static let defaultName = "main"
 
     public struct Invalid: Error, Equatable, Sendable {

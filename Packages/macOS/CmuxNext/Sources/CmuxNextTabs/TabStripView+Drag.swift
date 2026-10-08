@@ -5,10 +5,11 @@ import QuartzCore
 extension TabStripView {
     // MARK: - Drag reorder
 
-    func beginDrag(_ press: Press) {
+    func beginDrag(_ press: TabStripPress) {
         guard let index = displayed.firstIndex(where: { $0.id == press.id }), let m = motion[press.id] else { return }
-        let contentX = convert(press.start, to: tabsClip).x + scroll.value
-        drag = Drag(
+        let local = convert(press.start, to: tabsClip)
+        let contentX = local.x + scroll.value
+        drag = TabStripDrag(
             id: press.id,
             grabOffset: contentX - m.x.value,
             originalIndex: index,
@@ -16,11 +17,12 @@ extension TabStripView {
             isPinned: displayed[index].isPinned,
             lastPoint: press.start,
             originalGroup: displayed[index].groupID,
-            targetGroup: displayed[index].groupID
+            targetGroup: displayed[index].groupID,
+            grabY: local.y
         )
         self.press = nil
         setHovered(nil)
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         cells[press.id]?.isLifted = true
         installEscapeMonitor()
         updateSeparators()
@@ -28,7 +30,7 @@ extension TabStripView {
 
     func updateDrag(at point: CGPoint, event: NSEvent?) {
         guard var drag else { return }
-        if let event, point.y < -metrics.tearOffDistance || point.y > bounds.height + metrics.tearOffDistance {
+        if let event, isPastTearOff(point) {
             handOffDrag(event: event)
             return
         }
@@ -67,9 +69,17 @@ extension TabStripView {
         }
     }
 
+    /// Whether `point` (strip coordinates) is the tear-off distance past
+    /// the strip on any side: above or below it, or sideways past its ends,
+    /// where the neighbor pane's strip in the same row begins.
+    func isPastTearOff(_ point: CGPoint) -> Bool {
+        let d = metrics.tearOffDistance
+        return point.y < -d || point.y > bounds.height + d || point.x < -d || point.x > bounds.width + d
+    }
+
     /// Fraction of the dragged tab's width it must travel past a group's
     /// trailing edge to join or leave the group.
-    static let groupJoinHysteresis: CGFloat = 0.3
+    static var groupJoinHysteresis: CGFloat { TabTunables.groupJoinHysteresis.value }
 
     /// Scrolls an overflowing strip while a dragged tab sits in an edge fade.
     func autoscrollDuringDrag(_ dt: CGFloat) -> Bool {
@@ -77,8 +87,9 @@ extension TabStripView {
         let local = convert(point, to: tabsClip).x
         let edge = metrics.scrollFadeWidth
         var speed: CGFloat = 0
-        if local < edge { speed = -(edge - local) * 14 }
-        if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * 14 }
+        let gain = TabTunables.autoscrollGain.value
+        if local < edge { speed = -(edge - local) * gain }
+        if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
         let target = TabScrollMath.clamp(scroll.value + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         guard target != scroll.value else { return false }
@@ -157,16 +168,22 @@ extension TabStripView {
     /// Dragging a tab past the tear-off distance hands it to the App's
     /// `TabDragSession` through `.dragBegan`. The strip collapses the slot and
     /// stops tracking; the session tracks the pointer itself from here.
+    ///
+    /// The grab offset is the point pressed at mouse-down, in the tab: by
+    /// now the pointer is the tear-off distance past the tab (and past the
+    /// strip's end after a clamped reorder), so the pointer's offset from
+    /// the tab here is not where the user holds it (dogfood nxdog13).
     func handOffDrag(event: NSEvent) {
         guard let drag, let cell = cells[drag.id], let window else { return }
         let frameInWindow = tabsClip.convert(cell.frame, to: nil)
         let screenFrame = window.convertToScreen(frameInWindow)
         let pointer = window.convertPoint(toScreen: event.locationInWindow)
+        let grabbed = CGPoint(x: cell.frame.minX + drag.grabOffset, y: drag.grabY)
         let start = TabDragStart(
             tabID: drag.id,
             stripID: model.stripID,
             screenFrame: screenFrame,
-            grabOffset: CGPoint(x: pointer.x - screenFrame.minX, y: pointer.y - screenFrame.minY),
+            grabOffset: DragGrabPoint.screenOffset(of: grabbed, in: cell.frame, flipped: tabsClip.isFlipped),
             screenPoint: pointer,
             snapshot: snapshot(of: [cell.layer], frame: cell.frame)
         )
@@ -192,11 +209,11 @@ extension TabStripView {
         // Layers are flipped; CoreGraphics is not.
         context.translateBy(x: 0, y: CGFloat(height))
         context.scaleBy(x: scale, y: -scale)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             context.setFillColor(Palette.windowBackground.cgColor)
         }
         let radius = metrics.cornerRadius
-        context.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: metrics.tabBackgroundInset, dy: 0), cornerWidth: radius, cornerHeight: radius, transform: nil))
+        context.addPath(CGPath(roundedRect: metrics.pillFrame(slotWidth: size.width, height: size.height), cornerWidth: radius, cornerHeight: radius, transform: nil))
         context.fillPath()
         for layer in layers {
             context.saveGState()
@@ -206,6 +223,10 @@ extension TabStripView {
         }
         return context.makeImage().map(TabImage.init)
     }
+
+    /// The tabs the strip shows, in order (tab conservation check DP1: once
+    /// no drag is in flight this equals the model's tabs).
+    public var presentedTabIDs: [TabID] { displayed.map(\.id) }
 
     /// Restores a tab this strip handed off (drag cancelled). It grows back
     /// into its slot. No-op when `id` is not the detached tab.

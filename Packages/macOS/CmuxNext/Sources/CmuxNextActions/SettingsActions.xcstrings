@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "argument.value.section.home": {
+      "comment": "Value of the Settings section argument: the Home section.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الرئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Početna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accueil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホーム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona główna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Início"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Главная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าแรก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana Sayfa"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Головна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang chủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主頁"
+          }
+        }
+      }
+    },
     "argument.section": {
       "extractionState": "manual",
       "localizations": {
@@ -1055,127 +1187,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rooms & Profiles"
+            "value": "Spaces & Profiles"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ルームとプロファイル"
+            "value": "スペースとプロファイル"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الغرف والملفات الشخصية"
+            "value": "المساحات والملفات الشخصية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sobe i profili"
+            "value": "Prostori i profili"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rum og profiler"
+            "value": "Områder og profiler"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Räume und Profile"
+            "value": "Spaces und Profile"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salas y perfiles"
+            "value": "Espacios y perfiles"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salles et profils"
+            "value": "Espaces et profils"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stanze e profili"
+            "value": "Spazi e profili"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទប់ និងប្រវត្តិរូប"
+            "value": "លំហ និងប្រវត្តិរូប"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "룸 및 프로필"
+            "value": "스페이스 및 프로필"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rom og profiler"
+            "value": "Områder og profiler"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokoje i profile"
+            "value": "Obszary i profile"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salas e perfis"
+            "value": "Espaços e perfis"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Комнаты и профили"
+            "value": "Области и профили"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ห้องและโปรไฟล์"
+            "value": "พื้นที่และโปรไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odalar ve Profiller"
+            "value": "Alanlar ve Profiller"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кімнати та профілі"
+            "value": "Простори та профілі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phòng và hồ sơ"
+            "value": "Không gian và hồ sơ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房间与配置文件"
+            "value": "空间与配置文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房間與設定檔"
+            "value": "空間與設定檔"
           }
         }
       }
@@ -1307,6 +1439,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "終端機"
+          }
+        }
+      }
+    },
+    "argument.value.section.accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accounts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アカウント"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحسابات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Računi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konti"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuentas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comptes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Account"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គណនី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "계정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontoer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Аккаунты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บัญชี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hesaplar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Облікові записи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tài khoản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "帳號"
           }
         }
       }

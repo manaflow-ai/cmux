@@ -32,13 +32,15 @@ case "$CHANNEL" in
     ;;
 esac
 APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$ROOT_DIR/cmux.${CHANNEL}.entitlements}"
+# shellcheck source=lib/notary-auth.sh
+source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
 
 if [ ! -d "$APP_PATH/Contents" ]; then
   echo "Signed app not found: $APP_PATH" >&2
   exit 1
 fi
-if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ]; then
-  echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
+if [ -z "${ASC_API_KEY_ID:-}" ] || [ -z "${ASC_API_ISSUER_ID:-}" ] || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
+  echo "Missing notarization secrets (ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_P8_BASE64)" >&2
   exit 1
 fi
 if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
@@ -61,6 +63,9 @@ cleanup() {
   rm -rf "$DMG_TMP_DIR"
 }
 trap cleanup EXIT
+NOTARY_DIR="$DMG_TMP_DIR/notary"
+mkdir -m 700 "$NOTARY_DIR"
+notary_auth_init "$NOTARY_DIR"
 
 # cmux-next ships no nested Computer Use helper; only a bundle that carries
 # one needs its separate notarization and host reseal.
@@ -100,12 +105,20 @@ fi
   "$DMG_RELEASE"
 "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"
 
-DMG_SUBMIT_JSON="$("$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+# A notary submission usually finishes in about 5 minutes. Bound the wait so a
+# stuck one fails the job quickly with its id (run 37620073632 waited 78
+# minutes until the job was cancelled).
+NOTARY_WAIT_TIMEOUT="${CMUX_NOTARY_WAIT_TIMEOUT:-25m}"
+if ! DMG_SUBMIT_JSON="$("$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" \
+    --wait --timeout "$NOTARY_WAIT_TIMEOUT" --output-format json)"; then
+  echo "DMG notarization did not finish within $NOTARY_WAIT_TIMEOUT for $DMG_RELEASE: ${DMG_SUBMIT_JSON:-no notarytool output}" >&2
+  exit 1
+fi
 DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
 DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
 if [ "$DMG_STATUS" != "Accepted" ]; then
-  echo "DMG notarization failed for $DMG_RELEASE with status: $DMG_STATUS" >&2
-  "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+  echo "DMG notarization failed for $DMG_RELEASE with status: $DMG_STATUS (submission $DMG_SUBMIT_ID)" >&2
+  "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
   exit 1
 fi
 

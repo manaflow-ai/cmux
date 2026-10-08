@@ -1,14 +1,14 @@
 import AppKit
 import CmuxNextDesign
 
-/// The omnibar's leading page-info button (Chrome's location icon): the
+/// The omnibar's leading page-info button (the location icon): the
 /// tune icon for secure pages, a "Not secure" / "Dangerous" chip with text,
 /// or an input icon while the user types. Transparent at rest with a 6 pt
-/// hover shape (Helium). Opens page info on click, Space or Return.
+/// hover shape. Opens page info on click, Space or Return.
 final class PageInfoChipButton: NSView {
     var onPress: (() -> Void)?
 
-    var indicator = PageInfoIndicator(symbol: PageInfoIndicator.Symbol.search, isTriggerable: false) {
+    var indicator = PageInfoIndicator(symbol: PageInfoIndicator.searchSymbol, isTriggerable: false) {
         didSet { if oldValue != indicator { apply() } }
     }
 
@@ -50,14 +50,19 @@ final class PageInfoChipButton: NSView {
         }
     }
 
-    private var tint: NSColor { indicator.tone == .danger ? PageInfoStyle.danger : OmnibarStyle.textPrimary }
+    private func applyTint() {
+        performWithTheme {
+            let tint = indicator.tone == .danger ? PageInfoStyle.danger : OmnibarStyle.textPrimary
+            icon.contentTintColor = tint
+            text.textColor = tint
+        }
+    }
 
     private func apply() {
         icon.image = NSImage(systemSymbolName: indicator.symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))
-        icon.contentTintColor = tint
+        applyTint()
         text.font = OmnibarStyle.font
-        text.textColor = tint
         text.stringValue = labelText ?? ""
         text.isHidden = labelText == nil
         toolTip = indicator.isTriggerable ? PageInfoStrings.viewSiteInformation : nil
@@ -108,7 +113,7 @@ final class PageInfoChipButton: NSView {
         isPressed = true
     }
 
-    /// Chrome opens page info on release inside the button.
+    /// Page info opens on release inside the button.
     override func mouseUp(with event: NSEvent) {
         guard isPressed else { return }
         isPressed = false
@@ -147,9 +152,9 @@ final class PageInfoChipButton: NSView {
     private var showsFocus = false { didSet { refreshFill() } }
 
     private func refreshFill() {
-        let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering ? OmnibarStyle.chipHoverFill : .clear)
-        layer?.borderWidth = showsFocus ? 1.5 : 0
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        layer?.borderWidth = Metrics.lineWidth(showsFocus ? 1.5 : 0)
+        performWithTheme {
+            let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering ? OmnibarStyle.chipHoverFill : .clear)
             layer?.backgroundColor = fill.cgColor
             layer?.borderColor = PageInfoStyle.focusRing.cgColor
         }
@@ -158,5 +163,6 @@ final class PageInfoChipButton: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refreshFill()
+        applyTint()
     }
 }

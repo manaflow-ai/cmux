@@ -7,9 +7,14 @@ use super::{
     ParsedResourceRequest, expected_revision, find_snapshot, mutation_result, optional_string,
     required_string, required_u64, resource_operation_error, validation_error,
 };
-use crate::resource::{RequestEnvelope, ResourceError, ResourceOperation};
+use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_api::public_session_snapshot;
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, WorkspaceMutation};
+
+mod workspace_mutations;
+mod workspace_order;
+use workspace_mutations::{move_workspace, rename_workspace};
+use workspace_order::list_workspaces;
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -43,6 +48,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::PaneZoom
             | ResourceOperation::PaneSplitRatioSet
             | ResourceOperation::PaneViewportWidthSet
+            | ResourceOperation::ColumnUpdate
             | ResourceOperation::PaneClose
             | ResourceOperation::PaneRun
             | ResourceOperation::TabList
@@ -62,13 +68,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
     match request.envelope.operation {
-        ResourceOperation::WorkspaceList => list_resources(
-            mux,
-            &request.selectors,
-            ResourceTarget::Session,
-            "workspaces",
-            "workspace.list",
-        ),
+        ResourceOperation::WorkspaceList => list_workspaces(mux, &request),
         ResourceOperation::WorkspaceGet => {
             get_resource(mux, &request.selectors, ResourceTarget::Workspace, "workspaces")
         }
@@ -261,30 +261,12 @@ fn pane_neighbor(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, Res
     Ok(json!({"pane":pane}))
 }
 
-/// `workspace.create`. An `ephemeral` workspace is marked in a follow-up
-/// commit that every replay repeats idempotently, so a retry after a crash
-/// between the two still marks it before returning.
+/// `workspace.create`. An `ephemeral` workspace is marked in the
+/// transaction that creates it: the empty path writes the flag with the
+/// creation patch, the terminal path with the staged workspace row (the
+/// field stays in the stored intent and its fingerprint). No observer sees
+/// the workspace without the flag.
 fn create_workspace(
-    mux: &Arc<Mux>,
-    mut request: ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    let ephemeral =
-        request.fields.remove("ephemeral").and_then(|value| value.as_bool()).unwrap_or(false);
-    let result = create_workspace_content(mux, request)?;
-    if ephemeral {
-        let workspace_id = result["value"]["workspace_id"].as_str().ok_or_else(|| {
-            ResourceError::operation_failed(
-                "workspace.create",
-                "created workspace result omitted its id",
-                json!({}),
-            )
-        })?;
-        mux.mark_workspace_ephemeral(workspace_id).map_err(resource_operation_error)?;
-    }
-    Ok(result)
-}
-
-fn create_workspace_content(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
@@ -292,7 +274,8 @@ fn create_workspace_content(
     if initial_content != "empty" {
         return dispatch_exact_topology_mutation(mux, ResourceOperation::WorkspaceCreate, request);
     }
-    let mutation = mutation(&request.envelope)?;
+    let ephemeral = request.fields.get("ephemeral").and_then(Value::as_bool).unwrap_or(false);
+    let mutation = mutation(&request)?;
     let correlation_key =
         request.fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
     let commit = mux
@@ -302,6 +285,7 @@ fn create_workspace_content(
             correlation_key,
             expected_revision(&request.fields)?,
             &mutation,
+            crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
         )
         .map_err(resource_operation_error)?;
     let workspace_id = result_id(&commit.result, "workspace.create", "workspace")?;
@@ -313,46 +297,12 @@ fn create_workspace_content(
     )
 }
 
-fn rename_workspace(
-    mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    let mutation = mutation(&request.envelope)?;
-    let commit = mux
-        .resource_rename_workspace_selected(
-            request.selectors,
-            required_string(&request.fields, "name")?.to_string(),
-            None,
-            expected_revision(&request.fields)?,
-            &mutation,
-        )
-        .map_err(resource_operation_error)?;
-    snapshot_mutation_result(mux, commit, "workspace.rename", "workspace")
-}
-
-fn move_workspace(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
-    let mutation = mutation(&request.envelope)?;
-    let index = required_u64(&request.fields, "index")?
-        .try_into()
-        .map_err(|_| validation_error("workspace index exceeds usize", json!({})))?;
-    let commit = mux
-        .resource_move_workspace_selected(
-            request.selectors,
-            index,
-            None,
-            expected_revision(&request.fields)?,
-            &mutation,
-        )
-        .map_err(resource_operation_error)?;
-    snapshot_mutation_result(mux, commit, "workspace.move", "workspace")
-}
-
 fn dispatch_exact_topology_mutation(
     mux: &Arc<Mux>,
     operation: ResourceOperation,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let mutation = mutation(&request.envelope)?;
+    let mutation = mutation(&request)?;
     let expected_revision = expected_revision(&request.fields)?;
     let commit = mux
         .resource_topology_operation(
@@ -369,7 +319,8 @@ fn dispatch_exact_topology_mutation(
         }
         ResourceOperation::ScreenRename
         | ResourceOperation::ScreenFocus
-        | ResourceOperation::ScreenLayoutUndo => {
+        | ResourceOperation::ScreenLayoutUndo
+        | ResourceOperation::ColumnUpdate => {
             snapshot_mutation_result(mux, commit, &super::operation_name(operation), "screen")
         }
         ResourceOperation::PaneRename
@@ -440,12 +391,8 @@ fn result_id<'a>(
     })
 }
 
-fn mutation(envelope: &RequestEnvelope) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        envelope.idempotency_key.clone().expect("catalog-validated mutations have a key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)
+fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
+    request.mutation().map_err(resource_operation_error)
 }
 
 #[cfg(test)]
@@ -457,7 +404,7 @@ mod tests {
     use super::*;
     use crate::SurfaceOptions;
     use crate::resource::{
-        EnvelopeType, MachinePublicId, PanePublicId, RequestId, ScreenPublicId, SessionPublicId,
+        MachinePublicId, PanePublicId, RequestEnvelope, RequestId, ScreenPublicId, SessionPublicId,
         TabPublicId, TerminalPublicId, WorkspacePublicId,
     };
 
@@ -472,16 +419,15 @@ mod tests {
         key: Option<&str>,
     ) -> ParsedResourceRequest {
         ParsedResourceRequest {
-            envelope: RequestEnvelope {
-                protocol: crate::resource::PROTOCOL.to_string(),
-                envelope_type: EnvelopeType::Request,
-                id: RequestId::parse("topology-test").unwrap(),
+            envelope: RequestEnvelope::request(
+                RequestId::parse("topology-test").unwrap(),
                 operation,
-                params: json!({}),
-                idempotency_key: key.map(str::to_string),
-            },
+                json!({}),
+                key.map(str::to_string),
+            ),
             selectors,
             fields: fields.as_object().unwrap().clone(),
+            actor: crate::Actor::local_user(),
         }
     }
 
@@ -698,6 +644,7 @@ mod tests {
             ResourceOperation::PaneZoom,
             ResourceOperation::PaneSplitRatioSet,
             ResourceOperation::PaneViewportWidthSet,
+            ResourceOperation::ColumnUpdate,
             ResourceOperation::PaneClose,
             ResourceOperation::PaneRun,
             ResourceOperation::TabList,
@@ -975,21 +922,20 @@ mod tests {
                 1,
                 "{operation:?} public events"
             );
-            let expected_workspace =
-                before_workspace + u64::from(operation == ResourceOperation::WorkspaceClose);
+            // Each close takes the workspace's only tab, so the workspace
+            // closes in the same commit (LAST-TAB-CLOSES-WORKSPACE).
+            let expected_workspace = before_workspace + 1;
             assert_eq!(
                 mux.with_state(|state| state.workspace_revision),
                 expected_workspace,
                 "{operation:?} workspace revision"
             );
-            if operation == ResourceOperation::WorkspaceClose {
-                let event = mux
-                    .workspace_registry_event(expected_workspace)
-                    .unwrap()
-                    .expect("workspace close event");
-                assert_eq!(event.kind, "workspace-closed");
-                assert_eq!(event.mutation_id, key);
-            }
+            let event = mux
+                .workspace_registry_event(expected_workspace)
+                .unwrap()
+                .expect("workspace close event");
+            assert_eq!(event.kind, "workspace-closed", "{operation:?}");
+            assert_eq!(event.mutation_id, key, "{operation:?}");
             let (terminal_snapshot, terminal_events) =
                 mux.terminal_registry_events_page(before_terminal).unwrap();
             assert_eq!(terminal_snapshot.revision, before_terminal, "{operation:?}");
@@ -1979,186 +1925,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn pure_topology_mutations_preserve_exact_public_snapshots() {
-        let mux = mux();
-        let created = terminal_workspace(&mux, "pure-topology");
-        let workspace = created["value"]["workspace_id"].as_str().unwrap().to_string();
-        let screen = created["value"]["screen_id"].as_str().unwrap().to_string();
-        let first_pane = created["value"]["pane_id"].as_str().unwrap().to_string();
-        let first_tab = created["value"]["tab_id"].as_str().unwrap().to_string();
-
-        let second_tab = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::TabCreateTerminal,
-                selectors(None, None, Some(&first_pane), None),
-                json!({"name":"second tab"}),
-                Some("pure-second-tab"),
-            ),
-        )
-        .unwrap();
-        let second_tab_id = second_tab["value"]["tab_id"].as_str().unwrap().to_string();
-        let renamed_tab = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::TabRename,
-                selectors(None, None, None, Some(&first_tab)),
-                json!({"name":"renamed tab"}),
-                Some("pure-rename-tab"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(renamed_tab["value"]["name"], "renamed tab");
-        let focused_tab = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::TabFocus,
-                selectors(None, None, None, Some(&first_tab)),
-                json!({}),
-                Some("pure-focus-tab"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(focused_tab["value"]["focused"], true);
-        assert_eq!(
-            dispatch(
-                &mux,
-                parsed(
-                    ResourceOperation::TabGet,
-                    selectors(None, None, None, Some(&second_tab_id)),
-                    json!({}),
-                    None,
-                ),
-            )
-            .unwrap()["focused"],
-            false
-        );
-
-        let split = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::PaneSplit,
-                selectors(None, None, Some(&first_pane), None),
-                json!({"direction":"right","ratio":0.4}),
-                Some("pure-split"),
-            ),
-        )
-        .unwrap();
-        let second_pane = split["value"]["pane_id"].as_str().unwrap().to_string();
-        let renamed_pane = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::PaneRename,
-                selectors(None, None, Some(&second_pane), None),
-                json!({"name":"renamed pane"}),
-                Some("pure-rename-pane"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(renamed_pane["value"]["name"], "renamed pane");
-        let neighbor = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::PaneNeighborGet,
-                selectors(None, None, Some(&first_pane), None),
-                json!({"direction":"right"}),
-                None,
-            ),
-        )
-        .unwrap();
-        assert_eq!(neighbor["pane"]["id"], second_pane);
-        let focused_pane = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::PaneFocusDirection,
-                selectors(None, None, Some(&first_pane), None),
-                json!({"direction":"right"}),
-                Some("pure-focus-direction"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(focused_pane["value"]["id"], second_pane);
-        assert_eq!(focused_pane["value"]["focused"], true);
-
-        let zoomed = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::PaneZoom,
-                selectors(None, None, Some(&second_pane), None),
-                json!({"enabled":true}),
-                Some("pure-zoom"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(zoomed["value"]["zoomed"], true);
-
-        let layout = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::ScreenLayoutExport,
-                selectors(None, Some(&screen), None, None),
-                json!({}),
-                None,
-            ),
-        )
-        .unwrap();
-        let split_id = layout["root"]["split_id"].as_str().unwrap();
-        let resized = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::PaneSplitRatioSet,
-                selectors(None, None, Some(&second_pane), None),
-                json!({"split_id":split_id,"ratio":0.25}),
-                Some("pure-ratio"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(resized["value"]["id"], second_pane);
-        let resized_layout = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::ScreenLayoutExport,
-                selectors(None, Some(&screen), None, None),
-                json!({}),
-                None,
-            ),
-        )
-        .unwrap();
-        assert_eq!(resized_layout["root"]["ratio"], 0.25);
-
-        let renamed_screen = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::ScreenRename,
-                selectors(None, Some(&screen), None, None),
-                json!({"name":"renamed screen"}),
-                Some("pure-rename-screen"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(renamed_screen["value"]["name"], "renamed screen");
-        let focused_screen = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::ScreenFocus,
-                selectors(None, Some(&screen), None, None),
-                json!({}),
-                Some("pure-focus-screen"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(focused_screen["value"]["focused"], true);
-        let focused_workspace = dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::WorkspaceFocus,
-                selectors(Some(&workspace), None, None, None),
-                json!({}),
-                Some("pure-focus-workspace"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(focused_workspace["value"]["focused"], true);
-    }
+    mod snapshot_mutation_tests;
+    mod split_events_projection_tests;
 }

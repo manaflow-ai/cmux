@@ -138,22 +138,22 @@ import Testing
         let tab = makeTab()
         let content = tab.container
         content.frame = bounds
-        tab.devToolsLayout.dock = .right
-        tab.devToolsLayout.rightFraction = 0.5
+        tab.devToolsController.layout.dock = .right
+        tab.devToolsController.layout.rightFraction = 0.5
         let host = CEFHostView()
         let divider = CEFDevToolsDivider()
         content.addSubview(host)
         content.addSubview(divider)
-        tab.devToolsViews = (host, divider)
-        tab.devToolsOpened(browser: 5, docked: true)
-        let frames = tab.devToolsFrames(in: bounds)
+        tab.devToolsController.views = (host, divider)
+        tab.devToolsController.opened(browser: 5, docked: true)
+        let frames = tab.devToolsController.frames(in: bounds)
         #expect(host.frame == frames.devTools)
         #expect(divider.frame == frames.grab)
         #expect(host.frame.width > 0 && host.frame.maxX == bounds.maxX)
         // The divider's grab area is a hole in the DevTools window.
         #expect(host.occlusionRects.count == 1)
-        tab.devToolsClosed(browser: 5)
-        #expect(tab.devToolsViews == nil)
+        tab.devToolsController.closed(browser: 5)
+        #expect(tab.devToolsController.views == nil)
         #expect(host.superview == nil)
     }
 }
@@ -176,11 +176,11 @@ import Testing
 /// Fork dock sides and the left dock.
 @Suite struct CEFDevToolsDockSideTests {
     @Test func forkSidesMapToPaneDocks() {
-        #expect(CEFTab.devToolsDock(forkSide: 0) == .window)
-        #expect(CEFTab.devToolsDock(forkSide: 1) == .left)
-        #expect(CEFTab.devToolsDock(forkSide: 2) == .bottom)
-        #expect(CEFTab.devToolsDock(forkSide: 3) == .right)
-        #expect(CEFTab.devToolsDock(forkSide: 9) == nil)
+        #expect(CEFDevToolsController.dock(forkSide: 0) == .window)
+        #expect(CEFDevToolsController.dock(forkSide: 1) == .left)
+        #expect(CEFDevToolsController.dock(forkSide: 2) == .bottom)
+        #expect(CEFDevToolsController.dock(forkSide: 3) == .right)
+        #expect(CEFDevToolsController.dock(forkSide: 9) == nil)
     }
 
     @Test func leftDockMirrorsRight() {

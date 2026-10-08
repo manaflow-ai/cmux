@@ -51,7 +51,9 @@ import Testing
             defaults.set(value, forKey: "AppleActionOnDoubleClick")
             #expect(WindowTitlebar.doubleClickAction(defaults: defaults) == action, "\(value ?? "unset")")
         }
-        defaults.removeObject(forKey: "AppleActionOnDoubleClick")
+        // An unrecognized value, not removal: removal falls through to the
+        // machine's NSGlobalDomain, which CI runners set.
+        defaults.set("", forKey: "AppleActionOnDoubleClick")
         defaults.set(true, forKey: "AppleMiniaturizeOnDoubleClick")
         #expect(WindowTitlebar.doubleClickAction(defaults: defaults) == .minimize)
     }

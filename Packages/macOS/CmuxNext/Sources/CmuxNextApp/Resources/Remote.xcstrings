@@ -1972,127 +1972,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Removes the machine from the saved list with its personal order, groups and room pins. Nothing on the machine changes."
+            "value": "Removes the machine from the saved list with its personal order, groups and space pins. Nothing on the machine changes."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يزيل الجهاز من القائمة المحفوظة مع ترتيبه الشخصي ومجموعاته وتثبيتات الغرف. لا يتغير شيء على الجهاز."
+            "value": "يزيل الجهاز من القائمة المحفوظة مع ترتيبه الشخصي ومجموعاته وتثبيتات المساحات. لا يتغير شيء على الجهاز."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uklanja mašinu sa sačuvane liste zajedno s ličnim redoslijedom, grupama i pričvršćenjima u sobama. Na mašini se ništa ne mijenja."
+            "value": "Uklanja mašinu sa sačuvane liste zajedno s ličnim redoslijedom, grupama i pričvršćenjima u prostorima. Na mašini se ništa ne mijenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjerner maskinen fra den gemte liste med dens personlige rækkefølge, grupper og rumfastgørelser. Intet på maskinen ændres."
+            "value": "Fjerner maskinen fra den gemte liste med dens personlige rækkefølge, grupper og områdefastgørelser. Intet på maskinen ændres."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Entfernt die Maschine mit ihrer persönlichen Reihenfolge, ihren Gruppen und Raum-Pins aus der gespeicherten Liste. Auf der Maschine ändert sich nichts."
+            "value": "Entfernt die Maschine mit ihrer persönlichen Reihenfolge, ihren Gruppen und Space-Pins aus der gespeicherten Liste. Auf der Maschine ändert sich nichts."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quita la máquina de la lista guardada con su orden personal, grupos y fijaciones de salas. En la máquina no cambia nada."
+            "value": "Quita la máquina de la lista guardada con su orden personal, grupos y fijaciones de espacios. En la máquina no cambia nada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Retire la machine de la liste enregistrée avec son ordre personnel, ses groupes et ses épinglages de salles. Rien ne change sur la machine."
+            "value": "Retire la machine de la liste enregistrée avec son ordre personnel, ses groupes et ses épinglages d’espaces. Rien ne change sur la machine."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rimuove la macchina dall’elenco salvato con ordine personale, gruppi e fissaggi nelle stanze. Sulla macchina non cambia nulla."
+            "value": "Rimuove la macchina dall’elenco salvato con ordine personale, gruppi e fissaggi negli spazi. Sulla macchina non cambia nulla."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "保存済みリストからマシンを、個人の並び順、グループ、ルームのピン留めと一緒に削除します。マシン上では何も変わりません。"
+            "value": "保存済みリストからマシンを、個人の並び順、グループ、スペースのピン留めと一緒に削除します。マシン上では何も変わりません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដកម៉ាស៊ីនចេញពីបញ្ជីដែលបានរក្សាទុក រួមជាមួយលំដាប់ផ្ទាល់ខ្លួន ក្រុម និងការខ្ទាស់ក្នុងបន្ទប់។ គ្មានអ្វីផ្លាស់ប្ដូរលើម៉ាស៊ីនទេ។"
+            "value": "ដកម៉ាស៊ីនចេញពីបញ្ជីដែលបានរក្សាទុក រួមជាមួយលំដាប់ផ្ទាល់ខ្លួន ក្រុម និងការខ្ទាស់ក្នុងលំហ។ គ្មានអ្វីផ្លាស់ប្ដូរលើម៉ាស៊ីនទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "저장된 목록에서 머신을 개인 순서, 그룹, 룸 고정과 함께 제거합니다. 머신에서는 아무것도 바뀌지 않습니다."
+            "value": "저장된 목록에서 머신을 개인 순서, 그룹, 스페이스 고정과 함께 제거합니다. 머신에서는 아무것도 바뀌지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjerner maskinen fra den lagrede listen med personlig rekkefølge, grupper og romfestinger. Ingenting endres på maskinen."
+            "value": "Fjerner maskinen fra den lagrede listen med personlig rekkefølge, grupper og områdefestinger. Ingenting endres på maskinen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usuwa maszynę z zapisanej listy wraz z osobistą kolejnością, grupami i przypięciami w pokojach. Na maszynie nic się nie zmienia."
+            "value": "Usuwa maszynę z zapisanej listy wraz z osobistą kolejnością, grupami i przypięciami w obszarach. Na maszynie nic się nie zmienia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Remove a máquina da lista salva com sua ordem pessoal, grupos e fixações em salas. Nada muda na máquina."
+            "value": "Remove a máquina da lista salva com sua ordem pessoal, grupos e fixações em espaços. Nada muda na máquina."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Удаляет машину из сохранённого списка вместе с личным порядком, группами и закреплениями в комнатах. На самой машине ничего не меняется."
+            "value": "Удаляет машину из сохранённого списка вместе с личным порядком, группами и закреплениями в областях. На самой машине ничего не меняется."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลบเครื่องออกจากรายการที่บันทึกไว้ พร้อมลำดับส่วนตัว กลุ่ม และการปักหมุดในห้อง ไม่มีอะไรเปลี่ยนบนเครื่อง"
+            "value": "ลบเครื่องออกจากรายการที่บันทึกไว้ พร้อมลำดับส่วนตัว กลุ่ม และการปักหมุดในพื้นที่ ไม่มีอะไรเปลี่ยนบนเครื่อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Makineyi kişisel sırası, grupları ve oda sabitlemeleriyle birlikte kayıtlı listeden kaldırır. Makinede hiçbir şey değişmez."
+            "value": "Makineyi kişisel sırası, grupları ve alan sabitlemeleriyle birlikte kayıtlı listeden kaldırır. Makinede hiçbir şey değişmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вилучає машину зі збереженого списку разом з особистим порядком, групами й закріпленнями в кімнатах. На самій машині нічого не змінюється."
+            "value": "Вилучає машину зі збереженого списку разом з особистим порядком, групами й закріпленнями в просторах. На самій машині нічого не змінюється."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Xóa máy khỏi danh sách đã lưu cùng thứ tự cá nhân, nhóm và ghim phòng. Không có gì thay đổi trên máy."
+            "value": "Xóa máy khỏi danh sách đã lưu cùng thứ tự cá nhân, nhóm và ghim không gian. Không có gì thay đổi trên máy."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "从已保存列表中移除该机器及其个人排序、分组和房间置顶。机器上不会有任何更改。"
+            "value": "从已保存列表中移除该机器及其个人排序、分组和空间置顶。机器上不会有任何更改。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "從已儲存列表中移除該機器及其個人排序、群組和房間釘選。機器上不會有任何變更。"
+            "value": "從已儲存列表中移除該機器及其個人排序、群組和空間釘選。機器上不會有任何變更。"
           }
         }
       }
@@ -4582,6 +4582,1447 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "缺少內建的 cmux-tui，因此無法連線 SSH 機器。"
+          }
+        }
+      }
+    },
+    "remote.terminal.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting to %@…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ إعادة الاتصال بـ %@…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovno povezivanje na %@…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genopretter forbindelse til %@…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbindung zu %@ wird wiederhergestellt…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reconectando con %@…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reconnexion à %@…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riconnessione a %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ に再接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងភ្ជាប់ឡើងវិញទៅ %@…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 다시 연결하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kobler til %@ igjen…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponowne łączenie z %@…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reconectando a %@…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повторное подключение к %@…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเชื่อมต่อกับ %@ อีกครั้ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ile yeniden bağlanılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повторне підключення до %@…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang kết nối lại với %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在重新连接 %@…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在重新連線 %@…"
+          }
+        }
+      }
+    },
+    "remote.terminal.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is offline"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ غير متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nije na mreži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er offline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist offline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ está desconectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ est hors ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ è offline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ はオフラインです"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ គ្មានអ៊ីនធឺណិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 오프라인입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er frakoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ jest offline"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ está offline"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не в сети"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ออฟไลน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ çevrimdışı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не в мережі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ đang ngoại tuyến"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 已离线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 已離線"
+          }
+        }
+      }
+    },
+    "remote.terminal.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not connected on this Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ غير متصل على هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nije povezan na ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke forbundet på denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist auf diesem Mac nicht verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ no está conectado en este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ n'est pas connecté sur ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non è connesso su questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ はこの Mac で接続されていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ មិនបានភ្ជាប់នៅលើ Mac នេះទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 이 Mac에 연결되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke tilkoblet på denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie jest połączony na tym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ não está conectado neste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не подключён на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ไม่ได้เชื่อมต่อบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bu Mac'te bağlı değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не під’єднано на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ chưa kết nối trên máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 未在此 Mac 上连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 未在此 Mac 上連線"
+          }
+        }
+      }
+    },
+    "remote.terminal.connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poveži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під’єднати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連線"
+          }
+        }
+      }
+    },
+    "remote.terminal.noSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved screen"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد شاشة محفوظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema sačuvanog ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen gemt skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein gespeicherter Bildschirm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay pantalla guardada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun écran enregistré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna schermata salvata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保存された画面はありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអេក្រង់ដែលបានរក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "저장된 화면 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen lagret skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak zapisanego ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma tela salva"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет сохранённого экрана"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีหน้าจอที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kayıtlı ekran yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає збереженого екрана"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có màn hình đã lưu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有保存的屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有已儲存的畫面"
+          }
+        }
+      }
+    },
+    "remote.terminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal on %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طرفية على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal auf %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminale su %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ のターミナル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថានីយនៅលើ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 터미널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Терминал на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลบน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerinde terminal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термінал на %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal trên %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的終端機"
+          }
+        }
+      }
+    },
+    "remote.terminal.moveBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser tabs cannot move to a workspace on another machine yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن نقل علامات تبويب المتصفح إلى مساحة عمل على جهاز آخر بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice preglednika se još ne mogu premjestiti u radni prostor na drugoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Browserfaner kan endnu ikke flyttes til et arbejdsområde på en anden maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Browser-Tabs können noch nicht in einen Arbeitsbereich auf einem anderen Rechner verschoben werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las pestañas del navegador aún no pueden moverse a un espacio de trabajo de otra máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les onglets du navigateur ne peuvent pas encore être déplacés vers un espace de travail d'une autre machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le schede del browser non possono ancora essere spostate in uno spazio di lavoro su un'altra macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブラウザタブはまだ別のマシンのワークスペースへ移動できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងកម្មវិធីរុករកមិនអាចផ្លាស់ទីទៅកន្លែងធ្វើការនៅលើម៉ាស៊ីនផ្សេងបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저 탭은 아직 다른 컴퓨터의 작업 공간으로 이동할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nettleserfaner kan ennå ikke flyttes til et arbeidsområde på en annen maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty przeglądarki nie mogą jeszcze zostać przeniesione do obszaru roboczego na innym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abas do navegador ainda não podem ser movidas para um espaço de trabalho em outra máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки браузера пока нельзя переместить в рабочую область на другой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังย้ายแท็บเบราว์เซอร์ไปยังพื้นที่ทำงานบนเครื่องอื่นไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcı sekmeleri henüz başka bir makinedeki çalışma alanına taşınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки браузера поки не можна перемістити до робочого простору на іншій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa thể di chuyển thẻ trình duyệt sang không gian làm việc trên máy khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浏览器标签页暂时无法移到其他机器上的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "瀏覽器分頁暫時無法移到其他機器上的工作區。"
+          }
+        }
+      }
+    },
+    "remote.terminal.needsCapability": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يشغّل جهاز مساحة العمل هذه cmux-tui لا يدعم طرفيات من أجهزة أخرى. حدّثه أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina ovog radnog prostora pokreće cmux-tui bez terminala s drugih mašina. Prvo ga ažurirajte."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette arbejdsområdes maskine kører en cmux-tui uden terminaler fra andre maskiner. Opdater den først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Rechner dieses Arbeitsbereichs nutzt ein cmux-tui ohne Terminals anderer Rechner. Aktualisiere es zuerst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La máquina de este espacio de trabajo ejecuta un cmux-tui sin terminales de otras máquinas. Actualízalo primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La machine de cet espace de travail exécute un cmux-tui sans terminaux d'autres machines. Mettez-le à jour d'abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La macchina di questo spazio di lavoro esegue un cmux-tui senza terminali di altre macchine. Aggiornalo prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このワークスペースのマシンの cmux-tui は、他のマシンのターミナルに対応していません。先に更新してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននៃកន្លែងធ្វើការនេះដំណើរការ cmux-tui ដែលគ្មានស្ថានីយពីម៉ាស៊ីនផ្សេង។ សូមធ្វើបច្ចុប្បន្នភាពជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업 공간의 컴퓨터는 다른 컴퓨터의 터미널을 지원하지 않는 cmux-tui를 실행합니다. 먼저 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen til dette arbeidsområdet kjører en cmux-tui uten terminaler fra andre maskiner. Oppdater den først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komputer tego obszaru roboczego ma cmux-tui bez terminali z innych komputerów. Najpierw go zaktualizuj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina deste espaço de trabalho roda um cmux-tui sem terminais de outras máquinas. Atualize-o primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На машине этой рабочей области cmux-tui без терминалов других машин. Сначала обновите его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องของพื้นที่ทำงานนี้ใช้ cmux-tui ที่ไม่รองรับเทอร์มินัลจากเครื่องอื่น อัปเดตก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma alanının makinesi diğer makinelerin terminallerini desteklemeyen bir cmux-tui çalıştırıyor. Önce güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина цього робочого простору має cmux-tui без терміналів інших машин. Спершу оновіть його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy của không gian làm việc này chạy cmux-tui không hỗ trợ terminal từ máy khác. Hãy cập nhật trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作区所在机器的 cmux-tui 不支持其他机器的终端。请先更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作區所在機器的 cmux-tui 不支援其他機器的終端機。請先更新。"
+          }
+        }
+      }
+    },
+    "remote.terminal.noResource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That machine's cmux-tui cannot name the terminal. Update it first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع cmux-tui على ذلك الجهاز تحديد الطرفية. حدّثه أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na toj mašini ne može imenovati terminal. Prvo ga ažurirajte."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den maskines cmux-tui kan ikke navngive terminalen. Opdater den først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux-tui dieses Rechners kann das Terminal nicht benennen. Aktualisiere es zuerst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui de esa máquina no puede identificar el terminal. Actualízalo primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui de cette machine ne peut pas identifier le terminal. Mettez-le à jour d'abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui di quella macchina non può identificare il terminale. Aggiornalo prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そのマシンの cmux-tui はターミナルを特定できません。先に更新してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui របស់ម៉ាស៊ីននោះមិនអាចដាក់ឈ្មោះស្ថានីយបានទេ។ សូមធ្វើបច្ចុប្បន្នភាពជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 컴퓨터의 cmux-tui가 터미널을 식별할 수 없습니다. 먼저 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinens cmux-tui kan ikke navngi terminalen. Oppdater den først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na tym komputerze nie może wskazać terminala. Najpierw go zaktualizuj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui dessa máquina não consegue identificar o terminal. Atualize-o primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui на той машине не может назвать терминал. Сначала обновите его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ของเครื่องนั้นระบุเทอร์มินัลไม่ได้ อัปเดตก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O makinenin cmux-tui'si terminali adlandıramıyor. Önce güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui тієї машини не може назвати термінал. Спершу оновіть його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui của máy đó không xác định được terminal. Hãy cập nhật trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该机器的 cmux-tui 无法识别此终端。请先更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該機器的 cmux-tui 無法識別此終端機。請先更新。"
+          }
+        }
+      }
+    },
+    "remote.agentTab.elsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat runs on %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは %@ で実行されています"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل هذه الدردشة على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj chat radi na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat kører på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat läuft auf %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat se ejecuta en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette conversation s'exécute sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è in esecuzione su %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះកំពុងដំណើរការលើ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 %@에서 실행 중입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten kjører på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat działa na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat é executado em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат работает на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ทำงานบน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet %@ üzerinde çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат працює на %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này chạy trên %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在 %@ 上运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在 %@ 上執行"
+          }
+        }
+      }
+    },
+    "remote.agentTab.elsewhereUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat runs on another Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは別の Mac で実行されています"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل هذه الدردشة على جهاز Mac آخر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj chat radi na drugom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat kører på en anden Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat läuft auf einem anderen Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat se ejecuta en otro Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette conversation s'exécute sur un autre Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è in esecuzione su un altro Mac"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះកំពុងដំណើរការលើ Mac ផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 다른 Mac에서 실행 중입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten kjører på en annen Mac"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat działa na innym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat é executado em outro Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат работает на другом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ทำงานบน Mac เครื่องอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet başka bir Mac'te çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат працює на іншому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này chạy trên một máy Mac khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台 Mac 上运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台 Mac 上執行"
           }
         }
       }

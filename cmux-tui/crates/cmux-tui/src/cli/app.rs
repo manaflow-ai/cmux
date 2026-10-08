@@ -12,7 +12,7 @@
 //! `action.run` carries an idempotency key and waits for its work by default
 //! (plans/cmux-next/state-ownership.md, section 4).
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -21,14 +21,35 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
+
+mod call;
+mod keybinding;
+mod run;
+mod settings;
+mod skew;
 
 /// Scopes that belong to the app, whatever follows.
-pub(super) const APP_SCOPES: &[&str] = &["app", "action", "settings", "window", "events"];
+pub(super) const APP_SCOPES: &[&str] = &[
+    "app",
+    "action",
+    "settings",
+    "window",
+    "events",
+    "history",
+    "bookmark",
+    "accounts",
+    "open",
+    "keybinding",
+    "ghostty",
+];
 
-/// Control-plane requests answer within the app's own 2 s deadline; a run
-/// that waits for its work may wait for a terminal to start (6 s).
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
-const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(10);
+/// Control-plane requests answer within the app's own 2 s deadline. A run
+/// that waits for its work may wait for a terminal to start (6 s) or for a
+/// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
+/// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
+pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
+pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -47,9 +68,31 @@ pub(super) enum ActionName {
 }
 
 #[derive(Debug, PartialEq)]
+pub(super) struct OpenRequest {
+    method: &'static str,
+    params: Value,
+}
+
+#[derive(Debug, PartialEq)]
 pub(super) enum AppCommand {
-    Call { method: &'static str, params: Value, timeout: Duration, pick: Option<&'static str> },
-    Events { params: Value },
+    /// `timeout: None` waits until the app answers (a person at a sheet).
+    Call {
+        method: &'static str,
+        params: Value,
+        timeout: Option<Duration>,
+        pick: Option<&'static str>,
+    },
+    Open {
+        requests: Vec<OpenRequest>,
+    },
+    /// `app call`: one method of a debug build (app/call.rs).
+    DebugCall {
+        method: String,
+        params: Map<String, Value>,
+    },
+    Events {
+        params: Value,
+    },
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -66,16 +109,23 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     }
     let messages = &crate::localization::catalog().app_control;
     let rest = &args[1..];
-    let call =
-        |method, params| AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None };
+    let call = |method, params| AppCommand::Call {
+        method,
+        params,
+        timeout: Some(READ_TIMEOUT),
+        pick: None,
+    };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
+        ("open", _) => parse_open(rest)?,
+        ("keybinding", _) => keybinding::parse(rest)?,
+        ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
-            timeout: READ_TIMEOUT,
+            timeout: Some(READ_TIMEOUT),
             pick: Some("windows"),
         },
         ("action", Some("list")) => {
@@ -101,20 +151,43 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             };
             run_action(id, tail, ActionName::Any)?
         }
-        ("settings", Some("get")) => match &rest[1..] {
-            [] => call("settings.get", json!({})),
-            [path] => call("settings.get", json!({ "path": path })),
-            _ => return Err(UsageError::new(messages.settings_usage)),
-        },
-        ("settings", Some("set")) => {
-            let [path, value] = positional::<2>(&rest[1..], messages.settings_usage)?;
-            // A JSON value when it parses as one, else the literal string.
-            let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
-            call("settings.set", json!({ "path": path, "value": value }))
+        ("settings", Some("get" | "set" | "reset" | "unset")) => settings::parse(rest)?,
+        // The app's durable page, location, closed and agent history
+        // (plans/cmux-next/history.md): `history list|search`.
+        ("history", Some(verb @ ("list" | "search"))) => {
+            let (text, tail) = read_text(verb, &rest[1..], scope)?;
+            let options = Options::parse(tail, &["kind", "range", "limit"], &[])?;
+            let mut params = read_query(&options, text, &["kind", "range"]);
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
+            }
+            call("history.list", Value::Object(params))
         }
-        ("settings", Some("unset")) => {
-            let [path] = positional::<1>(&rest[1..], messages.settings_usage)?;
-            call("settings.unset", json!({ "path": path }))
+        // The app's AI provider accounts, no secrets (`accounts.list`); the
+        // other `accounts` verbs are app actions.
+        ("accounts", Some("list")) => {
+            if rest.len() > 1 {
+                return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
+            }
+            call("accounts.list", json!({}))
+        }
+        // The Ghostty config keys and keybind actions cmux does not apply
+        // (R92 diagnostics): the same report as Settings > Terminal.
+        ("ghostty", Some("diagnostics")) => {
+            if rest.len() > 1 {
+                return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
+            }
+            call("ghostty.diagnostics", json!({}))
+        }
+        // Bookmarks of a browser profile (plans/cmux-next/bookmarks.md).
+        ("bookmark", Some(verb @ ("list" | "search"))) => {
+            let (text, tail) = read_text(verb, &rest[1..], scope)?;
+            let options = Options::parse(tail, &["folder", "profile", "limit"], &[])?;
+            let mut params = read_query(&options, text, &["folder", "profile"]);
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
+            }
+            call("bookmark.list", Value::Object(params))
         }
         ("events", _) => {
             let options = Options::parse(rest, &["after", "name", "category"], &["no-heartbeats"])?;
@@ -149,6 +222,207 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
     };
     Ok(Some(command))
+}
+
+/// `cmux open` opens paths and URLs through the app control socket.
+fn parse_open(args: &[String]) -> Result<AppCommand, UsageError> {
+    let environment = std::env::vars().collect::<std::collections::HashMap<_, _>>();
+    parse_open_with(
+        args,
+        std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+        &environment,
+    )
+}
+
+fn parse_open_with(
+    args: &[String],
+    interactive: bool,
+    environment: &std::collections::HashMap<String, String>,
+) -> Result<AppCommand, UsageError> {
+    let messages = &crate::localization::catalog().app_control;
+    let mut explicit_focus = None;
+    let mut targets = Vec::new();
+    let mut index = 0;
+    let mut literal = false;
+    while index < args.len() {
+        let arg = &args[index];
+        if literal {
+            targets.push(arg.clone());
+            index += 1;
+            continue;
+        }
+        if arg == "--" {
+            literal = true;
+            index += 1;
+            continue;
+        }
+        let (name, inline) =
+            arg.split_once('=').map_or((arg.as_str(), None), |(name, value)| (name, Some(value)));
+        match name {
+            "--focus" => {
+                let value = inline.map(str::to_owned).or_else(|| {
+                    args.get(index + 1)
+                        .filter(|value| matches!(value.as_str(), "true" | "false"))
+                        .cloned()
+                });
+                if inline.is_none() && value.is_some() {
+                    index += 1;
+                }
+                explicit_focus = Some(
+                    value
+                        .as_deref()
+                        .unwrap_or("true")
+                        .parse::<bool>()
+                        .map_err(|_| UsageError::new("--focus must be true|false"))?,
+                );
+            }
+            "--no-focus" => {
+                if inline.is_some() {
+                    return Err(UsageError::new("--no-focus does not take a value"));
+                }
+                explicit_focus = Some(false);
+            }
+            _ if name.starts_with('-') => {
+                return Err(UsageError::new(messages.unexpected_argument.replace("{value}", arg)));
+            }
+            _ => targets.push(arg.clone()),
+        }
+        index += 1;
+    }
+    if targets.is_empty() {
+        return Err(UsageError::new("open requires at least one path or URL"));
+    }
+    let focus =
+        explicit_focus.unwrap_or_else(|| default_focus_for_user_open(environment, interactive));
+    let mut requests = Vec::new();
+    let mut pending_files = Vec::new();
+    let flush_files = |requests: &mut Vec<OpenRequest>, pending: &mut Vec<String>| {
+        if pending.is_empty() {
+            return;
+        }
+        let paths = std::mem::take(pending);
+        requests.push(OpenRequest {
+            method: "file.open",
+            params: json!({"paths": paths, "focus": focus}),
+        });
+    };
+    for target in targets {
+        if target.starts_with("http://")
+            || target.starts_with("https://")
+            || target.starts_with("mailto:")
+        {
+            flush_files(&mut requests, &mut pending_files);
+            requests.push(OpenRequest {
+                method: "browser.open_split",
+                params: json!({"url": target, "focus": focus}),
+            });
+        } else if std::fs::metadata(&target).map(|metadata| metadata.is_dir()).unwrap_or(false) {
+            flush_files(&mut requests, &mut pending_files);
+            requests.push(OpenRequest {
+                method: "workspace.create",
+                params: json!({"cwd": target, "focus": focus, "activate": focus}),
+            });
+        } else {
+            pending_files.push(target);
+        }
+    }
+    flush_files(&mut requests, &mut pending_files);
+    Ok(AppCommand::Open { requests })
+}
+
+fn default_focus_for_user_open(
+    environment: &std::collections::HashMap<String, String>,
+    interactive: bool,
+) -> bool {
+    match environment.get("CMUX_FOCUS_NEW").map(String::as_str) {
+        Some("1") => return true,
+        Some("0") => return false,
+        _ => {}
+    }
+    if !interactive {
+        return false;
+    }
+    [
+        "CODEX_CI",
+        "CODEX_THREAD_ID",
+        "CODEX_SESSION_ID",
+        "CODEX_SANDBOX",
+        "CODEX_MANAGED_BY_BUN",
+        "CLAUDECODE",
+        "CLAUDE_CODE",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_SESSION_ID",
+        "OPENCODE",
+        "OPENCODE_PORT",
+        "OPENCODE_SESSION_ID",
+        "AI_AGENT",
+    ]
+    .iter()
+    .all(|key| environment.get(*key).is_none_or(|value| value.trim().is_empty()))
+}
+
+/// `cli` when a person runs the command at a terminal, else `script`.
+pub(super) fn action_origin() -> &'static str {
+    use std::io::IsTerminal;
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() { "cli" } else { "script" }
+}
+
+/// An action argument's name from its flag: the catalog names arguments in
+/// camelCase (`--keep-sessions` is `keepSessions`).
+fn argument_name(flag: &str) -> String {
+    let mut name = String::with_capacity(flag.len());
+    let mut upper = false;
+    for character in flag.chars() {
+        if character == '-' || character == '_' {
+            upper = true;
+        } else if upper {
+            name.extend(character.to_uppercase());
+            upper = false;
+        } else {
+            name.push(character);
+        }
+    }
+    name
+}
+
+/// The text of a `search <text>` read (none for `list`) and the options
+/// after it.
+fn read_text<'a>(
+    verb: &str,
+    args: &'a [String],
+    scope: &str,
+) -> Result<(Option<&'a String>, &'a [String]), UsageError> {
+    if verb == "list" {
+        return Ok((None, args));
+    }
+    let messages = &crate::localization::catalog().app_control;
+    match args.split_first() {
+        Some((text, tail)) if !text.starts_with("--") => Ok((Some(text), tail)),
+        _ => Err(UsageError::new(messages.search_text_usage.replace("{scope}", scope))),
+    }
+}
+
+/// The params of a `list` or `search` read: the named options and the text.
+fn read_query(options: &Options, text: Option<&String>, keys: &[&str]) -> Map<String, Value> {
+    let mut params = Map::new();
+    for key in keys {
+        if let Some(value) = options.value(key) {
+            params.insert((*key).into(), json!(value));
+        }
+    }
+    if let Some(text) = text {
+        params.insert("text".into(), json!(text));
+    }
+    params
+}
+
+fn parse_limit(value: &str, scope: &str) -> Result<u64, UsageError> {
+    let messages = &crate::localization::catalog().app_control;
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|limit| *limit > 0)
+        .ok_or_else(|| UsageError::new(messages.scope_usage.replace("{scope}", scope)))
 }
 
 /// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
@@ -212,7 +486,7 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     Ok(AppCommand::Call {
         method,
         params: Value::Object(params),
-        timeout: READ_TIMEOUT,
+        timeout: Some(READ_TIMEOUT),
         pick: None,
     })
 }
@@ -226,13 +500,8 @@ pub(super) fn run_action(
     name: ActionName,
 ) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
-    let mut params = Map::new();
+    let mut params = action_run_params(action, name, action_origin());
     let mut arguments = Map::new();
-    params.insert("action".into(), json!(action));
-    if name == ActionName::Cli {
-        params.insert("cli".into(), json!(true));
-    }
-    params.insert("wait".into(), json!(true));
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -246,31 +515,42 @@ pub(super) fn run_action(
                 index += 1;
                 continue;
             }
+            "focus" => {
+                params.insert("focus".into(), json!(true));
+                index += 1;
+                continue;
+            }
             _ => {}
         }
+        // `--name value`, `--name=value`, or a bare `--name` (true) when no
+        // value follows (`cmux app quit --keep-sessions`).
         let (name, value) = match name.split_once('=') {
-            Some((name, value)) => (name.to_owned(), value.to_owned()),
-            None => {
-                let value = args.get(index + 1).ok_or_else(|| {
-                    UsageError::new(messages.missing_value.replace("{flag}", flag))
-                })?;
-                index += 1;
-                (name.to_owned(), value.clone())
-            }
+            Some((name, value)) => (name.to_owned(), json!(value)),
+            None => match args.get(index + 1) {
+                Some(value) if !value.starts_with("--") => {
+                    index += 1;
+                    (name.to_owned(), json!(value))
+                }
+                _ if name == "target" || name == "arg" => {
+                    return Err(UsageError::new(messages.missing_value.replace("{flag}", flag)));
+                }
+                _ => (name.to_owned(), json!(true)),
+            },
         };
         index += 1;
         match name.as_str() {
             "target" => {
-                params.insert("target".into(), json!(value));
+                params.insert("target".into(), value);
             }
             "arg" => {
-                let (key, value) = value.split_once('=').ok_or_else(|| {
-                    UsageError::new(messages.arg_shape.replace("{value}", &value))
-                })?;
+                let text = value.as_str().unwrap_or_default();
+                let (key, value) = text
+                    .split_once('=')
+                    .ok_or_else(|| UsageError::new(messages.arg_shape.replace("{value}", text)))?;
                 arguments.insert(key.into(), json!(value));
             }
             _ => {
-                arguments.insert(name.replace('-', "_"), json!(value));
+                arguments.insert(argument_name(&name), value);
             }
         }
     }
@@ -281,7 +561,7 @@ pub(super) fn run_action(
     Ok(AppCommand::Call {
         method: "action.run",
         params: Value::Object(params),
-        timeout: if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT },
+        timeout: Some(if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT }),
         pick: None,
     })
 }
@@ -289,7 +569,13 @@ pub(super) fn run_action(
 pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
     match run_command(global, command) {
         Ran::Done(code) => code,
-        Ran::NoSuchCliAction(scope) => {
+        Ran::NoSuchCliAction { name, .. }
+            if super::action_hint::non_verb_action(&name).is_some() =>
+        {
+            super::action_hint::report(&name, global.output)
+                .unwrap_or(super::action_hint::EXIT_CODE)
+        }
+        Ran::NoSuchCliAction { scope, .. } => {
             let messages = &crate::localization::catalog().app_control;
             failure(
                 "usage.invalid",
@@ -307,17 +593,21 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
 pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -> Option<i32> {
     let command = run_action(name, args, ActionName::Cli).ok()?;
     let socket = socket_path(global).ok()?;
-    let stream = connect(&socket).ok()?;
-    match call(global, stream, command) {
+    let mut stream = connect(&socket).ok()?;
+    match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
-        Ran::NoSuchCliAction(_) => None,
+        Ran::NoSuchCliAction { .. } => None,
     }
 }
 
 enum Ran {
     Done(i32),
-    /// The app ran nothing: no action marked for the CLI has this name.
-    NoSuchCliAction(String),
+    /// The app ran nothing: no action marked for the CLI has this name
+    /// (`scope` is its first word).
+    NoSuchCliAction {
+        scope: String,
+        name: String,
+    },
 }
 
 fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
@@ -325,29 +615,45 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         Ok(socket) => socket,
         Err(error) => return Ran::Done(failure("app.not_found", &error, global.output, 3)),
     };
-    let stream = match connect(&socket) {
+    let mut stream = match connect(&socket) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(failure("app.unreachable", &error, global.output, 3)),
     };
-    call(global, stream, command)
+    call(global, &mut stream, command)
 }
 
-fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran {
+fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ran {
     let (method, mut params, timeout, pick) = match command {
         AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick),
         AppCommand::Events { params } => {
-            return Ran::Done(stream_events(&mut stream, params, global.output));
+            return Ran::Done(stream_events(stream, params, global.output));
+        }
+        AppCommand::DebugCall { method, params } => {
+            return Ran::Done(call::run(global, stream, &method, params));
+        }
+        AppCommand::Open { requests } => {
+            let mut status = 0;
+            for request in requests {
+                if let Ran::Done(code) = call(
+                    global,
+                    stream,
+                    AppCommand::Call {
+                        method: request.method,
+                        params: request.params,
+                        timeout: Some(READ_TIMEOUT),
+                        pick: None,
+                    },
+                ) {
+                    status = status.max(code);
+                }
+            }
+            return Ran::Done(status);
         }
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
     let key = if method == "action.run" {
-        match global.idempotency_key.clone().map(Ok).unwrap_or_else(|| {
-            super::command::random_prefixed("mutation").map_err(|error| error.to_string())
-        }) {
-            Ok(key) => {
-                params["idempotency_key"] = json!(key);
-                Some(key)
-            }
+        match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
+            Ok(key) => Some(key),
             Err(error) => return Ran::Done(failure("app.transport", &error, global.output, 3)),
         }
     } else if global.idempotency_key.is_some() {
@@ -357,19 +663,24 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
         None
     };
     let report = super::wire::KeyReport::new(key.as_deref());
-    let mut retries = 0;
-    let response = loop {
-        match request(&mut stream, method, params.clone(), timeout) {
-            Ok(Err(error)) if retries < BUSY_RETRIES && busy_before_running(&error) => {
-                retries += 1;
-                std::thread::sleep(busy_retry_delay(&error));
-            }
-            Ok(response) => break response,
-            Err(error) => {
-                let code = failure("app.transport", &error, global.output, 3);
-                report.finish(global.output);
-                return Ran::Done(code);
-            }
+    // An open-ended wait ends on Ctrl-C: the CLI's signal handlers would only
+    // set a flag that a blocking read never sees, so give SIGINT, SIGTERM and
+    // SIGHUP their default action back (the app's own deadline still ends it).
+    #[cfg(unix)]
+    if timeout.is_none() && crate::restore_default_termination_signals().is_err() {
+        return Ran::Done(130);
+    }
+    if output_shows_notes(global.output)
+        && let Some(note) = settings::waiting_note(method, &params)
+    {
+        eprintln!("{note}");
+    }
+    let response = match request_with_retry(stream, method, &params, timeout) {
+        Ok(response) => response,
+        Err(error) => {
+            let code = failure("app.transport", &error, global.output, 3);
+            report.finish(global.output);
+            return Ran::Done(code);
         }
     };
     match response {
@@ -379,19 +690,30 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
                 None => None,
             }
             .unwrap_or(result);
+            warn_unstable_handles(method, &value, global.output);
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
         Err(error) if cli_name && error_code(&error) == Some("not_found") => {
-            let scope = params["action"].as_str().unwrap_or_default();
-            Ran::NoSuchCliAction(scope.split(' ').next().unwrap_or_default().to_owned())
+            let name = params["action"].as_str().unwrap_or_default().to_owned();
+            let scope = name.split(' ').next().unwrap_or_default().to_owned();
+            Ran::NoSuchCliAction { scope, name }
         }
         Err(mut error) => {
+            if error_code(&error) == Some("method_not_found") {
+                skew::annotate(stream, method, &mut error);
+            }
+            settings::explain_refusal(method, &params, &mut error);
             report.annotate(&mut error, global.output);
             let code = super::wire::print_local_error(&error, global.output, 1);
             report.finish(global.output);
             Ran::Done(code)
         }
     }
+}
+
+/// Progress notes go to stderr for a person, never in JSON or quiet output.
+fn output_shows_notes(output: OutputMode) -> bool {
+    output == OutputMode::Human
 }
 
 fn error_code(error: &Value) -> Option<&str> {
@@ -416,7 +738,7 @@ fn busy_retry_delay(error: &Value) -> Duration {
         .min(MAX_BUSY_RETRY_DELAY)
 }
 
-fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
+pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     let messages = &crate::localization::catalog().app_control;
     if let Some(path) = &global.app_socket {
         return Ok(path.clone());
@@ -428,7 +750,7 @@ fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     Ok(identity.control_socket(&home))
 }
 
-fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
+pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
     UnixStream::connect(socket).map_err(|error| {
         messages
@@ -450,15 +772,27 @@ fn with_read_barrier(mut params: Value) -> Value {
     params
 }
 
-fn request(
+/// `timeout: None` reads until the app answers or closes the connection.
+pub(super) fn request(
     stream: &mut UnixStream,
     method: &str,
     params: Value,
-    timeout: Duration,
+    timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
-    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(params) });
+    exchange(stream, method, with_read_barrier(params), timeout)
+}
+
+/// One request with exactly `params` (no read barrier) and its response.
+fn exchange(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: impl Into<Option<Duration>>,
+) -> Result<Result<Value, Value>, String> {
+    let timeout = timeout.into();
+    let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
-    stream.set_read_timeout(Some(timeout)).map_err(|error| error.to_string())?;
+    stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
         stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
     );
@@ -467,16 +801,16 @@ fn request(
     parse_response(&response)
 }
 
-fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
+pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
     stream.write_all(&bytes).map_err(|error| error.to_string())
 }
 
-fn read_error(error: &std::io::Error, timeout: Duration) -> String {
+fn read_error(error: &std::io::Error, timeout: Option<Duration>) -> String {
     let messages = &crate::localization::catalog().app_control;
-    match error.kind() {
-        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
+    match (error.kind(), timeout) {
+        (std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut, Some(timeout)) => {
             messages.timeout.replace("{seconds}", &timeout.as_secs().to_string())
         }
         _ => error.to_string(),
@@ -534,7 +868,18 @@ fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> 
     0
 }
 
-fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
+/// `accounts.list` with `handles_stable: false`: the Keychain salt failed,
+/// so the `acct_…` handles last only for this app launch.
+fn warn_unstable_handles(method: &str, value: &Value, output: OutputMode) {
+    if method == "accounts.list"
+        && output == OutputMode::Human
+        && value.get("handles_stable") == Some(&Value::Bool(false))
+    {
+        eprintln!("{}", crate::localization::catalog().app_control.handles_unstable);
+    }
+}
+
+pub(super) fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
     super::wire::print_local_error(
         &json!({ "code": code, "message": message, "details": {}, "retryable": false }),
         output,
@@ -600,246 +945,4 @@ impl Options {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(words: &[&str]) -> Vec<String> {
-        words.iter().map(|word| (*word).to_owned()).collect()
-    }
-
-    fn call(command: AppCommand) -> (&'static str, Value) {
-        match command {
-            AppCommand::Call { method, params, .. } => (method, params),
-            AppCommand::Events { .. } => panic!("expected a call"),
-        }
-    }
-
-    #[test]
-    fn non_app_scopes_are_left_to_the_resource_grammar() {
-        assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);
-        assert_eq!(parse(&args(&[])).unwrap(), None);
-    }
-
-    #[test]
-    fn unknown_words_run_the_action_with_that_cli_name() {
-        let (method, params) = call(parse(&args(&["app", "new-window"])).unwrap().unwrap());
-        assert_eq!(method, "action.run");
-        assert_eq!(params, json!({ "action": "app new-window", "cli": true, "wait": true }));
-    }
-
-    #[test]
-    fn action_runs_wait_by_default_and_no_wait_opts_out() {
-        let (_, params) = call(parse(&args(&["action", "run", "window.new"])).unwrap().unwrap());
-        assert_eq!(params, json!({ "action": "window.new", "wait": true }));
-        let command = parse(&args(&["action", "run", "window.new", "--no-wait"])).unwrap().unwrap();
-        let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
-        assert_eq!(*timeout, READ_TIMEOUT);
-        assert_eq!(call(command).1, json!({ "action": "window.new", "wait": false }));
-    }
-
-    #[test]
-    fn busy_is_retried_only_when_the_app_says_nothing_ran() {
-        let not_run = json!({ "code": "busy", "data": { "state": "not_run" } });
-        assert!(busy_before_running(&not_run));
-        assert!(busy_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
-        assert!(!busy_before_running(
-            &json!({ "code": "busy", "data": { "state": "in_progress" } })
-        ));
-        assert!(!busy_before_running(&json!({ "code": "busy" })));
-        assert!(!busy_before_running(
-            &json!({ "code": "timeout", "data": { "state": "not_run" } })
-        ));
-        assert_eq!(busy_retry_delay(&not_run), BUSY_RETRY_DELAY);
-        let later =
-            json!({ "code": "busy", "data": { "state": "not_run", "retry_after_ms": 60_000 } });
-        assert_eq!(busy_retry_delay(&later), MAX_BUSY_RETRY_DELAY);
-    }
-
-    /// A fake app control socket that answers each request line with the
-    /// next canned response and records what it received, per connection.
-    fn fake_app(responses: Vec<Value>) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<Value>>>) {
-        use std::os::unix::net::UnixListener;
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-app-cli-{}-{}",
-            std::process::id(),
-            super::super::command::random_prefixed("t").unwrap()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let socket = dir.join("app.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
-        listener.set_nonblocking(false).unwrap();
-        let handle = std::thread::spawn(move || {
-            let mut connections = Vec::new();
-            let mut responses = responses.into_iter();
-            // One connection is expected; a second one would show up here.
-            let (stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut writer = stream;
-            let mut received = Vec::new();
-            let mut line = String::new();
-            while reader.read_line(&mut line).unwrap() > 0 {
-                received.push(serde_json::from_str::<Value>(&line).unwrap());
-                line.clear();
-                let Some(response) = responses.next() else { break };
-                writeln!(writer, "{response}").unwrap();
-            }
-            connections.push(received);
-            listener.set_nonblocking(true).unwrap();
-            if let Ok((stream, _)) = listener.accept() {
-                let mut extra = String::new();
-                let _ = BufReader::new(stream).read_line(&mut extra);
-                connections.push(vec![json!(extra)]);
-            }
-            let _ = std::fs::remove_dir_all(dir);
-            connections
-        });
-        (socket, handle)
-    }
-
-    fn global_for(socket: &std::path::Path) -> GlobalArgs {
-        GlobalArgs {
-            app_socket: Some(socket.to_path_buf()),
-            output: OutputMode::Quiet,
-            ..GlobalArgs::default()
-        }
-    }
-
-    #[test]
-    fn unknown_cli_name_is_one_action_run_and_not_found_means_not_an_action() {
-        let not_found =
-            json!({ "id": 1, "ok": false, "error": { "code": "not_found", "message": "x" } });
-        let (socket, app) = fake_app(vec![not_found]);
-        let ran =
-            run_cli_action(&global_for(&socket), "workspace frobnicate", &args(&["--x", "1"]));
-        assert_eq!(ran, None);
-        let connections = app.join().unwrap();
-        assert_eq!(connections.len(), 1, "opened more than one connection: {connections:?}");
-        let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
-        assert_eq!(request["method"], "action.run");
-        assert_eq!(request["params"]["action"], "workspace frobnicate");
-        assert_eq!(request["params"]["cli"], true);
-        assert_eq!(request["params"]["wait"], true);
-        assert!(request["params"]["idempotency_key"].as_str().is_some_and(|key| !key.is_empty()));
-    }
-
-    #[test]
-    fn a_busy_run_that_never_started_is_resent_with_the_same_key() {
-        let busy = json!({ "id": 1, "ok": false, "error": { "code": "busy", "data": { "state": "not_run", "retry_after_ms": 1 } } });
-        let ran = json!({ "id": 1, "ok": true, "result": { "ran": true } });
-        let (socket, app) = fake_app(vec![busy, ran]);
-        let mut global = global_for(&socket);
-        global.idempotency_key = Some("mutation-retry-1".into());
-        let command = parse(&args(&["action", "run", "window.new"])).unwrap().unwrap();
-        assert_eq!(run(&global, command), 0);
-        let connections = app.join().unwrap();
-        assert_eq!(connections.len(), 1);
-        let keys: Vec<_> = connections[0]
-            .iter()
-            .map(|request| request["params"]["idempotency_key"].clone())
-            .collect();
-        assert_eq!(keys, vec![json!("mutation-retry-1"), json!("mutation-retry-1")]);
-    }
-
-    #[test]
-    fn a_run_that_may_have_started_is_not_retried() {
-        let timeout = json!({ "id": 1, "ok": false, "error": { "code": "timeout", "message": "slow", "data": { "state": "in_progress" } } });
-        let (socket, app) = fake_app(vec![timeout]);
-        let command = parse(&args(&["action", "run", "window.new"])).unwrap().unwrap();
-        assert_eq!(run(&global_for(&socket), command), 1);
-        let connections = app.join().unwrap();
-        assert_eq!(connections[0].len(), 1);
-    }
-
-    #[test]
-    fn action_run_maps_flags_to_target_and_arguments() {
-        let (_, params) = call(
-            parse(&args(&[
-                "action",
-                "run",
-                "tab.rename",
-                "--target",
-                "tab_0123",
-                "--title",
-                "Build",
-                "--arg",
-                "keep_case=true",
-                "--wait",
-            ]))
-            .unwrap()
-            .unwrap(),
-        );
-        assert_eq!(
-            params,
-            json!({
-                "action": "tab.rename",
-                "target": "tab_0123",
-                "wait": true,
-                "args": { "title": "Build", "keep_case": "true" },
-            })
-        );
-    }
-
-    #[test]
-    fn app_requests_wait_for_the_app_to_catch_up_with_the_daemon() {
-        assert_eq!(
-            with_read_barrier(json!({ "action": "x" })),
-            json!({ "action": "x", "after": "sync" })
-        );
-        assert_eq!(with_read_barrier(json!({ "after": 12 })), json!({ "after": 12 }));
-    }
-
-    #[test]
-    fn app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux() {
-        let (method, params) = call(
-            parse(&args(&["browser", "tab_01ab", "navigate", "https://cmux.com"]))
-                .unwrap()
-                .unwrap(),
-        );
-        assert_eq!(method, "browser.page.navigate");
-        assert_eq!(params, json!({ "tab": "tab_01ab", "url": "https://cmux.com" }));
-        let (method, params) =
-            call(parse(&args(&["browser", "page", "fill", "#q", "hello"])).unwrap().unwrap());
-        assert_eq!(method, "browser.page.fill");
-        assert_eq!(params, json!({ "selector": "#q", "text": "hello" }));
-        let (method, params) = call(
-            parse(&args(&["browser", "page", "snapshot", "--interactive", "--max-depth", "4"]))
-                .unwrap()
-                .unwrap(),
-        );
-        assert_eq!(method, "browser.page.snapshot");
-        assert_eq!(params, json!({ "interactive": true, "max_depth": 4 }));
-        assert_eq!(
-            parse(&args(&["browser", "browser_01ab", "navigate", "--url", "x"])).unwrap(),
-            None
-        );
-        assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
-    }
-
-    #[test]
-    fn settings_set_takes_json_or_a_plain_string() {
-        let (_, params) =
-            call(parse(&args(&["settings", "set", "layout.panePadding", "4"])).unwrap().unwrap());
-        assert_eq!(params, json!({ "path": "layout.panePadding", "value": 4 }));
-        let (_, params) = call(
-            parse(&args(&["settings", "set", "window.titlebar", "minimal"])).unwrap().unwrap(),
-        );
-        assert_eq!(params, json!({ "path": "window.titlebar", "value": "minimal" }));
-    }
-
-    #[test]
-    fn responses_split_transport_from_app_errors() {
-        assert_eq!(
-            parse_response(r#"{"id":1,"ok":true,"result":{"pong":true}}"#),
-            Ok(Ok(json!({"pong":true})))
-        );
-        assert_eq!(
-            parse_response(r#"{"id":1,"ok":false,"error":{"code":"not_found"}}"#),
-            Ok(Err(json!({"code":"not_found"})))
-        );
-        assert!(
-            parse_response("ERROR: Access denied - only processes started inside cmux can connect")
-                .is_err()
-        );
-        assert!(parse_response("").is_err());
-    }
-}
+mod tests;

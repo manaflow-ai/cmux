@@ -32,8 +32,21 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var browserEngine: String?
     public var faviconURL: String?
     public var browserProfileID: String?
-    /// Chrome-style group membership (`tab-groups-v1`, wire `group`).
+    /// Tab group membership (`tab-groups-v1`, wire `group`).
     public var tabGroup: TabGroupID?
+    /// The terminal a `remote-terminal` tab references (`remote-terminal-tabs-v1`).
+    public var remote: RemoteTerminalRef?
+    /// The conversation a `.conversation` tab shows.
+    public var conversation: ConversationTabRef?
+    /// The workspace store's keep-layout record of a dead kept tab
+    /// (`end-terminals-keep-layout-v1`).
+    public var relaunch: TabRelaunch?
+    /// Whether the terminal's shell runs (R41); nil for browsers and older daemons.
+    public var terminalState: TerminalTabState?
+    /// How a dead terminal ended (R41); nil while it runs and on older daemons.
+    public var end: TerminalTabEnd?
+    /// The record version of an unadoptable host (`terminalState == .unadoptable`).
+    public var hostRecordVersion: Int?
 
     public init(
         surface: SurfaceID,
@@ -91,11 +104,13 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
 
     /// True when the app draws this tab itself; `attach-surface` refuses it.
     public var isFrontendOwned: Bool {
-        browserRenderer == "frontend"
+        browserRenderer == "frontend" || kind == .remoteTerminal || kind == .conversation
     }
 
     enum CodingKeys: String, CodingKey {
-        case surface, kind, name, title, size, dead, notification, url, pinned, cwd
+        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation, end
+        case terminalState = "terminal_state"
+        case hostRecordVersion = "host_record_version"
         case tabResourceID = "tab_resource_id"
         case contentResourceID = "content_resource_id"
         case terminalID = "terminal_id"
@@ -144,5 +159,12 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         faviconURL = try c.decodeIfPresent(String.self, forKey: .faviconURL)
         browserProfileID = try c.decodeIfPresent(String.self, forKey: .browserProfileID)
         tabGroup = try c.decodeIfPresent(TabGroupID.self, forKey: .tabGroup)
+        remote = kind == .remoteTerminal ? try? c.decodeIfPresent(RemoteTerminalRef.self, forKey: .remote) : nil
+        relaunch = try c.decodeIfPresent(TabRelaunch.self, forKey: .relaunch)
+        conversation = kind == .conversation ? try? c.decodeIfPresent(ConversationTabRef.self, forKey: .conversation) : nil
+        // Unknown future states and ends must not fail the whole tree decode.
+        terminalState = try? c.decodeIfPresent(TerminalTabState.self, forKey: .terminalState)
+        end = try? c.decodeIfPresent(TerminalTabEnd.self, forKey: .end)
+        hostRecordVersion = try c.decodeIfPresent(Int.self, forKey: .hostRecordVersion)
     }
 }

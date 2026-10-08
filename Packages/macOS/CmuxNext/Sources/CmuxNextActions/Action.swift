@@ -75,6 +75,17 @@ public struct Action: Identifiable {
     /// capability tab-groups-v1"), or nil when it can. A non-nil reason
     /// disables the action everywhere and is reported by `action.run`.
     public var unavailableReason: (@MainActor () -> String?)?
+    /// Why the action cannot run on this invocation's target (for example
+    /// "Add a second column first" for a screen's only column), or nil. A
+    /// context menu shows it on the disabled item; `perform` refuses with it.
+    public var targetUnavailableReason: (@MainActor (ActionInvocation) -> String?)?
+    /// The title for this invocation's target in a context menu (Pin Tab
+    /// or Unpin Tab for a toggle), or nil for the catalog title.
+    public var targetTitle: (@MainActor (ActionInvocation) -> String?)?
+    /// Whether this invocation's target leaves the row out of a context
+    /// menu (Remove Icon on an object without an icon). The palette, the
+    /// CLI and MCP still offer the action.
+    public var targetHidden: (@MainActor (ActionInvocation) -> Bool)?
 
     public init(
         id: ActionID,

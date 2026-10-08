@@ -12,7 +12,7 @@ extension SidebarBridge {
             return nil
         }
         let scoped = sections.filter { $0.id == position.section }
-        guard let local = WorkspaceOrdering.rootIndex(for: position, moving: ids, in: scoped) else { return nil }
+        guard let local = WorkspaceOrdering.shared.rootIndex(for: position, moving: ids, in: scoped) else { return nil }
         let moved = Set(ids.map(\.rawValue))
         let localOrder = scoped.flatMap(\.workspaces).map(\.id.rawValue).filter { !moved.contains($0) }
         let global = WindowManager.orderedIDs(of: daemon, machines: services.machines).filter { !moved.contains($0) }

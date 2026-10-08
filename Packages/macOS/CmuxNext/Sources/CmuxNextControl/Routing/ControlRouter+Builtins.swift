@@ -31,7 +31,12 @@ extension ControlRouter {
                 // Only a run that awaits its work (the default) waits for the terminal.
                 (request.params["wait"]?.boolValue ?? true)
                     && ((try? Self.resolveAction(request.params, in: snapshot.catalog))?.startsTerminal ?? false)
-            }).claimingProgress(),
+            }).claimingProgress().withLimit { request, snapshot in
+                // A network action the caller awaits (Connect to CodeRouter).
+                guard request.params["wait"]?.boolValue == true,
+                      (try? Self.resolveAction(request.params, in: snapshot.catalog))?.waitsForResult == true else { return nil }
+                return ActionDescriptor.resultDeadline
+            },
             // `cmux tab <id> focus` (state-ownership.md 3): runs the
             // `tab.focus` action on the tab, with action.run's contract.
             .async("tab.focus") { [weak self] call in
@@ -58,19 +63,18 @@ extension ControlRouter {
                 let store = try self.settingsStore()
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
                 guard let value = call.params["value"] else { throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", "settings.set", "value")) }
-                try await store.set(value, at: path)
-                // Read-your-writes: answer from the file until the watcher republishes.
-                self.snapshots.publish { $0.settings = nil }
+                try await self.writeSetting(value, at: path, store: store, call: call)
                 return ["path": .array(path.map(JSONValue.string)), "value": value, "file": .string(store.fileLocation)]
-            },
-            .async("settings.unset") { [weak self] call in
+            }.withDeadline(.fixed(.seconds(120))), // `confirm: true` waits for the person on a native sheet
+        ] + ["settings.reset", "settings.unset"].map { name in
+            ControlMethod.async(name) { [weak self] call in
                 guard let self else { throw Self.stopped }
                 let store = try self.settingsStore()
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
-                try await store.remove(path)
-                self.snapshots.publish { $0.settings = nil }
+                try await self.writeSetting(nil, at: path, store: store, call: call)
                 return ["path": .array(path.map(JSONValue.string)), "file": .string(store.fileLocation)]
-            },
+            }.withDeadline(.fixed(.seconds(120))) // `confirm: true` waits for the person, as settings.set
+        } + [
             .snapshot("snapshot.get") { call in
                 let snapshot = call.snapshot
                 return [
@@ -95,6 +99,8 @@ extension ControlRouter {
             "bundle_id": identity.bundleID.map(JSONValue.string) ?? .null,
             "tag": identity.tag.map(JSONValue.string) ?? .null,
             "pid": JSONValue(Int(identity.processID)),
+            "app_bundle_path": identity.appBundlePath.map(JSONValue.string) ?? .null,
+            "app_cli_path": identity.appCLIPath.map(JSONValue.string) ?? .null,
             "socket_path": transport.socketPath.map(JSONValue.string) ?? .null,
             "access_mode": transport.accessMode.map(JSONValue.string) ?? .null,
             "protocol_version": JSONValue(Self.protocolVersion),
@@ -104,9 +110,10 @@ extension ControlRouter {
 
     static func list(_ params: [String: JSONValue], catalog: ControlCatalog) -> JSONValue {
         let category = params["category"]?.stringValue?.lowercased()
-        let noun = params["noun"]?.stringValue?.lowercased()
+        let noun = params["noun"]?.stringValue.map { ControlCatalog.renamedCLIName($0.lowercased()) }
         let availableOnly = params["available_only"]?.boolValue ?? false
         let actions = catalog.actions.filter { action in
+            if action.disabledFeature != nil { return false }
             if let category, action.category.lowercased() != category { return false }
             if let noun, action.cliName.split(separator: " ").first.map(String.init) != noun { return false }
             if availableOnly, !catalog.isAvailable(action) { return false }
@@ -114,7 +121,7 @@ extension ControlRouter {
         }
         var categories: [String] = []
         var seen: Set<String> = []
-        for action in catalog.actions where seen.insert(action.category).inserted { categories.append(action.category) }
+        for action in catalog.actions where action.disabledFeature == nil && seen.insert(action.category).inserted { categories.append(action.category) }
         return [
             "actions": .array(actions.map(catalog.json)),
             "categories": .array(categories.map(JSONValue.string)),
@@ -131,35 +138,6 @@ extension ControlRouter {
             if let error = await task.value { failure = failure ?? error }
         }
         return failure
-    }
-
-    /// The control error for failed action work. A terminal start that
-    /// missed its deadline is a `timeout` that says the terminal may still
-    /// appear; anything else is a `daemon_error`.
-    static func workError(_ failure: ActionWorkFailure, action: String, method: String, mayHaveApplied: Bool = false) -> ControlError {
-        guard failure.terminalMayAppear else {
-            guard mayHaveApplied else {
-                return ControlError(code: "daemon_error", message: failure.message, data: ["action": .string(action)])
-            }
-            // The command's reply missed its deadline: it may still apply.
-            var error = ControlError.timeout(method, after: .zero)
-            error.message = failure.message
-            error.data = ["action": .string(action), "detail": .string(failure.message)]
-            return error
-        }
-        var error = ControlError.terminalStartTimeout(method, after: TerminalStartDeadline.daemon)
-        if case .object(var members) = error.data {
-            members["action"] = .string(action)
-            members["detail"] = .string(failure.message)
-            error.data = .object(members)
-        }
-        return error
-    }
-
-    /// Typed refusal for a destructive action run without `confirm: true`.
-    static func confirmationRequired(_ id: String) -> ControlError {
-        ControlError(code: "confirmation_required", message: ActionRegistry.confirmationRequiredReason(forRawID: id),
-                     data: ["action": .string(id), "argument": .string(ActionArgument.confirmName)])
     }
 
     // MARK: - settings
@@ -181,7 +159,7 @@ extension ControlRouter {
         return ["path": .array(path.map(JSONValue.string)), "exists": .bool(value != nil), "value": value ?? .null, "file": .string(file)]
     }
 
-    private func settingsStore() throws -> any ControlSettingsStore {
+    func settingsStore() throws -> any ControlSettingsStore {
         guard let settings else { throw ControlError(code: "unavailable", message: ControlStrings.text("control.error.settingsUnavailable", "settings are not available")) }
         return settings
     }

@@ -18,8 +18,8 @@ extension TabStripView {
     /// the traffic lights; 0 when the strip is not under them.
     func computeWindowControlsInset() -> CGFloat {
         guard let window else { return 0 }
-        return Self.windowControlsInset(strip: convert(bounds, to: nil), lights: WindowTitlebar.trafficLightsFrame(in: window),
-                                        accessory: (window as? TitlebarAccessoryHosting)?.titlebarAccessoryFrame,
+        let host = window as? TitlebarAccessoryHosting
+        return Self.windowControlsInset(strip: convert(bounds, to: nil), lights: WindowTitlebar.trafficLightsFrame(in: window), accessory: host?.titlebarAccessoryFrame,
                                         padding: metrics.stripHorizontalPadding)
     }
 

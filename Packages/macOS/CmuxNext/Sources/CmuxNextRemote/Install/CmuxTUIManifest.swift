@@ -13,7 +13,8 @@ public struct CmuxTUIManifest: Decodable, Sendable {
 }
 
 /// SHA-256 of a local file, read in 1 MiB chunks.
-public enum SHA256File {
+public struct SHA256File {
+    public init() {}
     public static func hex(of file: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }

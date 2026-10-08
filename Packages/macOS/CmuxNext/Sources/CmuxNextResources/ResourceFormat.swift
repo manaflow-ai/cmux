@@ -3,7 +3,8 @@ public import Foundation
 /// Activity Monitor-style text: CPU as a percentage of one core with one
 /// decimal ("12.3%", above 100% on several cores), memory in binary units
 /// ("145.2 MB"), both in the user's locale.
-public enum ResourceFormat {
+public struct ResourceFormat {
+    public init() {}
     public static func cpu(_ share: Double, locale: Locale = .current) -> String {
         let formatter = NumberFormatter()
         formatter.locale = locale

@@ -62,9 +62,11 @@ public struct RemoteRelayPolicy: Sendable {
     public static let commandParams: Set<String> = ["initial_command", "command", "tmux_start_command", "pane_start_command"]
 
     /// Method words that execute, type, evaluate or open content locally;
-    /// a method containing one is dropped from any allowlist.
+    /// a method containing one is dropped from any allowlist. `link`
+    /// covers `link.open` (cmux:// deep links), which navigates this Mac's
+    /// windows; `run` covers `action.run`, which reaches every action.
     static let neverAllowedWords: Set<String> = ["send", "text", "key", "keys", "input", "paste", "spawn", "respawn", "eval", "exec",
-                                                 "run", "script", "command", "url", "navigate", "resume", "launch"]
+                                                 "run", "script", "command", "url", "link", "navigate", "resume", "launch"]
     /// Creating or splitting one of these starts a terminal or loads a page.
     static let spawningNouns: Set<String> = ["workspace", "tab", "pane", "surface", "terminal", "browser", "window", "screen", "column"]
     static let spawningVerbs: Set<String> = ["create", "new", "split", "open", "duplicate", "fork", "reopen", "move"]

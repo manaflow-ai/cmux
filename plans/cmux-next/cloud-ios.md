@@ -614,7 +614,7 @@ build reports it). `generation` fences one boot and is not an identity.
 | Level | Meaning | App |
 | --- | --- | --- |
 | current | every capability the app uses | normal |
-| limited | the 7 required capabilities, some of `DaemonCapabilities.optional` missing | features behind the missing ones are off; header "Update available", tooltip lists build and missing capabilities; a refused action says "update this Cloud machine" |
+| limited | the 7 required capabilities, some of `DaemonCapabilities.shared.optional` missing | features behind the missing ones are off; header "Update available", tooltip lists build and missing capabilities; a refused action says "update this Cloud machine" |
 | incompatible | a required capability, the protocol or the app is wrong | header "Update needed" with the reason; the connect loop waits for an event (app activation, network change, the link socket changing) and connects to the updated build behind the same link; no timer |
 
 `cloud.machines` (control socket) and Cloud Diagnostics report session id,
@@ -705,8 +705,9 @@ Not verified: shared-sizing (`tui02dac3c`) geometry, the app's own claim
 against a second client, closing the last tab of a Cloud workspace in the
 app, iOS against a Cloud daemon (iOS reaches only the local daemon; the
 mobile live tests pass against the pinned daemon build). The `cmux` CLI
-compat verbs address only the local daemon, so the compat script cannot
-target a Cloud machine yet.
+compat verbs now reach every session with qualified ids and `--session`
+(cli-compat.md "Sessions and qualified ids", federation stage 1); the
+compat script's remote cases ran against an SSH session, not a Cloud VM.
 
 ### 5.5 Registry compatibility after the main catch-up (2026-09-30)
 

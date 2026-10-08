@@ -39,9 +39,19 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
-    /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see
-    /// `ActionKeyTier`.
+    /// User chords (`["ctrl+b", "c"]` in cmux.json); an action with one has
+    /// no single-key shortcut.
+    public internal(set) var chordOverrides: [ActionID: ShortcutChord] = [:] {
+        didSet { shortcutIndex = nil }
+    }
+
+    /// App and keybindings.json entries, after the defaults and cmux.json (`KeyBindingLoader`).
+    public internal(set) var keyBindingLayers = KeyBindingLayers() { didSet { shortcutIndex = nil } }
+
+    /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see `ActionKeyTier`.
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
+    /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
+    public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -55,12 +65,28 @@ public final class ActionRegistry {
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
     /// handler runs with what it has.
     @ObservationIgnored public var argumentCollector: (@MainActor (ActionID, ActionInvocation) -> Void)?
+    /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
+    /// with the hovered value (action, argument name, value, target), and
+    /// with a nil value when the menu closes. The App previews themes here.
+    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    /// Every known value of a suggested argument (`ActionSuggestions.source`),
+    /// supplied by the App.
+    @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// Shortcut recorders open now (`ShortcutRecorder`); any open one sets `.recordingShortcut`.
+    @ObservationIgnored var openShortcutRecorders: Set<ObjectIdentifier> = []
+    /// Whether free text is a valid value of a suggested argument (a theme
+    /// Ghostty accepts); nil accepts any non-empty text.
+    @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
+    /// The current value of a choices submenu's argument for a target, shown
+    /// with a checkmark.
+    @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
+    @ObservationIgnored public var targetChoices: (@MainActor (_ action: ActionID, _ kind: ActionTargetKind, _ target: ActionTargetRef?) -> ActionTargetChoices?)?
 
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
-    /// Sees every `refuse(_:)` reason (the App logs it and beeps).
-    @ObservationIgnored public var refusalObserver: (@MainActor (String) -> Void)?
+    /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
+    @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
 
     /// Confirms destructive actions run from the keyboard, menu, or palette
     /// (`ActionRegistry+Confirmation`). Nil refuses them.
@@ -69,6 +95,10 @@ public final class ActionRegistry {
     /// Wraps every handler run with its invocation. The App routes the run
     /// to the machine that owns the invocation's explicit target.
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
+    /// Sees every handler run after it ran (the tips card's local usage flags).
+    @ObservationIgnored public var runObserver: (@MainActor (ActionID, ActionInvocation) -> Void)?
+    /// The key window's claim on a run (``KeyWindowRoute``), asked first by `perform` and menu validation.
+    @ObservationIgnored public var keyWindowRoute: (@MainActor (ActionID, ActionInvocation) -> KeyWindowRoute?)?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false
     @ObservationIgnored var capturedRefusal: String?
     /// The captured refusal said an explicit target names nothing.
@@ -78,7 +108,6 @@ public final class ActionRegistry {
     @ObservationIgnored public internal(set) var isReportingRefusal = false
     @ObservationIgnored var reportedRefusal: String?
     @ObservationIgnored var capturedWork: [ActionWork]?
-
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     @ObservationIgnored var shortcutIndex: ShortcutIndex?
@@ -90,11 +119,6 @@ public final class ActionRegistry {
     public init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:]) {
         self.aliases = aliases
         seed(catalog)
-    }
-
-    /// A registry seeded with the full cmux catalog and legacy aliases.
-    public static func standard() -> ActionRegistry {
-        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
     }
 
     // MARK: - Catalog
@@ -142,6 +166,18 @@ public final class ActionRegistry {
 
     // MARK: - Binding
 
+    /// Ids bound twice without an `unbind` (two owners; the newer silently wins). Checked by the
+    /// `noActionIsBoundTwice` test, never trapped; the app logs a fault. A real bind replacing a
+    /// ``bindUnavailable(_:reason:)`` placeholder is no duplicate; anything else bound twice is.
+    public private(set) var duplicateBindings: [ActionID] = []
+    private var placeholders: Set<ActionID> = []
+
+    func noteBinding(_ id: ActionID, placeholder: Bool) {
+        let canonical = canonicalID(for: id)
+        if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
+        if placeholder { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
+    }
+
     /// Registers `action`, replacing any action with the same ID. Legacy IDs
     /// are folded into their canonical ID.
     public func register(_ action: Action) {
@@ -187,6 +223,7 @@ public final class ActionRegistry {
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
         guard let descriptor = descriptor(for: id) else { return false }
+        noteBinding(descriptor.id, placeholder: false)
         register(Action(
             id: descriptor.id,
             title: descriptor.title,
@@ -202,6 +239,7 @@ public final class ActionRegistry {
     /// Removes the handler for `id`. The descriptor stays in the catalog.
     public func unbind(_ id: ActionID) {
         let id = canonicalID(for: id)
+        placeholders.remove(id)
         guard let index = indexByID[id] else { return }
         actions.remove(at: index)
         indexByID = Dictionary(uniqueKeysWithValues: actions.enumerated().map { ($1.id, $0) })
@@ -218,24 +256,21 @@ public final class ActionRegistry {
 
     // MARK: - Availability
 
-    /// Whether the action applies in `context` (defaults to the current
-    /// context): its required context is present and it is not debug-only
-    /// in a release build. Independent of binding and `isEnabled`.
+    /// Whether the action applies in `context` (default: the current one): policy allows it, its
+    /// required context is present, and it is not debug-only without developer tools (`DevTools`).
     public func isAvailable(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
         guard let descriptor = descriptor(for: id) else { return isBound(id) }
-        return Self.isAvailable(descriptor, in: context ?? self.context)
+        return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && Self.isAvailable(descriptor, in: context ?? self.context)
     }
 
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
     /// implies (`ActionContext.implied(by:)`).
     public func isAvailable(_ id: ActionID, for invocation: ActionInvocation) -> Bool {
-        isAvailable(id, in: context.union(ActionContext.implied(by: invocation)))
+        isAvailable(id, in: (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation)))
     }
 
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
-        #if !DEBUG
-        if descriptor.isDebugOnly { return false }
-        #endif
+        if descriptor.isDebugOnly && !DevTools.isEnabled { return false }
         return context.isSuperset(of: descriptor.requires)
     }
 
@@ -265,13 +300,15 @@ public final class ActionRegistry {
         return perform(id, invocation: ActionInvocation(arguments: [name: value]))
     }
 
-    /// Performs with a target and typed arguments (palette, CLI, context
-    /// menus). Fails when a required argument is missing.
+    /// Performs with a target and typed arguments (palette, CLI, context menus). Fails when a required argument is missing.
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
+        if disabledFeature(for: id) != nil { return false }
+        if let route = keyWindowRoute?(canonicalID(for: id), invocation) { return route.perform { refuse($0) } }
         guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
-        let missing = descriptor(for: id)?.arguments.contains {
-            $0.isRequired && invocation.arguments[$0.name] == nil
+        if ActionTargetReasons.refuses(action, invocation, in: self) { return false }
+        let missing = descriptor(for: id).map { descriptor in
+            descriptor.arguments.contains { $0.isRequired && invocation.arguments[$0.name] == nil && !Self.target(of: invocation, supplies: $0, for: descriptor) }
         } ?? false
         if missing, let argumentCollector {
             // A menu item or shortcut for an argument-taking action: let the
@@ -280,11 +317,7 @@ public final class ActionRegistry {
             return true
         }
         if needsConfirmation(id, invocation) { return gateDestructive(id, invocation) }
-        if let invocationScope {
-            invocationScope(invocation) { action.run(invocation) }
-        } else {
-            action.run(invocation)
-        }
+        runScoped(action, id, invocation)
         return true
     }
 
@@ -294,58 +327,7 @@ public final class ActionRegistry {
         descriptors.map(\.id).filter { !isBound($0) }
     }
 
-    /// Performs the best action for a key-down event. Called by the window
-    /// before the event reaches the terminal.
-    public func performShortcut(for event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
-        var keys: [String] = []
-        if let key = event.charactersIgnoringModifiers?.lowercased() { keys.append(key) }
-        // With shift held, charactersIgnoringModifiers can return the shifted
-        // character ("}" for Shift-]); also try the unmodified key.
-        if let base = event.characters(byApplyingModifiers: [])?.lowercased(), !keys.contains(base) {
-            keys.append(base)
-        }
-        for key in keys {
-            if let resolved = resolve(Shortcut(key, modifiers: flags)) {
-                return run(resolved)
-            }
-        }
-        return false
-    }
-
-    /// Runs whatever `shortcut` resolves to. Returns whether an action ran.
-    @discardableResult
-    public func performShortcut(_ shortcut: Shortcut) -> Bool {
-        guard let resolved = resolve(shortcut) else { return false }
-        return run(resolved)
-    }
-
-    /// The action `shortcut` triggers in the current context, plus the digit
-    /// for numbered families. Among several candidates the one with the most
-    /// specific required context wins, then catalog order.
-    public func resolve(_ shortcut: Shortcut) -> (id: ActionID, argument: String?)? {
-        let index = currentShortcutIndex()
-        if let id = bestCandidate(index.byShortcut[shortcut] ?? []) {
-            return (id, nil)
-        }
-        if shortcut.key.count == 1, let digit = shortcut.key.first, ("1"..."9").contains(digit) {
-            let familyKey = Shortcut("1", modifiers: shortcut.modifiers)
-            if let id = bestCandidate(index.digitFamilies[familyKey] ?? []) {
-                return (id, String(digit))
-            }
-        }
-        return nil
-    }
-
-    private func run(_ resolved: (id: ActionID, argument: String?)) -> Bool {
-        if let argument = resolved.argument {
-            return perform(resolved.id, argument: argument)
-        }
-        return perform(resolved.id)
-    }
-
-    private func bestCandidate(_ ids: [ActionID]) -> ActionID? {
+    func bestCandidate(_ ids: [ActionID]) -> ActionID? {
         var best: (id: ActionID, specificity: Int)?
         for id in ids where canPerform(id) {
             let specificity = descriptor(for: id)?.requires.rawValue.nonzeroBitCount ?? 0
@@ -357,6 +339,18 @@ public final class ActionRegistry {
     }
 
     @ObservationIgnored lazy var menuTarget = ActionMenuTarget(registry: self)
+    /// Delegates of open choices submenus, released with their menu.
+    @ObservationIgnored let choiceCoordinators = NSMapTable<NSMenu, ActionChoicesMenuCoordinator>(keyOptions: .weakMemory, valueOptions: .strongMemory)
+
+    /// A target of an argument's kind supplies that argument when the
+    /// action does not act on that kind itself: right-clicking a browser
+    /// profile and choosing New Tab with Browser Profile… uses that profile,
+    /// while Merge Workspace into… (which acts on a workspace) still asks
+    /// for the other workspace.
+    static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
+        guard case .target(let kind) = argument.kind, let target = invocation.target else { return false }
+        return target.kind == kind && !descriptor.targets.contains(kind)
+    }
 
     static func synthesizedDescriptor(for action: Action) -> ActionDescriptor {
         ActionDescriptor(

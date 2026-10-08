@@ -122,7 +122,7 @@ fn cmux_state_scopes_go_to_the_session_daemon() {
         let output = names.run("cmux", &full);
         let stderr = text(&output.stderr);
         assert_eq!(output.status.code(), Some(3), "{args:?}: {stderr}");
-        assert!(stderr.contains("cannot connect to session socket"), "{args:?}: {stderr}");
+        assert!(stderr.contains("no cmux session is running"), "{args:?}: {stderr}");
     }
 }
 
@@ -145,4 +145,187 @@ fn private_process_modes_run_under_the_cmux_name() {
         );
         assert!(!output.stdout.is_empty() || !stderr.is_empty(), "{args:?} printed nothing");
     }
+}
+
+/// A one-connection app socket that answers every request with `result`.
+/// The socket lives in a short directory from the shared helper, so its path
+/// fits sun_path whatever $TMPDIR is. The returned guard removes it.
+fn fake_app(
+    result: serde_json::Value,
+) -> (cmux_unix_socket::TestDir, PathBuf, std::thread::JoinHandle<()>) {
+    use std::io::{BufRead, BufReader, Write};
+    let dir = cmux_unix_socket::short_test_dir("cmux-sfc");
+    let socket = dir.path().join("app.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let handle = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 {
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            line.clear();
+            let reply = serde_json::json!({"id": request["id"], "ok": true, "result": result});
+            writeln!(writer, "{reply}").unwrap();
+        }
+    });
+    (dir, socket, handle)
+}
+
+#[test]
+fn accounts_list_warns_on_stderr_when_handles_are_not_stable() {
+    for (stable, warns) in [(false, true), (true, false)] {
+        let names = Names::new(&format!("handles-{stable}"));
+        let result =
+            serde_json::json!({"signed_in": true, "handles_stable": stable, "providers": []});
+        let (_socket_dir, socket, app) = fake_app(result);
+        let socket = socket.display().to_string();
+        let output = names.run("cmux", &["--app-socket", &socket, "accounts", "list"]);
+        app.join().unwrap();
+        let stderr = text(&output.stderr);
+        assert!(output.status.success(), "{stderr}");
+        assert_eq!(
+            stderr.contains("account handles change after restart: Keychain unavailable"),
+            warns,
+            "handles_stable {stable}: {stderr}"
+        );
+    }
+}
+
+/// Each scope `cmux --help` lists answers `<scope> --help` and `help <scope>`
+/// with its own usage, never the root help (the app scopes route before the
+/// resource grammar; `window` is the app's windows, not a screen shorthand).
+#[test]
+fn every_routed_scope_prints_its_own_help() {
+    let names = Names::new("scope-help");
+    let cases: &[(&[&str], &str)] = &[
+        (&["settings", "--help"], "cmux settings get"),
+        (&["help", "settings"], "cmux settings get"),
+        (&["window", "--help"], "cmux window list"),
+        (&["help", "window"], "cmux window list"),
+        (&["events", "--help"], "cmux events [--after"),
+        (&["history", "--help"], "cmux history search"),
+        (&["bookmark", "--help"], "cmux bookmark search"),
+        (&["app", "--help"], "cmux app ping"),
+        (&["action", "--help"], "cmux action describe"),
+        (&["accounts", "--help"], "cmux accounts list"),
+        (&["open", "--help"], "cmux open <path|url>"),
+        (&["keybinding", "--help"], "cmux keybinding list"),
+        (&["ghostty", "--help"], "cmux ghostty diagnostics"),
+        (&["browser", "page", "--help"], "cmux browser <tab_…|page> navigate"),
+        (&["browser", "--help"], "cmux browser page|<tab_…>"),
+        (&["browser", "--help"], "cmux browser open <url> [--workspace <selector>]"),
+        (&["browser", "--help"], "cmux tab create browser --url <url>"),
+        (&["notify", "--help"], "cmux notify --clear"),
+        (&["help", "notify"], "cmux notify --clear"),
+        (&["notification", "--help"], "cmux notification ack --client"),
+    ];
+    for (args, expected) in cases {
+        let output = names.run("cmux", args);
+        let stdout = text(&output.stdout);
+        assert!(output.status.success(), "{args:?}: {}", text(&output.stderr));
+        assert!(stdout.contains(expected), "{args:?} printed:\n{stdout}");
+        assert!(!stdout.contains("cmux screen list"), "{args:?} printed screen help:\n{stdout}");
+        assert!(!stdout.starts_with("cmux - terminal multiplexer"), "{args:?} printed root help");
+    }
+}
+
+/// `acp` and `link` take their own options, so a cmux global option before
+/// them names the fix instead of calling them unknown scopes.
+#[test]
+fn global_options_before_acp_or_link_name_the_fix() {
+    let names = Names::new("acp-globals");
+    for scope in ["acp", "link", "harness"] {
+        let output = names.run("cmux", &["--json", scope, "list"]);
+        assert_eq!(output.status.code(), Some(2));
+        let error: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .or_else(|_| serde_json::from_slice(&output.stderr))
+            .unwrap();
+        let message = error["message"].as_str().unwrap();
+        assert!(!message.contains("unknown resource scope"), "{scope}: {message}");
+        assert!(message.contains(&format!("cmux {scope} --help")), "{scope}: {message}");
+    }
+}
+
+/// `cmux harness …` is `cmux acp harness …` (BRING-YOUR-OWN-HARNESS): the
+/// short spelling the doctor fixes, the guide and the docs name works.
+#[test]
+fn cmux_harness_is_acp_harness() {
+    let names = Names::new("harness-alias");
+    let long = names.run("cmux", &["acp", "harness", "guide"]);
+    let short = names.run("cmux", &["harness", "guide"]);
+    assert!(long.status.success(), "cmux acp harness guide: {}", text(&long.stderr));
+    assert!(short.status.success(), "cmux harness guide: {}", text(&short.stderr));
+    assert_eq!(text(&short.stdout), text(&long.stdout));
+    assert!(text(&short.stdout).contains("cmux harness doctor"), "{}", text(&short.stdout));
+}
+
+#[test]
+fn link_help_succeeds_on_stdout() {
+    let names = Names::new("link-help");
+    let output = names.run("cmux", &["link", "--help"]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert!(text(&output.stdout).contains("cmux link <init|show"), "{}", text(&output.stdout));
+}
+
+#[test]
+fn history_and_bookmark_search_without_text_say_what_is_missing() {
+    let names = Names::new("search-text");
+    for scope in ["history", "bookmark"] {
+        let output = names.run("cmux", &[scope, "search"]);
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = text(&output.stderr);
+        assert!(stderr.contains(&format!("cmux {scope} search <text>")), "{scope}: {stderr}");
+    }
+}
+
+/// `help <process scope>` is the same as `<process scope> --help`.
+#[test]
+fn help_names_the_process_scopes() {
+    let names = Names::new("process-help");
+    for (scope, expected) in [
+        ("acp", "Usage: cmux acp"),
+        ("mcp", "cmux mcp serve"),
+        ("coderouter", "cmux coderouter status"),
+        ("link", "cmux link <init|show"),
+    ] {
+        let direct = names.run("cmux", &[scope, "--help"]);
+        let output = names.run("cmux", &["help", scope]);
+        let stdout = text(&output.stdout);
+        assert!(output.status.success(), "help {scope}: {}", text(&output.stderr));
+        assert!(stdout.contains(expected), "help {scope} printed:\n{stdout}");
+        assert_eq!(stdout, text(&direct.stdout), "help {scope} differs from {scope} --help");
+    }
+}
+
+/// Remote errors name the program that ran (`cmux`, not `cmux-tui`), and
+/// `remote known-daemons` takes the global --socket like every other scope.
+#[test]
+fn remote_errors_name_the_invoked_program_and_known_daemons_takes_socket() {
+    let names = Names::new("remote-errors");
+    for args in [&["remote", "bogus"][..], &["remote", "known-daemons", "--bogus"][..]] {
+        let output = names.run("cmux", args);
+        let stderr = text(&output.stderr);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(stderr.starts_with("cmux: "), "{args:?}: {stderr}");
+    }
+    let state = names.dir.join("state");
+    let state = state.display().to_string();
+    let output = names.run(
+        "cmux",
+        &[
+            "--socket",
+            "/nonexistent.sock",
+            "--json",
+            "remote",
+            "known-daemons",
+            "--state-dir",
+            &state,
+        ],
+    );
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!([])
+    );
 }

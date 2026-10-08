@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextDesign
 import Testing
 
 /// Table tests for the focus reducer (plans/cmux-next/focus.md). Each race
@@ -109,6 +110,25 @@ struct FocusReducerTests {
 
     // MARK: R1: selection changes the responder must follow
 
+    @Test func anAgentChatTabTakesTheKeyboardInsteadOfLeavingThePaneEmpty() {
+        var topology = Self.topology()
+        topology.panes[2] = Pane(id: "c", tabs: [Self.terminal("t3"), Tab(id: "local-agent:x", kind: .agent)], selected: "local-agent:x")
+        let (state, effects) = Self.run([.topology(topology), .focusPane("c", source: .mouse)], from: Self.loaded())
+        #expect(state.resolved == .agentPage(pane: "c", tab: "local-agent:x"))
+        #expect(effects.contains(.moveResponder(.agentPage(pane: "c", tab: "local-agent:x"))))
+    }
+
+    /// R65: the Home conversation tab resolved as an empty pane, and the
+    /// applier then took the responder away from its message box, so typing
+    /// went nowhere. Its primary input takes the keyboard.
+    @Test func aHomeConversationTabTakesTheKeyboardForItsMessageBox() {
+        var topology = Self.topology()
+        topology.panes[2] = Pane(id: "c", tabs: [Tab(id: "home-tab", surface: "s-home", kind: .conversation)], selected: "home-tab")
+        let (state, effects) = Self.run([.topology(topology), .focusPane("c", source: .mouse)], from: Self.loaded())
+        #expect(state.resolved == .conversation(pane: "c", tab: "home-tab"))
+        #expect(effects.contains(.moveResponder(.conversation(pane: "c", tab: "home-tab"))))
+    }
+
     @Test func closingTheSelectedTabMovesFocusToTheNewSelection() {
         var topology = Self.topology()
         topology.panes[0] = Pane(id: "a", tabs: [Self.terminal("t2")], selected: "t2")
@@ -130,8 +150,20 @@ struct FocusReducerTests {
 
     // MARK: R2: removed pane successor
 
-    @Test func removedFocusedPaneReturnsToThePreviouslyFocusedPane() {
+    // layout.closeFocus default previousNeighbor (close-focus.md): the
+    // previous pane in the column, not the most recently focused one.
+    @Test func removedFocusedPaneFocusesItsPreviousNeighbor() {
         var state = Self.run([.focusPane("c", source: .mouse), .focusPane("b", source: .mouse)], from: Self.loaded()).0
+        var topology = Self.topology()
+        topology.panes.remove(at: 1)
+        state = Self.run([.topology(topology)], from: state).0
+        #expect(state.pane == "a")
+    }
+
+    @Test func removedFocusedPaneReturnsToThePreviouslyFocusedPaneWithMostRecent() {
+        var start = Self.loaded()
+        start.closeFocus = .mostRecent
+        var state = Self.run([.focusPane("c", source: .mouse), .focusPane("b", source: .mouse)], from: start).0
         var topology = Self.topology()
         topology.panes.remove(at: 1)
         state = Self.run([.topology(topology)], from: state).0

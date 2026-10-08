@@ -389,6 +389,28 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual(diagnostics[0].code, "boundary.surface")
             self.assertEqual(diagnostics[0].line, 1)
 
+    def test_cli_compile_time_paths_are_not_public_resource_names(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = tui / "crates/cmux-tui/src/cli/action_hint.rs"
+            write(
+                path,
+                '\n'.join([
+                    'const ACTIONS: &str = include_str!("../../action-surfaces.json");',
+                    'const RAW: &str = include_str!(r#"../../surface-data.json"#);',
+                    'const DATA: &[u8] = include_bytes!("../../surface-data.bin");',
+                    'const HELP: &str = "cmux attach-surface";',
+                    'const RAW_HELP: &str = r#"cmux surface list"#;',
+                ]) + '\n',
+            )
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual([(item.code, item.line) for item in diagnostics], [
+                ("boundary.surface", 4),
+                ("boundary.surface", 5),
+            ])
+
     def test_cli_allows_relay_transport_slot_but_rejects_resource_slot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
@@ -680,7 +702,7 @@ class ContractRegistryTests(unittest.TestCase):
         catalog = json.loads(
             (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(len(catalog["operations"]), 178)
+        self.assertEqual(len(catalog["operations"]), 196)
         self.assertEqual(len(catalog["local_operations"]), 6)
         self.assertEqual(
             set(catalog["types"]["MachineSnapshot"]["fields"]),

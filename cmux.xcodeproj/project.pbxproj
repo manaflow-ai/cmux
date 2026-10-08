@@ -3,13 +3,12 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		CE7A00000000000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		CE7A00000000000000000012 /* CmuxNextApp in Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; };
-		CE7A00000000000000000011 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		CE7A0000000000000000001D /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
 		CE7A00000000000000000002 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7A00000000000000000001 /* main.swift */; };
@@ -35,10 +34,9 @@
 		CE7A00000000000000000004 /* cmux-next.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "cmux-next.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
-		A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
-		CE7A00000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		CE7A00000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/main.swift"; sourceTree = SOURCE_ROOT; };
 		A9D9000000000000000F0016 /* markdown-viewer */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "markdown-viewer"; sourceTree = "<group>"; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
 		D96971000000000000000003 /* setup-pam-tid.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "scripts/setup-pam-tid.sh"; sourceTree = SOURCE_ROOT; };
@@ -54,47 +52,81 @@
 
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		CE7A00000000000000000023 /* Exceptions for "App" folder in "cmux-next" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				main.swift,
+			);
+			target = CE7A00000000000000000005 /* cmux-next */;
+		};
+		CE7A00000000000000000024 /* Exceptions for "Resources" folder in "cmux-next" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ComputerUseHelper.icon,
+				ComputerUseHelperIcon.icns,
+				Info.plist,
+				InfoPlist.xcstrings,
+				bin,
+				cmux-cli-path,
+				cmux-cli-path/zsh/.zshenv,
+				cmux.entitlements,
+				coderouter-cli.json,
+				feed-tui,
+				ghostty,
+				ghostty/terminfo/78/xterm-ghostty,
+				opencode-plugin.js,
+				shell-integration,
+				terminfo-overlay,
+				terminfo-overlay/78/xterm-ghostty,
+			);
+			target = CE7A00000000000000000005 /* cmux-next */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		CE7A00000000000000000021 /* App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CE7A00000000000000000023 /* Exceptions for "App" folder in "cmux-next" target */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		CE7A00000000000000000022 /* Resources */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CE7A00000000000000000024 /* Exceptions for "Resources" folder in "cmux-next" target */,
+			);
+			explicitFolders = (
+				"markdown-viewer",
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
 		CE7A0000000000000000000A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				CE7A00000000000000000012 /* CmuxNextApp in Frameworks */,
-				CE7A00000000000000000011 /* GhosttyKit.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		087C454FFF74443AB06942C3 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				A11CE0050000000000000001 /* LICENSE */,
-				B2E7294509CC42FE9191870E /* xterm-ghostty */,
-				A5002001 /* THIRD_PARTY_LICENSES.md */,
-				C0DEC0DE0000000000000012 /* cmux-cua */,
-					C0DE70500000000000000001 /* start-cmux-profiling */,
-					C0DE70530000000000000001 /* submit-cmux-profile */,
-					D96971000000000000000003 /* setup-pam-tid.sh */,
-				DA7A10CA710E000000000002 /* InfoPlist.xcstrings */,
-				FEED0000000000000000F006 /* opencode-plugin.js */,
-				FEED0A00000000000000F006 /* feed-tui */,
-				A9D9000000000000000F0016 /* markdown-viewer */,
-			);
-			path = Resources;
-			sourceTree = "<group>";
-		};
 		A5001040 = {
 			isa = PBXGroup;
 			children = (
-				087C454FFF74443AB06942C3 /* Resources */,
+				CE7A00000000000000000022 /* Resources */,
 				A5001101 /* Assets.xcassets */,
 				IC000002 /* AppIcon.icon */,
-				A5001016 /* GhosttyKit.xcframework */,
 				A5001017 /* ghostty.h */,
 				A5001042 /* Products */,
-				CE7A00000000000000000003 /* App */,
+				CE7A00000000000000000021 /* App */,
 			);
 			sourceTree = "<group>";
 		};
@@ -106,14 +138,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		CE7A00000000000000000003 /* App */ = {
-			isa = PBXGroup;
-			children = (
-				CE7A00000000000000000001 /* main.swift */,
-			);
-			path = App;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -121,6 +145,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = CE7A00000000000000000006 /* Build configuration list for PBXNativeTarget "cmux-next" */;
 			buildPhases = (
+				CE7A00000000000000000040 /* Verify web bundles */,
 				CE7A00000000000000000009 /* Sources */,
 				CE7A0000000000000000000A /* Frameworks */,
 				CE7A0000000000000000000B /* Resources */,
@@ -128,12 +153,20 @@
 				CE7A0000000000000000001B /* Bundle CLI resources */,
 				CE7A0000000000000000001C /* Build Diff Sidecar */,
 				CE7A00000000000000000016 /* Bundle cmux-tui */,
+				CE7A00000000000000000020 /* Bundle acpmux */,
+				CE7A00000000000000000032 /* Bundle optchat-chief */,
 				CE7A00000000000000000017 /* Embed CEF */,
+				CE7A00000000000000000041 /* Embed remote browser host */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
+				CE7A00000000000000000031 /* Bundle server helper */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CE7A00000000000000000021 /* App */,
+				CE7A00000000000000000022 /* Resources */,
 			);
 			name = "cmux-next";
 			packageProductDependencies = (
@@ -185,6 +218,7 @@
 			packageReferences = (
 				CE7A00000000000000000013 /* XCLocalSwiftPackageReference "Packages/macOS/CmuxNext" */,
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -285,6 +319,44 @@
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-cmux-tui.sh\"\n";
 		};
+		CE7A00000000000000000020 /* Bundle acpmux */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle acpmux";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-acpmux.sh\"\n";
+		};
+		CE7A00000000000000000032 /* Bundle optchat-chief */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle optchat-chief";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-optchat-chief.sh\"\n";
+		};
 		CE7A00000000000000000017 /* Embed CEF */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -304,6 +376,25 @@
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-cef.sh\"\n";
 		};
+		CE7A00000000000000000041 /* Embed remote browser host */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed remote browser host";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-remote-browser-host.sh\"\n";
+		};
 		CE7A00000000000000000018 /* Bundle Ghostty resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -322,6 +413,44 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-ghostty-resources.sh\"\n";
+		};
+		CE7A00000000000000000031 /* Bundle server helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle server helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-server-helper.sh\"\n";
+		};
+		CE7A00000000000000000040 /* Verify web bundles */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Verify web bundles";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The web bundles are build output (cx-vn5): scripts/reload.sh, CI and the nightly run\n# scripts/cmux-next/build-web-bundles.sh before xcodebuild. Refuse an app built without them.\n# Compile-only jobs that ship no app set CMUX_WEB_BUNDLES_OPTIONAL=1.\nif [ \"${CMUX_WEB_BUNDLES_OPTIONAL:-0}\" = 1 ]; then\n  echo \"note: CMUX_WEB_BUNDLES_OPTIONAL=1 (compile-only build): the web bundles are not verified\"\n  exit 0\nfi\nexec \"${SRCROOT}/scripts/cmux-next/build-web-bundles.sh\" --verify\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -418,7 +547,7 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 106;
+				CURRENT_PROJECT_VERSION = 108;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -428,7 +557,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 0.64.25;
+				MARKETING_VERSION = 0.65.0;
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",
@@ -468,7 +597,7 @@
 				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 106;
+				CURRENT_PROJECT_VERSION = 108;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -478,7 +607,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 0.64.25;
+				MARKETING_VERSION = 0.65.0;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = (
 					"-lc++",

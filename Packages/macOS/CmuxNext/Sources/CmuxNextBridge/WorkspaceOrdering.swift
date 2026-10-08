@@ -3,11 +3,12 @@ public import CmuxNextSidebar
 /// Converts a sidebar `DropPosition` (index among the target container's
 /// remaining siblings) into the daemon's root workspace index for
 /// `move-workspace`.
-public enum WorkspaceOrdering {
+public struct WorkspaceOrdering {
+    public static let shared = Self()
     /// Root index the first moved workspace should land at, counted in the
     /// daemon order after the moved workspaces are removed. Nil when the
     /// position names a container that does not exist.
-    public static func rootIndex(for position: DropPosition, moving: [SidebarWorkspaceID],
+    public func rootIndex(for position: DropPosition, moving: [SidebarWorkspaceID],
                                  in sections: [SidebarRowSection]) -> Int? {
         let moved = Set(moving)
         let remaining = sections.flatMap(\.workspaces).map(\.id).filter { !moved.contains($0) }

@@ -9,7 +9,8 @@ import Observation
 @Observable
 final class SSHMachineSession {
     let host: SSHHost
-    var machineID: String { host.machineID }
+    /// The host's id, or the paired server's (`ServerMachineSession`).
+    let machineID: String
     let daemon: DaemonService
     @ObservationIgnored let link: SSHMachineLink
     @ObservationIgnored private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
@@ -28,9 +29,11 @@ final class SSHMachineSession {
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
 
-    init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String]) {
+    init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
+         machineID: String? = nil) {
         self.host = host
-        daemon = DaemonService(machineID: host.machineID)
+        self.machineID = machineID ?? host.machineID
+        daemon = DaemonService(machineID: self.machineID)
         // The actor reports each status change; only the latest matters.
         let (statuses, continuation) = AsyncStream.makeStream(of: SSHConnectionMachine.Status.self, bufferingPolicy: .bufferingNewest(8))
         link = SSHMachineLink(host: host, binary: binary, paths: paths, environment: environment) { continuation.yield($0) }
@@ -60,12 +63,12 @@ final class SSHMachineSession {
         // task-owner: opens the gate first, so the daemon loop's first endpoint call can dial
         Task { [weak self] in
             await link.handle(.connect)
-            guard let self, self.autoConnect else { return }
+            guard let self, self.autoConnect, !self.daemon.policyBlock.isBlocked else { return }
             self.daemon.start(remote: {
                 do {
                     return try await link.socketPath()
                 } catch let error as SSHLinkError where error.waitsForUser {
-                    // The next attempt waits for an event (DaemonStartup.isPermanent).
+                    // The next attempt waits for an event (DaemonStartup.shared.isPermanent).
                     throw DaemonError.endpointBlocked(error.description)
                 }
             })

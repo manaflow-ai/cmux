@@ -45,7 +45,11 @@ Personal on the home daemon:
 - Rooms, room follows, room pins, session registry (already there).
 - Saved tab groups (moved from the shared store; room-scoped).
 - Window records, including each window's selected tab per pane and focused pane
-  (section 3). Saved on every change, not on a 500 ms timer.
+  (section 3). Saved on every change, not on a 500 ms timer. One record per window,
+  keyed `(install_id, window_id)`, owner = install id, per-record revision with CAS
+  (`window_record.list|put|delete`, `window-records-v1`). The old `windows` frontend
+  projection migrates once into records owned by `install_unadopted`; an app adopts
+  one by putting the same `window_id`.
 - Workspace and room recency.
 - Browser profiles (id, name, color); their data directories stay app files.
 
@@ -113,3 +117,15 @@ group (workspace groups)  room  window  settings  events  acp  app
 | D | CLI | curated grammar over A and B, consistency flags, acpmux without sleeps |
 
 A and B are Rust in cmux-tui-core; C is Swift; D is the cmux-tui CLI and acpmux.
+
+## 7. Single-writer gaps (client-enforced until connections carry an install identity)
+
+- Window records: the daemon trusts the `install_id` a `window_record.put|delete`
+  names; any local client can write any install's record.
+- Browser tab records: `owner` (the hosting app's install id) is set by the raw
+  frontend browser commands and `tab.update {owner}`; the daemon does not check that
+  the writer is that install, and other record fields (url, title, zoom, history)
+  are not yet refused for writers other than the owner.
+- Fix: bind an authenticated install id to each connection (peer credentials plus a
+  per-install key locally), then reject single-writer record writes from anyone but
+  the stored owner.

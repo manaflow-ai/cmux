@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "1a3580a84cdeefbb38733d6fc53ee6a7a3b64f6933ac7cf8e51e9fae6009d4ea",
+  "catalog_sha256": "0c2bfc3b760b05875aca019d0040fe74961f164990de6a22b4cafc4b1096461c",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -79,11 +79,41 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "column.update": {
+      "class": "mutation"
+    },
     "frontend_projection.get": {
       "class": "read"
     },
     "frontend_projection.put": {
       "class": "mutation"
+    },
+    "git.checkpoint.create": {
+      "class": "mutation"
+    },
+    "git.checkpoint.diff": {
+      "class": "read"
+    },
+    "git.checkpoint.get": {
+      "class": "read"
+    },
+    "git.checkpoint.list": {
+      "class": "read"
+    },
+    "git.checkpoint.pin": {
+      "class": "mutation"
+    },
+    "git.checkpoint.unpin": {
+      "class": "mutation"
+    },
+    "git.diff": {
+      "class": "read"
+    },
+    "git.files.search": {
+      "class": "read"
+    },
+    "git.status": {
+      "class": "read"
     },
     "machine.get": {
       "class": "read"
@@ -102,6 +132,9 @@
     },
     "notification.list": {
       "class": "read"
+    },
+    "origin.confirmation.issue": {
+      "class": "connection_control"
     },
     "pairing_request.list": {
       "class": "read"
@@ -310,6 +343,12 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "sidebar_layout.get": {
+      "class": "read"
+    },
+    "sidebar_layout.update": {
+      "class": "mutation"
+    },
     "sidebar_view.attach": {
       "class": "stream_open"
     },
@@ -460,10 +499,25 @@
     "terminal.wait_exit": {
       "class": "read"
     },
+    "window_record.delete": {
+      "class": "mutation"
+    },
+    "window_record.list": {
+      "class": "read"
+    },
+    "window_record.put": {
+      "class": "mutation"
+    },
+    "workspace.agent_folder.set": {
+      "class": "mutation"
+    },
     "workspace.close": {
       "class": "mutation"
     },
     "workspace.create": {
+      "class": "mutation"
+    },
+    "workspace.ensure_home": {
       "class": "mutation"
     },
     "workspace.focus": {

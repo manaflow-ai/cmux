@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextLayout
 
@@ -18,6 +19,9 @@ struct InstantSplitTests {
         let context = LayoutViewContext(model: model, provider: provider)
         let view = ScreenContentView(screenID: "s", layout: layout, context: context)
         view.frame = CGRect(origin: .zero, size: size)
+        // Seed the initial presentation so a later ratio update retargets an
+        // existing spring instead of creating an already-settled frame.
+        view.reconcile(animated: false, structural: true)
         return (view, model)
     }
 
@@ -73,6 +77,8 @@ struct InstantSplitTests {
     }
 
     @Test func ratioChangeKeepsItsSpring() {
+        Motion.reduceMotionOverride = false // CI runners may have Reduce Motion on
+        defer { Motion.reduceMotionOverride = nil }
         let provider = RecordingProvider()
         let (view, _) = makeView(.splits(splitTree()), provider: provider)
         #expect(view.update(layout: .splits(splitTree(ratio: 0.3)), animated: true))

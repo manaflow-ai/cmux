@@ -42,8 +42,9 @@ public struct CloudTunnelEnrollment: Sendable, Hashable, Decodable {
 
 /// Completes the server's wg-quick file with this Mac's private key and
 /// every private network route (the old app's `completedConfig`).
-public enum WireGuardConfig {
-    public static func completed(_ enrollment: CloudTunnelEnrollment, privateKey: String) -> String {
+public struct WireGuardConfig: Sendable {
+    public static let shared = Self()
+    public func completed(_ enrollment: CloudTunnelEnrollment, privateKey: String) -> String {
         var routes: [String] = []
         for network in (enrollment.networks ?? []) + [enrollment.network].compactMap({ $0 }) {
             for cidr in [network.cidr, network.cidrV6].compactMap({ $0 }) where !routes.contains(cidr) { routes.append(cidr) }
@@ -66,7 +67,7 @@ public enum WireGuardConfig {
         return lines.joined(separator: "\n")
     }
 
-    private static func key(of line: String) -> String? {
+    private func key(of line: String) -> String? {
         guard let equals = line.firstIndex(of: "=") else { return nil }
         return line[..<equals].trimmingCharacters(in: .whitespaces).lowercased()
     }

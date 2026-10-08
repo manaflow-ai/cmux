@@ -5,7 +5,7 @@ import Foundation
 /// Chromium navigation). Returns the anchor browser of the pane window that
 /// gets the new tab, or 0 when Chromium must open nothing.
 let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, disposition, source, hasBounds,
-    x, y, width, height, url, profile in
+    x, y, width, height, userGesture, url, profile in
     guard let context, Thread.isMainThread else { return 0 }
     let request = CEFWindowRequest(
         kind: CEFWindowRequest.Kind(rawValue: kind) ?? .window,
@@ -13,11 +13,12 @@ let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, 
         sourceBrowser: source,
         bounds: hasBounds != 0 ? CGRect(x: Int(x), y: Int(y), width: Int(width), height: Int(height)) : nil,
         url: url.map { String(cString: $0) } ?? "",
+        userGesture: userGesture != 0,
         profilePath: CEFRuntime.normalizedPath(profile.map { String(cString: $0) } ?? "")
     )
     let address = UInt(bitPattern: context)
     return MainActor.assumeIsolated {
-        CEFRuntime.from(address)?.windowRequested(request) ?? 0
+        CEFRuntime.from(address)?.windowRequests.handle(request) ?? 0
     }
 }
 
@@ -30,9 +31,16 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
 
     private(set) var count = 0
     private(set) var refused = 0
-    /// Chrome commands that would open a Chromium window, blocked by the shim.
+    /// Chromium commands that would open a Chromium window, blocked by the shim.
     private(set) var blockedCommands: [Int32] = []
     private(set) var recent: [Entry] = []
+    /// The latest popup window steps (fork API 13), for `debug.cef`.
+    private(set) var popupWindows: [String] = []
+
+    mutating func notePopupWindow(_ event: String) {
+        popupWindows.append(event)
+        if popupWindows.count > 12 { popupWindows.removeFirst(popupWindows.count - 12) }
+    }
 
     mutating func record(_ request: CEFWindowRequest, _ decision: CEFWindowDecision) {
         count += 1
@@ -48,53 +56,6 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
 }
 
 extension CEFRuntime {
-    /// Chrome's `IDC_NEW_INCOGNITO_WINDOW`.
-    static let newIncognitoWindowCommand: Int32 = 34001
-
-    /// Where a Chromium window request goes (`CEFWindowPolicy`), applied.
-    func windowRequested(_ reported: CEFWindowRequest) -> Int32 {
-        let request = resolvedStore(of: reported)
-        let decision = CEFWindowPolicy.decide(request, candidates: windowCandidates(for: request))
-        windowRequestLog.record(request, decision)
-        logger.notice("Chromium window request kind=\(request.kind.rawValue) disposition=\(request.disposition.rawValue) source=\(request.sourceBrowser) -> \(String(describing: decision), privacy: .public)")
-        switch decision {
-        case .insert(let anchor, let disposition):
-            if let window = shim?.tabWindowID(anchor), window != 0 {
-                placements.record(window: window, CEFPlacement(disposition: disposition, bounds: request.bounds))
-            }
-            return anchor
-        case .openInNewTab(let url, let disposition):
-            if let url = URL(string: url) {
-                // Not from inside Chromium's navigation: the App creates a tab.
-                Task { @MainActor [weak self] in self?.openURLWithoutWindow?(url, disposition) }
-            }
-            return 0
-        case .openOffTheRecord(let url):
-            let source = tabsByBrowser[request.sourceBrowser]
-            // Not from inside Chromium's navigation: the App opens a window.
-            Task { @MainActor [weak self] in self?.openOffTheRecord?(url.isEmpty ? nil : URL(string: url), source) }
-            return 0
-        case .refuse(let refusal):
-            refused(refusal, source: request.sourceBrowser)
-            return 0
-        }
-    }
-
-    /// The request with the store cmux knows it came from: the source tab's
-    /// store (an incognito window's in-memory context has no directory of
-    /// its own; Chromium names its parent's), else the reported directory,
-    /// which is persistent only when it is a cmux profile directory.
-    func resolvedStore(of reported: CEFWindowRequest) -> CEFWindowRequest {
-        var request = reported
-        if let host = tabsByBrowser[reported.sourceBrowser]?.host {
-            request.profilePath = storeKey(of: host.key)
-            request.persistentProfile = !host.key.offTheRecord
-        } else {
-            request.persistentProfile = storage.isPersistentProfilePath(reported.profilePath)
-        }
-        return request
-    }
-
     /// A pane window's store, compared with request stores.
     func storeKey(of key: CEFPaneKey) -> String {
         let context = contextKey(for: key)
@@ -112,44 +73,23 @@ extension CEFRuntime {
         return placement
     }
 
-    func windowCandidates(for request: CEFWindowRequest) -> [CEFWindowCandidate] {
-        // A popup panel holds only its popup: what a popup page opens goes
-        // to the window of the pane that opened the popup.
-        var sourceHost = tabsByBrowser[request.sourceBrowser]?.host
-        if let popup = sourceHost, popup.isPopupHost {
-            sourceHost = popup.tabs.lazy.compactMap(\.popupOpenerHost).first
-        }
-        return hosts.values.compactMap { host in
-            guard host.isLive, !host.isPopupHost, let anchor = host.anchorBrowser else { return nil }
-            return CEFWindowCandidate(
-                anchor: anchor,
-                profilePath: storeKey(of: host.key),
-                holdsSource: host === sourceHost,
-                lastShown: host === lastShownHost,
-                visible: host.hostView.window != nil && !host.hostView.isHiddenOrHasHiddenAncestor
-            )
-        }
-        .sorted { $0.anchor < $1.anchor }
-    }
-
     /// Chromium reports the profile directory; compare it with ours the same
     /// way.
     nonisolated static func normalizedPath(_ path: String) -> String {
         URL(filePath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    /// The shim blocked a Chrome command that opens a Chromium window.
+    /// The shim blocked a Chromium command that opens a Chromium window.
+    /// It runs nothing: cmux's own bindings decide what a key in a page
+    /// does (Shift-Cmd-N is New Window, Option-Shift-Cmd-N New Incognito
+    /// Window, user decision 2026-10-07), so a chord the user unbound never
+    /// falls back to Chromium's meaning (its Shift-Cmd-N is incognito).
     func chromeWindowCommandBlocked(_ command: Int32, browser: Int32) {
-        windowRequestLog.blocked(command: command)
-        logger.notice("Blocked Chrome command \(command) (it opens a Chromium window)")
-        if command == Self.newIncognitoWindowCommand {
-            // Chrome's New Incognito Window (Cmd-Shift-N in a page when cmux
-            // does not bind it): a new cmux incognito window.
-            Task { @MainActor [weak self] in self?.openOffTheRecord?(nil, nil) }
-        }
+        windowRequests.log.blocked(command: command)
+        logger.notice("Blocked Chromium command \(command) (it opens a Chromium window)")
     }
 
-    private func refused(_ refusal: CEFWindowRefusal, source: Int32) {
+    func refused(_ refusal: CEFWindowRefusal, source: Int32) {
         switch refusal {
         case .noWindow:
             logger.notice("Chromium window request from a store with no window refused (source=\(source))")
@@ -171,7 +111,7 @@ public struct CEFWindowReport: Sendable {
     public var refused: Int
     /// The latest requests: "kind=… disposition=… source=… -> decision".
     public var recent: [String]
-    /// Chrome commands the shim blocked (`IDC_*` ids).
+    /// Chromium commands the shim blocked (`IDC_*` ids).
     public var blockedCommands: [Int32]
     /// Browsers Chromium created outside cmux (fork API 8), or -1.
     public var foreignBrowsers: Int
@@ -183,24 +123,27 @@ public struct CEFWindowReport: Sendable {
     /// Tabs Chromium created that wait for a pane window.
     public var unplacedTabs: Int
     public var forkAPIVersion: Int
+    /// The latest popup window events (fork API 13).
+    public var popupWindows: [String] = []
 }
 
 extension CEFRuntime {
     var windowReport: CEFWindowReport {
         let started = state == .ready
         return CEFWindowReport(
-            requests: windowRequestLog.count,
-            refused: windowRequestLog.refused,
-            recent: windowRequestLog.recent.map { entry in
+            requests: windowRequests.log.count,
+            refused: windowRequests.log.refused,
+            recent: windowRequests.log.recent.map { entry in
                 "kind=\(entry.request.kind.rawValue) disposition=\(entry.request.disposition.rawValue) source=\(entry.request.sourceBrowser) -> \(entry.decision)"
             },
-            blockedCommands: windowRequestLog.blockedCommands,
+            blockedCommands: windowRequests.log.blockedCommands,
             foreignBrowsers: started ? Int(shim?.foreignBrowserCount() ?? -1) : -1,
             guardBlocked: windowGuard.blockedCount,
             guardRecent: windowGuard.recent.map { "\($0.verdict) \($0.className) \"\($0.title)\"" },
             chromiumWindows: started ? windowGuard.offendingWindows().map { "\(NSStringFromClass(type(of: $0))) \"\($0.title)\"" } : [],
-            unplacedTabs: unplaced.count,
-            forkAPIVersion: Int(forkAPIVersion)
+            unplacedTabs: orphans.unplaced.count,
+            forkAPIVersion: Int(forkAPIVersion),
+            popupWindows: windowRequests.log.popupWindows
         )
     }
 }

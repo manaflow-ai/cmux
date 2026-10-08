@@ -9,11 +9,21 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+mod apps;
 pub mod backoff;
 mod browser;
+pub mod browser_host;
 mod browser_provider;
+pub mod cloud_conversations;
+mod conversation_search;
+mod conversation_store;
+pub mod daemon_env;
+mod debug_spans;
 pub mod diagnostics;
 mod event_bus;
+#[cfg(unix)]
+pub mod fs_ops;
+mod git_ops;
 #[cfg(unix)]
 mod image_paste;
 #[cfg(unix)]
@@ -34,9 +44,12 @@ mod machine_name;
 mod model;
 mod mux;
 mod pairing;
+mod program_status;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
+mod remote_relay_state;
+mod request_origin;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
@@ -45,12 +58,25 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod session_shutdown;
+mod shell_history;
+mod shell_integration;
 mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
+mod state;
+pub mod store_schemas;
 mod stream_interrupt;
 mod surface;
+#[cfg(unix)]
+mod terminal_backend;
+mod terminal_end;
+#[cfg(unix)]
+mod terminal_loss_log;
 mod terminal_metadata;
+pub mod terminal_respawn_text;
+#[cfg(windows)]
+mod windows_processes;
 mod workspace_registry;
 
 pub mod layout;
@@ -68,7 +94,12 @@ pub use agent_hooks::{
     stamp_agent_hook_observed_now,
 };
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+/// The owner raises its open-file soft limit at start; terminal hosts and
+/// PTY children get the original back (`cmux_pty::open_files`).
+#[cfg(unix)]
+pub use cmux_pty::{OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
+pub(crate) use journal_ingress::contention::JournalContention;
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
 pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
 pub use layout::{
@@ -78,15 +109,19 @@ pub use layout::{
     exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
-pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
+pub use model::{
+    ColumnDock, DockEdge, DockMode, DockRole, Node, Pane, Screen, State, ViewportColumn, Workspace,
+};
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
-    Mux, MuxEvent, NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
+    CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
+    DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
+    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
+    NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
-    RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
+    RowHeightsOutcome, RowsError, RunPlacement, ScreenDestination, ScreenGroupOutcome,
+    ScreenMoveOutcome, ScreenSpec, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
     SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge, TabGroupDestination,
     TabGroupOutcome, TabNotificationAck, TabPinChange, TerminalSpawnOptions, TreeDecorations,
     TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
@@ -98,6 +133,10 @@ pub use mux::{
     validate_terminal_reap_grace,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use remote_relay_state::{
+    BindRefused, CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
+    RelayLock, RelayStateError, RevocationClock,
+};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
@@ -113,10 +152,10 @@ pub use surface::{
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
 pub use workspace_registry::{
-    FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,
-    JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,
-    JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry, JournalIngress,
-    JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
+    Actor, FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint,
+    JournalClass, JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy,
+    JournalHookExec, JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry,
+    JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
     RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
@@ -124,7 +163,6 @@ pub use workspace_registry::{
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};
-pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
 
 pub type SurfaceId = u64;

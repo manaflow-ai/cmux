@@ -35,9 +35,12 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
     /// Not serialized on the `notification` event by current daemons; the
     /// `list-notifications` ledger carries `created_at_ms`.
     public var createdAtMs: UInt64?
+    /// Who posted it (`notification-source-v1`: `cli`, `terminal` for OSC
+    /// 9/777/99 the daemon parsed, `agent`, `daemon`); nil from older daemons.
+    public var source: String?
 
     enum CodingKeys: String, CodingKey {
-        case notification, title, body, level, surface
+        case notification, title, body, level, surface, source
         case createdAtMs = "created_at_ms"
     }
 
@@ -49,6 +52,7 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
         level = (try? c.decode(NotificationLevel.self, forKey: .level)) ?? .info
         surface = try c.decodeIfPresent(SurfaceID.self, forKey: .surface)
         createdAtMs = try c.decodeIfPresent(UInt64.self, forKey: .createdAtMs)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
     }
 }
 

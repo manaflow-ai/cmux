@@ -5,19 +5,51 @@
 //! accidentally fall back to the private command protocol.
 
 #[cfg(unix)]
+mod action_hint;
+#[cfg(unix)]
 mod app;
+#[cfg(unix)]
+mod app_focus;
+#[cfg(unix)]
+mod apps_run;
+mod code_mode;
+#[cfg(unix)]
+mod coderouter;
 mod command;
+mod docs;
+mod extra_help;
+mod federation;
+#[cfg(unix)]
+mod frontend_browser;
+#[cfg(unix)]
+mod host_mount;
 mod lifecycle;
+#[cfg(unix)]
+#[cfg(unix)]
+pub(crate) use host_mount::early_unix_scope;
+mod machine_server;
+#[cfg(test)]
+use machine_server::ServerRoute;
+pub(crate) use machine_server::is_lifecycle_scope;
+#[cfg(unix)]
+mod mcp;
 mod raw;
 mod resolve;
+mod scope_help;
+mod screen_help;
 mod shorthand;
+mod surface;
+mod topology_help;
 mod wire;
+pub(super) use surface::{BIN, Surface};
 
 use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
 use command::{CommandPlan, ParsedCommand};
+use screen_help::SCREEN_HELP;
+use topology_help::{PANE_HELP, TAB_HELP, TERMINAL_HELP, WORKSPACE_HELP};
 
 const PUBLIC_SCOPES: &[&str] = &[
     "machine",
@@ -34,6 +66,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "agent",
     "room",
     "closed",
+    "git",
     "sidebar",
     "pairing",
     "projection",
@@ -41,65 +74,11 @@ const PUBLIC_SCOPES: &[&str] = &[
     "raw",
 ];
 
-/// Scopes the `cmux` name shows and accepts: the features cmux-next
-/// supports (plans/cmux-next/state-ownership.md, section 5). The app scopes
-/// (`app`, `action`, `settings`, `window`, `events`) and `acp` route before
-/// this parser.
-const CMUX_SCOPES: &[&str] = &[
-    "server",
-    "workspace",
-    "screen",
-    "pane",
-    "tab",
-    "terminal",
-    "browser",
-    "notification",
-    "agent",
-    "room",
-    "closed",
-];
-
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
 /// (`raw command`, `session current snapshot`), the app's daemon launcher and
 /// SSH remotes run the binary as `cmux-tui`, so these keep working there.
 const CMUX_TUI_ONLY_SCOPES: &[&str] =
     &["machine", "session", "client", "sidebar", "pairing", "projection", "provider", "raw"];
-
-/// Which command-line surface this invocation exposes. The binary ships as
-/// `cmux` (the curated CLI) and as `cmux-tui` (the full resource grammar its
-/// own tooling and Cloud guests use); every other name is `cmux-tui`, so a
-/// renamed or test binary keeps the full grammar.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Surface {
-    Cmux,
-    CmuxTui,
-}
-
-impl Surface {
-    pub(super) fn for_program(argv0: Option<&std::ffi::OsStr>) -> Self {
-        let name = argv0.and_then(|value| std::path::Path::new(value).file_name());
-        if name.is_some_and(|name| name == "cmux" || name == "cmux.exe") {
-            Self::Cmux
-        } else {
-            Self::CmuxTui
-        }
-    }
-
-    fn current() -> Self {
-        Self::for_program(std::env::args_os().next().as_deref())
-    }
-
-    fn scopes(self) -> &'static [&'static str] {
-        match self {
-            Self::Cmux => CMUX_SCOPES,
-            Self::CmuxTui => PUBLIC_SCOPES,
-        }
-    }
-
-    fn accepts(self, scope: &str) -> bool {
-        self.scopes().contains(&scope)
-    }
-}
 
 const REMOTE_COMMANDS: &[&str] = &[
     "remote",
@@ -188,6 +167,8 @@ pub(super) struct GlobalArgs {
     /// `--idempotency-key`: the key a failed mutation printed, reused so a
     /// retry cannot apply the change twice.
     pub idempotency_key: Option<String>,
+    /// `--all-sessions`: a list runs on every local session (cli/federation.rs).
+    pub all_sessions: bool,
     pub output: OutputMode,
 }
 
@@ -222,8 +203,33 @@ pub(super) fn canonical_scope(value: &str) -> &str {
     shorthand::scope(value)
 }
 
+/// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
+/// (with the deprecation hint), so `main` routes `server start` to the
+/// headless startup like `daemon start`. No-op elsewhere.
+pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
+    if let Some(rewritten) = machine_server::deprecated_lifecycle(args, Surface::current()) {
+        *args = rewritten;
+    }
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
+    let lifecycle_args;
+    let args = match machine_server::run_if_requested(args, surface) {
+        Some(machine_server::Mount::Exit(code)) => return code,
+        Some(machine_server::Mount::Lifecycle(rewritten)) => {
+            lifecycle_args = rewritten;
+            lifecycle_args.as_slice()
+        }
+        None => args,
+    };
+    #[cfg(unix)]
+    if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| apps_run::run_if_requested(args))
+    {
+        return code;
+    }
     #[cfg(unix)]
     if let Some(code) = run_app_scope(args) {
         return code;
@@ -239,9 +245,14 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             0
         }
+        Ok(ParsedCommand::Docs(plan)) => docs::run(plan),
+        Ok(ParsedCommand::CodeMode(plan)) => code_mode::run(plan),
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
+            CommandPlan::Protocol(request) if global.all_sessions => {
+                federation::run_all_sessions(&global, *request)
+            }
             CommandPlan::Protocol(request) => wire::run(global, *request),
             CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
@@ -282,10 +293,16 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
 #[cfg(unix)]
 fn run_app_scope(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_globals(args).ok()?;
-    if has_help_option(&command_args) {
-        return None;
+    if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
+        return extra_help::print(&command_args);
     }
     match app::parse(&command_args) {
+        Ok(Some(_)) if global.all_sessions => Some(app::failure(
+            "usage.invalid",
+            "cmux: --all-sessions applies only to the session list commands",
+            global.output,
+            2,
+        )),
         Ok(Some(command)) => Some(app::run(&global, command)),
         Ok(None) => None,
         Err(error) => Some(wire::print_local_error(
@@ -312,6 +329,7 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     }
     let name = command_args[..words].join(" ");
     app::run_cli_action(&global, &name, &command_args[words..])
+        .or_else(|| action_hint::report(&name, global.output))
 }
 
 fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {
@@ -322,11 +340,15 @@ fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailur
 }
 
 fn parse_command(
-    global: GlobalArgs,
+    mut global: GlobalArgs,
     command_args: Vec<String>,
     surface: Surface,
 ) -> Result<ParsedCommand, UsageError> {
-    let command_args = shorthand::normalize(&command_args)?;
+    if let Some(decided) = machine_server::cmux_words(&command_args, surface) {
+        return decided;
+    }
+    let mut command_args = shorthand::normalize(&command_args, surface)?;
+    federation::apply_qualifiers(&mut global, &mut command_args)?;
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
@@ -353,13 +375,13 @@ fn parse_command(
             crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
         ));
     }
-    if command_args[0] == "daemon" {
-        return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
+    if let Some(error) = extra_help::own_options_scope(&command_args[0]) {
+        return Err(error);
     }
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if surface.accepts(shorthand::scope(scope)) => {
@@ -367,6 +389,12 @@ fn parse_command(
             }
             Some(scope) => Err(unknown_scope(scope, surface)),
         };
+    }
+    if let Some(command) = docs::command(&command_args, global.clone())? {
+        return Ok(command);
+    }
+    if let Some(command) = code_mode::command(&command_args, global.clone())? {
+        return Ok(command);
     }
     if has_help_option(&command_args) {
         let words = command_args
@@ -384,6 +412,9 @@ fn parse_command(
             {
                 Some(format!("server {action}"))
             }
+            [scope @ ("workspace" | "screen" | "pane" | "tab"), .., "rename"] => {
+                Some(format!("{scope} rename"))
+            }
             [scope, ..] if surface.accepts(scope) => Some((*scope).to_string()),
             _ => None,
         };
@@ -399,6 +430,12 @@ fn parse_command(
     }
     let mut plan = command::parse(&command_args, surface)?;
     apply_idempotency_key(&mut plan, global.idempotency_key.as_deref())?;
+    if global.all_sessions {
+        match &plan {
+            CommandPlan::Protocol(request) => federation::validate_all_sessions(&global, request)?,
+            _ => return Err(UsageError::new("--all-sessions applies only to list commands")),
+        }
+    }
     Ok(ParsedCommand::Command { global, plan })
 }
 
@@ -422,29 +459,12 @@ pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a 
     candidates
         .iter()
         .copied()
-        .map(|candidate| (edit_distance(value, candidate), candidate))
+        .map(|candidate| (scope_help::edit_distance(value, candidate), candidate))
         .min_by_key(|(distance, _)| *distance)
         .filter(|(distance, candidate)| {
             *distance <= 2 || (*distance == 3 && candidate.len().max(value.len()) >= 8)
         })
         .map(|(_, candidate)| candidate)
-}
-
-fn edit_distance(left: &str, right: &str) -> usize {
-    let right = right.chars().collect::<Vec<_>>();
-    let mut previous = (0..=right.len()).collect::<Vec<_>>();
-    for (row, left) in left.chars().enumerate() {
-        let mut current = vec![row + 1];
-        for (column, right) in right.iter().enumerate() {
-            current.push(
-                (current[column] + 1)
-                    .min(previous[column + 1] + 1)
-                    .min(previous[column] + usize::from(left != *right)),
-            );
-        }
-        previous = current;
-    }
-    previous[right.len()]
 }
 
 fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
@@ -523,6 +543,10 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
                     Some(idempotency_key(&key).map_err(|error| (error, global.output))?);
                 index += 2;
             }
+            "--all-sessions" => {
+                global.all_sessions = true;
+                index += 1;
+            }
             "--json" | "--jsonl" | "--quiet" => {
                 let output = match value.as_str() {
                     "--json" => OutputMode::Json,
@@ -557,7 +581,13 @@ fn option_takes_value(value: &str) -> bool {
             && !value.contains('=')
             && !matches!(
                 value,
-                "--help" | "--json" | "--jsonl" | "--quiet" | "--literal" | "--print"
+                "--help"
+                    | "--json"
+                    | "--jsonl"
+                    | "--quiet"
+                    | "--literal"
+                    | "--print"
+                    | "--all-sessions"
             )
             && !command::is_boolean_flag(value.trim_start_matches("--")))
 }
@@ -637,8 +667,10 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
-    match scope {
+    let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
+        "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
@@ -654,18 +686,23 @@ fn scope_help_for(
         "pane" => Cow::Borrowed(PANE_HELP),
         "tab" => Cow::Borrowed(TAB_HELP),
         "terminal" => Cow::Borrowed(TERMINAL_HELP),
-        "browser" => Cow::Borrowed(BROWSER_HELP),
-        "notification" => Cow::Borrowed(NOTIFICATION_HELP),
+        "workspace rename" | "screen rename" | "pane rename" | "tab rename" => {
+            Cow::Owned(topology_help::rename_help(scope))
+        }
+        "browser" => Cow::Borrowed(scope_help::BROWSER_HELP),
+        "notification" => Cow::Borrowed(scope_help::NOTIFICATION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
-        "room" => Cow::Borrowed(ROOM_HELP),
-        "closed" => Cow::Borrowed(CLOSED_HELP),
+        "room" => Cow::Borrowed(scope_help::ROOM_HELP),
+        "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
+        "git" => Cow::Borrowed(scope_help::GIT_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
-    }
+    });
+    docs::append_scope_help(scope, text)
 }
 
 const ROOT_HELP_PROCESS_PREFIX: &str = "\
@@ -719,6 +756,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   agent         List and report agent state
   room          Organize workspaces into rooms
   closed        List and reopen closed tabs, screens, workspaces
+  git           Read a repository's status and changes; capture checkpoints
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
@@ -798,157 +836,6 @@ USAGE
   cmux client <selector> cell pixels set --width-px <n> --height-px <n>
 ";
 
-const WORKSPACE_HELP: &str = "\
-USAGE
-  cmux workspace list
-  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
-    [--expected-revision <revision>]
-  cmux workspace <selector> show|rename|move|focus|close
-  cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon]
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
-  cmux workspace <selector> layout apply [OPTIONS]
-  cmux workspace <selector> screen ...
-  cmux workspace [<selector>] status list
-  cmux workspace status list --all
-  cmux workspace [<selector>] status set <key> <text> [--icon <value>] [--color <value>]
-  cmux workspace [<selector>] status clear [<key>]
-  cmux workspace [<selector>] progress set <0..1>|--indeterminate [--label <value>]
-  cmux workspace [<selector>] progress clear
-  cmux workspace [<selector>] log append <text> [--level <level>] [--source <value>]
-  cmux workspace [<selector>] log list [--limit <1..200>]
-  cmux workspace [<selector>] log clear
-  cmux workspace placement list
-  cmux workspace group list [--room <room>]
-  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
-  cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
-    [--room <room>] [--collapse|--expand]
-  cmux workspace group <group> delete|move --index <n>
-  cmux workspace group <group> add --workspace <selector> [--index <n>]
-  cmux workspace group remove --workspace <selector>
-
-Nested panes support split --right or --down. Without a selector, status,
-progress and log target the caller's workspace inside a cmux terminal, else
-the current one. Levels: info, progress, success, warning, error. Text that
-starts with a dash goes after --. --ephemeral creates an incognito workspace
-the session closes at its next start. Workspace groups and rooms are
-personal: they live in this Mac's home session. A group or room is named by
-its id or exact name.
-";
-
-const SCREEN_HELP: &str = "\
-USAGE
-  cmux screen list
-  cmux screen create [--correlation-key <value>]
-  cmux screen <selector> show|rename|focus|close
-  cmux screen <selector> pin|unpin
-  cmux screen <selector> update [--pinned <bool>] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon]
-  cmux screen <selector> move --index <n>
-  cmux screen <selector> layout export
-  cmux screen <selector> layout undo [--confirm-close]
-    [--confirmation-token <value>]
-  cmux screen <selector> pane ...
-  cmux screen group list [--workspace <selector>]
-  cmux screen group create --screens <screen_…,...> [--name <value>] [--color <color>]
-  cmux screen group <group> show|ungroup
-  cmux screen group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
-  cmux screen group <group> add --screens <screen_…,...>
-  cmux screen group remove --screens <screen_…,...>
-
-Pinned screens sort first and leave their group. Group colors: grey, blue,
-red, yellow, green, pink, purple, cyan, orange.
-";
-
-const PANE_HELP: &str = "\
-USAGE
-  cmux pane list
-  cmux pane create [--correlation-key <value>]
-  cmux pane <selector> show|rename|focus|close
-  cmux pane <selector> split [--right|--down] [--ratio <value>]
-    [--viewport-width <fraction>] [--correlation-key <value>]
-  cmux pane <selector> focus direction <left|right|up|down>
-  cmux pane <selector> neighbor <left|right|up|down>
-  cmux pane <selector> swap --other-workspace <selector>
-    --other-screen <selector> --other-pane <selector>
-  cmux pane <selector> zoom [--enabled <bool>]
-  cmux pane <selector> split ratio set --split <id> --ratio <value>
-  cmux pane <selector> viewport width set --columns <value>
-  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
-  cmux pane <selector> tab ...
-";
-
-const TAB_HELP: &str = "\
-USAGE
-  cmux tab list
-  cmux tab <selector> show|rename|move|focus|close
-  cmux tab <selector> pin|unpin
-  cmux tab <selector> zoom <0.25..5>|reset
-  cmux tab <selector> update [--zoom <0.25..5>|--clear-zoom] [--back <url,...>] [--forward <url,...>]
-  cmux tab create terminal [--correlation-key <value>] [OPTIONS]
-  cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
-  cmux tab <selector> terminal|browser ...
-  cmux tab group list [--pane <pane_…>]
-  cmux tab group create --tabs <tab_…,...> [--name <value>] [--color <color>]
-  cmux tab group <group> show|ungroup|close
-  cmux tab group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
-  cmux tab group <group> add --tabs <tab_…,...> [--index <n>]
-  cmux tab group remove --tabs <tab_…,...>
-  cmux tab group <group> move [--pane <pane_…>] [--index <n>]
-  cmux tab group <group> save [--room <room>]
-  cmux tab group <group> split --pane <id> --edge <left|right|top|bottom> [--ratio <r>]
-  cmux tab group <group> column [--pane <id>|--screen <id>] [--after-column <id>] [--width <w>]
-  cmux tab group <group> new-workspace [--workspace-group <id>] [--index <n>]
-  cmux tab group <group> unsave
-  cmux tab group saved list [--room <room>]
-  cmux tab group saved <saved> reopen [--pane <pane_…>]
-  cmux tab group saved <saved> delete
-
-Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
-and leave their group. A group or saved group is named by its id or exact
-name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange.
-";
-
-const TERMINAL_HELP: &str = "\
-USAGE
-  cmux terminal list
-  cmux terminal <selector> show
-  cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
-  cmux terminal <selector> keys <key...>
-  cmux terminal <selector> mouse <kind> [OPTIONS]
-  cmux terminal <selector> focus <in|out>
-  cmux terminal <selector> screen read
-  cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
-  cmux terminal <selector> state read
-  cmux terminal <selector> history read|clear
-  cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
-  cmux terminal <selector> copy|process show [OPTIONS]
-  cmux terminal <selector> process wait [--timeout-ms <n>]
-  cmux terminal <selector> viewport scroll --delta-rows <n>
-  cmux terminal <selector> move|project|attach|close [OPTIONS]
-  cmux terminal <term_id> keep on|off
-
-screen wait prints its result either way and exits 1 when the timeout
-passes without a match. keep on stops the owner from ending the terminal
-when it has no tab; keep off lets it end after the reap grace period.
-";
-
-const BROWSER_HELP: &str = "\
-USAGE
-  cmux browser list
-  cmux browser <selector> show|navigate|back|forward|reload|activate
-  cmux browser <selector> key|text [OPTIONS]
-  cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
-  cmux browser <selector> attach|close [OPTIONS]
-";
-
-const NOTIFICATION_HELP: &str = "\
-USAGE
-  cmux notification list
-  cmux notification create --title <value> --body <value> [OPTIONS]
-";
-
 const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
@@ -959,36 +846,6 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
-";
-
-const ROOM_HELP: &str = "\
-USAGE
-  cmux room list
-  cmux room create --name <value> [--color <value>] [--icon <value>] [--theme <value>] [--index <n>]
-  cmux room <room> update [--name <value>] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon] [--theme <value>|--clear-theme]
-    [--browser-profile <id>|--clear-browser-profile]
-    [--default-session <id>|--clear-default-session]
-  cmux room <room> delete [--move-to <room>]
-  cmux room <room> move --index <n>
-  cmux room <room> follow --sessions <session,...>
-  cmux room <room> pin --workspace <selector>
-  cmux room unpin --workspace <selector>
-
-Rooms are personal views of this Mac's home session. A room shows the
-workspaces pinned to it and the unpinned workspaces of the sessions it
-follows; --sessions is the complete follow set (\"\" follows none). A
-workspace is pinned to at most one room. A room is named by its id or exact
-name.
-";
-
-const CLOSED_HELP: &str = "\
-USAGE
-  cmux closed list
-  cmux closed <closed> reopen
-
-The session keeps recently closed tabs, screens and workspaces. A tab reopens
-in its pane, a screen in its workspace, a workspace as a new workspace.
 ";
 
 const SIDEBAR_HELP: &str = "\
@@ -1031,443 +888,4 @@ escape for the legacy control protocol and provides no compatibility promise.
 ";
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn strings(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| (*value).to_string()).collect()
-    }
-
-    #[test]
-    fn global_modes_are_mutually_exclusive() {
-        let error =
-            parse_globals(&strings(&["--json", "--quiet", "workspace", "list"])).unwrap_err();
-        assert!(error.0.0.contains("another output mode"));
-        assert_eq!(error.1, OutputMode::Json);
-    }
-
-    #[test]
-    fn separator_stops_global_flag_extraction() {
-        let (global, command) = parse_globals(&strings(&[
-            "--json",
-            "workspace",
-            "current",
-            "run",
-            "--",
-            "tool",
-            "--session",
-            "literal",
-        ]))
-        .unwrap();
-        assert_eq!(global.output, OutputMode::Json);
-        assert_eq!(
-            command,
-            strings(&["workspace", "current", "run", "--", "tool", "--session", "literal",])
-        );
-    }
-
-    #[test]
-    fn global_value_options_accept_inline_equals_values() {
-        let (global, command) = parse_globals(&strings(&[
-            "--socket=/tmp/review.sock",
-            "--session=review-session",
-            "--machine=builder",
-            "workspace",
-            "list",
-        ]))
-        .unwrap();
-        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
-        assert_eq!(global.session.as_deref(), Some("review-session"));
-        assert_eq!(global.machine.as_deref(), Some("builder"));
-        assert_eq!(command, strings(&["workspace", "list"]));
-    }
-
-    #[test]
-    fn global_value_options_reject_empty_inline_values() {
-        let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();
-        assert!(error.0.0.contains("--socket needs a value"));
-    }
-
-    #[test]
-    fn global_value_options_reject_following_option() {
-        let error =
-            parse_globals(&strings(&["--session", "--json", "workspace", "list"])).unwrap_err();
-        assert!(error.0.0.contains("--session needs a value"));
-    }
-
-    #[test]
-    fn global_value_options_accept_hyphen_prefixed_values() {
-        let (global, command) =
-            parse_globals(&strings(&["--session", "-1", "--socket", "-tmp/socket"])).unwrap();
-        assert_eq!(global.session.as_deref(), Some("-1"));
-        assert_eq!(global.socket, Some(PathBuf::from("-tmp/socket")));
-        assert!(command.is_empty());
-    }
-
-    #[test]
-    fn server_lifecycle_routing_flags_follow_action() {
-        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
-            parse(&strings(&["server", "status", "--session", "review-session"]), Surface::CmuxTui)
-                .unwrap()
-        else {
-            panic!("server status must produce a server plan");
-        };
-        assert_eq!(global.session.as_deref(), Some("review-session"));
-        assert!(global.socket.is_none());
-        assert!(matches!(plan.action, lifecycle::ServerAction::Status));
-
-        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(
-            &strings(&["server", "stop", "--socket", "/tmp/review.sock", "--force"]),
-            Surface::CmuxTui,
-        )
-        .unwrap() else {
-            panic!("server stop must produce a server plan");
-        };
-        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
-        assert!(global.session.is_none());
-        assert!(matches!(
-            plan.action,
-            lifecycle::ServerAction::Stop { force: true, end_terminals: false }
-        ));
-
-        let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
-            parse(&strings(&["server", "stop", "--end-terminals"]), Surface::CmuxTui).unwrap()
-        else {
-            panic!("server stop --end-terminals must produce a server plan");
-        };
-        assert!(matches!(
-            plan.action,
-            lifecycle::ServerAction::Stop { force: false, end_terminals: true }
-        ));
-
-        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(
-            &strings(&[
-                "server",
-                "reload-config",
-                "--session",
-                "review-session",
-                "--socket",
-                "/tmp/review.sock",
-            ]),
-            Surface::CmuxTui,
-        )
-        .unwrap() else {
-            panic!("server reload-config must produce a server plan");
-        };
-        assert_eq!(global.session.as_deref(), Some("review-session"));
-        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
-        assert!(matches!(plan.action, lifecycle::ServerAction::ReloadConfig));
-    }
-
-    #[test]
-    fn server_stats_parses_with_routing_options() {
-        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
-            parse(&strings(&["server", "stats", "--session", "review-session"]), Surface::CmuxTui)
-                .unwrap()
-        else {
-            panic!("server stats must produce a server plan");
-        };
-        assert_eq!(global.session.as_deref(), Some("review-session"));
-        assert!(matches!(plan.action, lifecycle::ServerAction::Stats));
-        assert!(
-            scope_help_for("server stats", crate::localization::catalog()).contains("server stats")
-        );
-    }
-
-    #[test]
-    fn server_stats_help_routes_to_the_stats_topic() {
-        let ParsedCommand::Help(Some(topic)) =
-            parse(&strings(&["server", "stats", "--help"]), Surface::CmuxTui).unwrap()
-        else {
-            panic!("server stats help must produce a scoped help topic");
-        };
-        assert_eq!(topic, "server stats");
-        assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
-    }
-
-    #[test]
-    fn every_scope_has_dedicated_help() {
-        let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
-        for scope in PUBLIC_SCOPES {
-            let help = scope_help_for(scope, english_catalog);
-            assert!(help.contains("USAGE"));
-            assert!(help.contains(scope));
-        }
-        let japanese_catalog = crate::localization::catalog_for_locale("ja_JP.UTF-8");
-        let english = session_help(&english_catalog.session_reset, &english_catalog.local_server);
-        let japanese =
-            session_help(&japanese_catalog.session_reset, &japanese_catalog.local_server);
-        assert!(english.contains("creation <correlation-key> resolve"));
-        assert!(english.contains("session <name> reset-state"));
-        assert!(japanese.contains("session <name> reset-state"));
-        assert!(japanese.contains("保存状態のリセット"));
-        assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
-        assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
-        assert!(TERMINAL_HELP.contains("move|project|attach|close"));
-    }
-
-    #[test]
-    fn startup_help_is_explicitly_discoverable() {
-        let help = root_help(&crate::localization::catalog_for_locale("en_US.UTF-8").local_server);
-        assert!(help.contains("cmux help start"));
-        assert!(help.starts_with("cmux - "));
-        assert!(!help.contains("cmux-tui"));
-        assert!(matches!(
-            parse(&strings(&["help", "start"]), Surface::CmuxTui).unwrap(),
-            ParsedCommand::Help(Some(scope)) if scope == "start"
-        ));
-    }
-
-    #[test]
-    fn the_cmux_name_selects_the_curated_surface() {
-        use std::ffi::OsStr;
-        for name in ["cmux", "/Applications/cmux.app/Contents/Resources/bin/cmux", "cmux.exe"] {
-            assert_eq!(Surface::for_program(Some(OsStr::new(name))), Surface::Cmux, "{name}");
-        }
-        for name in ["cmux-tui", "/usr/local/bin/cmux-tui", "cmux-tui-4f2a", "acpmux"] {
-            assert_eq!(Surface::for_program(Some(OsStr::new(name))), Surface::CmuxTui, "{name}");
-        }
-        assert_eq!(Surface::for_program(None), Surface::CmuxTui);
-    }
-
-    #[test]
-    fn cmux_refuses_cmux_tui_only_scopes_by_name_in_every_spelling() {
-        let catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
-        for scope in CMUX_TUI_ONLY_SCOPES {
-            assert!(PUBLIC_SCOPES.contains(scope));
-            assert!(!CMUX_SCOPES.contains(scope));
-            for args in [vec![*scope, "list"], vec!["help", scope], vec![*scope, "--help"]] {
-                let Err(failure) = parse(&strings(&args), Surface::Cmux) else {
-                    panic!("cmux accepted {args:?}");
-                };
-                assert!(
-                    failure.error.0.contains("is not part of cmux"),
-                    "{args:?}: {}",
-                    failure.error
-                );
-            }
-        }
-        // Shorthands lower first, so `ls` (session list) is refused too.
-        assert!(parse(&strings(&["ls"]), Surface::Cmux).is_err());
-        assert!(!catalog.local_server.cmux_root_help.contains("raw"));
-        // A typo suggests only a scope cmux shows.
-        let Err(failure) = parse(&strings(&["sesion", "list"]), Surface::Cmux) else {
-            panic!("accepted a typo");
-        };
-        assert!(!failure.error.0.contains("session"), "{}", failure.error);
-    }
-
-    #[test]
-    fn cmux_tui_keeps_the_scopes_its_own_tooling_calls() {
-        // Cloud VM guest scripts (web/services/vms) run these as `cmux-tui`.
-        for args in [
-            vec!["raw", "command", "--request-json", r#"{"cmd":"url-open"}"#],
-            vec!["session", "current", "snapshot"],
-            vec!["ls"],
-        ] {
-            assert!(parse(&strings(&args), Surface::CmuxTui).is_ok(), "{args:?}");
-        }
-    }
-
-    #[test]
-    fn cmux_accepts_what_its_own_processes_send_through_the_parser() {
-        for args in [
-            // The Claude `--settings` hook fallback (agent_hook_install.rs).
-            vec!["agent", "hook", "emit", "--source", "claude", "--event", "Stop"],
-            // `cmux acp open` (acp.rs).
-            vec!["pane", "current", "run", "--", "/bin/cmux", "acp", "attach", "review"],
-            // The app's daemon launcher and iOS remotes.
-            vec!["--session", "cmux-app", "--json", "server", "ensure"],
-            vec!["--session", "cmux-app", "--json", "server", "status"],
-        ] {
-            assert!(parse(&strings(&args), Surface::Cmux).is_ok(), "{args:?}");
-        }
-    }
-
-    #[test]
-    fn workspace_group_verbs_use_the_personal_operations() {
-        for surface in [Surface::Cmux, Surface::CmuxTui] {
-            for args in [
-                vec!["workspace", "group", "list"],
-                vec!["workspace", "group", "create", "--name", "Work"],
-            ] {
-                assert!(parse(&strings(&args), surface).is_ok(), "{args:?}");
-            }
-        }
-        assert!(WORKSPACE_HELP.contains("workspace group create"));
-    }
-
-    #[test]
-    fn cmux_shows_and_accepts_the_state_scopes() {
-        for args in [
-            vec!["room", "list"],
-            vec!["closed", "list"],
-            vec!["help", "room"],
-            vec!["closed", "--help"],
-            vec!["tab", "group", "list"],
-            vec!["screen", "group", "list"],
-            vec!["workspace", "current", "status", "list"],
-        ] {
-            assert!(parse(&strings(&args), Surface::Cmux).is_ok(), "{args:?}");
-        }
-        for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
-            let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
-            assert!(help.contains("  room "), "{locale}");
-            assert!(help.contains("  closed "), "{locale}");
-        }
-        assert!(TAB_HELP.contains("tab group saved list"));
-        assert!(SCREEN_HELP.contains("screen group create"));
-        assert!(WORKSPACE_HELP.contains("progress set <0..1>"));
-    }
-
-    #[test]
-    fn global_idempotency_key_reaches_the_mutation_and_only_a_mutation() {
-        let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } = parse(
-            &strings(&["--idempotency-key", "mutation-retry-1", "workspace", "create"]),
-            Surface::Cmux,
-        )
-        .unwrap() else {
-            panic!("expected a request")
-        };
-        assert_eq!(request.idempotency_key.as_deref(), Some("mutation-retry-1"));
-        let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } = parse(
-            &strings(&["workspace", "create", "--idempotency-key=mutation-retry-2"]),
-            Surface::Cmux,
-        )
-        .unwrap() else {
-            panic!("expected a request")
-        };
-        assert_eq!(request.idempotency_key.as_deref(), Some("mutation-retry-2"));
-        assert!(
-            parse(&strings(&["--idempotency-key", "k1", "workspace", "list"]), Surface::Cmux)
-                .is_err()
-        );
-        assert!(
-            parse(&strings(&["--idempotency-key", "", "workspace", "create"]), Surface::Cmux)
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn remote_invocation_allows_leading_global_options() {
-        assert!(is_remote_invocation(&strings(&["remote", "connect"])));
-        assert!(is_remote_invocation(&strings(&["--json", "remote", "connect"])));
-        assert!(is_remote_invocation(&strings(&["--session", "-1", "remote", "connect"])));
-        assert!(is_remote_invocation(&strings(&["--socket", "-tmp/socket", "remote", "connect"])));
-        assert!(is_remote_invocation(&strings(&["--session=dev", "remote", "connect"])));
-        assert!(is_remote_invocation(&strings(&[
-            "--session",
-            "dev",
-            "--socket",
-            "/tmp/cmux.sock",
-            "remote",
-            "rpc",
-        ])));
-        assert!(!is_remote_invocation(&strings(&["--session", "remote", "workspace", "list"])));
-    }
-
-    #[test]
-    fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
-        assert!(!is_remote_invocation(&strings(&["--session"])));
-        assert!(!is_remote_invocation(&strings(&["--socket"])));
-        assert!(!is_remote_invocation(&strings(&["--session", "--json", "remote", "connect",])));
-        assert!(!is_remote_invocation(&strings(&[
-            "--socket",
-            "--session=dev",
-            "remote",
-            "connect",
-        ])));
-        assert!(!is_remote_invocation(&strings(&["--session=", "remote", "connect",])));
-        assert!(!is_remote_invocation(&strings(&["--session", "--", "remote", "connect",])));
-        assert!(!is_remote_invocation(&strings(&["--session", "dev", "--", "remote", "connect",])));
-        assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
-    }
-
-    #[test]
-    fn shorthand_resource_paths_preserve_selectors_and_payloads() {
-        for (short, canonical) in [
-            (vec!["ws", "ls"], vec!["workspace", "list"]),
-            (vec!["ws", "new", "--name", "term"], vec!["workspace", "create", "--name", "term"]),
-            (vec!["pane", "split", "--down"], vec!["pane", "current", "split", "--down"]),
-            (
-                vec!["ws", "name:ls", "win", "current", "p", "current", "get"],
-                vec!["workspace", "name:ls", "screen", "current", "pane", "current", "show"],
-            ),
-            (
-                vec!["term", "current", "write", "--text", "--json"],
-                vec!["terminal", "current", "write", "--text=--json"],
-            ),
-            (
-                vec!["term", "current", "write", "--text", "--help"],
-                vec!["terminal", "current", "write", "--text=--help"],
-            ),
-            (
-                vec!["ws", "current", "run", "--", "echo", "--json", "neww"],
-                vec!["workspace", "current", "run", "--", "echo", "--json", "neww"],
-            ),
-        ] {
-            let plan = |args: Vec<&str>| {
-                let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
-                    parse(&strings(&args), Surface::CmuxTui).unwrap()
-                else {
-                    panic!("expected typed request")
-                };
-                (global.output, request.operation.name().unwrap(), request.params)
-            };
-            assert_eq!(plan(short), plan(canonical));
-        }
-    }
-
-    #[test]
-    fn shorthand_tmux_commands_share_canonical_operations() {
-        for (short, canonical) in [
-            (vec!["ls"], vec!["session", "list"]),
-            (vec!["lsw"], vec!["screen", "list"]),
-            (vec!["lsp"], vec!["pane", "list"]),
-            (vec!["neww", "-n", "api"], vec!["screen", "create", "--name", "api"]),
-            (vec!["splitw", "-h"], vec!["pane", "current", "split", "--right"]),
-            (vec!["splitw"], vec!["pane", "current", "split", "--down"]),
-            (vec!["selectp", "-L"], vec!["pane", "current", "focus", "direction", "left"]),
-            (vec!["selectw", "-t", "api"], vec!["screen", "api", "focus"]),
-            (
-                vec!["renamew", "-t", "api", "backend"],
-                vec!["screen", "api", "rename", "--name", "backend"],
-            ),
-            (vec!["capturep"], vec!["terminal", "current", "screen", "read"]),
-            (
-                vec!["send-keys", "C-c", "Enter"],
-                vec!["terminal", "current", "keys", "ctrl+c", "enter"],
-            ),
-            (
-                vec!["send-keys", "-l", "hello", "世界"],
-                vec!["terminal", "current", "write", "--text", "hello世界"],
-            ),
-        ] {
-            let plan = |args: Vec<&str>| {
-                let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } =
-                    parse(&strings(&args), Surface::CmuxTui).unwrap()
-                else {
-                    panic!("expected typed request")
-                };
-                (request.operation.name().unwrap(), request.params)
-            };
-            assert_eq!(plan(short), plan(canonical));
-        }
-    }
-
-    #[test]
-    fn shorthand_rejects_unsupported_or_conflicting_flags_before_execution() {
-        for args in [
-            vec!["splitw", "-h", "-v"],
-            vec!["splitw", "-d"],
-            vec!["selectp", "-L", "-R"],
-            vec!["neww", "-n", "one", "--name", "two"],
-            vec!["selectw", "-t"],
-            vec!["capturep", "-t", "one", "--target", "two"],
-            vec!["send-keys", "hello world"],
-            vec!["new-session"],
-        ] {
-            assert!(parse(&strings(&args), Surface::CmuxTui).is_err(), "accepted {args:?}");
-        }
-    }
-}
+mod tests;

@@ -5,7 +5,7 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
-    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, Chrome, FrameEpoch,
+    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, FrameEpoch,
     TargetCreated, resolve_browser_ws_url,
 };
 
@@ -13,6 +13,9 @@ use crate::browser_provider::{BrowserProviderAuthentication, BrowserProviderTarg
 use crate::resource::TabResourceIdentity;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
+
+mod navigation_hold;
+mod navigation_hold_tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserSource {
@@ -578,7 +581,6 @@ impl ActivePointerPress {
 
 pub struct BrowserRuntime {
     client: CdpClient,
-    chrome: Option<Chrome>,
     source: BrowserSource,
     endpoint: String,
     bearer_token: Option<String>,
@@ -720,6 +722,7 @@ pub struct BrowserSurface {
     command_order: Arc<Mutex<BrowserCommandOrder>>,
     latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
+    navigation_hold: Mutex<navigation_hold::NavigationHold>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
 }
@@ -765,8 +768,8 @@ const NAVIGATION_COMMIT_WAIT: Duration = Duration::from_millis(100);
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
-        let (web_socket_url, chrome, source) = runtime_endpoint(opts)?;
-        Self::connect_to_endpoint(&web_socket_url, chrome, source)
+        let (web_socket_url, source) = runtime_endpoint(opts)?;
+        Self::connect_to_endpoint(&web_socket_url, source)
     }
 
     pub(crate) fn connect_provider(
@@ -775,7 +778,6 @@ impl BrowserRuntime {
     ) -> anyhow::Result<Arc<Self>> {
         Self::connect_to_endpoint_with_bearer(
             endpoint,
-            None,
             BrowserSource::Provider,
             authentication.bearer_token(),
         )
@@ -783,15 +785,13 @@ impl BrowserRuntime {
 
     fn connect_to_endpoint(
         web_socket_url: &str,
-        chrome: Option<Chrome>,
         source: BrowserSource,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_to_endpoint_with_bearer(web_socket_url, chrome, source, None)
+        Self::connect_to_endpoint_with_bearer(web_socket_url, source, None)
     }
 
     fn connect_to_endpoint_with_bearer(
         web_socket_url: &str,
-        chrome: Option<Chrome>,
         source: BrowserSource,
         bearer_token: Option<&str>,
     ) -> anyhow::Result<Arc<Self>> {
@@ -804,7 +804,6 @@ impl BrowserRuntime {
         };
         let runtime = Arc::new(BrowserRuntime {
             client,
-            chrome,
             source,
             endpoint: web_socket_url.to_string(),
             bearer_token: bearer_token.map(str::to_string),
@@ -893,13 +892,12 @@ impl BrowserRuntime {
         if browser.is_dead() {
             anyhow::bail!("browser surface was closed before it started");
         }
-        browser.mark_live(BrowserSession {
-            runtime: self.clone(),
-            target_id: target_id.to_string(),
-            session_id: session_id.to_string(),
-        })?;
-        browser.set_url_title(normalized_url.to_string(), normalized_url.to_string());
-        Ok(())
+        let session_id = session_id.to_string();
+        let target_id = target_id.to_string();
+        browser.attach_live(
+            BrowserSession { runtime: self.clone(), target_id, session_id },
+            normalized_url,
+        )
     }
 
     fn register(&self, target_id: &str, session_id: &str) -> Arc<SurfaceRoute> {
@@ -961,9 +959,6 @@ impl BrowserRuntime {
     pub fn shutdown(&self) {
         close_browser_runtime(self, "browser runtime shut down".to_string());
         let _ = self.client.flush_outbound(Duration::from_secs(1));
-        if let Some(chrome) = &self.chrome {
-            chrome.kill();
-        }
     }
 }
 
@@ -1082,6 +1077,7 @@ pub(crate) fn new_surface_with_resource_identity(
         command_order: command_order.clone(),
         latest_nav: latest_nav.clone(),
         latest_authority: latest_authority.clone(),
+        navigation_hold: Mutex::default(),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
     }));
@@ -1137,16 +1133,14 @@ fn scaled_pixels(pane_px_w: u32, pane_px_h: u32, scale: f64) -> (u32, u32) {
     (width, height)
 }
 
-fn runtime_endpoint(
-    opts: &SurfaceOptions,
-) -> anyhow::Result<(String, Option<Chrome>, BrowserSource)> {
+fn runtime_endpoint(opts: &SurfaceOptions) -> anyhow::Result<(String, BrowserSource)> {
     if let Ok(url) = std::env::var("CMUX_MUX_CDP_URL")
         && !url.trim().is_empty()
     {
-        return Ok((resolve_browser_ws_url(&url)?, None, BrowserSource::External));
+        return Ok((resolve_browser_ws_url(&url)?, BrowserSource::External));
     }
     if let Some(url) = opts.cdp_url.as_deref().filter(|url| !url.trim().is_empty()) {
-        return Ok((resolve_browser_ws_url(url)?, None, BrowserSource::External));
+        return Ok((resolve_browser_ws_url(url)?, BrowserSource::External));
     }
     anyhow::bail!(
         "no cmux-browser provider is attached; launch cmux-browser or set CMUX_MUX_CDP_URL for an explicit development endpoint"
@@ -1530,7 +1524,7 @@ fn start_browser_worker(
                 coalesce_worker_mouse_moves(&mut batch);
                 for queued in batch {
                     service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
-                    run_browser_worker_command(&surface, queued.command, &mux, id, &mut failures);
+                    run_browser_worker_command(&surface, queued, &mux, id, &mut failures);
                 }
             }
             if let Some(done_tx) = done_tx {
@@ -1662,12 +1656,12 @@ fn coalesce_worker_mouse_moves(batch: &mut Vec<SequencedBrowserCommand>) {
 
 fn run_browser_worker_command(
     surface: &Surface,
-    command: BrowserCommand,
+    queued: SequencedBrowserCommand,
     mux: &Weak<Mux>,
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
 ) {
-    let (mut command, confirmed) = match command {
+    let (mut command, confirmed) = match queued.command {
         BrowserCommand::Confirmed { command, completion } => (*command, Some(completion)),
         command => (command, None),
     };
@@ -1768,7 +1762,7 @@ fn run_browser_worker_command(
                 browser.insert_text_blocking(&text).map(|_| BrowserWorkerSuccess::BrowserResponded)
             }
             BrowserCommand::Navigate(url) => {
-                browser.navigate_blocking(&url).map(|_| BrowserWorkerSuccess::BrowserResponded)
+                browser.run_navigation(queued.sequence, &url, confirmed.is_some())
             }
             BrowserCommand::Back => {
                 browser.back_blocking().map(|_| BrowserWorkerSuccess::BrowserResponded)
@@ -2066,6 +2060,7 @@ impl BrowserSurface {
         if self.is_dead() || self.session.lock().unwrap().is_some() {
             return false;
         }
+        self.expect_attach();
         let mut state = self.state.lock().unwrap();
         state.status = BrowserStatus::Starting;
         state.failure_kind = None;
@@ -4107,11 +4102,9 @@ impl BrowserSurface {
     // never be swallowed by a later `Forward` (unlike the latest-wins nav slot),
     // but unlike disposable input they must not be silently dropped: losing a
     // control action the caller asked for is a user-visible action that
-    // vanished. When the queue is full (a wedged/unresponsive worker) report
-    // backpressure as an error instead of a false `ok` so the caller learns the
-    // command was rejected. `try_send` never blocks, so this preserves the
-    // non-blocking contract. URL navigation uses the latest-wins slot instead
-    // (see `enqueue_latest_nav`), where only the final destination matters.
+    // vanished. A full queue (a wedged worker) reports backpressure as an error
+    // instead of a false `ok`; `try_send` never blocks. URL navigation uses the
+    // latest-wins slot (`enqueue_latest_nav`): only the final destination matters.
     fn enqueue_control(&self, command: BrowserCommand) -> anyhow::Result<()> {
         if self.is_dead() {
             anyhow::bail!("browser surface is closed");
@@ -4167,30 +4160,6 @@ impl BrowserSurface {
                 if let Some(queued) = reject_reconfigure(command.command) {
                     self.release_reconfigure(queued);
                 }
-                anyhow::bail!("browser command worker is closed")
-            }
-        }
-    }
-
-    fn enqueue_latest_nav(&self, command: BrowserCommand) -> anyhow::Result<()> {
-        if self.is_dead() {
-            anyhow::bail!("browser surface is closed");
-        }
-        self.enqueue_latest_nav_ignoring_dead(command)
-    }
-
-    fn enqueue_latest_nav_ignoring_dead(&self, command: BrowserCommand) -> anyhow::Result<()> {
-        let tx = self.command_sender()?;
-        let mut order = self.command_order.lock().unwrap();
-        let command = order.sequence(command);
-        let mut latest_nav = self.latest_nav.lock().unwrap();
-        *latest_nav = Some(command);
-        drop(latest_nav);
-        let wake = order.sequence(BrowserCommand::WakeLatest);
-        match tx.try_send(wake) {
-            Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
-            Err(TrySendError::Disconnected(_)) => {
-                self.latest_nav.lock().unwrap().take();
                 anyhow::bail!("browser command worker is closed")
             }
         }
@@ -5047,10 +5016,6 @@ impl BrowserSurface {
         )
     }
 
-    pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
-        self.enqueue_latest_nav(BrowserCommand::Navigate(url.to_string()))
-    }
-
     fn begin_latest_navigation_frame_transition(
         &self,
         session: &BrowserSession,
@@ -5109,42 +5074,6 @@ impl BrowserSurface {
             anyhow::anyhow!("main-frame snapshot was invalidated by repeated page navigation");
         self.fail_same_document_authority(&error);
         Err(error)
-    }
-
-    fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
-        let session = self.require_navigation_session()?;
-        let normalized = normalize_url(url);
-        let invalidation = self.begin_latest_navigation_frame_transition(&session, true)?;
-        match session.runtime.client.navigate(&session.session_id, &normalized) {
-            Ok(result) => {
-                if result.is_download {
-                    // Chrome explicitly confirmed that the response was handed
-                    // to the download manager, so the current document and its
-                    // rendered frame remain authoritative.
-                    self.restore_pointer_frame_after_failed_command(invalidation);
-                    return Ok(());
-                }
-                if let Some(error) = result.error_text {
-                    self.abandon_frame_transition();
-                    self.mark_failed(error.clone());
-                    anyhow::bail!("browser failed: {error}");
-                }
-                let loaderless = result.loader_id.is_none();
-                if loaderless {
-                    self.reconcile_loaderless_navigation(&session)?;
-                } else {
-                    self.finish_navigation_command(invalidation, Ok(()))?;
-                }
-            }
-            Err(error) => self.finish_navigation_command(invalidation, Err(error))?,
-        }
-        self.set_url_title(normalized.clone(), normalized);
-        self.dirty.store(true, Ordering::Release);
-        Ok(())
-    }
-
-    pub(crate) fn navigate_confirmed(&self, url: &str) -> anyhow::Result<()> {
-        self.execute_confirmed(BrowserCommand::Navigate(url.to_string()))
     }
 
     pub fn back(&self) -> anyhow::Result<()> {
@@ -5504,7 +5433,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5553,7 +5481,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5581,7 +5508,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5633,7 +5559,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5700,7 +5625,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5754,7 +5678,6 @@ mod tests {
             .unwrap();
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::Provider,
         )
         .unwrap();
@@ -5949,7 +5872,6 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::Launched,
         )
         .unwrap();
@@ -6049,7 +5971,6 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::Launched,
         )
         .unwrap();
@@ -6103,7 +6024,6 @@ mod tests {
             done_tx
                 .send(super::BrowserRuntime::connect_to_endpoint(
                     &format!("ws://{addr}/devtools/browser/fake"),
-                    None,
                     BrowserSource::External,
                 ))
                 .unwrap();
@@ -6166,7 +6086,6 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -6361,7 +6280,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -6403,7 +6321,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -6446,7 +6363,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -6535,7 +6451,6 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -6601,7 +6516,6 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -7063,23 +6977,11 @@ mod tests {
             cdp_url: Some("ws://127.0.0.1:9/devtools/browser/explicit".to_string()),
             ..opts.clone()
         };
-        let (url, chrome, source) = runtime_endpoint(&explicit_opts).unwrap();
+        let (url, source) = runtime_endpoint(&explicit_opts).unwrap();
         assert_eq!(url, "ws://127.0.0.1:9/devtools/browser/explicit");
-        assert!(chrome.is_none());
         assert_eq!(source, BrowserSource::External);
 
-        let error = runtime_endpoint(&opts).err().expect("provider-less runtime must fail");
-        assert!(error.to_string().contains("no cmux-browser provider is attached"));
-
-        let discover_opts = SurfaceOptions {
-            browser_discover: true,
-            browser_discover_ports: vec![9],
-            chrome_binary: Some("/definitely/missing/chrome".to_string()),
-            ..opts
-        };
-        let error = runtime_endpoint(&discover_opts)
-            .err()
-            .expect("legacy discovery options must not launch or discover Chrome");
+        let error = runtime_endpoint(&opts).expect_err("provider-less runtime must fail");
         assert!(error.to_string().contains("no cmux-browser provider is attached"));
     }
 
@@ -7755,7 +7657,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -8865,7 +8766,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -9005,7 +8905,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -9167,7 +9066,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -9571,7 +9469,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -9670,7 +9567,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10238,7 +10134,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10286,7 +10181,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10367,7 +10261,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10534,7 +10427,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10594,7 +10486,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10659,7 +10550,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10775,7 +10665,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10877,7 +10766,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10963,7 +10851,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();

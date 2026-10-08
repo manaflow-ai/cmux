@@ -26,7 +26,7 @@ GUARD_WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/ci-gua
 GUARD_JOB = "workflow-guard-tests"
 # A path a step runs directly, such as `python3 tests/x.py` or `./scripts/y.sh`.
 DIRECT_PATH = re.compile(r"(?:\./)?((?:tests(?:_v2)?|scripts|ios/tests)/[A-Za-z0-9_./-]+)")
-GROUP_CONDITION = re.compile(r"\$\{\{ matrix\.group == '([^']+)' \}\}")
+GROUP_CONDITION = re.compile(r"\$\{\{\s*matrix\.group\s*==\s*'([^']+)'\s*(?:&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'\s*)?\}\}")
 # A guard job gates itself on the route that selects it, so the workflow also
 # names which route owns which job.
 ROUTE_CONDITION = re.compile(r"\$\{\{ inputs\.([A-Za-z0-9_]+) == 'true' \}\}")
@@ -69,6 +69,8 @@ PATH_OWNERS = {
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
     ".github/workflows/iroh-v2-production-drift.yml": frozenset(("ci",)),
     "tests/test_iroh_drift_issue.py": frozenset(("ci",)),
+    ".github/workflows/feature-flag-review-drift.yml": frozenset(("ci",)),
+    "tests/test_feature_flag_review_drift_issue.py": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
@@ -79,6 +81,10 @@ PATH_OWNERS = {
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
     # validate_test_execution_registry.py reads the recipe for the tests it runs.
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
+    # test_lint_feature_flags_scope.py reads its parser and registry discovery.
+    "scripts/lint-feature-flags.py": frozenset(("preflight", "ci")),
+    # test_feature_flag_review_lead_time.py loads the report by path.
+    "scripts/report-feature-flag-review-lead-time.py": frozenset(("preflight", "ci")),
     "scripts/verification_receipt.py": frozenset(("ci",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),
@@ -93,22 +99,16 @@ PATH_OWNERS = {
     ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
-    # test_ci_catch_up_pr.py runs the catch-up script, which runs these two
-    # resolvers, and reads the workflow that calls it. The workflow also
-    # answers to the preflight runner guard (test_ci_self_hosted_guard.sh).
-    # test_merge_pbxproj.py also runs catch_up_pr.py, for union_pbxproj.
-    "scripts/ci/catch_up_pr.py": frozenset(("preflight", "ci")),
-    ".github/workflows/pr-catch-up.yml": frozenset(("preflight", "ci")),
+    # The local merge-main resolver runs these trusted generators. The
+    # resolver also backs the project-file merge driver below.
+    "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
-    # above and borrows union_pbxproj from the catch-up script.
+    # above and borrows union_pbxproj from the local resolver.
     "scripts/merge-pbxproj.py": frozenset(("preflight",)),
-    # test_ci_auto_catch_up_select.py imports the selector and replays its fixture.
-    "scripts/ci/auto_catch_up_select.py": frozenset(("ci",)),
-    "tests/fixtures/auto_catch_up/replay.json": frozenset(("ci",)),
     # test_ci_merge_main.py runs merge-main end to end: the green-base
-    # selection, the catch-up merge above, and the guard runner it reruns
+    # selection, the merge resolver above, and the guard runner it reruns
     # failed steps with (test_ci_run_guards.py also imports the runner).
     "scripts/merge-main.sh": frozenset(("ci",)),
     "scripts/ci/merge_main.py": frozenset(("ci",)),
@@ -187,8 +187,7 @@ def _python_syntax_scan(path: str) -> bool:
 def _determinism_scan(path: str) -> bool:
     if not path.endswith(DETERMINISM_SUFFIXES):
         return False
-    if path.startswith(("ios/cmuxUITests/",
-                        "tests/", "tests_v2/", "web/tests/", "webviews/test/")):
+    if path.startswith(("tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
     return path.startswith("Packages/") and "/Tests/" in path
 

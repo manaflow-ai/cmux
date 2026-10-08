@@ -17,13 +17,25 @@ enum DebugFocus {
             "ghostty_focused_tabs": .array(ghostty.map(JSONValue.string)),
             "key_window": NSApp.keyWindow.map { .string(String(describing: type(of: $0))) } ?? .null,
             "app_active": .bool(NSApp.isActive),
+            "keyboard_given_back": keyboardGuard(services),
             "context": .object([
                 "terminal_focused": .bool(context.contains(.terminalFocused)),
                 "browser_focused": .bool(context.contains(.browserFocused)),
+                "agent_focused": .bool(context.contains(.agentPaneFocused)),
                 "palette_open": .bool(context.contains(.paletteOpen)),
             ]),
             "consistent": .bool(windowProblems.isEmpty && windows.allSatisfy { $0["consistent"]?.boolValue == true }),
         ])
+    }
+
+    /// No-activate mode: how often the keyboard was given back, and the last time.
+    private static func keyboardGuard(_ services: AppServices) -> JSONValue {
+        guard let guardian = services.keyboardGuard else { return .null }
+        let last = guardian.giveBacks.last.map { giveBack -> JSONValue in
+            ["trigger": .string(giveBack.trigger.rawValue), "cause": .string(giveBack.cause),
+             "restored_to": giveBack.restoredTo.map { JSONValue(Int($0)) } ?? .null]
+        } ?? .null
+        return ["count": JSONValue(guardian.giveBackCount), "last": last]
     }
 
     private static func window(of controller: WindowController, ghostty: [String]) -> JSONValue {
@@ -88,6 +100,7 @@ enum DebugFocus {
             controller.focusApplier.focusedChildWindowPageID == nil ? .content(pane: pane) : nil
         case .addressBar(let pane, _): .addressBar(pane: pane)
         case .findBar(let pane, _): .findBar(pane: pane)
+        case .agentPage(let pane, _), .page(let pane, _), .conversation(let pane, _): .content(pane: pane)
         case .devTools: nil
         case .sidebar: .sidebar
         case .sidebarField: .sidebarField

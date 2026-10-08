@@ -184,8 +184,7 @@ fn terminal_history_read(
 /// Bounded plain-text window over one terminal's journaled output stream.
 /// Unlike the other content reads it does not require a live surface: like
 /// `terminal.wait_exit` it resolves through the durable exit receipt, so it
-/// answers for exited terminals under both exit policies (kept views and
-/// detached ones).
+/// answers for exited terminals under both exit policies (kept views and detached ones).
 fn terminal_output_read(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
@@ -194,7 +193,17 @@ fn terminal_output_read(
     let after = optional_decimal(&request.fields, "after")?;
     // The catalog injects the default and enforces the 1..=4 MiB bounds.
     let max_bytes = required_u64(&request.fields, "max_bytes")?;
-    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(resource_operation_error)
+    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(|error| {
+        // Journal failures can contain SQLite paths, trigger text, and other
+        // host diagnostics. Keep those details in daemon logs; this resource
+        // is user-facing and must return a stable, non-sensitive error.
+        eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
+        ResourceError::operation_failed(
+            "terminal.output_read",
+            "could not read terminal output",
+            json!({}),
+        )
+    })
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -1123,6 +1132,7 @@ fn resolve_browser_surface(
         path.browser.ok_or_else(|| ResourceError::not_found("browser", "<resolved>"))?;
     let (_, surface) = browser_surface_for_id(mux, &browser_id)
         .ok_or_else(|| ResourceError::not_found("browser", browser_id.as_str()))?;
+    mux.refuse_conversation_browser(&surface)?;
     Ok((browser_id, surface))
 }
 
@@ -1224,15 +1234,7 @@ fn destination_selectors(
 }
 
 fn resource_mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(super::operation_failed)
+    request.mutation().map_err(super::operation_failed)
 }
 
 fn intent_fields<'a>(

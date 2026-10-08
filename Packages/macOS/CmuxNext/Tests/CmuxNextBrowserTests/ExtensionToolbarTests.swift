@@ -3,7 +3,7 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextBrowser
 
-/// The browser toolbar collapses in Chrome's order as its pane narrows:
+/// The browser toolbar collapses in a fixed order as its pane narrows:
 /// pinned extension buttons move into the Extensions menu first, then the
 /// omnibar shrinks to its minimum, then Forward hides. Back, Reload, the
 /// omnibar and the Extensions button always stay, inside the toolbar and
@@ -177,17 +177,17 @@ import Testing
             BrowserExtensionInfo(id: "c", name: "Policy", hasAction: true, mayModify: false),
         ])
         let handler = RecordingHandler()
-        let menu = ExtensionsMenu.make(for: tab, handler: handler, afterClose: { $0() }, presentItemMenu: { _ in })
+        let menu = ExtensionsMenu().make(for: tab, handler: handler, afterClose: { $0() }, presentItemMenu: { _ in })
         let rows = menu.items.compactMap { $0.representedObject as? String }
         #expect(rows == ["a", "c", "b"])
-        #expect(ExtensionMenuDriver.choose("run", extension: "a", in: menu))
-        #expect(ExtensionMenuDriver.choose("unpin", extension: "a", in: menu))
-        #expect(ExtensionMenuDriver.choose("manage", extension: nil, in: menu))
+        #expect(ExtensionMenuDriver().choose("run", extension: "a", in: menu))
+        #expect(ExtensionMenuDriver().choose("unpin", extension: "a", in: menu))
+        #expect(ExtensionMenuDriver().choose("manage", extension: nil, in: menu))
         #expect(handler.performed.map(\.0) == [.run, .unpin, .manage])
-        #expect(ExtensionsMenu.operations(for: tab.extensionStore.extensions[0], supportsManagement: true)
+        #expect(ExtensionsMenu().operations(for: tab.extensionStore.extensions[0], supportsManagement: true)
             == [.run, .unpin, .options, .disable, .siteAccess, .remove])
-        #expect(ExtensionsMenu.operations(for: tab.extensionStore.extensions[1], supportsManagement: true) == [.enable, .remove])
-        #expect(ExtensionsMenu.operations(for: tab.extensionStore.extensions[2], supportsManagement: true) == [.run, .pin, .siteAccess])
+        #expect(ExtensionsMenu().operations(for: tab.extensionStore.extensions[1], supportsManagement: true) == [.enable, .remove])
+        #expect(ExtensionsMenu().operations(for: tab.extensionStore.extensions[2], supportsManagement: true) == [.run, .pin, .siteAccess])
     }
 
     @Test func dragReordersPinnedButtons() async {
@@ -208,10 +208,10 @@ import Testing
         let crashed = BrowserExtensionInfo(id: "c", name: "Crashed", isTerminated: true, hasAction: true)
         let unpacked = BrowserExtensionInfo(id: "u", name: "Dev", location: .unpacked, hasAction: true)
         let store = BrowserExtensionInfo(id: "s", name: "Store", location: .webstore, hasAction: true)
-        #expect(ExtensionsMenu.operations(for: crashed, supportsManagement: true).contains(.reload))
-        #expect(ExtensionsMenu.operations(for: unpacked, supportsManagement: true).contains(.reload))
-        #expect(!ExtensionsMenu.operations(for: store, supportsManagement: true).contains(.reload))
-        #expect(!ExtensionsMenu.operations(for: crashed, supportsManagement: false).contains(.reload))
+        #expect(ExtensionsMenu().operations(for: crashed, supportsManagement: true).contains(.reload))
+        #expect(ExtensionsMenu().operations(for: unpacked, supportsManagement: true).contains(.reload))
+        #expect(!ExtensionsMenu().operations(for: store, supportsManagement: true).contains(.reload))
+        #expect(!ExtensionsMenu().operations(for: crashed, supportsManagement: false).contains(.reload))
     }
 
     final class RecordingHandler: ExtensionMenuHandling {

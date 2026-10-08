@@ -9,11 +9,29 @@ struct ControlLocalizationTests {
     private static let languages = ["en", "ar", "bs", "da", "de", "es", "fr", "it", "ja", "km", "ko", "nb",
                                     "pl", "pt-BR", "ru", "th", "tr", "uk", "vi", "zh-Hans", "zh-Hant"]
 
-    /// The compiled `Localizable.strings` of one localization in the module bundle.
+    /// Read the compiled string table. SwiftPM's test bundle on Xcode 26 may
+    /// retain the processed catalog as `Localizable.xcstrings` instead of
+    /// materializing `lproj` directories; inspect that built resource in that
+    /// case so the test still verifies every shipped localization.
     private static func compiled(_ language: String) throws -> [String: String] {
-        let lproj = try #require(ControlStrings.bundle.path(forResource: language, ofType: "lproj"), "no \(language).lproj")
-        let url = URL(fileURLWithPath: lproj).appending(path: "Localizable.strings")
-        return try #require(NSDictionary(contentsOf: url) as? [String: String], "no \(language) Localizable.strings")
+        if let lproj = ControlStrings.bundle.path(forResource: language, ofType: "lproj") {
+            let url = URL(fileURLWithPath: lproj).appending(path: "Localizable.strings")
+            return try #require(NSDictionary(contentsOf: url) as? [String: String], "no \(language) Localizable.strings")
+        }
+
+        let url = try #require(ControlStrings.bundle.url(forResource: "Localizable", withExtension: "xcstrings"),
+                                "no localization resource for \(language)")
+        let root = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let strings = try #require(root["strings"] as? [String: Any])
+        var values: [String: String] = [:]
+        for (key, rawEntry) in strings {
+            let entry = try #require(rawEntry as? [String: Any], "invalid catalog entry \(key)")
+            let localizations = try #require(entry["localizations"] as? [String: Any], "no localizations for \(key)")
+            let localization = try #require(localizations[language] as? [String: Any], "no \(language) value for \(key)")
+            let unit = try #require(localization["stringUnit"] as? [String: Any], "no \(language) string unit for \(key)")
+            values[key] = try #require(unit["value"] as? String, "no \(language) text for \(key)")
+        }
+        return values
     }
 
     @Test(arguments: languages.dropFirst())

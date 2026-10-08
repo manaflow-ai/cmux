@@ -12,6 +12,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case local
         case cloud
         case ssh
+        /// A paired server's Chief brain session (`ServerReach`).
+        case server
     }
 
     public nonisolated enum Status: Hashable, Sendable {
@@ -53,7 +55,7 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
 /// A top-level section.
 public nonisolated struct SidebarSection: Identifiable, Hashable, Sendable {
     public nonisolated enum Kind: Hashable, Sendable {
-        /// Arc-style favorites. Holds loose workspaces from any machine; no groups.
+        /// Favorites. Holds loose workspaces from any machine; no groups.
         case pinned
         case machine(SidebarMachine)
     }

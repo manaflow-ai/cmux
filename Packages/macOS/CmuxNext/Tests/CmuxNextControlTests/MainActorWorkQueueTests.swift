@@ -86,10 +86,38 @@ import Testing
         #expect(queue.stats.frames >= 5)
         #expect(queue.stats.executed == 10)
     }
+
+    /// A native menu (`NSMenu.popUp`) tracks in a nested run loop in the
+    /// event-tracking mode, often from inside a main-queue callout, where
+    /// GCD does not drain the main queue again. The default frame source
+    /// must still run queued control requests while the menu is open
+    /// (the debug socket answers `not_run` otherwise). Synchronous: the
+    /// test body is that callout and runs the nested loop itself.
+    @MainActor @Test func runsWhileTheMainRunLoopTracksAMenu() {
+        let queue = MainActorWorkQueue()
+        let reply = Shared<Int?>(nil)
+        Task.detached {
+            let value = try await queue.run(method: "debug.remote_browser", deadline: .now + .seconds(5)) { 42 }
+            reply.withLock { $0 = value }
+        }
+        // NSApplication makes the tracking mode a common mode; this headless
+        // test process has no NSApplication, so do the same here.
+        CFRunLoopAddCommonMode(CFRunLoopGetMain(), CFRunLoopMode(RunLoop.Mode.eventTracking.rawValue as CFString))
+        // Keep the tracking mode non-empty, as the menu's own sources do.
+        let keepAlive = Timer(timeInterval: 0.01, repeats: true) { _ in }
+        RunLoop.main.add(keepAlive, forMode: .eventTracking)
+        defer { keepAlive.invalidate() }
+        let end = ContinuousClock.now + .seconds(3)
+        while reply.withLock({ $0 }) == nil, ContinuousClock.now < end {
+            _ = RunLoop.main.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(reply.withLock { $0 } == 42)
+    }
 }
 
-/// State the test shares with queued work. The work closures are `sending`,
-/// so they cannot capture a local `Atomic` or `Mutex`; a Sendable class can.
+/// State the test shares with queued work. `MainActorWorkQueue.run` takes
+/// `@escaping @Sendable` work, and an escaping closure cannot capture a
+/// noncopyable local `Atomic` or `Mutex`; a Sendable class that owns one can.
 private final class Shared<Value: Sendable>: Sendable {
     private let mutex: Mutex<Value>
     init(_ value: Value) { mutex = Mutex(value) }

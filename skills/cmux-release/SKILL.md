@@ -45,7 +45,7 @@ If the pretag guard fails, run `./scripts/bump-version.sh`, commit the build-num
 ## Release artifacts and secrets
 
 - The release asset is `cmux-macos.dmg`, attached to the tag. The README download button points to `releases/latest/download/cmux-macos.dmg`.
-- Signing and notarization require the GitHub secrets `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
+- Signing requires the GitHub secrets `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY`. CI notarization authenticates with the team App Store Connect API key (`ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`) through `scripts/ci/lib/notary-auth.sh`, which decodes the key to a mode-600 temp file that the caller deletes. The local `scripts/build-sign-upload.sh` still uses an Apple ID and app-specific password.
 
 ## Detailed reference
 

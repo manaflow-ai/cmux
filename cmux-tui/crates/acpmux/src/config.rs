@@ -25,8 +25,9 @@ pub fn home() -> PathBuf {
 }
 
 /// Unix socket path. macOS limits socket paths to about 100 bytes, so a
-/// long home directory falls back to a short per-user path under /tmp that
-/// is derived from the home path, so daemon and clients agree.
+/// long home directory falls back to a short path in a private per-user
+/// directory under /tmp, derived from the home path so daemon and clients
+/// agree.
 pub fn socket_path() -> PathBuf {
     if let Ok(v) = std::env::var("ACPMUX_SOCKET") {
         return PathBuf::from(v);
@@ -41,7 +42,24 @@ pub fn socket_path() -> PathBuf {
         hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
     let uid = unsafe { libc::getuid() };
-    PathBuf::from(format!("/tmp/acpmux-{uid}-{hash:016x}.sock"))
+    let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
+    if private_dir(&dir, uid) {
+        return dir.join(format!("{hash:016x}.sock"));
+    }
+    // Another user owns or can write the shared directory: never trust a
+    // socket there. The long path fails to bind with a clear error instead.
+    preferred
+}
+
+/// Create `dir` mode 0700 if missing; true only when it is a real directory
+/// owned by `uid` that nobody else can enter.
+fn private_dir(dir: &Path, uid: u32) -> bool {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) => m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0,
+        Err(_) => false,
+    }
 }
 
 /// How acpmux talks to the agent process.
@@ -53,6 +71,10 @@ pub enum HarnessKind {
     Acp,
     /// Claude Code's own `-p --input-format stream-json` protocol.
     ClaudeStdio,
+    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file):
+    /// listed, but run in a terminal tab (`cmux harness run`), never as an
+    /// acpmux session.
+    Terminal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -66,8 +88,9 @@ pub struct HarnessProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Profile to move a session onto when this one's account reports a
-    /// usage or rate limit mid-turn. Discovery sets `claude-sr` (the
-    /// subrouter account pool) for `claude` when `sr` is installed.
+    /// usage or rate limit mid-turn. Discovery sets `claude-cr` for
+    /// `claude` only when a CodeRouter route is configured
+    /// (`coderouterClaudeRoute`); never the subrouter pool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
     /// Model family this profile belongs to (`claude`, `codex`, `opencode`,
@@ -117,27 +140,6 @@ impl DeclaredModel {
     }
 }
 
-/// A named bundle: one harness plus the model, effort, policy and env to
-/// start it with. `acpmux run -p NAME`. Explicit flags still win.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Preset {
-    /// A family or a profile name.
-    pub harness: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PermissionPolicy>,
-    /// Wins over the profile's and the family's env. `${cwd}`, `${home}`,
-    /// `${model}` and a leading `~/` expand.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
 /// Session defaults for a family or a single profile (`defaults` in
 /// config.json). Precedence at `session/new`: explicit request, then the
 /// profile's own entry, then its family's entry, then the daemon defaults.
@@ -151,7 +153,7 @@ pub struct SessionDefaults {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PermissionPolicy>,
     /// Profiles to use, in order, when a session asks for this family:
-    /// `["claude-sr", "claude"]` sends `-m claude` to the account pool
+    /// `["claude-cr", "claude"]` sends `-m claude` to the CodeRouter route
     /// first. Absent: the family's only profile, else the profile named
     /// like the family, else the request is refused.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -296,6 +298,24 @@ pub struct WebSocketConfig {
     pub listen: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Browser origins allowed besides the listener's own and the agent
+    /// pane's (for example a page dev server). `null` is never allowed.
+    #[serde(default, alias = "allowed_origins", skip_serializing_if = "Vec::is_empty")]
+    pub allowed_origins: Vec<String>,
+    /// `Host` names allowed besides loopback (a proxy that keeps a public
+    /// name, or the name peers dial on a non-loopback `listen`, where every
+    /// other name is refused). Both lists are read when the listener starts.
+    #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
+    pub allowed_hosts: Vec<String>,
+    /// `tokenRotated`: the saved token was replaced at the first start of a
+    /// build that never sends it to a remote-origin connection (earlier
+    /// builds did, in `_acpmux/status`). Set, it never rotates again.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub token_rotated: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 fn default_palette_prefix() -> String {
@@ -352,16 +372,6 @@ impl Default for TuiConfig {
     }
 }
 
-/// A remote acpmux daemon this daemon mirrors. Sessions there appear here as
-/// `<peer>/<name>` and every request is forwarded.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PeerConfig {
-    pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -374,7 +384,7 @@ pub struct Config {
     pub default_harness: Option<String>,
     /// Per-family (or per-profile) session defaults, keyed by family or
     /// profile name: `{"claude": {"model": "claude-opus-5", "effort": "high",
-    /// "policy": "approve-edits", "prefer": ["claude-sr", "claude"]}}`.
+    /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub defaults: BTreeMap<String, SessionDefaults>,
     /// Named bundles for `-p NAME`: `{"deepseek": {"harness": "opencode",
@@ -398,6 +408,24 @@ pub struct Config {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     pub tui: TuiConfig,
+    /// `webAskingModes`: more asking modes per family (`server/remote_guard.rs`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub web_asking_modes: BTreeMap<String, Vec<String>>,
+    /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub web_roots: Vec<String>,
+    /// `pool`: hidden pre-created sessions that make a harness switch
+    /// instant (`hub/pool/`).
+    #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
+    pub pool: PoolConfig,
+    /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
+    /// Claude Code through a CodeRouter route. When it is set (env
+    /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
+    /// PATH, discovery adds the `claude-cr` profile and `-m claude` prefers
+    /// it. Unset (the default): no CodeRouter profile, and `claude` is the
+    /// user's own login. The binary names no route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coderouter_claude_route: Option<String>,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
@@ -413,14 +441,46 @@ pub struct Config {
     /// `defaultHarness` was filled in at load, not written by the user.
     #[serde(skip)]
     pub auto_default: bool,
-    /// `defaults.claude.prefer` was filled in by discovery, not the user.
+    /// The `defaults.claude.prefer` list discovery filled in, not the user.
+    /// `save` drops it only while it is still unchanged.
     #[serde(skip)]
-    pub auto_prefer: bool,
+    pub auto_prefer: Option<Vec<String>>,
+    /// The dashboard listener could not bind this run, so `websocket` is
+    /// not being served. Kept apart so a save does not drop the address.
+    #[serde(skip)]
+    pub web_unbound: bool,
+    /// Loopback page dev server origins from `--allow-dev-origin` (this run
+    /// only, never saved).
+    #[serde(skip)]
+    pub dev_origins: Vec<String>,
+    /// The listener's token for this run when `--token` gave one: the
+    /// dashboard link uses it, and it is never saved over `websocket.token`.
+    #[serde(skip)]
+    pub web_token_override: Option<String>,
     /// Profiles whose launcher failed its start-up check, with the reason.
     /// They stay configured (sessions on them keep their history) but no
     /// family preference or fallback routes new work to them.
     #[serde(skip)]
     pub unavailable: BTreeMap<String, String>,
+    /// Display, capability, auth and sessions data of the profiles that came
+    /// from profile files or cmux.json (`config/profiles.rs`), by id. Those
+    /// profiles are never written to config.json.
+    #[serde(skip)]
+    pub profile_meta: BTreeMap<String, ProfileMeta>,
+    /// Problems in the profile sources, for `harness list`, doctor and Settings.
+    #[serde(skip)]
+    pub profile_diagnostics: Vec<ProfileDiagnostic>,
+    /// config.json entries a profile file replaced; `save` keeps them.
+    #[serde(skip)]
+    pub shadowed_config: BTreeMap<String, HarnessProfile>,
+    /// Where folder profiles' trust and enable records are read (H4,
+    /// `config/folder_profiles.rs`); None (an in-code config): no folder profiles.
+    #[serde(skip)]
+    pub folder_gate: Option<folder_profiles::FolderGate>,
+    /// The profile file sources this config was loaded from; a reload and
+    /// the hot-reload watcher read the same ones.
+    #[serde(skip)]
+    pub profile_sources: ProfileSources,
 }
 
 impl Config {
@@ -447,11 +507,13 @@ impl Config {
         if let Some(members) = fams.get(head) {
             if let Some(d) = self.defaults.get(head) {
                 // An unavailable profile is skipped; the next preference serves.
-                if let Some(p) = d
-                    .prefer
-                    .iter()
-                    .find(|p| self.harnesses.contains_key(*p) && !self.unavailable.contains_key(*p))
-                {
+                // Only the family's own profiles count; a stray name never
+                // routes the family to another family's profile.
+                if let Some(p) = d.prefer.iter().find(|p| {
+                    members.contains(*p)
+                        && self.harnesses.contains_key(*p)
+                        && !self.unavailable.contains_key(*p)
+                }) {
                     return Ok(p.clone());
                 }
             }
@@ -519,6 +581,11 @@ impl Config {
     }
 
     pub fn load_from(path: &Path) -> Result<Self> {
+        Self::load_from_with(path, &ProfileSources::current())
+    }
+
+    /// `load_from` with explicit profile file sources.
+    pub fn load_from_with(path: &Path, sources: &ProfileSources) -> Result<Self> {
         let path = path.to_owned();
         let mut cfg = if path.exists() {
             let text = std::fs::read_to_string(&path)
@@ -528,50 +595,84 @@ impl Config {
         } else {
             Config::default()
         };
+        cfg.join_profiles(profiles::load(sources));
+        let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
+        cfg.join_discovered(discover_harnesses(route.as_deref()));
+        if cfg.default_harness.is_none() {
+            cfg.auto_default = true;
+            cfg.default_harness = cfg.harnesses.keys().next().cloned();
+        }
+        cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
+        cfg.profile_sources = sources.clone();
+        cfg.path = Some(path);
+        Ok(cfg)
+    }
+
+    /// Adds the profiles from profile files and cmux.json. They win over
+    /// config.json entries with the same id (kept for `save`).
+    pub fn join_profiles(&mut self, loaded: LoadedProfiles) {
+        for (id, (profile, meta)) in loaded.profiles {
+            if let Some(old) = self.harnesses.insert(id.clone(), profile)
+                && !self.profile_meta.contains_key(&id)
+            {
+                self.shadowed_config.insert(id.clone(), old);
+            }
+            self.profile_meta.insert(id, meta);
+        }
+        self.profile_diagnostics.extend(loaded.diagnostics);
+    }
+
+    /// Joins discovered harnesses to the configured ones (configured entries
+    /// always win) and sets the automatic Claude fallbacks and preference.
+    pub fn join_discovered(&mut self, discovered: BTreeMap<String, HarnessProfile>) {
+        let cfg = self;
         // Harnesses found on PATH join the configured ones, so installing an
         // adapter such as pi-acp is enough; configured entries always win.
-        for (name, profile) in discover_harnesses() {
+        for (name, profile) in discovered {
             if !cfg.harnesses.contains_key(&name) {
                 cfg.discovered.insert(name.clone());
                 cfg.harnesses.insert(name, profile);
             }
         }
-        if cfg.harnesses.contains_key("claude-sr") {
+        // A configured CodeRouter route (`claude-cr`) is the first `claude`
+        // preference and the direct login's fallback. The subrouter pool
+        // (`claude-sr`) stays a profile a user names; discovery never
+        // prefers it or falls back onto it.
+        let route = CODEROUTER_CLAUDE_PROFILE;
+        if cfg.discovered.contains(route) {
             if let Some(c) = cfg.harnesses.get_mut("claude")
                 && c.fallback.is_none()
                 && c.kind == HarnessKind::ClaudeStdio
             {
-                c.fallback = Some("claude-sr".into());
-                cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
+                c.fallback = Some(route.into());
+                cfg.auto_fallback = Some(("claude".into(), route.into()));
             }
-            // `-m claude` goes to the pool first, then the direct login, and
-            // the pool falls back to the direct login. Only when the user
-            // wrote no preference of their own.
-            if cfg.discovered.contains("claude-sr") {
-                let has_direct = cfg.harnesses.contains_key("claude");
-                if let Some(p) = cfg.harnesses.get_mut("claude-sr")
-                    && p.fallback.is_none()
-                    && has_direct
-                {
-                    p.fallback = Some("claude".into());
-                }
-                let entry = cfg.defaults.entry("claude".into()).or_default();
-                if entry.prefer.is_empty() {
-                    entry.prefer = ["claude-sr", "claude"]
-                        .iter()
-                        .filter(|n| has_direct || **n != "claude")
-                        .map(|n| n.to_string())
-                        .collect();
-                    cfg.auto_prefer = true;
-                }
+            // The route falls back to, and `-m claude` prefers, a direct
+            // login only on acpmux's own adapter, never an ACP `claude`.
+            let has_direct =
+                cfg.harnesses.get("claude").is_some_and(|c| c.kind == HarnessKind::ClaudeStdio);
+            if let Some(p) = cfg.harnesses.get_mut(route)
+                && p.fallback.is_none()
+                && has_direct
+            {
+                p.fallback = Some("claude".into());
+            }
+            let entry = cfg.defaults.entry("claude".into()).or_default();
+            if entry.prefer.is_empty() {
+                entry.prefer = [route, "claude"]
+                    .iter()
+                    .filter(|n| has_direct || **n != "claude")
+                    .map(|n| n.to_string())
+                    .collect();
+                cfg.auto_prefer = Some(entry.prefer.clone());
             }
         }
-        if cfg.default_harness.is_none() {
-            cfg.auto_default = true;
-            cfg.default_harness = cfg.harnesses.keys().next().cloned();
-        }
-        cfg.path = Some(path);
-        Ok(cfg)
+    }
+
+    /// Where preset directories live (`presets/` next to config.json); None
+    /// for an in-code config, which then takes no `systemPrompt`.
+    pub fn presets_dir(&self) -> Option<PathBuf> {
+        self.path.as_ref().and_then(|p| p.parent()).map(|d| d.join("presets"))
     }
 
     /// Write back to the file this config came from. No-op for in-code configs.
@@ -584,7 +685,12 @@ impl Config {
             std::fs::create_dir_all(parent)?;
         }
         let mut on_disk = self.clone();
-        on_disk.harnesses.retain(|n, _| !self.discovered.contains(n));
+        on_disk
+            .harnesses
+            .retain(|n, _| !self.discovered.contains(n) && !self.profile_meta.contains_key(n));
+        for (n, p) in &self.shadowed_config {
+            on_disk.harnesses.insert(n.clone(), p.clone());
+        }
         if let Some((p, f)) = &self.auto_fallback
             && let Some(prof) = on_disk.harnesses.get_mut(p)
             && prof.fallback.as_deref() == Some(f.as_str())
@@ -594,8 +700,9 @@ impl Config {
         if self.auto_default {
             on_disk.default_harness = None;
         }
-        if self.auto_prefer
+        if let Some(generated) = &self.auto_prefer
             && let Some(d) = on_disk.defaults.get_mut("claude")
+            && d.prefer == *generated
         {
             d.prefer.clear();
             if d.is_empty() {
@@ -608,189 +715,11 @@ impl Config {
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {
         self.harnesses.get(name)
     }
-}
 
-/// Look for agent adapters in the acpx config and on PATH.
-pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
-    let mut agents = BTreeMap::new();
-    if let Some(home) = dirs::home_dir() {
-        let acpx = home.join(".acpx").join("config.json");
-        if let Ok(text) = std::fs::read_to_string(&acpx)
-            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&text)
-            && let Some(map) = v.get("agents").and_then(|a| a.as_object())
-        {
-            for (name, profile) in map {
-                if let Some(argv) = profile.get("argv").and_then(|a| a.as_array()) {
-                    let argv: Vec<String> =
-                        argv.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect();
-                    if !argv.is_empty() {
-                        agents.insert(
-                            name.clone(),
-                            HarnessProfile {
-                                kind: HarnessKind::Acp,
-                                argv,
-                                env: BTreeMap::new(),
-                                description: Some("imported from ~/.acpx".into()),
-                                fallback: None,
-                                family: None,
-                                models: vec![],
-                                model: None,
-                                effort: None,
-                                policy: None,
-                            },
-                        );
-                    }
-                }
-            }
-        }
+    /// The web listener this daemon actually serves, if any.
+    pub fn web_listener(&self) -> Option<&WebSocketConfig> {
+        self.websocket.as_ref().filter(|_| !self.web_unbound)
     }
-    for (name, bin) in [
-        ("codex", "codex-acp"),
-        ("claude", "claude"),
-        ("gemini", "gemini"),
-        ("opencode", "opencode"),
-        ("opencode-v2", "opencode2"),
-        ("deepseek", "dsh"),
-        // pi (earendil-works/pi) speaks ACP through the pi-acp adapter,
-        // which spawns `pi --mode rpc`: `bun add -g pi-acp`.
-        ("pi", "pi-acp"),
-        // Claude through the subrouter account pool: `sr claude proxy`
-        // picks the account with the most quota and fails over on limits.
-        ("claude-sr", "sr"),
-        // oh-my-pi (can1357/oh-my-pi), a pi fork with a native ACP server.
-        ("omp", "omp"),
-        // Prime Agent (PrimeIntellect-ai/prime-agent), a pi fork: `--mode acp`.
-        ("prime", "prime-agent"),
-    ] {
-        if agents.contains_key(name) {
-            continue;
-        }
-        if let Some(path) = which(bin) {
-            let (kind, argv) = match bin {
-                "claude" => (HarnessKind::ClaudeStdio, vec![path]),
-                "sr" => (HarnessKind::ClaudeStdio, vec![path, "claude".into(), "proxy".into()]),
-                "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
-                "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
-                "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
-                "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
-                "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
-                _ => (HarnessKind::Acp, vec![path]),
-            };
-            agents.insert(
-                name.to_owned(),
-                HarnessProfile {
-                    kind,
-                    argv,
-                    env: BTreeMap::new(),
-                    description: Some(if bin == "sr" {
-                        "Claude through the subrouter account pool".into()
-                    } else {
-                        "found on PATH".into()
-                    }),
-                    fallback: None,
-                    family: if matches!(bin, "dsh" | "opencode2") {
-                        Some(name.into())
-                    } else {
-                        None
-                    },
-                    models: vec![],
-                    model: None,
-                    effort: None,
-                    policy: None,
-                },
-            );
-        }
-    }
-    // A direct Claude falls over to the pool when its account is exhausted.
-    if agents.contains_key("claude-sr")
-        && let Some(c) = agents.get_mut("claude")
-        && c.fallback.is_none()
-    {
-        c.fallback = Some("claude-sr".into());
-    }
-    agents
-}
-
-/// Drop discovered launcher profiles whose binary cannot actually run the
-/// harness: an older subrouter without `claude proxy`, or one whose proxy
-/// setup fails before Claude starts. Runs once at daemon start, so a
-/// `claude` session never fails over into a launcher that dies at once.
-pub fn verify_launchers(cfg: &mut Config) {
-    let candidates: Vec<(String, Vec<String>)> = cfg
-        .harnesses
-        .iter()
-        .filter(|(_, p)| {
-            p.argv.get(1).map(String::as_str) == Some("claude")
-                && p.argv.get(2).map(String::as_str) == Some("proxy")
-        })
-        .map(|(n, p)| (n.clone(), p.argv.clone()))
-        .collect();
-    for (name, argv) in candidates {
-        if let Err(reason) = launcher_ok(&argv) {
-            tracing::warn!(agent = %name, "launcher unavailable: {reason}");
-            cfg.unavailable.insert(name.clone(), reason);
-            for p in cfg.harnesses.values_mut() {
-                if p.fallback.as_deref() == Some(name.as_str()) {
-                    p.fallback = None;
-                }
-            }
-        }
-    }
-}
-
-fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
-    let mut cmd = std::process::Command::new(&argv[0]);
-    crate::login_env::apply_std(&mut cmd);
-    cmd.args(&argv[1..])
-        .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    scrub_nested_claude_env(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", argv[0]))?;
-    // Woken by the child's exit (SIGCHLD), not a polling tick.
-    use wait_timeout::ChildExt;
-    match child.wait_timeout(std::time::Duration::from_secs(20)) {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("{} claude proxy --version did not finish in 20s", argv[0]));
-        }
-        Err(e) => return Err(e.to_string()),
-    }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    let text =
-        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    // Warnings (a peer that could not be reached) are not failures.
-    let first = text
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("warning:"))
-        .unwrap_or("")
-        .to_owned();
-    if !out.status.success()
-        || first.starts_with("subrouter:")
-        || text.to_lowercase().contains("unknown command")
-    {
-        return Err(format!(
-            "`{} claude proxy --version` failed: {}",
-            argv[0],
-            if first.is_empty() { out.status.to_string() } else { first }
-        ));
-    }
-    Ok(())
-}
-
-fn which(bin: &str) -> Option<String> {
-    let path = crate::login_env::path()?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(bin);
-        if candidate.is_file() {
-            return Some(candidate.to_string_lossy().into_owned());
-        }
-    }
-    None
 }
 
 fn is_default_kind(k: &HarnessKind) -> bool {
@@ -801,7 +730,19 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+    // Owner-only from creation: these files hold tokens and session data.
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .with_context(|| format!("write {}", tmp.display()))?;
+        f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+    }
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     Ok(())
 }
@@ -845,214 +786,35 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
     }
 }
 
+mod launchers;
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(super) use launchers::launcher_ok;
+pub(crate) use launchers::which;
+pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
+mod codex_adapter;
+mod discover;
+pub use codex_adapter::{
+    CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
+    resolve_adapter_package_bin,
+};
+pub use discover::{
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+};
+mod peer;
+pub use peer::PeerConfig;
+mod pool;
+pub use pool::PoolConfig;
+pub mod folder_profiles;
+pub mod profiles;
+pub use profiles::{
+    Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,
+};
+mod preset_args;
+pub use preset_args::{
+    Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
+    parse_preset_args, remove_preset_dir, write_system_prompt,
+};
 
-    fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
-        HarnessProfile {
-            kind,
-            argv: argv.iter().map(|s| s.to_string()).collect(),
-            env: BTreeMap::new(),
-            description: None,
-            fallback: None,
-            family: None,
-            models: vec![],
-            model: None,
-            effort: None,
-            policy: None,
-        }
-    }
-
-    #[test]
-    fn families_are_derived_and_resolved() {
-        let mut cfg = Config::default();
-        cfg.harnesses
-            .insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["/usr/local/bin/claude"]));
-        cfg.harnesses.insert(
-            "claude-sr".into(),
-            prof(HarnessKind::ClaudeStdio, &["/Users/x/bin/sr", "claude", "proxy"]),
-        );
-        cfg.harnesses
-            .insert("codex".into(), prof(HarnessKind::Acp, &["/opt/homebrew/bin/codex-acp"]));
-        cfg.harnesses.insert("oc".into(), prof(HarnessKind::Acp, &["opencode", "acp"]));
-        cfg.harnesses.insert("pi".into(), prof(HarnessKind::Acp, &["/x/pi-acp"]));
-        cfg.harnesses.insert("omp".into(), prof(HarnessKind::Acp, &["/x/omp", "acp"]));
-        cfg.harnesses
-            .insert("prime".into(), prof(HarnessKind::Acp, &["/x/prime-agent", "--mode", "acp"]));
-        let mut tagged = prof(HarnessKind::Acp, &["python3", "agent.py"]);
-        tagged.family = Some("codex".into());
-        cfg.harnesses.insert("router-codex".into(), tagged);
-        assert_eq!(cfg.family("claude-sr").as_deref(), Some("claude"));
-        assert_eq!(cfg.family("oc").as_deref(), Some("opencode"));
-        // Forks are their own families.
-        assert_eq!(cfg.family("omp").as_deref(), Some("omp"));
-        assert_eq!(cfg.family("prime").as_deref(), Some("prime"));
-        assert_eq!(cfg.families()["codex"], vec!["codex".to_owned(), "router-codex".to_owned()]);
-        // A family with one profile, or a profile named like the family, resolves.
-        assert_eq!(cfg.resolve_harness("opencode").unwrap(), "oc");
-        assert_eq!(cfg.resolve_harness("pi").unwrap(), "pi");
-        assert_eq!(cfg.resolve_harness("codex").unwrap(), "codex");
-        assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
-        assert_eq!(cfg.resolve_harness("claude-sr").unwrap(), "claude-sr");
-        // Unknown names and model ids are errors that name what exists.
-        let err = cfg.resolve_harness("gpt-5.5").unwrap_err();
-        assert!(err.contains("families:") && err.contains("profiles:"), "{err}");
-        // Several profiles, no preference, no exact name: refused, never guessed.
-        let mut two = Config::default();
-        two.harnesses.insert("omp-a".into(), prof(HarnessKind::Acp, &["/x/omp", "acp"]));
-        two.harnesses.insert("omp-b".into(), prof(HarnessKind::Acp, &["/y/omp", "acp"]));
-        assert!(two.resolve_harness("omp").unwrap_err().contains("no preference"));
-        // prefer decides, skipping profiles that are not installed.
-        cfg.defaults.insert(
-            "claude".into(),
-            SessionDefaults {
-                model: Some("claude-opus-5".into()),
-                effort: Some("high".into()),
-                policy: Some(PermissionPolicy::ApproveEdits),
-                prefer: vec!["missing".into(), "claude-sr".into()],
-                env: BTreeMap::from([("A".to_owned(), "1".to_owned())]),
-            },
-        );
-        cfg.defaults.insert(
-            "claude-sr".into(),
-            SessionDefaults { effort: Some("max".into()), ..Default::default() },
-        );
-        assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude-sr");
-        // Defaults chain: family, then the profile entry, then inline profile fields.
-        cfg.harnesses.get_mut("claude-sr").unwrap().policy = Some(PermissionPolicy::Ask);
-        let d = cfg.defaults_for("claude-sr");
-        assert_eq!(d.model.as_deref(), Some("claude-opus-5"));
-        assert_eq!(d.effort.as_deref(), Some("max"));
-        assert_eq!(d.policy, Some(PermissionPolicy::Ask));
-        assert_eq!(d.env["A"], "1");
-        assert!(cfg.defaults_for("codex").is_empty());
-        // Presets and declared models round-trip as camelCase JSON.
-        cfg.presets.insert(
-            "deepseek".into(),
-            Preset {
-                harness: "opencode".into(),
-                model: Some("opencode-go/deepseek-v4-pro".into()),
-                effort: Some("low".into()),
-                policy: None,
-                env: BTreeMap::new(),
-                description: None,
-            },
-        );
-        cfg.harnesses.get_mut("prime").unwrap().models = vec![
-            DeclaredModel::Id("subrouter/gpt-5.6-sol".into()),
-            DeclaredModel::Full { id: "x".into(), name: Some("X".into()) },
-        ];
-        let text = serde_json::to_string(&cfg).unwrap();
-        assert!(text.contains("\"presets\":{\"deepseek\":{\"harness\":\"opencode\""), "{text}");
-        let back: Config = serde_json::from_str(&text).unwrap();
-        assert_eq!(back.presets, cfg.presets);
-        assert_eq!(back.harnesses["prime"].models[1].name(), "X");
-        assert_eq!(back.defaults, cfg.defaults);
-    }
-
-    #[test]
-    fn save_leaves_discovered_profiles_out() {
-        let dir = std::env::temp_dir().join(format!("acpmux-save-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut cfg = Config { path: Some(dir.join("config.json")), ..Config::default() };
-        let mut claude = prof(HarnessKind::ClaudeStdio, &["claude"]);
-        claude.fallback = Some("claude-sr".into());
-        cfg.harnesses.insert("claude".into(), claude);
-        cfg.harnesses
-            .insert("claude-sr".into(), prof(HarnessKind::ClaudeStdio, &["sr", "claude", "proxy"]));
-        cfg.harnesses.insert("pi".into(), prof(HarnessKind::Acp, &["pi-acp"]));
-        cfg.discovered = ["claude-sr".to_owned(), "pi".to_owned()].into_iter().collect();
-        cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
-        cfg.default_harness = Some("pi".into());
-        cfg.auto_default = true;
-        cfg.defaults.insert(
-            "claude".into(),
-            SessionDefaults { model: Some("m".into()), ..Default::default() },
-        );
-        cfg.save().unwrap();
-        let text = std::fs::read_to_string(dir.join("config.json")).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(
-            v["harnesses"].as_object().unwrap().keys().cloned().collect::<Vec<_>>(),
-            vec!["claude".to_owned()]
-        );
-        assert!(v["harnesses"]["claude"].get("fallback").is_none(), "{text}");
-        assert!(v.get("defaultHarness").map(|d| d.is_null()).unwrap_or(true), "{text}");
-        assert_eq!(v["defaults"]["claude"]["model"], "m");
-        assert!(!text.contains("composerMaxRows"), "{text}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn launcher_check_rejects_old_subrouter() {
-        let dir = std::env::temp_dir().join(format!("acpmux-launcher-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let old = dir.join("sr-old");
-        std::fs::write(
-            &old,
-            "#!/bin/sh\necho 'subrouter: unknown command: sr claude proxy' >&2\nexit 1\n",
-        )
-        .unwrap();
-        let broken = dir.join("sr-broken");
-        std::fs::write(&broken, "#!/bin/sh\necho 'subrouter: prepare shared Claude proxy history: file exists' >&2\nexit 0\n").unwrap();
-        let good = dir.join("sr-good");
-        std::fs::write(&good, "#!/bin/sh\necho '2.1.275 (Claude Code)'\n").unwrap();
-        for p in [&old, &broken, &good] {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        let argv = |p: &std::path::Path| {
-            vec![p.to_string_lossy().into_owned(), "claude".into(), "proxy".into()]
-        };
-        assert!(launcher_ok(&argv(&old)).unwrap_err().contains("unknown command"));
-        assert!(launcher_ok(&argv(&broken)).unwrap_err().contains("prepare shared"));
-        assert!(launcher_ok(&argv(&good)).is_ok());
-        let mut cfg = Config::default();
-        cfg.harnesses.insert(
-            "claude-sr".into(),
-            HarnessProfile {
-                kind: HarnessKind::ClaudeStdio,
-                argv: argv(&old),
-                env: BTreeMap::new(),
-                description: None,
-                fallback: None,
-                family: None,
-                models: vec![],
-                model: None,
-                effort: None,
-                policy: None,
-            },
-        );
-        cfg.harnesses.insert(
-            "claude".into(),
-            HarnessProfile {
-                kind: HarnessKind::ClaudeStdio,
-                argv: vec!["claude".into()],
-                env: BTreeMap::new(),
-                description: None,
-                fallback: Some("claude-sr".into()),
-                family: None,
-                models: vec![],
-                model: None,
-                effort: None,
-                policy: None,
-            },
-        );
-        verify_launchers(&mut cfg);
-        // The profile stays (sessions on it keep working or fail with the
-        // reason); nothing routes new work to it.
-        assert!(cfg.harnesses.contains_key("claude-sr"));
-        assert!(cfg.unavailable.get("claude-sr").unwrap().contains("unknown command"));
-        assert_eq!(cfg.harnesses["claude"].fallback, None);
-        cfg.defaults.insert(
-            "claude".into(),
-            SessionDefaults {
-                prefer: vec!["claude-sr".into(), "claude".into()],
-                ..Default::default()
-            },
-        );
-        assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+#[cfg(test)]
+mod tests;

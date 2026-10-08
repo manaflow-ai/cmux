@@ -2,32 +2,57 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// Finds a real cmux-tui: `CMUX_NEXT_TUI_BIN`, else the pinned hosted
-/// artifact (scripts/cmux-next/cmux-tui.pin, fetched by
-/// scripts/cmux-next/pin-cmux-tui.sh), else the newest client that
-/// scripts/install-cmux-tui-client.sh cached. Cached slices are not
+/// Finds a real cmux-tui: `CMUX_NEXT_TUI_BIN`, else the hosted build of
+/// this checkout's own cmux-tui tree (`scripts/cmux-next/pin-cmux-tui.sh
+/// fetch`, as scripts/reload.sh and the cmux-next workflow run it; fetched on
+/// first use without waiting for an unpublished tree), else the newest client
+/// that scripts/install-cmux-tui-client.sh cached. Cached slices are not
 /// executable, so they are copied into a temp dir first.
 enum RealBinary {
     static let url: URL? = locate()
 
-    /// True when `url` is the pinned hosted build or an explicit override,
+    /// True when `url` is the same-tree hosted build or an explicit override,
     /// which serve the cmux-next capabilities (release clients do not).
     static var isBranchBuild: Bool {
         guard let url else { return false }
-        return url == pinned || ProcessInfo.processInfo.environment[DaemonLauncher.binaryOverrideKey] == url.path
+        return url == sameTree || ProcessInfo.processInfo.environment[DaemonLauncher.binaryOverrideKey] == url.path
     }
 
-    /// `cmux-tui/target/hosted/<pinned commit>/cmux-tui`, when downloaded.
-    static let pinned: URL? = {
+    /// `cmux-tui/target/hosted/tree/<key>/cmux-tui` (`pin-cmux-tui.sh path`),
+    /// fetched when missing; nil when the tree is not published yet, the
+    /// checkout's cmux-tui is dirty, or the fetch failed (offline).
+    static let sameTree: URL? = {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        guard let pin = try? String(contentsOf: root.appendingPathComponent("scripts/cmux-next/cmux-tui.pin"), encoding: .utf8),
-              let commit = pin.split(separator: "\n").first(where: { $0.hasPrefix("commit=") })?.dropFirst("commit=".count) else {
-            return nil
-        }
-        let binary = root.appendingPathComponent("cmux-tui/target/hosted/\(commit)/cmux-tui")
+        guard let path = pinScript(root: root, ["path"], capture: true), !path.isEmpty else { return nil }
+        let binary = URL(fileURLWithPath: path)
+        if !FileManager.default.isExecutableFile(atPath: binary.path) { _ = pinScript(root: root, ["fetch"], capture: false) }
         return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
     }()
+
+    /// Runs `pin-cmux-tui.sh <arguments>` (public URLs, no credentials).
+    /// A test run never waits for an unpublished tree unless
+    /// CMUX_TUI_TREE_WAIT_SECONDS says so. Returns trimmed stdout when
+    /// `capture`, else "" on success; nil on failure.
+    private static func pinScript(root: URL, _ arguments: [String], capture: Bool) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [root.appendingPathComponent("scripts/cmux-next/pin-cmux-tui.sh").path] + arguments
+        var environment = ProcessInfo.processInfo.environment
+        if environment["CMUX_TUI_TREE_WAIT_SECONDS"] == nil { environment["CMUX_TUI_TREE_WAIT_SECONDS"] = "0" }
+        process.environment = environment
+        let pipe = Pipe()
+        process.standardOutput = capture ? pipe : FileHandle.standardError
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let output = capture ? pipe.fileHandleForReading.readDataToEndOfFile() : Data()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private static func locate() -> URL? {
         let fileManager = FileManager.default
@@ -35,7 +60,7 @@ enum RealBinary {
            fileManager.isExecutableFile(atPath: override) {
             return URL(fileURLWithPath: override)
         }
-        if let pinned { return pinned }
+        if let sameTree { return sameTree }
         let cache = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches/cmux/cmux-tui-client")
         let slice = "cmux-tui-\(machineArch())-apple-darwin"
         let candidates = ((try? fileManager.contentsOfDirectory(at: cache, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
@@ -65,7 +90,10 @@ enum RealBinary {
 
 @Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .timeLimit(.minutes(2)), .liveDaemon)
 struct IntegrationTests {
-    @Test func ensureCreateAttachEchoShutdown() async throws {
+    /// Uses `move-tab-to-workspace`, which only the same-tree cmux-tui
+    /// serves; a release client answers "unknown variant".
+    @Test(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"))
+    func ensureCreateAttachEchoShutdown() async throws {
         let binary = try #require(RealBinary.url)
         let root = URL(fileURLWithPath: "/tmp/cnd-it-\(UUID().uuidString.prefix(8).lowercased())")
         let session = "cnd-it-\(UUID().uuidString.prefix(8).lowercased())"
@@ -74,7 +102,7 @@ struct IntegrationTests {
         let base = ProcessInfo.processInfo.environment
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
-            environment: { LoginEnvironment.daemonEnvironment(login: nil, base: base, overrides: [:]) }
+            environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) }
         )
         let ensured = try await launcher.ensure()
         #expect(ensured.session == session)
@@ -161,25 +189,42 @@ struct IntegrationTests {
     }
 
     /// A Finder launch hands the app launchd's minimal PATH. The launcher
-    /// captures the login-shell env and starts the daemon with it, so shells
-    /// in daemon terminals see the user's PATH.
+    /// starts the daemon with the login-shell env and the connection sends
+    /// the same env with each terminal, so shells in daemon terminals see
+    /// the user's PATH.
+    ///
+    /// The login env is injected (`LauncherTests` covers the real capture),
+    /// and its shell is `/bin/sh`, which reads no rc file here. A zsh would
+    /// read the runner's `~/.zshenv`, which can set PATH outright (the
+    /// cmuxs-mac-mini-3 runner's does), and print that instead of the PATH
+    /// the daemon gave it. The `HOME` below has such a `.zshenv`.
     @Test func finderLaunchedDaemonGivesTerminalsTheLoginPath() async throws {
         let binary = try #require(RealBinary.url)
         let root = URL(fileURLWithPath: "/tmp/cnd-it-\(UUID().uuidString.prefix(8).lowercased())")
         let session = "cnd-it-\(UUID().uuidString.prefix(8).lowercased())"
         defer { try? FileManager.default.removeItem(at: root) }
         let process = ProcessInfo.processInfo.environment
-        var finder: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
-        for key in ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR"] { finder[key] = process[key] }
-        let login = try #require(await LoginEnvironment.capture(base: finder, timeout: .seconds(15)))
-        let loginPath = try #require(login["PATH"])
-        try #require(loginPath != finder["PATH"], "login PATH equals launchd PATH; nothing to verify on this machine")
-        let environment = LoginEnvironment.daemonEnvironment(login: login, base: finder, overrides: [:])
+        var finder: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh"]
+        for key in ["USER", "LOGNAME", "TMPDIR"] { finder[key] = process[key] }
+        let home = root.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try Data("export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\n".utf8)
+            .write(to: home.appendingPathComponent(".zshenv"))
+        finder["HOME"] = home.path
+        // The first entry exists only in the login env, so seeing it proves
+        // the terminal got that env rather than the Finder launch's.
+        let loginPath = "\(root.appendingPathComponent("login-bin").path):/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        let login = ["PATH": loginPath, "SHELL": "/bin/sh", "HOME": home.path]
+        let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: finder, overrides: [:])
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { environment })
         let ensured = try await launcher.ensure()
-        let connection = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        // The app's provider, fed the same login env as the launcher (the
+        // default one reads the process-wide capture of the test runner's env).
+        let connection = DaemonConnection(
+            configuration: .init(terminalEnvironment: TerminalEnvironment.instance.shared(base: finder, login: { login })),
+            endpointProvider: launcher.endpointProvider)
         do {
             let identity = try await connection.start()
             let workspace = try await connection.createWorkspace(name: "path")
@@ -209,7 +254,7 @@ struct IntegrationTests {
             let entries = Set((seen ?? "").split(separator: ":").map(String.init))
             let missing = loginPath.split(separator: ":").map(String.init).filter { !entries.contains($0) }
             #expect(seen != nil)
-            #expect(missing.isEmpty, "missing from terminal PATH: \(missing)")
+            #expect(missing.isEmpty, "missing from terminal PATH: \(missing); login PATH: \(loginPath); seen: \(seen ?? "<none>")")
         } catch {
             await BranchDaemonHarness.shutDown(connection)
             throw error

@@ -5,7 +5,7 @@ import Testing
 
 @Suite struct ControlRouterTests {
     func makeRouter(_ executor: RecordingExecutor = RecordingExecutor(), settings: (any ControlSettingsStore)? = nil) -> ControlRouter {
-        let router = ControlRouter(identity: testIdentity(), executor: executor, settings: settings)
+        let router = ControlRouter(identity: testIdentity(), executor: executor, settings: settings, configuration: .loadTolerant)
         router.updateCatalog(sampleCatalog())
         return router
     }
@@ -159,12 +159,20 @@ import Testing
     let home = URL(fileURLWithPath: "/Users/u")
 
     @Test func matchesTheOldConventions() {
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug", tag: "My Tag", isDebugBuild: true, home: home) == "/tmp/cmux-debug-my-tag.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug.ctl", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug-ctl.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.nightly", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-nightly.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.rc.x1", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-rc-x1.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app", tag: "ignored", isDebugBuild: false, home: home) == "/Users/u/.local/state/cmux/cmux.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.debug", tag: "My Tag", isDebugBuild: true, home: home) == "/tmp/cmux-debug-my-tag.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.debug.ctl", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug-ctl.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.debug", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.nightly", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-nightly.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.rc.x1", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-rc-x1.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app", tag: "ignored", isDebugBuild: false, home: home) == "/Users/u/.local/state/cmux/cmux.sock")
+    }
+
+    @Test func anyProcessOfThisUserIsAdmittedUnlessSomethingChoosesAMode() {
+        #expect(ControlService.resolveAccessMode(explicit: nil, environment: [:], configured: nil) == .automation)
+        #expect(ControlService.resolveAccessMode(explicit: nil, environment: [:], configured: "cmuxOnly") == .cmuxOnly)
+        #expect(ControlService.resolveAccessMode(explicit: nil, environment: ["CMUX_NEXT_SOCKET_MODE": "password"], configured: "cmuxOnly") == .password)
+        #expect(ControlService.resolveAccessMode(explicit: .off, environment: ["CMUX_NEXT_SOCKET_MODE": "password"], configured: nil) == .off)
+        #expect(ControlService.resolveAccessMode(explicit: nil, environment: [:], configured: "bogus") == .automation)
     }
 
     @Test func parsesAccessModesWithLegacyAliases() {

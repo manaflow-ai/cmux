@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "env": "dev",
+  "snapshot": "cmuxnp-dev-vmimg-hostrun4",
+  "snapshot_id": "sh-c643b05f40d8486eb862b753306fa803",
+  "freestyle_account": "cmux-next dev (freestyle-cmux-next-dev-20261004)",
+  "source_sha": "081f9d4bfe96",
+  "bake": "images/cmux-vm/bake.ts --agent-tools (local run, cmux-next dev key; bead cx-3bi.29): one boot unit cmux-host.service = cmux host run (bind agent, session host supervisor, Cloud agent role); /etc/cmux/host.json freestyle-edge carrier, no secret; CMUX_TUI_HOST_SCOPES=systemd; no Bun vm-agent, no cmux-devbox-boot",
+  "cmux_tui": "d3fa8796dee7f44f861c74ad9c80b82b054f518e (artifacts run 37772102409; contains eb9cd709a8a8 the Cloud worker survives agent socket clients, 65477c3b1ce4 cmux host Cloud agent role, 3c15962b154c host key comment, a97f64d1e118 systemd host scopes)",
+  "cmux_cua": "0.8.7",
+  "agent_tools": "tool dir /opt/cmux/agent-tools/bin for acpmux; browser role baked (daemon socket-activates cmux-browser-host); agent display + cmux-cua serve start on the first agent session; cmux.json mcp.enabled; computer-use driver refuses sudo/apt (role cua-video stays off)",
+  "baked_at": "2026-10-08T12:20:00Z",
+  "smoke": "PASSED 2026-10-08 (smoke.ts 2 clones with the bind probe); dev-e2e against the dev API: see bead cx-3bi.29",
+  "worker": "development Worker deployed from feat-cmux-next with CLOUD_FREESTYLE_SNAPSHOT=cmuxnp-dev-vmimg-hostrun3 (bead cx-3bi.29, coordinator decision 2026-10-08)",
+  "previous": "cmuxnp-dev-vmimg-hostrun3 (sh-584ab926a57d4b178ae605bc445fdfbc; Worker 10e9e45b-9383-4a8a-9942-3bece4e605b3): Cloud worker crash on the first agent socket client, superseded. Before it: cmuxnp-dev-vmimg-agenttools5 (sh-e64294bf57394cd397ba37951eeb6a52; Worker version 7e29392f-4f88-4236-8f64-abca96b2132f): rollback, kept. Before it: cmuxnp-dev-vmimg-auto8-db3743e (sh-2edc51e3a9cb417d89ed7e7159effb0b; Worker version e0fd070e-7914-4377-b51f-18e5268fec02): rollback, kept",
+  "backend_var": "CLOUD_FREESTYLE_SNAPSHOT for ENVIRONMENT=development (backend lead sets it; prefix cmuxnp-dev-vmimg- is enforced)",
+  "also_kept": "cmuxnp-dev-vmimg-auto4-71d9a47 (sh-e4aab9ea589146abb98e356574ffe2de), superseded by auto5; cmuxnp-dev-vmimg-auto5-de18da6 (sh-d16c97b11a404bf9a1a9849bd0f073bb), superseded by auto6; cmuxnp-dev-vmimg-auto6-c9693f8 (sh-94ef280de5674a52adf18831289c37f1), superseded by auto7; cmuxnp-dev-vmimg-auto7-5c5cf35 (sh-42ecf781e5a1460b991c7bff18ae4caf), superseded by auto8; cmuxnp-dev-vmimg-agenttools3 (sh-538ea0742b344e04ae19eb3438a2afe6), superseded by agenttools5 (no cua-video refusal); cmuxnp-dev-vmimg-agenttools5 (sh-e64294bf57394cd397ba37951eeb6a52), superseded by hostrun3",
+  "deleted": "cmuxnp-dev-vmimg-auto1-8d111c8 (sh-99d84130836649b4b1b746a41f57b5f9) deleted 2026-10-06 by exact id after the coordinator's OK (0 dev machine rows and 0 Freestyle VMs used it)",
+  "browser": "role browser off, first use: cmux-browser-host 0.1.0 (release cmux-browser-host-v0.1.0, x86_64 + aarch64 pins) and Chrome for Testing 154.0.8037.92 x86_64; 25-package apt closure; CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE=0",
+  "rollback": "wrangler rollback 7e29392f-4f88-4236-8f64-abca96b2132f --name cmux-api-development (from backend/apps/api), or set CLOUD_FREESTYLE_SNAPSHOT back to cmuxnp-dev-vmimg-agenttools5 in wrangler.jsonc (env.development), bun run deploy:development, and set this file back to agenttools5"
+}

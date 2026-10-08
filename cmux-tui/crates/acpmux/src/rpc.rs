@@ -175,6 +175,12 @@ pub mod method {
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
+    /// The asking-mode table and the remote guard's lists, for the native
+    /// relay; unix socket only.
+    pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
+    /// A new dashboard token, served at once (`hub/web_token.rs`); unix
+    /// socket only.
+    pub const MUX_WEB_TOKEN_ROTATE: &str = "_acpmux/web_token_rotate";
     pub const MUX_HARNESSES: &str = "_acpmux/harnesses";
     /// Reload catalog configuration without touching existing sessions.
     pub const MUX_RELOAD_CONFIG: &str = "_acpmux/reload_config";
@@ -191,19 +197,45 @@ pub mod method {
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
+    pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
+    pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
+    pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
     pub const MUX_SET_POLICY: &str = "_acpmux/set_policy";
     pub const MUX_SET_RULES: &str = "_acpmux/set_rules";
     pub const MUX_TAG: &str = "_acpmux/tag";
     pub const MUX_WAIT: &str = "_acpmux/wait";
+    /// Start the agent children for the most recent project sessions.
+    pub const MUX_WARM: &str = "_acpmux/warm";
+    /// The harness the pane is about to switch to: a hidden session for it
+    /// starts (debounced), so the switch takes a ready session.
+    pub const MUX_PREWARM: &str = "_acpmux/prewarm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Folder trust (`crate::trust`): the agents' levels for a folder and
+    /// acpmux's own decision; `set` records the decision, never the agents' files.
+    pub const ACP_TRUST_GET: &str = "acp.trust.get";
+    pub const ACP_TRUST_SET: &str = "acp.trust.set";
+    /// A folder harness profile's "Enable harness" prompt (no `sha256`), or
+    /// the user's confirmation of exactly the bytes it showed (`sha256`).
+    /// The unix socket and the local app only (BRING-YOUR-OWN-HARNESS H4).
+    pub const MUX_HARNESS_ENABLE: &str = "_acpmux/harness_enable";
+    // Cross-harness handoff: a reviewed first message from one session to a
+    // new session on another harness (see hub/handoff.rs).
+    pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";
+    pub const MUX_HANDOFF_GET: &str = "_acpmux/handoff_get";
+    pub const MUX_HANDOFF_DRAFT: &str = "_acpmux/handoff_draft";
+    pub const MUX_HANDOFF_START: &str = "_acpmux/handoff_start";
+    pub const MUX_HANDOFF_DISCARD: &str = "_acpmux/handoff_discard";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
+    /// To watchers when a harness profile source changed and the catalog
+    /// reloaded: `{harnesses: string[], diagnostics}`.
+    pub const MUX_HARNESSES_CHANGED: &str = "_acpmux/harnesses_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";

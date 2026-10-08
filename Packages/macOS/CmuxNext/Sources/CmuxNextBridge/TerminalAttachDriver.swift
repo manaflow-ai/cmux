@@ -12,6 +12,8 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     /// Reports `size`, then claims canonical geometry.
     func sendClaim(reporting size: CellSize)
     func sendReleaseGeometry()
+    /// Asks for a fresh READY + history on this attach.
+    func sendSnapshotRequest(reason: SnapshotRequestReason)
     /// Detaches and closes the connection; its `events` then finish.
     /// Idempotent.
     func detachNow()
@@ -54,6 +56,12 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private let onFailure: @Sendable (any Error) -> Void
     private let onReattach: @Sendable (Int) -> Void
     private let observer: Observer?
+    private let cursorDefault: TerminalCursorDefault
+    private let backoffDelay: BackoffDelay
+
+    /// Waits before a re-attach that follows `failedReconnects` failed ones
+    /// in a row (the App passes a capped ``Backoff``). Throws when cancelled.
+    public typealias BackoffDelay = @Sendable (_ failedReconnects: Int) async throws -> Void
 
     public init(
         initialSize: CellSize,
@@ -62,7 +70,9 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         opener: @escaping Opener,
         onFailure: @escaping @Sendable (any Error) -> Void = { _ in },
         onReattach: @escaping @Sendable (_ attempt: Int) -> Void = { _ in },
-        observer: Observer? = nil
+        observer: Observer? = nil,
+        cursorDefault: TerminalCursorDefault = .ghostty,
+        backoffDelay: @escaping BackoffDelay = { _ in }
     ) {
         core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible)))
         queue = TerminalStepQueue(highWater: outputHighWater)
@@ -70,6 +80,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         self.onFailure = onFailure
         self.onReattach = onReattach
         self.observer = observer
+        self.cursorDefault = cursorDefault
+        self.backoffDelay = backoffDelay
     }
 
     deinit {
@@ -98,7 +110,20 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     public func setVisible(_ visible: Bool) { send(.visibility(visible)) }
     /// The surface gained keyboard focus.
     public func focused() { send(.focused) }
+    /// The terminal or the daemon connection is back: a disconnected view
+    /// re-attaches.
+    public func reconnect() { send(.reconnect) }
+    /// The daemon reports the terminal's process ended.
+    public func processExited() { send(.processExited) }
+    /// The daemon reports the terminal running again after a dead report.
+    public func processRevived() { send(.processRevived) }
     public func close() { send(.close) }
+    /// The view's local history did not match the host's: ask the live link
+    /// for READY + history (`snapshot-request`, reason gap). Not a machine
+    /// event: the link and its geometry stay as they are.
+    public func requestResync() {
+        core.withLock { $0.machine.liveLink }?.link.sendSnapshotRequest(reason: .gap)
+    }
 
     // MARK: Diagnostics
 
@@ -135,16 +160,37 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         switch effect {
         case .open(let attempt, let size):
             if attempt > 1 { onReattach(attempt) }
-            core.withLock { core in
-                core.tasks[attempt] = Task.detached(priority: .userInitiated) { [owner = Owner(self), opener] in
-                    await Self.run(owner: owner, opener: opener, attempt: attempt, size: size)
-                }
-            }
+            startAttempt(attempt, size: size, delay: nil)
+        case .openAfterBackoff(let attempt, let size, let failedReconnects):
+            onReattach(attempt)
+            startAttempt(attempt, size: size, delay: failedReconnects)
         case .send(let ref, let data): ref.link.sendInput(data)
         case .claim(let ref, let size): ref.link.sendClaim(reporting: size)
         case .release(let ref): ref.link.sendReleaseGeometry()
         case .detach(let ref): ref.link.detachNow()
-        case .finish: queue.finish()
+        case .status(let status): queue.pushControl(.status(status))
+        case .finish:
+            queue.finish()
+            // A re-attach still waiting out its backoff must not open.
+            let tasks = core.withLock { core in core.tasks.values }
+            tasks.forEach { $0.cancel() }
+        }
+    }
+
+    private func startAttempt(_ attempt: Int, size: CellSize, delay failedReconnects: Int?) {
+        core.withLock { core in
+            core.tasks[attempt] = Task.detached(priority: .userInitiated) {
+                [owner = Owner(self), opener, backoffDelay, cursorDefault] in
+                if let failedReconnects {
+                    do {
+                        try await backoffDelay(failedReconnects)
+                    } catch {
+                        owner.value?.finishTask(attempt)
+                        return
+                    }
+                }
+                await Self.run(owner: owner, opener: opener, attempt: attempt, size: size, cursorDefault: cursorDefault)
+            }
         }
     }
 
@@ -152,17 +198,25 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
     /// Opens one link, reports it, and pumps its stream until it ends. Holds
     /// the driver only weakly while waiting, so a dropped view frees its link.
-    private static func run(owner: Owner, opener: Opener, attempt: Int, size: CellSize) async {
+    private static func run(owner: Owner, opener: Opener, attempt: Int, size: CellSize,
+                            cursorDefault: TerminalCursorDefault) async {
         guard let ref = await open(owner: owner, opener: opener, attempt: attempt, size: size) else { return }
         var ended: TerminalChannelCloseReason = .connectionLost("attach stream ended")
         stream: for await event in ref.link.events {
             guard let queue = owner.value?.queue else { break stream }
-            for step in TerminalStreamPlan.steps(for: event) {
+            for step in TerminalStreamPlan.steps(for: event, cursorDefault: cursorDefault) {
                 await queue.push(step)
                 switch step {
                 case .replay: owner.value?.send(.replayDelivered(ref))
+                // A link's first READY is its replay; later ones are no-ops there.
+                case .snapshot(let frame) where frame.phase == .ready:
+                    // A local-history READY is also the grid change (no .grid step).
+                    if frame.localHistory != nil, let cols = frame.cols, let rows = frame.rows {
+                        owner.value?.send(.gridAnnounced(ref, CellSize(cols: cols, rows: rows)))
+                    }
+                    owner.value?.send(.replayDelivered(ref))
                 case .grid(let columns, let rows): owner.value?.send(.gridAnnounced(ref, CellSize(cols: columns, rows: rows)))
-                case .output, .exited: break
+                case .output, .snapshot, .exited, .status: break
                 }
             }
             if case .closed(let reason) = event {
@@ -223,4 +277,5 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 extension TerminalAttachment: TerminalAttachLink {
     public nonisolated func sendInput(_ data: Data) { enqueueInput(data) }
     public nonisolated func sendClaim(reporting size: CellSize) { claimGeometry(reporting: size) }
+    public nonisolated func sendSnapshotRequest(reason: SnapshotRequestReason) { requestSnapshot(reason: reason) }
 }

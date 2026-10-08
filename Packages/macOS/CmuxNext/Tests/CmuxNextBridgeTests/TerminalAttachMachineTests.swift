@@ -180,8 +180,8 @@ struct TerminalAttachMachineTests {
             effects = machine.reduce(.ended(link, .overflow))
         }
         #expect(reattaches == Machine.maxAttempts)
-        #expect(effects == [.detach(link), .finish])
-        #expect(machine.isClosed)
+        #expect(effects == [.detach(link), .status(.disconnected(.fellBehind, reconnecting: false))])
+        #expect(!machine.isClosed)
     }
 
     @Test func reachingLiveResetsTheFailureCount() {
@@ -198,19 +198,18 @@ struct TerminalAttachMachineTests {
         #expect(!machine.isClosed)
     }
 
-    @Test func otherEndReasonsCloseAndFinish() {
+    @Test func otherEndReasonsDisconnect() {
         var machine = live()
-        #expect(machine.reduce(.ended(7, .surfaceGone)) == [.detach(7), .finish])
-        #expect(machine.reduce(.input(bytes("z"))) == [])
-        #expect(machine.droppedInputBytes == 1)
+        #expect(machine.reduce(.ended(7, .surfaceGone)) == [.detach(7), .status(.disconnected(.streamEnded, reconnecting: false))])
+        #expect(machine.droppedInputBytes == 0)
     }
 
-    @Test func openFailureClosesAndCountsQueuedInputAsDropped() {
+    @Test func openFailureDisconnectsAndKeepsQueuedInput() {
         var machine = Machine(initialSize: Self.initial)
         _ = machine.reduce(.start)
         _ = machine.reduce(.input(bytes("abc")))
-        #expect(machine.reduce(.openFailed(attempt: 1)) == [.finish])
-        #expect(machine.droppedInputBytes == 3)
+        #expect(machine.reduce(.openFailed(attempt: 1)) == [.status(.disconnected(.attachFailed, reconnecting: false))])
+        #expect(machine.queuedInput == [bytes("abc")])
         #expect(machine.reduce(.openFailed(attempt: 1)) == [])
     }
 

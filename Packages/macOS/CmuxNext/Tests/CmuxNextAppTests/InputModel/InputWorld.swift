@@ -63,6 +63,9 @@ final class InputWorld {
     let workspaceOrder = ["w1", "w2", "w3", "w4"]
     var windows: [SimWindow] = []
     var key: KeyHolder = .none
+    /// Whether the key page window (`key` is `.childPage`) is a child of its
+    /// cmux window yet.
+    var keyPageParented = true
     /// `WindowManager.lastActive`.
     var lastActive: Int?
     /// `WindowManager.active`: the key window's, else the last active one.
@@ -205,9 +208,10 @@ final class InputWorld {
 
     /// Moves AppKit key status, with the notifications AppKit sends:
     /// resign on the old window first, then become on the new one.
-    func setKey(_ new: KeyHolder, byClick: Bool = false, placed: Bool = true) {
+    func setKey(_ new: KeyHolder, byClick: Bool = false, placed: Bool = true, parented: Bool = true) {
         let old = key
         guard old != new else { return }
+        keyPageParented = parented
         // Only the active app has a key window: a click into an inactive
         // app activates it first (didBecomeActive before didBecomeKey).
         if new != .none, !appActive {
@@ -244,9 +248,13 @@ final class InputWorld {
             // back unless the target is that page.
             let window = windows[index]
             guard let page = window.presented[pane], tab(page)?.isChromium == true else { break }
+            let facts = ChildWindowKeyRule.Facts(parent: parented ? .thisWindow : .none, isChromiumPage: true, clicked: byClick,
+                                                 overPane: placed, thisWindowIsActive: lastActive == index)
+            let decision = ChildWindowKeyRule.decide(facts)
+            guard decision != .ignore else { break }
             lastActive = index
             context = window.focus.state.context
-            guard byClick, placed else {
+            guard decision == .chosenPage else {
                 window.focus.responderDidChange(.windowOrNone, source: .programmatic)
                 context = window.focus.state.context
                 break
@@ -321,7 +329,7 @@ final class InputWorld {
         for case .ended(let reason) in transition.effects {
             switch reason {
             case .commit, .open, .cancel, .keyword: window.focus.send(.focusPane(pane, source: .keyboard))
-            case .blur: break
+            case .blur, .switchToTab: break
             }
         }
     }

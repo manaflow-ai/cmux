@@ -3,11 +3,14 @@ public import AppKit
 /// Chooses Extensions menu items by what they do, as a click would
 /// (`debug.extensions.menu`, UI tests). Row controls run through the row
 /// view; other items through the menu.
-public enum ExtensionMenuDriver {
+public struct ExtensionMenuDriver {
+    /// Stateless driver the debug CLI and UI tests use to pick menu items.
+    public init() {}
+
     /// `operation` is a row control (`run`, `pin`, `unpin`, `more`) of
     /// `extension`'s row, or an `ExtensionMenuOperation` raw value of a
     /// footer or extension menu item. Returns false when no item matches.
-    public static func choose(_ operation: String, extension id: String?, in menu: NSMenu) -> Bool {
+    public func choose(_ operation: String, extension id: String?, in menu: NSMenu) -> Bool {
         if let id, let row = menu.items.lazy.compactMap({ $0.view as? ExtensionMenuRowView }).first(where: { $0.extensionID == id }) {
             switch operation {
             case "run": row.run(); return true
@@ -20,8 +23,8 @@ public enum ExtensionMenuDriver {
             }
         }
         var identifiers: [String] = []
-        if let footer = ExtensionMenuOperation(rawValue: operation) { identifiers.append(ExtensionsMenu.Identifier.footer(footer)) }
-        if let id { identifiers.append("\(ExtensionsMenu.Identifier.more(id)).\(operation)") }
+        if let footer = ExtensionMenuOperation(rawValue: operation) { identifiers.append(ExtensionsMenu.footerIdentifier(footer)) }
+        if let id { identifiers.append("\(ExtensionsMenu.moreIdentifier(id)).\(operation)") }
         guard let index = menu.items.firstIndex(where: { identifiers.contains($0.identifier?.rawValue ?? "") }) else {
             return false
         }

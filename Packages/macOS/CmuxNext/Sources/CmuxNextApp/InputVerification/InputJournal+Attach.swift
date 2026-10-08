@@ -38,6 +38,9 @@ extension InputJournal {
             case .ended(let ref, let reason):
                 record.event = "ended:\(reason == .overflow ? "overflow" : "other")"
                 record.link = Self.linkID(ref.link)
+            case .reconnect: record.event = "reconnect"
+            case .processExited: record.event = "processExited"
+            case .processRevived: record.event = "processRevived"
             case .close: record.event = "close"
             }
             journal.append(window: nil, .attach(record))
@@ -55,6 +58,8 @@ extension TerminalAttachMachine.Phase {
         case .attaching(let pending): pending.link == nil ? "attaching" : "attaching:linked"
         case .live: "live"
         case .reattaching(let pending): pending.link == nil ? "reattaching" : "reattaching:linked"
+        case .disconnected(let disconnected): "disconnected:\(disconnected.reason)"
+        case .exited: "exited"
         case .closed: "closed"
         }
     }

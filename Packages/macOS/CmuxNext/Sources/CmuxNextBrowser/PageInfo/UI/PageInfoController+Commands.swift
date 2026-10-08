@@ -50,9 +50,27 @@ extension PageInfoController {
             guard let url = model.aboutThisPageURL ?? PageInfoModel.aboutURL(for: site) else { return }
             close()
             tab.delegate?.browserTab(tab, didRequest: .openURL(url, .foregroundTab))
+        case .reenableCertificateWarnings:
+            guard let revoking = tab as? any BrowserCertificateWarningRevoking else { return }
+            close()
+            // The notice says what was turned on: Chromium clears every site of the profile.
+            let notice = PageInfoStrings.certificateWarningsOnAgain(revoking.certificateWarningScope)
+            Task {
+                guard await revoking.turnOnCertificateWarnings() else { return }
+                tab.delegate?.browserTab(tab, didRequest: .notice(notice))
+            }
         case .show, .close, .reload:
             break
         }
+    }
+
+    /// Site settings of `origin` (any site of this tab's profile, such as
+    /// one whose automatic downloads were blocked), from outside the bubble.
+    public func showSiteSettings(origin: String) {
+        guard let store, let provider, let url = URL(string: origin) else { return }
+        close()
+        let site = PageInfoSite(url: url, security: url.scheme == "https" ? .secure : .insecure)
+        windows.showSiteSettings(origin: origin, site: site, store: store, provider: provider, send: { [weak self] in self?.send($0) })
     }
 
     private func showCertificate(site: PageInfoSite) {
@@ -68,7 +86,7 @@ extension PageInfoController {
     // MARK: Live data
 
     /// Keeps the rows current while the bubble is open, and closes it when
-    /// the page navigates (Chrome closes page info on navigation).
+    /// the page navigates.
     func startObserving() {
         observation?.cancel()
         observation = ObservationLoop { [weak self] in
@@ -101,6 +119,14 @@ extension PageInfoController {
         )
         model.supported = provider.supportedSitePermissions
         model.certificateFailure = activity.failedCertificateReason
+        let revoking = tab as? any BrowserCertificateWarningRevoking
+        let warningsOff = revoking?.certificateWarningsTurnedOff ?? false
+        let scope = revoking?.certificateWarningScope ?? .site
+        if warningsOff != model.certificateWarningsOff || scope != model.certificateWarningScope {
+            model.certificateWarningsOff = warningsOff
+            model.certificateWarningScope = scope
+            if isShown, model.page == .security { render() }
+        }
         if rows != model.permissions {
             model.permissions = rows
             if isShown { render() }

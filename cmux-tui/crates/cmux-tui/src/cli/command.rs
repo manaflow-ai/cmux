@@ -10,14 +10,27 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
+use flags::{BOOLEAN_FLAGS, usage};
 
+mod browser;
+#[cfg(test)]
+pub(in crate::cli) mod cases;
+mod flags;
+mod git;
+mod plan;
+mod screen;
+mod server_ensure;
 mod state;
+
+pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
+use screen::{parse_screen, parse_screen_strings};
 
 pub(super) enum ParsedCommand {
     Help(Option<String>),
+    Docs(super::docs::Plan),
+    CodeMode(super::code_mode::Plan),
     Command { global: GlobalArgs, plan: CommandPlan },
 }
-
 pub(super) enum CommandPlan {
     Server(super::lifecycle::ServerPlan),
     AgentHooks(crate::agent_hook_install::Plan),
@@ -26,52 +39,6 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct RequestPlan {
-    pub operation: WireOperation,
-    pub params: Value,
-    pub idempotency_key: Option<String>,
-    pub stream: bool,
-    /// Reads to run on the same connection before the request is sent.
-    pub resolve: Vec<Resolve>,
-}
-
-/// A parameter the command names indirectly. The CLI fills it with reads on
-/// the request's own connection just before it sends the request, so the
-/// request itself (and its idempotency fingerprint) carries only ids.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Resolve {
-    /// `workspace` becomes the workspace that holds this terminal: the
-    /// caller's own terminal (`CMUX_TUI_TERMINAL_ID`). With `--socket` or
-    /// `--session` the target is that session's `current` workspace.
-    CallerWorkspace { terminal: String },
-    /// `field` names a state record (room or group) by id or exact name; a
-    /// unique name becomes that record's id.
-    StateName { field: &'static str, list: ResourceOperation },
-}
-
-#[derive(Clone, Debug)]
-pub(super) enum WireOperation {
-    Typed(ResourceOperation),
-    Raw { name: String, class: OperationClass },
-}
-
-impl WireOperation {
-    pub fn class(&self) -> OperationClass {
-        match self {
-            Self::Typed(operation) => operation.class(),
-            Self::Raw { class, .. } => *class,
-        }
-    }
-
-    pub fn name(&self) -> Result<String, UsageError> {
-        match self {
-            Self::Typed(operation) => Ok(operation.wire_name().to_owned()),
-            Self::Raw { name, .. } => Ok(name.clone()),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -169,6 +136,7 @@ struct Tokens {
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
+    flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
     let scope = tokens
         .words
         .first()
@@ -193,6 +161,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
         "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -210,7 +179,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
-        ["ensure"] => super::lifecycle::ServerAction::Ensure,
+        ["ensure"] => server_ensure::parse(flags)?,
         ["stop"] => super::lifecycle::ServerAction::Stop {
             force: flags.boolean("force"),
             end_terminals: flags.boolean("end-terminals"),
@@ -266,10 +235,8 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             } else if let Some(value) = inline {
                 Some(value)
             } else {
-                let value = args
-                    .get(index + 1)
-                    .cloned()
-                    .ok_or_else(|| UsageError::new(format!("--{name} needs a value")))?;
+                let value =
+                    args.get(index + 1).cloned().ok_or_else(|| flags::missing_value(name))?;
                 index += 1;
                 Some(value)
             };
@@ -285,55 +252,6 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     }
     Ok(Tokens { words, flags, argv })
 }
-
-/// Metadata for flags which consume no following token.
-///
-/// Keeping this as data makes the tokenizer's grammar auditable and leaves a
-/// single place to extend when a command adds a boolean option. This is the
-/// same distinction Clap models with `ArgAction::SetTrue`, while retaining
-/// cmux's custom forwarding and error text.
-const BOOLEAN_FLAGS: &[&str] = &[
-    "collapse",
-    "expand",
-    "clear",
-    "reply",
-    "empty",
-    "ephemeral",
-    "left",
-    "right",
-    "up",
-    "down",
-    "force",
-    "end-terminals",
-    "confirm-close",
-    "complete",
-    "clear-name",
-    "clear-kind",
-    "clear-foreground",
-    "clear-background",
-    "clear-cursor",
-    "clear-selection-background",
-    "clear-selection-foreground",
-    "clear-cursor-style",
-    "clear-cursor-blink",
-    "clear-palette",
-    "read-only",
-    "relaunch",
-    "styled",
-    "builtin",
-    "mutation",
-    "stream",
-    "ignore-case",
-    "all",
-    "indeterminate",
-    "clear-title",
-    "clear-color",
-    "clear-icon",
-    "clear-theme",
-    "clear-browser-profile",
-    "clear-default-session",
-    "clear-zoom",
-];
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
@@ -668,7 +586,7 @@ fn parse_workspace(
         ["placement", "list"] => {
             request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())
         }
-        ["list"] => request(ResourceOperation::WorkspaceList, selectors, flags, Map::new()),
+        ["list"] => state::workspace_list(selectors, flags),
         ["create"] => {
             let mut params = Map::new();
             if let Some(name) = flags.take("name") {
@@ -726,74 +644,6 @@ fn parse_workspace(
             parse_screen_strings(tail, selectors, flags, argv)
         }
         _ => usage("workspace action"),
-    }
-}
-
-fn parse_screen(
-    words: &[String],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-    argv: Option<Vec<String>>,
-) -> Result<CommandPlan, UsageError> {
-    let refs = strs(words);
-    parse_screen_strings(&refs, selectors, flags, argv)
-}
-
-fn parse_screen_strings(
-    words: &[&str],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-    argv: Option<Vec<String>>,
-) -> Result<CommandPlan, UsageError> {
-    match words {
-        ["group", rest @ ..] => state::parse_screen_group(rest, selectors, flags),
-        ["list"] => request(ResourceOperation::ScreenList, selectors, flags, Map::new()),
-        ["create"] => {
-            let mut params = Map::new();
-            insert_optional_string(&mut params, flags, "name", "name");
-            request(ResourceOperation::ScreenCreate, selectors, flags, params)
-        }
-        [selector, "show"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenGet, selectors, flags, Map::new())
-        }
-        [selector, "rename"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request_with_required_name(ResourceOperation::ScreenRename, selectors, flags)
-        }
-        [selector, "focus"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenFocus, selectors, flags, Map::new())
-        }
-        [selector, action @ ("update" | "pin" | "unpin" | "move")] => {
-            selectors.insert("screen", "screen", selector)?;
-            state::screen_change(action, selectors, flags)
-        }
-        [selector, "close"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenClose, selectors, flags, Map::new())
-        }
-        [selector, "layout", "export"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenLayoutExport, selectors, flags, Map::new())
-        }
-        [selector, "layout", "undo"] => {
-            selectors.insert("screen", "screen", selector)?;
-            let mut params = Map::new();
-            if flags.boolean("confirm-close") {
-                params.insert("confirm_close".into(), Value::Bool(true));
-            }
-            if let Some(token) = flags.take("confirmation-token") {
-                validate_bounded_text("--confirmation-token", &token)?;
-                params.insert("confirmation_token".into(), Value::String(token));
-            }
-            request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
-        }
-        [selector, "pane", tail @ ..] => {
-            selectors.insert("screen", "screen", selector)?;
-            parse_pane_strings(tail, selectors, flags, argv)
-        }
-        _ => usage("screen action"),
     }
 }
 
@@ -950,6 +800,7 @@ fn parse_tab_strings(
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
+        ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabGet, selectors, flags, Map::new())
@@ -1017,9 +868,10 @@ fn parse_terminal(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::TerminalList, selectors, flags, Map::new()),
-        [selector, "show"] => {
+        [selector, verb @ ("show" | "status")] => {
             selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalGet, selectors, flags, Map::new())
+            let plan = request(ResourceOperation::TerminalGet, selectors, flags, Map::new());
+            if *verb == "show" { plan } else { plan.map(CommandPlan::terminal_program_status) }
         }
         [selector, "write"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1262,145 +1114,7 @@ fn parse_terminal(
     }
 }
 
-fn parse_browser(
-    words: &[String],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::BrowserList, selectors, flags, Map::new()),
-        [selector, "show"] => {
-            selectors.insert("browser", "browser", selector)?;
-            request(ResourceOperation::BrowserGet, selectors, flags, Map::new())
-        }
-        [selector, "navigate"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let url = flags.required("url")?;
-            if url.is_empty() {
-                return Err(UsageError::new("--url cannot be empty"));
-            }
-            request(
-                ResourceOperation::BrowserNavigate,
-                selectors,
-                flags,
-                map_with("url", Value::String(url)),
-            )
-        }
-        [selector, "back"] => {
-            browser_no_args(ResourceOperation::BrowserBack, selector, selectors, flags)
-        }
-        [selector, "forward"] => {
-            browser_no_args(ResourceOperation::BrowserForward, selector, selectors, flags)
-        }
-        [selector, "reload"] => {
-            browser_no_args(ResourceOperation::BrowserReload, selector, selectors, flags)
-        }
-        [selector, "activate"] => {
-            browser_no_args(ResourceOperation::BrowserActivate, selector, selectors, flags)
-        }
-        [selector, "key"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let mut params = Map::new();
-            let key = flags.required("key")?;
-            if key.is_empty() {
-                return Err(UsageError::new("--key cannot be empty"));
-            }
-            params.insert("key".into(), Value::String(key));
-            if let Some(kind) = flags.take("kind") {
-                validate_one_of("--kind", &kind, &["down", "up", "press"])?;
-                params.insert("kind".into(), Value::String(kind));
-            }
-            insert_optional_enum_list(
-                &mut params,
-                flags,
-                "modifiers",
-                &["shift", "control", "alt", "meta"],
-            )?;
-            request(ResourceOperation::BrowserInputKey, selectors, flags, params)
-        }
-        [selector, "text"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let text = flags.required("text")?;
-            request(
-                ResourceOperation::BrowserInputText,
-                selectors,
-                flags,
-                map_with("text", Value::String(text)),
-            )
-        }
-        [selector, "mouse"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let mut params = Map::new();
-            let kind = flags.required("kind")?;
-            validate_one_of("--kind", &kind, &["down", "up", "move"])?;
-            params.insert("kind".into(), Value::String(kind.clone()));
-            insert_float(&mut params, "x_px", "--x-px", flags.required("x-px")?)?;
-            insert_float(&mut params, "y_px", "--y-px", flags.required("y-px")?)?;
-            let pointer_frame_seq = flags.required("pointer-frame-seq")?;
-            validate_decimal("--pointer-frame-seq", &pointer_frame_seq)?;
-            params.insert("pointer_frame_seq".into(), Value::String(pointer_frame_seq));
-            match (kind.as_str(), flags.take("button"), flags.take("click-count")) {
-                ("down" | "up", Some(button), click_count) => {
-                    validate_one_of(
-                        "--button",
-                        &button,
-                        &["left", "middle", "right", "back", "forward"],
-                    )?;
-                    params.insert("button".into(), Value::String(button));
-                    if let Some(click_count) = click_count {
-                        insert_u32(&mut params, "click_count", "--click-count", click_count)?;
-                    }
-                }
-                ("down" | "up", None, _) => {
-                    return Err(UsageError::new("--button is required for down and up"));
-                }
-                ("move", None, None) => {}
-                ("move", Some(_), _) => {
-                    return Err(UsageError::new("--button is forbidden for move"));
-                }
-                ("move", None, Some(_)) => {
-                    return Err(UsageError::new("--click-count is forbidden for move"));
-                }
-                _ => unreachable!("kind validated above"),
-            }
-            request(ResourceOperation::BrowserInputMouse, selectors, flags, params)
-        }
-        [selector, "wheel"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let mut params = Map::new();
-            insert_float(&mut params, "delta_x", "--delta-x", flags.required("delta-x")?)?;
-            insert_float(&mut params, "delta_y", "--delta-y", flags.required("delta-y")?)?;
-            insert_float(&mut params, "x_px", "--x-px", flags.required("x-px")?)?;
-            insert_float(&mut params, "y_px", "--y-px", flags.required("y-px")?)?;
-            let pointer_frame_seq = flags.required("pointer-frame-seq")?;
-            validate_decimal("--pointer-frame-seq", &pointer_frame_seq)?;
-            params.insert("pointer_frame_seq".into(), Value::String(pointer_frame_seq));
-            request(ResourceOperation::BrowserInputWheel, selectors, flags, params)
-        }
-        [selector, "attach"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let mut params = Map::new();
-            add_stream_id(&mut params, flags)?;
-            add_pixel_size(&mut params, flags)?;
-            request(ResourceOperation::BrowserAttach, selectors, flags, params)
-        }
-        [selector, "close"] => {
-            selectors.insert("browser", "browser", selector)?;
-            request(ResourceOperation::BrowserClose, selectors, flags, Map::new())
-        }
-        _ => usage("browser action"),
-    }
-}
-
-fn browser_no_args(
-    operation: ResourceOperation,
-    selector: &str,
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    selectors.insert("browser", "browser", selector)?;
-    request(operation, selectors, flags, Map::new())
-}
+use browser::parse_browser;
 
 fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
@@ -1481,8 +1195,11 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// session or `--workspace` asks for a session-level row; a machine cannot
 /// address anything outside its own session. `--reply` is refused: the reply
 /// channel would type into a terminal, and that channel does not cross the
-/// machine boundary. `--window` and `--id-format` are accepted for
-/// signature parity and have no meaning on a machine.
+/// machine boundary. `--window`, `--id-format`, and `--desktop` are accepted
+/// for signature parity and have no meaning on a machine: the Mac decides how
+/// a machine's row is delivered. `--desktop` is still validated so a bad value
+/// fails the same way it does locally, and like the local flag it is not
+/// validated with `--clear`.
 fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     if !words.is_empty() {
         return usage("notify takes flags only");
@@ -1495,6 +1212,7 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     }
     let _ = flags.take("window");
     let _ = flags.take("id-format");
+    let desktop = flags.take("desktop");
     let workspace = flags.take("workspace");
     if let Some(workspace) = &workspace
         && workspace != "current"
@@ -1539,6 +1257,11 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             params.insert("terminal_id".into(), Value::String(surface));
         }
         return request(ResourceOperation::NotificationClear, &selectors, flags, params);
+    }
+    // Like the local flag, `--desktop` has no effect with `--clear` and is validated only here.
+    if let Some(desktop) = desktop {
+        parse_bool("--desktop", &desktop)
+            .map_err(|_| UsageError::new("--desktop must be true|false"))?;
     }
     let title = flags.take("title").unwrap_or_else(|| "Notification".into());
     if title.is_empty() {
@@ -1633,6 +1356,7 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             };
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
+            terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;
             let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
                 &source,
                 &native_event,
@@ -2133,6 +1857,7 @@ fn finalize_request(
         params,
         idempotency_key: explicit_key,
         resolve: Vec::new(),
+        view: ResponseView::Full,
     })))
 }
 
@@ -2990,10 +2715,6 @@ fn strs(values: &[String]) -> Vec<&str> {
     values.iter().map(String::as_str).collect()
 }
 
-fn usage<T>(what: &str) -> Result<T, UsageError> {
-    Err(UsageError::new(format!("unknown or incomplete {what}; use --help")))
-}
-
 pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
     match crate::plugin_manager::execute(
         &plan.positionals,
@@ -3330,6 +3051,17 @@ mod tests {
     }
 
     #[test]
+    fn browser_open_alias_maps_to_tab_create_browser() {
+        let plan = protocol(&["browser", "open", "https://example.com"]);
+        assert_eq!(operation(&plan), "tab.create_browser");
+        assert_eq!(plan.params["url"], "https://example.com");
+
+        let flagged = protocol(&["browser", "open", "--url", "https://example.com/docs"]);
+        assert_eq!(operation(&flagged), "tab.create_browser");
+        assert_eq!(flagged.params["url"], "https://example.com/docs");
+    }
+
+    #[test]
     fn terminal_keep_maps_to_the_private_set_terminal_keep_command() {
         const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
         let on = raw_request(&["terminal", TERMINAL, "keep", "on"]);
@@ -3454,212 +3186,6 @@ mod tests {
             "workspace state root is not a directory: /tmp/already owned by another daemon"
         ));
         assert_eq!(advice.code, "session.reset_state.invalid_state_path");
-    }
-
-    /// One path per state resource operation (state-ownership.md steps A
-    /// and B), exercising every catalog field.
-    fn state_resource_cases<'a>(
-        workspace: &'a str,
-        screen: &'a str,
-        pane: &'a str,
-        tab: &'a str,
-    ) -> Vec<(Vec<&'a str>, &'a str)> {
-        vec![
-            (
-                vec![
-                    "workspace",
-                    workspace,
-                    "update",
-                    "--title",
-                    "T",
-                    "--color",
-                    "red",
-                    "--icon",
-                    "star",
-                ],
-                "workspace.update",
-            ),
-            (
-                vec!["workspace", "group", "g", "add", "--workspace", workspace, "--index", "0"],
-                "workspace.place",
-            ),
-            (vec!["workspace", "placement", "list"], "workspace.placement.list"),
-            (vec!["workspace", "group", "list", "--room", "r"], "workspace_group.list"),
-            (
-                vec![
-                    "workspace",
-                    "group",
-                    "create",
-                    "--name",
-                    "n",
-                    "--color",
-                    "blue",
-                    "--room",
-                    "r",
-                    "--index",
-                    "0",
-                    "--collapse",
-                ],
-                "workspace_group.create",
-            ),
-            (
-                vec![
-                    "workspace",
-                    "group",
-                    "g",
-                    "update",
-                    "--name",
-                    "n",
-                    "--color",
-                    "red",
-                    "--room",
-                    "r",
-                    "--collapse",
-                ],
-                "workspace_group.update",
-            ),
-            (vec!["workspace", "group", "g", "delete"], "workspace_group.delete"),
-            (vec!["workspace", "group", "g", "move", "--index", "1"], "workspace_group.move"),
-            (vec!["tab", tab, "pin"], "tab.pin"),
-            (vec!["tab", tab, "unpin"], "tab.unpin"),
-            (
-                vec!["tab", tab, "update", "--zoom", "1.5", "--back", "a", "--forward", "b"],
-                "tab.update",
-            ),
-            (vec!["tab", "group", "list", "--pane", pane], "tab_group.list"),
-            (vec!["tab", "group", "g", "show"], "tab_group.get"),
-            (
-                vec!["tab", "group", "create", "--tabs", tab, "--name", "n", "--color", "green"],
-                "tab_group.create",
-            ),
-            (
-                vec!["tab", "group", "g", "update", "--name", "n", "--color", "red", "--collapse"],
-                "tab_group.update",
-            ),
-            (vec!["tab", "group", "g", "add", "--tabs", tab, "--index", "0"], "tab_group.add_tabs"),
-            (vec!["tab", "group", "remove", "--tabs", tab], "tab_group.remove_tabs"),
-            (vec!["tab", "group", "g", "move", "--pane", pane, "--index", "0"], "tab_group.move"),
-            (vec!["tab", "group", "g", "ungroup"], "tab_group.ungroup"),
-            (vec!["tab", "group", "g", "close"], "tab_group.close"),
-            (vec!["tab", "group", "saved", "list", "--room", "r"], "saved_tab_group.list"),
-            (vec!["tab", "group", "g", "save", "--room", "r"], "saved_tab_group.save"),
-            (
-                vec!["tab", "group", "saved", "s", "reopen", "--pane", pane],
-                "saved_tab_group.reopen",
-            ),
-            (vec!["tab", "group", "saved", "s", "delete"], "saved_tab_group.delete"),
-            (vec!["room", "list"], "room.list"),
-            (
-                vec![
-                    "room", "create", "--name", "n", "--color", "c", "--icon", "i", "--theme", "t",
-                    "--index", "0",
-                ],
-                "room.create",
-            ),
-            (
-                vec![
-                    "room",
-                    "r",
-                    "update",
-                    "--name",
-                    "n",
-                    "--color",
-                    "c",
-                    "--icon",
-                    "i",
-                    "--theme",
-                    "t",
-                    "--browser-profile",
-                    "p",
-                    "--default-session",
-                    "s",
-                ],
-                "room.update",
-            ),
-            (vec!["room", "r", "delete", "--move-to", "r2"], "room.delete"),
-            (vec!["room", "r", "move", "--index", "0"], "room.move"),
-            (vec!["room", "r", "follow", "--sessions", "s1"], "room.follow"),
-            (vec!["room", "r", "pin", "--workspace", workspace], "room.pin"),
-            (vec!["room", "unpin", "--workspace", workspace], "room.unpin"),
-            (
-                vec!["screen", screen, "update", "--pinned", "true", "--color", "c", "--icon", "i"],
-                "screen.update",
-            ),
-            (vec!["screen", screen, "move", "--index", "0"], "screen.move"),
-            (vec!["screen", "group", "list", "--workspace", workspace], "screen_group.list"),
-            (vec!["screen", "group", "g", "show"], "screen_group.get"),
-            (
-                vec![
-                    "screen",
-                    "group",
-                    "create",
-                    "--screens",
-                    screen,
-                    "--name",
-                    "n",
-                    "--color",
-                    "blue",
-                ],
-                "screen_group.create",
-            ),
-            (
-                vec![
-                    "screen",
-                    "group",
-                    "g",
-                    "update",
-                    "--name",
-                    "n",
-                    "--color",
-                    "red",
-                    "--collapse",
-                ],
-                "screen_group.update",
-            ),
-            (vec!["screen", "group", "g", "add", "--screens", screen], "screen_group.add_screens"),
-            (vec!["screen", "group", "remove", "--screens", screen], "screen_group.remove_screens"),
-            (vec!["screen", "group", "g", "ungroup"], "screen_group.ungroup"),
-            (vec!["closed", "list"], "closed.list"),
-            (vec!["closed", "c1", "reopen"], "closed.reopen"),
-            (vec!["workspace", workspace, "status", "list"], "workspace_status.list"),
-            (
-                vec![
-                    "workspace",
-                    workspace,
-                    "status",
-                    "set",
-                    "k",
-                    "t",
-                    "--icon",
-                    "i",
-                    "--color",
-                    "c",
-                ],
-                "workspace_status.set",
-            ),
-            (vec!["workspace", workspace, "status", "clear", "k"], "workspace_status.clear"),
-            (
-                vec!["workspace", workspace, "progress", "set", "0.5", "--label", "l"],
-                "workspace_progress.set",
-            ),
-            (vec!["workspace", workspace, "progress", "clear"], "workspace_progress.clear"),
-            (
-                vec![
-                    "workspace",
-                    workspace,
-                    "log",
-                    "append",
-                    "t",
-                    "--level",
-                    "info",
-                    "--source",
-                    "s",
-                ],
-                "workspace_log.append",
-            ),
-            (vec!["workspace", workspace, "log", "list", "--limit", "5"], "workspace_log.list"),
-            (vec!["workspace", workspace, "log", "clear"], "workspace_log.clear"),
-        ]
     }
 
     fn operation_catalog() -> Value {
@@ -3920,6 +3446,7 @@ mod tests {
         }
     }
 
+    /// The machine `notify` accepts the macOS flag set, ignores the Mac-only ones, and validates `--desktop`.
     #[test]
     fn notify_matches_the_local_cmux_notify_signature() {
         const TERMINAL: &str = "term_00000000000000000000000000000041";
@@ -3955,12 +3482,36 @@ mod tests {
         assert_eq!(clear.params["terminal_id"], TERMINAL);
         let clear_all = protocol(&["notify", "--clear", "--workspace", "current"]);
         assert!(clear_all.params.get("terminal_id").is_none());
+        let clear_ignores_desktop =
+            protocol(&["notify", "--clear", "--surface", TERMINAL, "--desktop", "maybe"]);
+        assert_eq!(clear_ignores_desktop.operation.name().unwrap(), "notification.clear");
 
         assert!(
             parse(&strings(&["notify", "--reply", "--title", "x"]), super::super::Surface::CmuxTui)
                 .is_err(),
             "no reply channel across the link"
         );
+        // The Mac owns delivery for a machine's rows, so the local banner
+        // switch parses for parity and adds nothing to the request.
+        for parity in [
+            &["notify", "--workspace", "current", "--desktop", "false"][..],
+            &["notify", "--workspace", "current", "--desktop=true"][..],
+        ] {
+            let plan = protocol(parity);
+            assert_eq!(plan.operation.name().unwrap(), "notification.create");
+            assert!(plan.params.get("effects").is_none(), "{parity:?}");
+        }
+        match parse(
+            &strings(&["notify", "--workspace", "current", "--desktop", "maybe"]),
+            super::super::Surface::CmuxTui,
+        ) {
+            Err(error) => assert_eq!(
+                error.to_string(),
+                "--desktop must be true|false",
+                "--desktop is validated like the local flag, with the local error text"
+            ),
+            Ok(_) => panic!("--desktop maybe was accepted"),
+        }
         if std::env::var_os("CMUX_TUI_TERMINAL_ID").is_none() {
             assert!(
                 parse(&strings(&["notify", "--clear"]), super::super::Surface::CmuxTui).is_err(),
@@ -4729,795 +4280,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_safe_transport_operation_has_a_noun_first_path() {
-        const MACHINE: &str = "machine_00000000000000000000000000000001";
-        const SESSION: &str = "session_00000000000000000000000000000002";
-        const CLIENT: &str = "client_00000000000000000000000000000003";
-        const WORKSPACE: &str = "ws_00000000000000000000000000000004";
-        const SCREEN: &str = "screen_00000000000000000000000000000005";
-        const PANE: &str = "pane_00000000000000000000000000000006";
-        const TAB: &str = "tab_00000000000000000000000000000007";
-        const TERMINAL: &str = "term_00000000000000000000000000000008";
-        const BROWSER: &str = "browser_00000000000000000000000000000009";
-        const PAIRING: &str = "pairing_0000000000000000000000000000000b";
-        const PROJECTION: &str = "projection_0000000000000000000000000000000c";
-        const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
-
-        let cases: Vec<(Vec<&str>, &str)> = vec![
-            (vec!["machine", "list"], "machine.list"),
-            (vec!["machine", MACHINE, "show"], "machine.get"),
-            (vec!["machine", MACHINE, "session", "list"], "session.list"),
-            (vec!["machine", MACHINE, "session", SESSION, "open"], "session.open"),
-            (vec!["session", SESSION, "show"], "session.get"),
-            (vec!["session", SESSION, "snapshot"], "session.snapshot"),
-            (
-                vec!["session", SESSION, "creation", "create-42", "resolve"],
-                "session.creation.resolve",
-            ),
-            (
-                vec!["session", SESSION, "events", "--generation", "g1", "--revision", "3"],
-                "session.events",
-            ),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "read",
-                    "--from",
-                    "beginning",
-                    "--kinds",
-                    "pane.*,tab.focus",
-                ],
-                "session.journal.subscribe",
-            ),
-            (
-                vec!["session", SESSION, "journal", "producer", "list"],
-                "session.journal.producer.list",
-            ),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "producer",
-                    "put",
-                    "--manifest-json",
-                    r#"{"producer_id":"demo","namespace":"plugin.demo"}"#,
-                ],
-                "session.journal.producer.put",
-            ),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "append",
-                    "--event-json",
-                    r#"{"producer_id":"demo","payload":{"ready":true}}"#,
-                ],
-                "session.journal.append",
-            ),
-            (vec!["session", SESSION, "journal", "hook", "list"], "session.journal.hook.list"),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "hook",
-                    "put",
-                    "--manifest-json",
-                    r#"{"hook_id":"demo_hook","manifest_version":1}"#,
-                ],
-                "session.journal.hook.put",
-            ),
-            (
-                vec!["session", SESSION, "journal", "checkpoint", "create"],
-                "session.journal.checkpoint.create",
-            ),
-            (
-                vec!["session", SESSION, "journal", "checkpoint", "list"],
-                "session.journal.checkpoint.list",
-            ),
-            (
-                vec!["session", SESSION, "journal", "restore", "preview", "--checkpoint", "latest"],
-                "session.journal.restore.preview",
-            ),
-            (
-                vec!["session", SESSION, "journal", "segment", "list"],
-                "session.journal.segment.list",
-            ),
-            (
-                vec!["session", SESSION, "journal", "segment", "seal", "--through", "42"],
-                "session.journal.segment.seal",
-            ),
-            (vec!["session", SESSION, "ping"], "session.ping"),
-            (vec!["session", SESSION, "shutdown", "--force"], "session.shutdown"),
-            (vec!["session", SESSION, "config", "reload"], "session.reload_config"),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "terminal",
-                    "defaults",
-                    "set",
-                    "--foreground",
-                    "#ffffff",
-                    "--background",
-                    "#000000",
-                    "--cursor",
-                    "#aaaaaa",
-                    "--selection-background",
-                    "#111111",
-                    "--selection-foreground",
-                    "#eeeeee",
-                    "--cursor-style",
-                    "bar",
-                    "--cursor-blink",
-                    "true",
-                    "--palette",
-                    "{\"0\":\"#000000\",\"255\":\"#ffffff\"}",
-                    "--complete",
-                ],
-                "session.terminal_defaults.update",
-            ),
-            (vec!["client", "list"], "client.list"),
-            (vec!["client", CLIENT, "show"], "client.get"),
-            (
-                vec!["client", CLIENT, "metadata", "set", "--name", "cli", "--kind", "automation"],
-                "client.metadata.update",
-            ),
-            (
-                vec![
-                    "client",
-                    CLIENT,
-                    "sizing",
-                    "set",
-                    "--terminal",
-                    TERMINAL,
-                    "--enabled",
-                    "true",
-                    "--exclusive",
-                    "true",
-                ],
-                "client.sizing.set",
-            ),
-            (
-                vec!["client", CLIENT, "sizing", "release", "--terminal", TERMINAL],
-                "client.sizing.release",
-            ),
-            (
-                vec![
-                    "client",
-                    CLIENT,
-                    "cell",
-                    "pixels",
-                    "set",
-                    "--width-px",
-                    "8",
-                    "--height-px",
-                    "16",
-                ],
-                "client.cell_pixels.set",
-            ),
-            (vec!["client", CLIENT, "detach"], "client.detach"),
-            (
-                vec!["session", SESSION, "window", "title", "set", "--title", "build"],
-                "session.window.title.set",
-            ),
-            (vec!["session", SESSION, "window", "title", "clear"], "session.window.title.clear"),
-            (vec!["pairing", "request", "list"], "pairing_request.list"),
-            (vec!["pairing", "request", PAIRING, "respond", "accept"], "pairing_request.resolve"),
-            (vec!["projection", PROJECTION, "show"], "frontend_projection.get"),
-            (
-                vec![
-                    "projection",
-                    PROJECTION,
-                    "put",
-                    "--projection",
-                    "{\"sidebar\":\"compact\"}",
-                    "--frontend-id",
-                    "cmux-cli",
-                    "--window-id",
-                    "window-1",
-                    "--generation",
-                    "launch-1",
-                    "--expected-projection-revision",
-                    "7",
-                ],
-                "frontend_projection.put",
-            ),
-            (vec!["workspace", "list"], "workspace.list"),
-            (vec!["workspace", WORKSPACE, "show"], "workspace.get"),
-            (
-                vec![
-                    "workspace",
-                    "create",
-                    "--empty",
-                    "--ephemeral",
-                    "--name",
-                    "empty",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "workspace.create",
-            ),
-            (vec!["workspace", WORKSPACE, "rename", "--name", "api"], "workspace.rename"),
-            (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
-            (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
-            (vec!["workspace", WORKSPACE, "close"], "workspace.close"),
-            (
-                vec![
-                    "workspace",
-                    WORKSPACE,
-                    "run",
-                    "--cwd",
-                    "/tmp",
-                    "--name",
-                    "tests",
-                    "--cols",
-                    "100",
-                    "--rows",
-                    "40",
-                    "--on-exit",
-                    "keep",
-                    "--correlation-key",
-                    "create-42",
-                    "--",
-                    "cargo",
-                    "test",
-                ],
-                "workspace.run",
-            ),
-            (
-                vec!["workspace", WORKSPACE, "layout", "apply", "--layout", "{\"kind\":\"leaf\"}"],
-                "workspace.layout.apply",
-            ),
-            (vec!["screen", "list"], "screen.list"),
-            (vec!["screen", SCREEN, "show"], "screen.get"),
-            (
-                vec!["screen", "create", "--name", "build", "--correlation-key", "create-42"],
-                "screen.create",
-            ),
-            (vec!["screen", SCREEN, "rename", "--name", "tests"], "screen.rename"),
-            (vec!["screen", SCREEN, "focus"], "screen.focus"),
-            (vec!["screen", SCREEN, "close"], "screen.close"),
-            (vec!["screen", SCREEN, "layout", "export"], "screen.layout.export"),
-            (
-                vec![
-                    "screen",
-                    SCREEN,
-                    "layout",
-                    "undo",
-                    "--confirm-close",
-                    "--confirmation-token",
-                    "layout-preview-token",
-                ],
-                "screen.layout.undo",
-            ),
-            (vec!["pane", "list"], "pane.list"),
-            (vec!["pane", PANE, "show"], "pane.get"),
-            (
-                vec![
-                    "pane",
-                    "create",
-                    "--cwd",
-                    "/tmp",
-                    "--cols",
-                    "80",
-                    "--rows",
-                    "24",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "pane.create",
-            ),
-            (
-                vec![
-                    "pane",
-                    PANE,
-                    "split",
-                    "--right",
-                    "--ratio",
-                    "0.5",
-                    "--viewport-width",
-                    "0.5",
-                    "--cwd",
-                    "/tmp",
-                    "--cols",
-                    "80",
-                    "--rows",
-                    "24",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "pane.split",
-            ),
-            (vec!["pane", PANE, "rename", "--name", "server"], "pane.rename"),
-            (vec!["pane", PANE, "focus"], "pane.focus"),
-            (vec!["pane", PANE, "focus", "direction", "right"], "pane.focus_direction"),
-            (vec!["pane", PANE, "neighbor", "left"], "pane.neighbor.get"),
-            (
-                vec![
-                    "pane",
-                    PANE,
-                    "swap",
-                    "--other-workspace",
-                    WORKSPACE,
-                    "--other-screen",
-                    SCREEN,
-                    "--other-pane",
-                    PANE,
-                ],
-                "pane.swap",
-            ),
-            (vec!["pane", PANE, "zoom", "--enabled", "true"], "pane.zoom"),
-            (
-                vec![
-                    "pane",
-                    PANE,
-                    "split",
-                    "ratio",
-                    "set",
-                    "--split",
-                    "split_0000000000000000000000000000000f",
-                    "--ratio",
-                    "0.5",
-                ],
-                "pane.split_ratio.set",
-            ),
-            (
-                vec!["pane", PANE, "viewport", "width", "set", "--columns", "80"],
-                "pane.viewport_width.set",
-            ),
-            (vec!["pane", PANE, "close"], "pane.close"),
-            (
-                vec![
-                    "pane",
-                    PANE,
-                    "run",
-                    "--cwd",
-                    "/tmp",
-                    "--name",
-                    "make",
-                    "--cols",
-                    "90",
-                    "--rows",
-                    "30",
-                    "--on-exit",
-                    "keep",
-                    "--correlation-key",
-                    "create-42",
-                    "--",
-                    "make",
-                    "test",
-                ],
-                "pane.run",
-            ),
-            (vec!["tab", "list"], "tab.list"),
-            (vec!["tab", TAB, "show"], "tab.get"),
-            (
-                vec![
-                    "tab",
-                    "create",
-                    "terminal",
-                    "--cwd",
-                    "/tmp",
-                    "--name",
-                    "shell",
-                    "--cols",
-                    "80",
-                    "--rows",
-                    "24",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "tab.create_terminal",
-            ),
-            (
-                vec![
-                    "tab",
-                    "create",
-                    "browser",
-                    "--url",
-                    "https://example.com",
-                    "--name",
-                    "docs",
-                    "--width-px",
-                    "1200",
-                    "--height-px",
-                    "800",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "tab.create_browser",
-            ),
-            (
-                vec![
-                    "tab",
-                    TAB,
-                    "rename",
-                    "--name",
-                    "logs",
-                    "--source",
-                    "auto",
-                    "--expected-generation",
-                    "daemon",
-                    "--expected-name-revision",
-                    "0",
-                ],
-                "tab.rename",
-            ),
-            (
-                vec![
-                    "tab",
-                    TAB,
-                    "move",
-                    "--workspace",
-                    WORKSPACE,
-                    "--screen",
-                    SCREEN,
-                    "--pane",
-                    PANE,
-                    "--index",
-                    "0",
-                ],
-                "tab.move",
-            ),
-            (vec!["tab", TAB, "focus"], "tab.focus"),
-            (vec!["tab", TAB, "close"], "tab.close"),
-            (vec!["terminal", "list"], "terminal.list"),
-            (vec!["terminal", TERMINAL, "show"], "terminal.get"),
-            (vec!["terminal", TERMINAL, "write", "--text", "hello"], "terminal.input.write"),
-            (vec!["terminal", TERMINAL, "keys", "ctrl-c"], "terminal.input.keys"),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "mouse",
-                    "down",
-                    "--row",
-                    "4",
-                    "--column",
-                    "7",
-                    "--button",
-                    "left",
-                    "--modifiers",
-                    "shift,meta",
-                ],
-                "terminal.input.mouse",
-            ),
-            (vec!["terminal", TERMINAL, "focus", "in"], "terminal.input.focus"),
-            (vec!["terminal", TERMINAL, "screen", "read"], "terminal.screen.read"),
-            (vec!["terminal", TERMINAL, "state", "read"], "terminal.state.read"),
-            (
-                vec![
-                    "terminal", TERMINAL, "history", "read", "--before", "0", "--limit", "100",
-                    "--styled",
-                ],
-                "terminal.history.read",
-            ),
-            (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "output",
-                    "read",
-                    "--after",
-                    "4096",
-                    "--max-bytes",
-                    "65536",
-                ],
-                "terminal.output_read",
-            ),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "screen",
-                    "wait",
-                    "--pattern",
-                    "ready",
-                    "--timeout-ms",
-                    "5000",
-                ],
-                "terminal.wait",
-            ),
-            (vec!["terminal", TERMINAL, "copy", "--mode", "screen"], "terminal.copy"),
-            (vec!["terminal", TERMINAL, "process", "show"], "terminal.process.get"),
-            (
-                vec!["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"],
-                "terminal.wait_exit",
-            ),
-            (
-                vec!["terminal", TERMINAL, "viewport", "scroll", "--delta-rows", "-3"],
-                "terminal.viewport.scroll",
-            ),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "move",
-                    "--workspace",
-                    WORKSPACE,
-                    "--screen",
-                    SCREEN,
-                    "--pane",
-                    PANE,
-                    "--index",
-                    "1",
-                ],
-                "terminal.move",
-            ),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "project",
-                    "--workspace",
-                    WORKSPACE,
-                    "--screen",
-                    SCREEN,
-                    "--pane",
-                    PANE,
-                    "--index",
-                    "1",
-                    "--name",
-                    "mirror",
-                ],
-                "terminal.project",
-            ),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "attach",
-                    "--cols",
-                    "100",
-                    "--rows",
-                    "40",
-                    "--read-only",
-                ],
-                "terminal.attach",
-            ),
-            (vec!["terminal", TERMINAL, "close"], "terminal.close"),
-            (vec!["browser", "list"], "browser.list"),
-            (vec!["browser", BROWSER, "show"], "browser.get"),
-            (
-                vec!["browser", BROWSER, "navigate", "--url", "https://example.com"],
-                "browser.navigate",
-            ),
-            (vec!["browser", BROWSER, "back"], "browser.back"),
-            (vec!["browser", BROWSER, "forward"], "browser.forward"),
-            (vec!["browser", BROWSER, "reload"], "browser.reload"),
-            (vec!["browser", BROWSER, "activate"], "browser.activate"),
-            (
-                vec![
-                    "browser",
-                    BROWSER,
-                    "key",
-                    "--key",
-                    "Enter",
-                    "--kind",
-                    "press",
-                    "--modifiers",
-                    "shift,meta",
-                ],
-                "browser.input.key",
-            ),
-            (vec!["browser", BROWSER, "text", "--text", "hello"], "browser.input.text"),
-            (
-                vec![
-                    "browser",
-                    BROWSER,
-                    "mouse",
-                    "--kind",
-                    "down",
-                    "--x-px",
-                    "10",
-                    "--y-px",
-                    "20",
-                    "--button",
-                    "left",
-                    "--click-count",
-                    "2",
-                    "--pointer-frame-seq",
-                    "42",
-                ],
-                "browser.input.mouse",
-            ),
-            (
-                vec![
-                    "browser",
-                    BROWSER,
-                    "wheel",
-                    "--delta-x",
-                    "1",
-                    "--delta-y",
-                    "120",
-                    "--x-px",
-                    "10",
-                    "--y-px",
-                    "20",
-                    "--pointer-frame-seq",
-                    "42",
-                ],
-                "browser.input.wheel",
-            ),
-            (
-                vec!["browser", BROWSER, "attach", "--width-px", "1200", "--height-px", "800"],
-                "browser.attach",
-            ),
-            (vec!["browser", BROWSER, "close"], "browser.close"),
-            (vec!["notification", "list", "--limit", "100"], "notification.list"),
-            (
-                vec![
-                    "notification",
-                    "create",
-                    "--subtitle",
-                    "api",
-                    "--title",
-                    "done",
-                    "--body",
-                    "tests passed",
-                    "--level",
-                    "success",
-                    "--terminal",
-                    TERMINAL,
-                ],
-                "notification.create",
-            ),
-            (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
-            (
-                vec![
-                    "agent",
-                    "report",
-                    "--terminal",
-                    TERMINAL,
-                    "--state",
-                    "working",
-                    "--source",
-                    "socket",
-                    "--source-session",
-                    "job-1",
-                ],
-                "agent.report",
-            ),
-            (vec!["sidebar", "view", "show", "--view", VIEW], "sidebar_view.get"),
-            (
-                vec!["sidebar", "view", "ensure", "--cols", "30", "--rows", "40", "--relaunch"],
-                "sidebar_view.ensure",
-            ),
-            (vec!["sidebar", "view", "attach", "--view", VIEW], "sidebar_view.attach"),
-            (vec!["sidebar", "view", "input", "--view", VIEW, "--text", "j"], "sidebar_view.input"),
-            (
-                vec!["sidebar", "view", "resize", "--view", VIEW, "--cols", "30", "--rows", "40"],
-                "sidebar_view.resize",
-            ),
-            (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
-            (
-                vec![
-                    "notification",
-                    "ack",
-                    "notification_00000000000000000000000000000041",
-                    "--client",
-                    "mac-1",
-                ],
-                "notification.ack",
-            ),
-            (
-                vec![
-                    "notification",
-                    "clear",
-                    "--terminal",
-                    "term_00000000000000000000000000000041",
-                ],
-                "notification.clear",
-            ),
-        ];
-        let mut cases = cases;
-        cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
-
-        assert_eq!(cases.len(), 171);
-        let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 178);
-        let mut seen = std::collections::BTreeSet::new();
-        let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
-        for (args, expected) in &cases {
-            let plan = protocol(args);
-            assert_eq!(operation(&plan), *expected, "{args:?}");
-            assert_plan_matches_catalog(&plan, expected, &catalog);
-            assert!(seen.insert(*expected), "duplicate operation case {expected}");
-            record_covered_fields(&plan, expected, &catalog, &mut covered_fields);
-
-            if catalog["operations"][expected]["params"]["fields"]["expected_revision"].is_object()
-            {
-                let mut with_revision = args.clone();
-                let insert_at = with_revision
-                    .iter()
-                    .position(|value| *value == "--")
-                    .unwrap_or(with_revision.len());
-                with_revision.splice(insert_at..insert_at, ["--expected-revision", "7"]);
-                let revised = protocol(&with_revision);
-                assert_eq!(
-                    revised.params["expected_revision"], "7",
-                    "{expected} did not expose optimistic concurrency"
-                );
-                assert_plan_matches_catalog(&revised, expected, &catalog);
-                record_covered_fields(&revised, expected, &catalog, &mut covered_fields);
-            }
-        }
-        for (args, expected) in [
-            (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
-            (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "subscribe",
-                    "--cursor-session",
-                    SESSION,
-                    "--sequence",
-                    "42",
-                ],
-                "session.journal.subscribe",
-            ),
-            (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "mouse",
-                    "wheel",
-                    "--row",
-                    "4",
-                    "--column",
-                    "7",
-                    "--delta-rows",
-                    "-2",
-                ],
-                "terminal.input.mouse",
-            ),
-        ] {
-            let plan = protocol(&args);
-            record_covered_fields(&plan, expected, &catalog, &mut covered_fields);
-        }
-        let expected = catalog["operations"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .filter(|name| {
-                !matches!(
-                    name.as_str(),
-                    "browser.viewer.release"
-                        | "browser.viewer.resize"
-                        | "request.cancel"
-                        | "stream.cancel"
-                        | "terminal.renderer_grant.create"
-                        | "terminal.viewer.release"
-                        | "terminal.viewer.resize"
-                )
-            })
-            .map(String::as_str)
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");
-        for operation in &expected {
-            let catalog_fields = catalog["operations"][operation]["params"]["fields"]
-                .as_object()
-                .unwrap()
-                .keys()
-                .cloned()
-                .collect::<std::collections::BTreeSet<_>>();
-            assert_eq!(
-                covered_fields.get(operation).cloned().unwrap_or_default(),
-                catalog_fields,
-                "{operation} has catalog fields with no exercised CLI representation"
-            );
-        }
-    }
+    mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(
         plan: &RequestPlan,

@@ -112,6 +112,14 @@ pub fn apply_defaults(line: &str, defaults: &Defaults) -> String {
     let Some(object) = message.as_object_mut() else { return line.to_owned() };
     let params = object.entry("params").or_insert_with(|| Value::Object(Map::new()));
     let Some(params) = params.as_object_mut() else { return line.to_owned() };
+    // A top-level choice (`params.model`) is the editor's too, and the
+    // daemon reads `_meta.acpmux` first, so no default may shadow it.
+    let chosen: Vec<&str> = defaults
+        .entries()
+        .iter()
+        .map(|(key, _)| *key)
+        .filter(|key| params.get(*key).and_then(Value::as_str).is_some())
+        .collect();
     let meta = params.entry("_meta").or_insert_with(|| Value::Object(Map::new()));
     let Some(meta) = meta.as_object_mut() else { return line.to_owned() };
     let mux = meta.entry("acpmux").or_insert_with(|| Value::Object(Map::new()));
@@ -119,6 +127,7 @@ pub fn apply_defaults(line: &str, defaults: &Defaults) -> String {
     for (key, value) in defaults.entries() {
         if let Some(value) = value
             && !mux.contains_key(key)
+            && !chosen.contains(&key)
         {
             mux.insert(key.into(), Value::String(value.clone()));
         }
@@ -156,6 +165,15 @@ mod tests {
         let out: Value = serde_json::from_str(&apply_defaults(line, &claude())).unwrap();
         assert_eq!(out["params"]["_meta"]["acpmux"]["harness"], "codex");
         assert_eq!(out["params"]["_meta"]["acpmux"]["policy"], "approve-edits");
+    }
+
+    #[test]
+    fn a_top_level_choice_wins_too() {
+        let line =
+            r#"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"harness":"codex"}}"#;
+        let out: Value = serde_json::from_str(&apply_defaults(line, &claude())).unwrap();
+        assert_eq!(out["params"]["_meta"]["acpmux"], json!({"policy":"approve-edits"}));
+        assert_eq!(out["params"]["harness"], "codex");
     }
 
     #[test]

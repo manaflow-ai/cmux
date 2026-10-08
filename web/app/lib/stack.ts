@@ -49,46 +49,70 @@ export function getRequestScopedStackUser(flow: string): Promise<RequestStackUse
 }
 
 export function isStackConfigured(): boolean {
-  return Boolean(projectId && publishableClientKey && secretServerKey);
+  return Boolean(projectId && secretServerKey);
 }
 
 export function getStackServerApp(): StackServerApp<true> {
-  if (!projectId || !publishableClientKey || !secretServerKey) {
+  if (!projectId || !secretServerKey) {
     throw new Error("Stack Auth is not configured");
   }
 
   stackServerAppCache ??= new StackServerApp({
     projectId,
-    publishableClientKey,
+    // Omitted when unset: Stack then uses its public-client secret.
+    ...(publishableClientKey ? { publishableClientKey } : {}),
     secretServerKey,
     tokenStore: "nextjs-cookie",
     urls: {
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
-      accountSettings: "/dashboard/team",
+      accountSettings: "/dashboard/settings",
     },
   });
   return stackServerAppCache;
+}
+
+/**
+ * A new app with nothing cached, for checking a saved session. The shared
+ * apps keep each session's access token, so a session revoked elsewhere
+ * still looks signed in until that token expires; a fresh app has to refresh
+ * first, and a revoked session fails right there. Session mutations never
+ * redirect.
+ */
+export function createUncachedStackServerApp(): StackServerApp<true> {
+  if (!projectId || !secretServerKey) {
+    throw new Error("Stack Auth is not configured");
+  }
+  return new StackServerApp({
+    projectId,
+    // Omitted when unset: Stack then uses its public-client secret.
+    ...(publishableClientKey ? { publishableClientKey } : {}),
+    secretServerKey,
+    // Never used: every call passes the session it checks.
+    tokenStore: "memory",
+    redirectMethod: "none",
+  });
 }
 
 // Native clients need a JSON response after revoking their exact token pair.
 // Stack's normal Next.js redirect mode throws a redirect after sign-out, so
 // keep a separate app instance whose session mutations never redirect.
 export function getNonRedirectingStackServerApp(): StackServerApp<true> {
-  if (!projectId || !publishableClientKey || !secretServerKey) {
+  if (!projectId || !secretServerKey) {
     throw new Error("Stack Auth is not configured");
   }
 
   nonRedirectingStackServerAppCache ??= new StackServerApp({
     projectId,
-    publishableClientKey,
+    // Omitted when unset: Stack then uses its public-client secret.
+    ...(publishableClientKey ? { publishableClientKey } : {}),
     secretServerKey,
     tokenStore: "nextjs-cookie",
     redirectMethod: "none",
     urls: {
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
-      accountSettings: "/dashboard/team",
+      accountSettings: "/dashboard/settings",
     },
   });
   return nonRedirectingStackServerAppCache;

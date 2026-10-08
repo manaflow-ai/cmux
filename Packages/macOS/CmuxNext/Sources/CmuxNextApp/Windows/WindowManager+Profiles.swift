@@ -30,7 +30,7 @@ extension WindowManager {
             // claimed before the create command, so the switch shows it as
             // soon as the daemon mirrors it.
             state.enterProfile(profile)
-            stateDidChange(state)
+            recordSaver.stateDidChange(state)
             Task { await createWorkspace(into: state.id) }
             return
         }

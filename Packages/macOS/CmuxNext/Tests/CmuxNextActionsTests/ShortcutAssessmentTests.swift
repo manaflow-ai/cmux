@@ -4,7 +4,7 @@ import Testing
 
 /// The palette's shortcut recorder asks the registry whether a chord can
 /// become an action's shortcut (plans/cmux-next/focus.md section 5 for the
-/// tiers and the Chrome and Ghostty rules).
+/// tiers and the browser chord and Ghostty rules).
 @MainActor
 @Suite struct ShortcutAssessmentTests {
     static func action(_ id: ActionID, _ shortcut: Shortcut? = nil, requires: ActionContext = [],
@@ -90,9 +90,24 @@ import Testing
             == .conflict(owners: ["a.plain"], canKeepBoth: false, canReplace: true, notes: []))
     }
 
+    /// The recorder asks the binding table the key router resolves through
+    /// (R59): a keybindings.json entry owns its key, and a negative entry
+    /// frees the default it removes.
+    @Test func keybindingsJSONEntriesAndRemovalsDecideOwnership() {
+        let registry = Self.registry()
+        let ctrlX = Shortcut("x", modifiers: [.command, .control])
+        KeyBindingLoader(registry).load(KeyBindingLayers(
+            user: [KeyBinding(keys: [ctrlX], command: "a.plain", source: .user)],
+            removals: [KeyBindingRemoval(command: "a.plain", keys: [Shortcut("g")])]))
+        // Replacing cannot unbind a keybindings.json line; the person edits it there.
+        #expect(registry.assessShortcut(ctrlX, for: "t.plain", environment: Self.none)
+            == .conflict(owners: ["a.plain"], canKeepBoth: false, canReplace: false, notes: []))
+        #expect(registry.assessShortcut(Shortcut("g"), for: "t.plain", environment: Self.none) == .available(notes: []))
+    }
+
     /// Tiers 0 and 1 run before a page; a tier 2 action only in its own
-    /// context, so a terminal-only action leaves a page its Chrome chord.
-    @Test func chromeChordsSayWhoWinsInAPage() {
+    /// context, so a terminal-only action leaves a page its browser chord.
+    @Test func browserChordsSayWhoWinsInAPage() {
         let registry = Self.registry()
         let chrome = ShortcutEditEnvironment(chromeChords: [Shortcut("y")])
         #expect(registry.assessShortcut(Shortcut("y"), for: "t.plain", environment: chrome) == .available(notes: [.chromeChord(cmuxWins: true)]))

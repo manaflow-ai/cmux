@@ -126,6 +126,14 @@ int cmux_shim_popup_window_attach(int window_id, void* parent_view, int width, i
              : 0;
 }
 
+char* cmux_shim_side_panel_state(int browser_id) {
+  return fork_api().side_panel_state ? fork_api().side_panel_state(browser_id) : nullptr;
+}
+
+int cmux_shim_side_panel_press(int browser_id, const char* control) {
+  return fork_api().side_panel_press && control ? fork_api().side_panel_press(browser_id, control) : 0;
+}
+
 int cmux_shim_install_prompt_reply(int prompt_id, int result) {
   return fork_api().install_prompt_reply ? fork_api().install_prompt_reply(prompt_id, result) : 0;
 }

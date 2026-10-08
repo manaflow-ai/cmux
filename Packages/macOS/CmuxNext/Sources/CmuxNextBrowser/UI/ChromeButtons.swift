@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import CmuxNextDesign
 
 /// Borderless icon button with gray hover and press fills (no accent color).
@@ -9,9 +10,13 @@ final class ChromeIconButton: NSButton {
     private var isHovering = false { didSet { updateFill() } }
     private var tracking: NSTrackingArea?
 
-    /// Toolbar buttons use Helium's geometry (`OmnibarStyle`); others the
+    /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
+    /// A menu for right-click and long-press (Back / Forward entries).
+    var menuProvider: (() -> NSMenu?)?
+    private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
+    private var showedHoldMenu = false
 
     init(symbol: String, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false) {
         isToolbar = toolbar
@@ -22,7 +27,6 @@ final class ChromeIconButton: NSButton {
         imagePosition = .imageOnly
         symbolName = symbol
         symbolLabel = label
-        contentTintColor = Palette.textSecondary
         self.action = action
         self.target = target
         toolTip = label
@@ -32,7 +36,6 @@ final class ChromeIconButton: NSButton {
             density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
         ])
-        if toolbar { contentTintColor = Palette.textPrimary }
         density.update { [unowned self] in
             layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applySymbol()
@@ -69,6 +72,12 @@ final class ChromeIconButton: NSButton {
         didSet { updateFill() }
     }
 
+    /// A toggle that is on (design mode, open DevTools) keeps the pressed
+    /// fill; the app accent is a neutral gray, so a tint would not read.
+    var isOn = false {
+        didSet { if isOn != oldValue { updateFill() } }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
@@ -80,23 +89,55 @@ final class ChromeIconButton: NSButton {
     override func mouseEntered(with event: NSEvent) { isHovering = true }
     override func mouseExited(with event: NSEvent) { isHovering = false }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        menuProvider?() ?? super.menu(for: event)
+    }
+
+    /// A press held for 0.4 s shows the menu under the button instead of
+    /// clicking (long-press Back and Forward).
+    override func mouseDown(with event: NSEvent) {
+        showedHoldMenu = false
+        if menuProvider != nil, isEnabled {
+            holdTimer.schedule(after: .milliseconds(400)) { @MainActor [weak self] in self?.showHoldMenu() }
+        }
+        super.mouseDown(with: event)
+        holdTimer.cancel()
+    }
+
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        guard !showedHoldMenu else { return false }
+        return super.sendAction(action, to: target)
+    }
+
+    private func showHoldMenu() {
+        guard let menu = menuProvider?() else { return }
+        showedHoldMenu = true
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateFill()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateFill()
+    }
+
     private func updateFill() {
-        let color: NSColor = if !isEnabled {
-            .clear
-        } else if isHighlighted {
-            Palette.selectionFill
-        } else if isHovering {
-            Palette.hoverFill
-        } else {
-            .clear
-        }
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
+            let color: NSColor = if !isEnabled {
+                .clear
+            } else if isHighlighted || isOn {
+                Palette.selectionFill
+            } else if isHovering {
+                Palette.hoverFill
+            } else {
+                .clear
+            }
             layer?.backgroundColor = color.cgColor
+            contentTintColor = isToolbar ? Palette.textPrimary : Palette.textSecondary
         }
     }
 }
@@ -108,6 +149,7 @@ class ChromeTextButton: NSButton {
     private let prominent: Bool
     private var isHovering = false { didSet { updateFill() } }
     private var tracking: NSTrackingArea?
+    private var titleText = ""
 
     init(title: String, prominent: Bool, action: Selector?, target: AnyObject?) {
         self.prominent = prominent
@@ -119,12 +161,10 @@ class ChromeTextButton: NSButton {
         self.target = target
         wantsLayer = true
         density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight }.isActive = true
+        titleText = title
         density.update { [unowned self] in
             layer?.cornerRadius = BrowserMetrics.controlCornerRadius
-            attributedTitle = NSAttributedString(string: title, attributes: [
-                .foregroundColor: Palette.textPrimary,
-                .font: prominent ? BrowserMetrics.emphasizedFont : BrowserMetrics.bodyFont,
-            ])
+            applyTitle()
             invalidateIntrinsicContentSize()
         }
         density.start()
@@ -157,14 +197,29 @@ class ChromeTextButton: NSButton {
         updateFill()
     }
 
-    private func updateFill() {
-        var color = prominent ? Palette.selectionFill : Palette.hoverFill
-        if isHighlighted || isHovering {
-            color = prominent ? Palette.focusRing.withAlphaComponent(0.35) : Palette.selectionFill
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateFill()
+    }
+
+    private func applyTitle() {
+        performWithTheme {
+            attributedTitle = NSAttributedString(string: titleText, attributes: [
+                .foregroundColor: Palette.textPrimary,
+                .font: prominent ? BrowserMetrics.emphasizedFont : BrowserMetrics.bodyFont,
+            ])
         }
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+    }
+
+    private func updateFill() {
+        performWithTheme {
+            var color = prominent ? Palette.selectionFill : Palette.hoverFill
+            if isHighlighted || isHovering {
+                color = prominent ? Palette.focusRing.withAlphaComponent(0.35) : Palette.selectionFill
+            }
             layer?.backgroundColor = color.cgColor
         }
+        applyTitle()
     }
 }
 
@@ -184,7 +239,6 @@ class ChromeTextField: NSTextField {
         lineBreakMode = .byTruncatingTail
         cell?.isScrollable = true
         cell?.wraps = false
-        textColor = Palette.textPrimary
         density.update { [unowned self] in
             font = BrowserMetrics.bodyFont
             applyPlaceholder()
@@ -200,20 +254,43 @@ class ChromeTextField: NSTextField {
         applyPlaceholder()
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme { textColor = Palette.textPrimary }
+        applyPlaceholder()
+        applyEditorColors()
+    }
+
     private func applyPlaceholder() {
         guard !placeholderText.isEmpty else { return }
-        placeholderAttributedString = NSAttributedString(string: placeholderText, attributes: [
-            .foregroundColor: Palette.textSecondary,
-            .font: font ?? BrowserMetrics.bodyFont,
-        ])
+        performWithTheme {
+            placeholderAttributedString = NSAttributedString(string: placeholderText, attributes: [
+                .foregroundColor: Palette.textSecondary,
+                .font: font ?? BrowserMetrics.bodyFont,
+            ])
+        }
+    }
+
+    private func applyEditorColors() {
+        guard let editor = currentEditor() as? NSTextView else { return }
+        performWithTheme {
+            editor.insertionPointColor = Palette.textPrimary
+            editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
+        }
     }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted, let editor = currentEditor() as? NSTextView {
-            editor.insertionPointColor = Palette.textPrimary
-            editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
-        }
+        if accepted { applyEditorColors() }
         return accepted
     }
 }

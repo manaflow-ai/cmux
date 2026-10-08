@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextSidebar
 
 /// Workspace verbs that change what a workspace holds: duplicate (layout and
 /// directories, new terminals), merge into another workspace, move a pane
@@ -18,12 +20,27 @@ enum WorkspaceStructureHandlers {
             context.copy(cwd)
         })
         registry.bind("workspace.setIcon", run: { invocation in
-            guard let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), WorkspaceIconValue.isValid(icon) else {
-                throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon)
+            // An icon argument (CLI, MCP, scripts) sets it; without one (palette, menu) the
+            // picker opens and its pick takes the same path.
+            if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
+                guard WorkspaceIconValue.isValid(icon) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon) }
+                return try changeIcon(to: icon, invocation, context)
             }
-            try setIcon(.set(icon), invocation, context)
+            // The target is fixed now: a pick applies to it even if focus moves meanwhile.
+            let workspace = try context.workspace(invocation).model
+            guard let anchor = context.services.iconPicker.anchor(workspace: workspace.id) else {
+                throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
+            }
+            context.services.iconPicker.pick(current: workspace.icon, target: "workspace:\(workspace.id)", at: anchor) { result in
+                switch result {
+                case .set(let icon) where WorkspaceIconValue.isValid(icon):
+                    try? IconHistory.workspace(context).change(workspace.id, from: workspace.icon, to: icon, origin: .user)
+                case .clear: try? IconHistory.workspace(context).change(workspace.id, from: workspace.icon, to: nil, origin: .user)
+                case .set, .cancel: break
+                }
+            }
         })
-        registry.bind("workspace.clearIcon", run: { try setIcon(.clear, $0, context) })
+        registry.bind("workspace.clearIcon", run: { try changeIcon(to: nil, $0, context) })
         registry.bind("workspace.mergeInto", run: { try merge(context, $0) })
         registry.bind("pane.moveToNewWorkspace", run: { try movePane(context, $0) })
     }
@@ -38,7 +55,7 @@ enum WorkspaceStructureHandlers {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        let withBrowsers = browsers && daemon.supports(DaemonCapabilities.frontendBrowserTabs)
+        let withBrowsers = browsers && daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
         var blueprint = WorkspaceBlueprint(workspace)
         if !withBrowsers { blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context)) }
         let windows = context.services.windows!
@@ -49,16 +66,22 @@ enum WorkspaceStructureHandlers {
             if case .open(let choice) = tabs.resolve(requested: nil) { return choice.engine }
             return .webkit
         } ?? .webkit
-        let metadata = daemon.supports(DaemonCapabilities.workspaceMetadata)
+        let metadata = daemon.supports(DaemonCapabilities.shared.workspaceMetadata)
         context.services.registry.track(Task {
             do {
                 let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
-                guard let connection = daemon.connection else { return nil }
                 let key = WorkspaceKey(rawValue: id)
-                try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine).build(blueprint)
-                if metadata, blueprint.color != nil || blueprint.icon != nil {
-                    _ = try await connection.setWorkspaceMetadata(key, color: blueprint.color.map { .set($0) } ?? .unchanged,
+                let resource = daemon.store.stateResourceID(workspace: key), blueprint = blueprint
+                // Through the funnel: the action run waits for the layout's
+                // echo, so `created` names the tabs it made.
+                try await daemon.perform("duplicate workspace layout") { connection in
+                    try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine)
+                        .build(blueprint)
+                    if metadata, blueprint.color != nil || blueprint.icon != nil {
+                        try await connection.state.setWorkspaceIdentity(key, resource: resource,
+                                                                  color: blueprint.color.map { .set($0) } ?? .unchanged,
                                                                   icon: blueprint.icon.map { .set($0) } ?? .unchanged)
+                    }
                 }
                 return nil
             } catch {
@@ -76,15 +99,22 @@ enum WorkspaceStructureHandlers {
 
     // MARK: Icon
 
-    private static func setIcon(_ update: FieldUpdate<String>, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
-        let (workspace, key) = try context.workspace(invocation)
+    /// Sets (nil removes) the target's icon; a user's change offers an undo toast.
+    private static func changeIcon(to icon: String?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        let workspace = try context.workspace(invocation).model
+        try IconHistory.workspace(context).change(workspace.id, from: workspace.icon, to: icon, origin: invocation.origin)
+    }
+
+    static func setIcon(_ update: FieldUpdate<String>, workspace: WorkspaceModel, key: WorkspaceKey,
+                                _ context: AppActionContext) throws {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        guard daemon.supports(DaemonCapabilities.workspaceMetadata) else {
-            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.workspaceMetadata))
+        guard daemon.supports(DaemonCapabilities.shared.workspaceMetadata) else {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.workspaceMetadata))
         }
-        daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, icon: update) }
+        let resource = daemon.store.stateResourceID(workspace: key)
+        daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, icon: update) }
     }
 
     // MARK: Merge and pane moves
@@ -120,17 +150,20 @@ enum WorkspaceStructureHandlers {
         }
         let rest = Array(pane.tabs.dropFirst())
         let services = context.services
+        // Read before the await: whether this run may change the view.
+        let allowed = ActionRunScope.viewChangeAllowed()
         services.registry.track(Task {
             guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return "move-tab-to-new-workspace failed (see the app log)" }
             guard let workspace, let state = services.windows.registry.value.owner(of: workspace.id).flatMap({ services.windows.states[$0] })
             else { return nil }
             // Once the daemon reports it: below the pane's workspace, the
-            // other tabs follow in order, and the window shows it (tmux
-            // break-pane selects the new window).
-            services.windows.claim(workspaceID: key.rawValue, in: state)
+            // other tabs follow in order, and the window shows it (the new
+            // workspace is selected).
+            services.windows.claim(workspaceID: key.rawValue, in: state, select: allowed)
             services.windows.place(newWorkspace: key.rawValue, in: state.id, at: .below(workspace.id)) { id, _ in
                 if let created = services.workspace(id: id) { moveTabs(rest, into: created, context) {} }
-                services.windows.show(workspaceID: id, in: state)
+                // A run this client's user did not start files it away.
+                if allowed { services.windows.show(workspaceID: id, in: state) }
             }
             return nil
         })
@@ -147,14 +180,15 @@ enum WorkspaceStructureHandlers {
     }
 }
 
-/// A workspace icon: an SF Symbol name or one emoji (the daemon's
-/// `validate_presentation_icon`, data-model.md 9).
+/// A workspace icon the daemon stores today: one emoji, or an SF Symbol name
+/// this Mac draws (``IconValue``; the daemon's `validate_presentation_icon`).
+/// Image and SVG assets wait for the daemon's blob store.
 enum WorkspaceIconValue {
     static func isValid(_ value: String) -> Bool {
-        guard !value.isEmpty else { return false }
-        if value.count == 1, let scalar = value.unicodeScalars.first, scalar.properties.isEmojiPresentation || value.unicodeScalars.count > 1 {
-            return true
+        switch IconValue(wire: value) {
+        case .emoji?: true
+        case .symbol(let name)?: NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+        case .image?, .svg?, nil: false
         }
-        return NSImage(systemSymbolName: value, accessibilityDescription: nil) != nil
     }
 }

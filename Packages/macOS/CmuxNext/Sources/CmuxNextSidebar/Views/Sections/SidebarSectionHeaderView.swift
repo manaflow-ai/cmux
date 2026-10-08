@@ -1,0 +1,115 @@
+import AppKit
+import CmuxNextDesign
+import CmuxNextIcons
+
+/// The title row of a titled pinned section. A click collapses or expands
+/// it; the chevron shows on hover and while collapsed.
+final class SidebarSectionHeaderView: NSView {
+    var onPress: (() -> Void)?
+    var onContextMenu: ((NSEvent, NSView) -> Void)?
+
+    private let name = NSTextField(labelWithString: "")
+    let chevron = NSImageView()
+    private var collapsed = false
+    var isHovered = false { didSet { if isHovered != oldValue { updateChevron() } } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        name.lineBreakMode = .byTruncatingTail
+        name.maximumNumberOfLines = 1
+        chevron.alphaValue = 0
+        [name, chevron].forEach(addSubview)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.disclosureTriangle)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// A drag from a press (window points): true once the region drags.
+    var onDragged: ((NSPoint, NSEvent) -> Bool)?
+    var onDragEnded: (() -> Void)?
+    private var pressLocation: NSPoint?
+    private var didDrag = false
+
+    override var isFlipped: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func configure(title: String, collapsed: Bool) {
+        name.stringValue = title
+        self.collapsed = collapsed
+        setAccessibilityLabel(title)
+        setAccessibilityExpanded(!collapsed)
+        setAccessibilityHelp(collapsed ? SectionStrings.expand : SectionStrings.collapse)
+        updateChevron()
+        needsLayout = true
+    }
+
+    private func updateChevron() {
+        chevron.image = SidebarStyle.chevron(collapsed: collapsed)
+        // Fades in place: the chevron stays mounted (stability rule).
+        let alpha: CGFloat = collapsed || isHovered ? 1 : 0
+        guard chevron.alphaValue != alpha else { return }
+        guard window != nil, Motion.canAnimate(in: self) else { chevron.alphaValue = alpha; return }
+        Motion.animate(.hover, in: self) { chevron.animator().alphaValue = alpha }
+    }
+
+    override func updateLayer() {
+        performWithTheme {
+            name.textColor = Palette.textTertiary
+            chevron.contentTintColor = Palette.textTertiary
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let b = bounds
+        let inset = SidebarStyle.horizontalInset * 2
+        name.font = SidebarStyle.headerFont
+        let th = ceil(name.intrinsicContentSize.height)
+        let chevronSide = Metrics.smallIconSize
+        chevron.frame = NSRect(x: b.width - inset - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        name.frame = NSRect(x: inset, y: (b.height - th) / 2, width: max(0, chevron.frame.minX - Metrics.space2 - inset), height: th)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true }
+    override func mouseExited(with event: NSEvent) { isHovered = false }
+    /// A click toggles on release; a drag moves the section (R77).
+    override func mouseDown(with event: NSEvent) {
+        pressLocation = event.locationInWindow
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let pressLocation, onDragged?(pressLocation, event) == true else { return }
+        didDrag = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { pressLocation = nil; didDrag = false }
+        guard pressLocation != nil else { return }
+        if didDrag { onDragEnded?() } else { onPress?() }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let onContextMenu else { return super.rightMouseDown(with: event) }
+        onContextMenu(event, self)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onPress?()
+        return true
+    }
+}

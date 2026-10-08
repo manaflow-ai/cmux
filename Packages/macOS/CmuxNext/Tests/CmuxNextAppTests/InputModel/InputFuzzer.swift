@@ -69,17 +69,28 @@ enum InputFuzzer {
         return Failure(seed: seed, config: config, violation: final, actions: minimal)
     }
 
+    /// Replays one shrink may spend. ddmin needs O(n^2) replays in the worst
+    /// case, each synchronous on the main actor that every UI suite shares;
+    /// unbounded, a failing 500-step seed held `swift test` for an hour.
+    static let shrinkBudget = 400
+
     /// Delta debugging (ddmin): removes chunks, then single actions, while
-    /// the run still breaks `invariant`.
-    static func shrink(_ actions: [FuzzAction], config: Config, invariant: InputInvariant) -> [FuzzAction] {
-        func fails(_ candidate: [FuzzAction]) -> Bool { run(candidate, config: config)?.violation.invariant == invariant }
+    /// the run still breaks `invariant`, within `budget` replays.
+    static func shrink(
+        _ actions: [FuzzAction], config: Config, invariant: InputInvariant, budget: Int = shrinkBudget
+    ) -> [FuzzAction] {
+        var remaining = budget
+        func fails(_ candidate: [FuzzAction]) -> Bool {
+            remaining -= 1
+            return run(candidate, config: config)?.violation.invariant == invariant
+        }
         var current = actions
         var granularity = 2
-        while current.count >= 2 {
+        while current.count >= 2, remaining > 0 {
             let size = (current.count + granularity - 1) / granularity
             var reduced = false
             var start = 0
-            while start < current.count {
+            while start < current.count, remaining > 0 {
                 var candidate = current
                 candidate.removeSubrange(start..<min(start + size, current.count))
                 if fails(candidate) {
@@ -96,7 +107,7 @@ enum InputFuzzer {
             }
         }
         var index = 0
-        while index < current.count {
+        while index < current.count, remaining > 0 {
             var candidate = current
             candidate.remove(at: index)
             if fails(candidate) { current = candidate } else { index += 1 }

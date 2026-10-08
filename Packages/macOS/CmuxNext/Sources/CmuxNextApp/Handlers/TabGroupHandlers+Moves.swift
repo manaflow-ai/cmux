@@ -36,6 +36,10 @@ extension TabGroupHandlers {
             let screen = workspace.screens.first
             guard let target = screen?.defaultPane.flatMap({ screen?.pane($0) }) ?? screen?.panes.first
                 ?? ctx.refuse(RefusalStrings.workspaceHasNoPane(workspace.id)) else { return }
+            // Workspaces never mix machines: a workspace on another machine is refused.
+            guard TabGroupMoves.owner(of: group, target: target, services: ctx.services) != nil else {
+                return ctx.refuse(RefusalStrings.otherMachine)
+            }
             let handle = target.handle, index = target.tabs.count
             run("move-tab-group", pane: pane, ctx) { c, t in
                 _ = try await c.moveTabGroup(group, to: handle, index: index, transaction: t)
@@ -56,7 +60,7 @@ extension TabGroupHandlers {
     }
 
     private static func moveToNewWorkspace(_ invocation: ActionInvocation, newWindow: Bool, _ ctx: AppActionContext) {
-        guard let (group, pane) = group(invocation, ctx), ctx.connection() != nil else { return }
+        guard let (group, pane) = group(invocation, ctx), connection(for: pane, ctx) != nil else { return }
         let windows = ctx.services.windows!
         let origin = windows.moveOrigin(of: ctx.services.workspaceID(of: pane))
         Task {

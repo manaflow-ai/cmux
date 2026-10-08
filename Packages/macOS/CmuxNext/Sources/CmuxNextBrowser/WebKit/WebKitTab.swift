@@ -4,6 +4,7 @@ public import Observation
 public import WebKit
 
 /// A browser tab backed by one `WKWebView`.
+@MainActor
 @Observable
 public final class WebKitTab: NSObject, BrowserTab {
     public let id: BrowserTabID
@@ -25,6 +26,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// attached Web Inspector beside the web view inside it.
     public var contentView: NSView { container }
     @ObservationIgnored private let container: WebKitPageContainer
+    /// Web Inspector's visibility, for the toolbar's DevTools button.
+    @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
@@ -33,10 +36,21 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
-    @ObservationIgnored var downloads: [ObjectIdentifier: BrowserDownload] = [:]
+    /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
+    @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
+    /// This tab's downloads (`WebKitDownloads`).
+    @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
+    /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
+    @ObservationIgnored private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    /// The site of the page that started the current main-frame navigation.
+    @ObservationIgnored var navigationSourceSite: String?
+    /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
+    @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
-    @ObservationIgnored private var isClosed = false
+    @ObservationIgnored private(set) var isClosed = false
+    /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
+    @ObservationIgnored var rateReshow: Task<Void, Never>?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -47,6 +61,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.webView = webView
         container = WebKitPageContainer(page: webView)
         super.init()
+        inspectorWatch.attach(webView: webView, container: container)
 
         webView.owner = self
         webView.navigationDelegate = self
@@ -67,6 +82,8 @@ public final class WebKitTab: NSObject, BrowserTab {
             forMainFrameOnly: false
         ))
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
+        WebKitContextHit.install(self, into: controller)
+        WebKitPasskeyInstaller.install(self, into: controller)
 
         observeWebView()
         if configuration.zoom != 1 {
@@ -76,6 +93,7 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     isolated deinit {
         faviconTask?.cancel()
+        rateReshow?.cancel()
     }
 
     /// WKWebView paints white behind every page by default. macOS has no
@@ -97,24 +115,12 @@ public final class WebKitTab: NSObject, BrowserTab {
     // MARK: Navigation commands
 
     public func load(_ url: URL) {
-        guard !isClosed else { return }
-        if url.isFileURL {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        } else {
-            webView.load(URLRequest(url: url))
-        }
+        automaticDownloads.userGesture()
+        startLoad(url)
     }
-
-    public func goBack() { webView.goBack() }
-    public func goForward() { webView.goForward() }
-
-    public func reload() {
-        if webView.url == nil, let url = state.url {
-            load(url)
-        } else {
-            webView.reload()
-        }
-    }
+    public func goBack() { startGoBack() }
+    public func goForward() { startGoForward() }
+    public func reload() { startReload() }
 
     public func stop() {
         webView.stopLoading()
@@ -235,6 +241,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard !isClosed else { return }
         isClosed = true
         faviconTask?.cancel()
+        rateReshow?.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         observations.removeAll()
@@ -251,6 +258,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     func apply(_ event: BrowserNavigationEvent) {
         let previousFavicon = machine.state.faviconURL
         machine.apply(event)
+        for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()
         }
@@ -298,7 +306,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     var hasDelegate: Bool { delegate != nil }
 
     func makeChildTab(configuration: WKWebViewConfiguration) -> WebKitTab? {
-        engine?.makeWebKitTab(BrowserTabConfiguration(profile: profileID), webViewConfiguration: configuration)
+        engine?.makeWebKitTab(profile: profileID, webViewConfiguration: configuration)
     }
 
     var downloadsDirectory: URL {
@@ -325,8 +333,9 @@ public final class WebKitTab: NSObject, BrowserTab {
             return
         }
         guard let loader = engine?.faviconLoader else { return }
+        let profile = profileID
         Task { [weak self] in
-            let image = await loader.favicon(at: url)
+            let image = await loader.favicon(at: url, profile: profile)
             guard let self, self.state.faviconURL == url else { return }
             self.favicon = image
         }
@@ -357,14 +366,18 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     func syncHistory() {
         apply(.historyChanged(canGoBack: webView.canGoBack, canGoForward: webView.canGoForward))
+        let list = webView.backForwardList
+        apply(.historyListed(back: list.backList.suffix(Self.historyListLimit).map(\.url.absoluteString),
+                             forward: list.forwardList.prefix(Self.historyListLimit).map(\.url.absoluteString)))
     }
+
+    /// URLs kept on each side of the current entry (the daemon's tab record holds 20).
+    static let historyListLimit = 20
 
     func syncSecurity() {
         guard !isClosed, state.phase == .committed || state.phase == .finished else { return }
-        var security = BrowserTabStateMachine.security(for: webView.url)
-        if security == .secure, !webView.hasOnlySecureContent {
-            security = .mixedContent
-        }
-        apply(.securityChanged(security))
+        apply(.securityChanged(BrowserTabStateMachine.security(
+            for: webView.url, hasOnlySecureContent: webView.hasOnlySecureContent,
+            certificateBypassed: engine?.loadedPastCertificateWarning(self) ?? false)))
     }
 }

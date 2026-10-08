@@ -14,20 +14,25 @@ enum CloudStrings {
     static func compatibility(_ compat: DaemonCompatibility) -> String {
         switch compat.level {
         case .current: return ""
+        // The missing capability ids stay in the Cloud diagnostics JSON
+        // (`missing_features`); the text never shows them.
         case .limited:
-            return String(format: String(localized: "cloud.compat.limited", defaultValue: "This machine runs cmux-tui %1$@. Update it to turn on: %2$@.", table: "Cloud", bundle: .module),
-                          compat.versionLabel, compat.missingOptional.joined(separator: ", "))
+            return String(format: String(localized: "cloud.compat.limitedUpdate", defaultValue: "This machine runs cmux-tui %@. Update it to turn on every feature of this app.", table: "Cloud", bundle: .module),
+                          compat.versionLabel)
         case .incompatible:
-            return String(format: String(localized: "cloud.compat.incompatible", defaultValue: "This machine runs a cmux-tui this app cannot use (%@). Update the machine to connect.", table: "Cloud", bundle: .module),
-                          compat.missingRequired.joined(separator: ", "))
+            return String(localized: "cloud.compat.incompatibleUpdate", defaultValue: "This machine runs a cmux-tui this app cannot use. Update the machine to connect.", table: "Cloud", bundle: .module)
         }
     }
+    /// A Cloud machine's link ended; v1 does not reconnect by itself.
+    static var linkDisconnected: String { String(localized: "cloud.link.disconnected", defaultValue: "Disconnected from the Cloud machine. Click Connect to connect again.", table: "Cloud", bundle: .module) }
+    static var linkRevoked: String { String(localized: "cloud.link.revoked", defaultValue: "Access to this Cloud machine was revoked. Click Connect to connect again.", table: "Cloud", bundle: .module) }
+    static func linkFailed(_ detail: String) -> String {
+        String(format: String(localized: "cloud.link.failed", defaultValue: "Could not connect to the Cloud machine (%@). Click Connect to try again.", table: "Cloud", bundle: .module), detail)
+    }
     static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet.", table: "Cloud", bundle: .module) }
+    static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass a command to run on the Cloud machine.", table: "Cloud", bundle: .module) }
     static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in.", table: "Cloud", bundle: .module) }
     static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
-    static var promoteTemplate: String { String(localized: "cloud.unavailable.promoteTemplate", defaultValue: "The web API has no route to promote a machine to a template yet.", table: "Cloud", bundle: .module) }
-    static var tools: String { String(localized: "cloud.unavailable.tools", defaultValue: "The machine tools panel is not ported to cmux-next yet; use Machine Status, Ports, or Diagnostics.", table: "Cloud", bundle: .module) }
-    static var handoff: String { String(localized: "cloud.unavailable.handoff", defaultValue: "Handing off a machine needs the session sharing flow, which is not ported to cmux-next yet.", table: "Cloud", bundle: .module) }
     static var mobilePairing: String { String(localized: "cloud.unavailable.mobilePairing", defaultValue: "Mobile pairing arrives with the iOS phase of cmux-next (plans/cmux-next/cloud-ios.md).", table: "Cloud", bundle: .module) }
     static var invalidPort: String { String(localized: "cloud.failed.invalidPort", defaultValue: "Port must be between 1 and 65535.", table: "Cloud", bundle: .module) }
     static var noAddress: String { String(localized: "cloud.failed.noAddress", defaultValue: "The machine has no private address yet.", table: "Cloud", bundle: .module) }
@@ -35,6 +40,9 @@ enum CloudStrings {
     static var killMachineTitle: String { String(localized: "cloud.prompt.killMachine", defaultValue: "Kill this Cloud machine?", table: "Cloud", bundle: .module) }
     static var killMachineBody: String { String(localized: "cloud.prompt.killMachineBody", defaultValue: "The machine and every terminal on it are deleted. This cannot be undone.", table: "Cloud", bundle: .module) }
     static var kill: String { String(localized: "cloud.button.kill", defaultValue: "Kill Machine", table: "Cloud", bundle: .module) }
+    static var deleteSnapshotTitle: String { String(localized: "cloud.prompt.deleteSnapshot", defaultValue: "Delete this Cloud snapshot?", table: "Cloud", bundle: .module) }
+    static var deleteSnapshotBody: String { String(localized: "cloud.prompt.deleteSnapshotBody", defaultValue: "The snapshot is permanently deleted. This cannot be undone.", table: "Cloud", bundle: .module) }
+    static var deleteSnapshot: String { String(localized: "cloud.button.deleteSnapshot", defaultValue: "Delete Snapshot", table: "Cloud", bundle: .module) }
     static var cancel: String { String(localized: "cloud.button.cancel", defaultValue: "Cancel", table: "Cloud", bundle: .module) }
     static var ok: String { String(localized: "cloud.button.ok", defaultValue: "OK", table: "Cloud", bundle: .module) }
     static var rename: String { String(localized: "cloud.button.rename", defaultValue: "Rename", table: "Cloud", bundle: .module) }
@@ -43,15 +51,38 @@ enum CloudStrings {
     static var teamPickerTitle: String { String(localized: "cloud.prompt.teamPicker", defaultValue: "Choose a Team", table: "Cloud", bundle: .module) }
     static var statusTitle: String { String(localized: "cloud.result.statusTitle", defaultValue: "Machine Status", table: "Cloud", bundle: .module) }
     static var portsTitle: String { String(localized: "cloud.result.portsTitle", defaultValue: "Listening Ports", table: "Cloud", bundle: .module) }
+    static var toolsTitle: String { String(localized: "cloud.result.toolsTitle", defaultValue: "Machine Tools", table: "Cloud", bundle: .module) }
+    static var handoffTitle: String { String(localized: "cloud.result.handoffTitle", defaultValue: "Machine Handoff", table: "Cloud", bundle: .module) }
     static var noPorts: String { String(localized: "cloud.result.noPorts", defaultValue: "No TCP ports are listening on this machine.", table: "Cloud", bundle: .module) }
     static var diagnosticsTitle: String { String(localized: "cloud.result.diagnosticsTitle", defaultValue: "Cloud Diagnostics", table: "Cloud", bundle: .module) }
     static var snapshotTitle: String { String(localized: "cloud.result.snapshotTitle", defaultValue: "Snapshot Created", table: "Cloud", bundle: .module) }
+    static var templateTitle: String { String(localized: "cloud.result.templateTitle", defaultValue: "Template Created", table: "Cloud", bundle: .module) }
     static var failedTitle: String { String(localized: "cloud.result.failedTitle", defaultValue: "Cloud Action Failed", table: "Cloud", bundle: .module) }
 
     static var snapshotRequired: String { String(localized: "cloud.failed.snapshotRequired", defaultValue: "Pass the snapshot id to restore (--snapshot <id>).", table: "Cloud", bundle: .module) }
 
+    static var filePathRequired: String { String(localized: "cloud.failed.filePathRequired", defaultValue: "Pass an absolute Cloud file path without '..'.", table: "Cloud", bundle: .module) }
+    static var fileContentsRequired: String { String(localized: "cloud.failed.fileContentsRequired", defaultValue: "Pass file contents to write.", table: "Cloud", bundle: .module) }
+    static var publicKeyRequired: String { String(localized: "cloud.failed.publicKeyRequired", defaultValue: "Pass an Ed25519 SSH public key for the transfer.", table: "Cloud", bundle: .module) }
+    static var filesTitle: String { String(localized: "cloud.result.filesTitle", defaultValue: "Cloud Files", table: "Cloud", bundle: .module) }
+    static var fileContentsTitle: String { String(localized: "cloud.result.fileContentsTitle", defaultValue: "Cloud File Contents", table: "Cloud", bundle: .module) }
+    static var fileStatTitle: String { String(localized: "cloud.result.fileStatTitle", defaultValue: "Cloud File Details", table: "Cloud", bundle: .module) }
+    static var scpTitle: String { String(localized: "cloud.result.scpTitle", defaultValue: "Cloud File Transfer", table: "Cloud", bundle: .module) }
+    static var firewallTitle: String { String(localized: "cloud.result.firewallTitle", defaultValue: "Cloud Firewall Rules", table: "Cloud", bundle: .module) }
+    static var networkTitle: String { String(localized: "cloud.result.networkTitle", defaultValue: "Cloud Networks", table: "Cloud", bundle: .module) }
+    static var removeFileTitle: String { String(localized: "cloud.prompt.removeFile", defaultValue: "Remove this Cloud file?", table: "Cloud", bundle: .module) }
+    static var removeFileBody: String { String(localized: "cloud.prompt.removeFileBody", defaultValue: "The selected file or directory is permanently removed.", table: "Cloud", bundle: .module) }
+    static var removeFile: String { String(localized: "cloud.button.removeFile", defaultValue: "Remove", table: "Cloud", bundle: .module) }
+    static var deleteFirewallRuleTitle: String { String(localized: "cloud.prompt.deleteFirewallRule", defaultValue: "Delete Cloud Firewall Rule?", table: "Cloud", bundle: .module) }
+    static var deleteFirewallRuleBody: String { String(localized: "cloud.prompt.deleteFirewallRuleBody", defaultValue: "This permanently removes the selected firewall rule.", table: "Cloud", bundle: .module) }
+    static var deleteFirewallRule: String { String(localized: "cloud.button.deleteFirewallRule", defaultValue: "Delete", table: "Cloud", bundle: .module) }
+
     static func sizeMustBeOneOf(_ list: String) -> String {
         String(format: String(localized: "cloud.failed.sizeMustBeOneOf", defaultValue: "Size must be one of: %@.", table: "Cloud", bundle: .module), list)
+    }
+
+    static func templateBody(_ id: String) -> String {
+        String(format: String(localized: "cloud.result.templateBody", defaultValue: "Template %@ is ready. Start a machine from it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
 
     static func snapshotBody(_ id: String) -> String {

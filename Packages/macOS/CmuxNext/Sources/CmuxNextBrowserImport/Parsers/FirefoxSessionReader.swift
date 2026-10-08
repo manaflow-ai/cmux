@@ -4,17 +4,26 @@ import Compression
 /// Reads the open tabs of Firefox's session store. The file is "mozLz4":
 /// the magic `mozLz40\0`, a little-endian uint32 decompressed size, then one
 /// raw LZ4 block holding JSON (`windows[].tabs[].entries[]`, `index` 1-based).
-public enum FirefoxSessionReader {
-    static let magic = Array("mozLz40\0".utf8)
-    /// Session stores above this size are not read (a sane upper bound).
-    static let maximumSize = 256 * 1024 * 1024
+public struct FirefoxSessionReader {
+    private let fileManager: FileManager
 
-    public static func sessionFile(in profile: URL) -> URL? {
-        let candidates = ["sessionstore-backups/recovery.jsonlz4", "sessionstore.jsonlz4", "sessionstore-backups/previous.jsonlz4"]
-        return candidates.map { profile.appending(path: $0) }.first { FileManager.default.fileExists(atPath: $0.path) }
+    /// Creates a reader with the filesystem used to discover Firefox sessions.
+    ///
+    /// - Parameter fileManager: Filesystem access for discovery.
+    public init(fileManager: FileManager = FileManager()) {
+        self.fileManager = fileManager
     }
 
-    public static func decompress(_ data: Data) -> Data? {
+    let magic = Array("mozLz40\0".utf8)
+    /// Session stores above this size are not read (a sane upper bound).
+    let maximumSize = 256 * 1024 * 1024
+
+    public func sessionFile(in profile: URL) -> URL? {
+        let candidates = ["sessionstore-backups/recovery.jsonlz4", "sessionstore.jsonlz4", "sessionstore-backups/previous.jsonlz4"]
+        return candidates.map { profile.appending(path: $0) }.first { fileManager.fileExists(atPath: $0.path) }
+    }
+
+    public func decompress(_ data: Data) -> Data? {
         let bytes = [UInt8](data)
         guard bytes.count > 12, Array(bytes[0..<8]) == magic else { return nil }
         let size = Int(PickleReader.uint32(bytes, at: 8))
@@ -28,7 +37,7 @@ public enum FirefoxSessionReader {
         return written == size ? Data(output) : nil
     }
 
-    public static func parse(_ data: Data) -> [ImportedTab] {
+    public func parse(_ data: Data) -> [ImportedTab] {
         guard let json = decompress(data),
               let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return [] }
         var tabs: [ImportedTab] = []

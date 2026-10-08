@@ -9,13 +9,24 @@ import CmuxNextTabs
 /// click, `target=_blank` handled as a URL), a popup or `window.open` that
 /// needs its opener (the engine already created the page), and
 /// `window.close()`, an extension selecting a tab (`chrome.tabs.update`),
-/// and the page context menu (Chromium's items, extension
-/// `chrome.contextMenus` included, then the cmux browser-page actions).
+/// and the page context menu (the cmux link, image and selection rows of
+/// both engines, `BrowserHitMenu`; then Chromium's remaining items,
+/// extension `chrome.contextMenus` included, and the cmux page actions).
 /// New tabs land in the opener's pane on the opener's
 /// engine: `window.opener` and the page's cookies live in one engine, and
-/// the opener is Chromium unless someone chose WebKit.
+/// the opener is Chromium unless someone chose WebKit. They go next to the
+/// opener in Chrome's order (`openers`).
 final class BrowserPageRequests: BrowserTabDelegate {
-    weak var services: AppServices?
+    weak var services: AppServices? {
+        didSet {
+            // A popup panel's page gets the same rows, acting for its opener's tab.
+            services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
+        }
+    }
+    /// Every download of both engines, with a notice when one ends.
+    let downloads = BrowserDownloadList()
+    /// Where a page's new tab goes next to its opener.
+    let openers = BrowserTabOpeners()
     /// Pages created by an engine for a daemon tab that is still being
     /// created, by the new tab's surface. `TabContentCache` takes them.
     private var adoptions: [SurfaceID: any BrowserTab] = [:]
@@ -26,6 +37,23 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private var closedBeforeAdoption: [WeakPage] = []
     /// Daemon tabs to close when they appear: their page closed first.
     private var closeOnArrival: Set<SurfaceID> = []
+    /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
+    let proxiedTabs = ProxiedBrowserTabs()
+
+    /// Site settings of `site`, a site whose automatic-downloads setting
+    /// blocked a download in tab `tab` (its profile's store). One path for
+    /// the notice's button and `browser.download.openBlockedSiteSettings`.
+    @discardableResult
+    func openBlockedSiteSettings(site: String, tab: String) -> Bool {
+        guard let chrome = services?.cache.existingBrowser(tab)?.chrome else { return false }
+        chrome.pageInfo.showSiteSettings(origin: site)
+        return true
+    }
+
+    /// Whether the newest blocked download's tab is still open.
+    var canOpenLatestBlockedSiteSettings: Bool {
+        downloads.latestBlocked.flatMap { services?.cache.existingBrowser($0.tab) } != nil
+    }
 
     func browserTab(_ page: any BrowserTab, didRequest intent: BrowserTabIntent) {
         // A popup panel's page: the panel handles it (window.close closes
@@ -36,7 +64,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return pageClosedBeforeAdoption(page)
         }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
-              let (_, pane) = services.locateTab(key) else {
+              let (openerTab, pane) = services.locateTab(key) else {
             // The opener is gone: nowhere to show a new page.
             switch intent {
             case .adoptTab(let child, _), .openPopup(let child, _): child.close()
@@ -44,34 +72,142 @@ final class BrowserPageRequests: BrowserTabDelegate {
             }
             return
         }
+        // A page an agent drives passes that on to the pages it makes (an
+        // OAuth popup must not get a saved password filled either).
+        if services.cache.agentDrivenTabs.contains(key) {
+            switch intent {
+            case .adoptTab(let child, _), .openPopup(let child, _): child.markAgentDriven()
+            default: break
+            }
+        }
         let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        // A page's new tabs stay in its browser profile (its cookies, and the
+        // store an engine-made child page already uses).
+        let profile = services.cache.tabModel(key).map(services.browserProfiles.profileID(ofTab:))
         switch intent {
+        case .openURL(let url, .newWindow):
+            openInNewWorkspace(url, opener: page)
+        case .adoptTab(let child, .newWindow):
+            openInNewWorkspace(child.state.url, adopting: child, opener: page)
         case .openURL(let url, let disposition):
-            open(url: url, adopting: nil, engine: engine, in: pane, background: disposition == .backgroundTab)
+            open(url: url, adopting: nil, engine: engine, profile: profile, in: pane, opener: openerTab.surface,
+                 background: disposition == .backgroundTab)
         case .adoptTab(let child, let disposition):
-            open(url: child.state.url, adopting: child, engine: engine, in: pane, background: disposition == .backgroundTab)
+            open(url: child.state.url, adopting: child, engine: engine, profile: profile, in: pane, opener: openerTab.surface,
+                 background: disposition == .backgroundTab)
         case .close:
             services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key)))
         case .activate:
             services.paneController(for: pane)?.select(StripTabID(key), source: .intent)
         case .contextMenu(let request):
+            let leading = hitItems(for: request.target, tab: key)
+            // WebKit shows its own menu: the rows go into it.
+            if let insert = request.insertLeading { return insert(leading) }
             let target = ActionTargetRef(kind: .tab, id: key)
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
-                                                         entries: ContextMenuCatalog.browserPageAfterEngineMenu,
+                                                         entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
-            let extra = host.items
+            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
+                                                     services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
-            BrowserContextMenuBuilder.present(request, in: page.contentView, extra: extra)
+            services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
-        case .download:
-            break
+        case .download(let item):
+            downloads.add(item, tab: key) { [weak services] notice in
+                guard let chrome = services?.cache.existingBrowser(key)?.chrome else { return }
+                // A blocked download offers the blocking site's Site
+                // settings, where its automatic-downloads choice changes
+                // (the same path as browser.download.openBlockedSiteSettings).
+                let action = notice.siteSettingsOrigin.map { origin -> (title: String, run: () -> Void) in
+                    (title: BrowserHitStrings.siteSettings, run: { [weak self] () -> Void in _ = self?.openBlockedSiteSettings(site: origin, tab: key) })
+                }
+                chrome.showNotice(notice.text, action: action)
+            }
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
         case .openPopup(let child, let request):
             openPopup(child, request: request, openerKey: key, pane: pane)
-        case .unhandledEscape:
+        case .unhandledKey(let pageKey):
+            services.keyRouter.routePageKey(pageKey, from: page)
+        case .unhandledEscape, .resizePopup:
             break
+        case .takeFocus:
+            services.focusAddressBarAfterPage(key)
+        }
+    }
+
+    /// The link, image and selection rows for a right-click on the page of
+    /// tab `key`.
+    func hitItems(for target: BrowserContextMenuTarget, tab key: String) -> [NSMenuItem] {
+        guard let services else { return [] }
+        return BrowserHitMenu.items(for: target, tab: ActionTargetRef(kind: .tab, id: key), registry: services.registry,
+                                    searchEngine: services.cache.suggestionEngine.resolver.searchEngine.name)
+    }
+
+    /// Routes `chrome`'s modified omnibar commits to ``openFromOmnibar``;
+    /// a typed commit in the tab itself ends link-tab opener relations
+    /// (``BrowserTabOpeners/typedNavigation(onNewTabPageAtEnd:)``).
+    func routeOmnibarOpens(of chrome: BrowserChromeView, page: any BrowserTab) {
+        chrome.onOpenURL = { [weak self, weak page] url, disposition in
+            guard let page else { return }
+            self?.openFromOmnibar(url, disposition, page: page)
+        }
+        chrome.onTypedCommit = { [weak self, weak page] in
+            guard let self, let page else { return }
+            openers.typedNavigation(onNewTabPageAtEnd: isNewTabPageAtEnd(page))
+        }
+    }
+
+    /// `page` shows a New Tab page and is the last tab of its pane.
+    private func isNewTabPageAtEnd(_ page: any BrowserTab) -> Bool {
+        guard BrowserNewTabPage.isNewTabPage(page.state.url), let services, let key = services.cache.key(of: page),
+              let (_, pane) = services.locateTab(key) else { return false }
+        return pane.tabs.last?.id == key
+    }
+
+    /// The omnibar's modified commit (Cmd-Return, Shift-Cmd-Return,
+    /// Option-Return, Shift-Return, a modified suggestion click) takes the
+    /// same path as the page's own links: the opener's pane, engine and
+    /// browser profile. Shift-Return opens a new window with a new
+    /// workspace that holds the tab (cmux windows hold workspaces).
+    func openFromOmnibar(_ url: URL, _ disposition: OmnibarDisposition, page: any BrowserTab) {
+        switch disposition {
+        case .currentTab: page.load(url)
+        case .newBackgroundTab: browserTab(page, didRequest: .openURL(url, .backgroundTab))
+        case .newForegroundTab: browserTab(page, didRequest: .openURL(url, .foregroundTab))
+        case .newWindow: browserTab(page, didRequest: .openURL(url, .newWindow))
+        }
+    }
+
+    /// `url` (or `child`, a page the engine already made) in a new
+    /// workspace that holds one browser tab on the opener's engine and
+    /// browser profile: in a new window, else in `window` (the active one
+    /// when nil), pinned to `room` when given. An incognito opener, or one
+    /// on another machine, opens a foreground tab next to it instead: the
+    /// new workspace would leave its profile or its machine.
+    func openInNewWorkspace(_ url: URL?, adopting child: (any BrowserTab)? = nil, opener page: any BrowserTab,
+                            newWindow: Bool = true, window: String? = nil, room: ProfileID? = nil) {
+        guard let services, let key = services.cache.key(of: page), let tab = services.cache.tabModel(key) else {
+            child?.close()
+            return
+        }
+        let browserTabs = services.cache.browserTabs!
+        let daemon = services.machines.daemon(forTab: tab)
+        guard browserTabs.isAvailable(), daemon === services.activeDaemon, !browserTabs.isIncognitoTab(key) else {
+            if let child { return browserTab(page, didRequest: .adoptTab(child, .foregroundTab)) }
+            if let url { browserTab(page, didRequest: .openURL(url, .foregroundTab)) }
+            return
+        }
+        let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
+        let profile = services.browserProfiles.profileID(ofTab: tab)
+        let address = child == nil ? (url?.absoluteString ?? "about:blank") : BrowserNewTabPage.blankURL
+        WorkspaceHandlers.createAndShow(services: services, newWindow: newWindow, window: window, room: room) { [weak self] connection, terminal in
+            guard let pane = terminal.pane else { return }
+            let surface = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
+            if let child { await self?.adopt(child, surface: surface) }
+            if let terminal = terminal.surface { try await connection.closeTab(terminal) }
         }
     }
 
@@ -87,19 +223,24 @@ final class BrowserPageRequests: BrowserTabDelegate {
         services.popups.open(child, request: request, over: window, openerKey: openerKey)
     }
 
-    private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, in pane: PaneModel, background: Bool) {
+    private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,
+                      opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
         if let controller = services.paneController(for: pane) {
-            return controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background)
+            controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
+                                     opener: opener)
+            return
         }
         // The opener's pane is not on screen (its page is kept alive).
         let browserTabs = services.cache.browserTabs!
         guard browserTabs.isAvailable() else { child?.close(); return }
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
-        let handle = pane.handle, address = url?.absoluteString ?? "about:blank"
+        let handle = pane.handle, address = url?.absoluteString ?? "about:blank", openers = openers
         services.registry.track(Task { [weak self] in
             do {
-                let surface = try await browserTabs.open(choice, in: handle, url: address)
+                let surface = try await openers.open(opener, foreground: !background, in: pane, browserTabs: browserTabs) { after in
+                    try await browserTabs.open(choice, in: handle, url: address, profile: profile, after: after)
+                }
                 if let child { self?.adopt(child, surface: surface) }
                 return nil
             } catch {

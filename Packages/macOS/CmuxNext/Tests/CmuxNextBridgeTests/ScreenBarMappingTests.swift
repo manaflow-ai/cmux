@@ -19,7 +19,7 @@ struct ScreenBarMappingTests {
     }
 
     private func map(_ workspace: WorkspaceModel) -> ScreenBarMapping.Snapshot {
-        ScreenBarMapping.snapshot(workspace, untitled: { "Screen \($0)" }, emojiIcon: { _ in .symbol("face.smiling") })
+        ScreenBarMapping.shared.snapshot(workspace, untitled: { "Screen \($0)" }, emojiIcon: { _ in .symbol("face.smiling") })
     }
 
     @Test func barIsVisibleOnlyWithTwoOrMoreScreens() throws {
@@ -69,10 +69,10 @@ struct ScreenBarMappingTests {
     }
 
     @Test func iconKindSeparatesSymbolsFromEmoji() {
-        #expect(ScreenBarMapping.isSymbolName("server.rack"))
-        #expect(ScreenBarMapping.isSymbolName("1.circle"))
-        #expect(!ScreenBarMapping.isSymbolName("🚀"))
-        #expect(!ScreenBarMapping.isSymbolName("👩‍💻"))
-        #expect(!ScreenBarMapping.isSymbolName(""))
+        #expect(ScreenBarMapping.shared.isSymbolName("server.rack"))
+        #expect(ScreenBarMapping.shared.isSymbolName("1.circle"))
+        #expect(!ScreenBarMapping.shared.isSymbolName("🚀"))
+        #expect(!ScreenBarMapping.shared.isSymbolName("👩‍💻"))
+        #expect(!ScreenBarMapping.shared.isSymbolName(""))
     }
 }

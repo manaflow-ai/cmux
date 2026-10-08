@@ -5,9 +5,10 @@ use serde_json::{Value, json};
 
 use super::resource_store::{apply_resource_patch_unrecorded, validate_resource_patch};
 use super::{
-    RegistryTerminal, ResourcePatch, TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry,
-    canonical_json, read_terminal, session_journal::append_resource_journal_record,
-    transaction_resource_revision, transaction_terminal_revision, validate_terminal_transition,
+    RegistryTerminal, ResourcePatch, ResourceWorkspaceClose, TerminalLifecycle, WorkspaceMutation,
+    WorkspaceRegistry, canonical_json, insert_resource_mutation, read_terminal,
+    session_journal::append_resource_journal_record, transaction_resource_revision,
+    transaction_terminal_revision, validate_terminal_transition,
 };
 use crate::resource::WireDecimal;
 use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
@@ -29,6 +30,14 @@ pub(super) fn validate_terminal_exit_receipt(value: &Value) -> anyhow::Result<()
         "terminal exit receipt outcome is invalid"
     );
     Ok(())
+}
+
+/// The outcome and exit time of a durable receipt, if it is well formed.
+fn stored_terminal_exit(receipt: Option<&Value>) -> Option<TerminalExit> {
+    let receipt = receipt?;
+    let outcome = serde_json::from_value(receipt.get("outcome")?.clone()).ok()?;
+    let exited_at_ms = receipt.get("exited_at")?.as_str()?.parse().ok()?;
+    Some(TerminalExit { outcome, exited_at_ms })
 }
 
 fn legacy_terminal_exit_reason(value: &Value) -> anyhow::Result<String> {
@@ -89,6 +98,11 @@ pub(super) fn migrate_legacy_terminal_exit_receipts(
     Ok(())
 }
 
+/// The topology an exit commits with its receipt: the detach patch, its
+/// public changes, and the workspace the detach emptied.
+pub(crate) type ExitTopology<'a> =
+    (&'a ResourcePatch, &'a Value, Option<&'a ResourceWorkspaceClose>);
+
 impl WorkspaceRegistry {
     /// Latch one authoritative process exit into both registry timelines.
     ///
@@ -101,11 +115,56 @@ impl WorkspaceRegistry {
         terminal_id: &str,
         incarnation: Option<&str>,
         observed: &TerminalExit,
-        mut terminal_snapshot: Value,
-        topology: Option<(&ResourcePatch, &Value)>,
+        terminal_snapshot: Value,
+        topology: Option<ExitTopology<'_>>,
+    ) -> anyhow::Result<(RegistryTerminal, u64, u64, bool, Option<u64>)> {
+        self.commit_terminal_exit_receipt(
+            terminal_id,
+            incarnation,
+            observed,
+            terminal_snapshot,
+            topology,
+            None,
+        )
+    }
+
+    /// Replace an exited terminal's receipt that still records `recorded`
+    /// (a process end by signal) with `settled`, the host loss it settled to
+    /// (`session-shutdown`), as one journaled exit commit: later owners then
+    /// read the host loss from the receipt itself, whatever shutdown window
+    /// they know. The receipt keeps the shape older daemons read. Replays
+    /// (returns `true` last) when the stored receipt is not `recorded`.
+    pub(crate) fn settle_terminal_exit(
+        &mut self,
+        terminal_id: &str,
+        recorded: &TerminalExit,
+        settled: &TerminalExit,
+        terminal_snapshot: Value,
     ) -> anyhow::Result<(RegistryTerminal, u64, u64, bool)> {
+        self.commit_terminal_exit_receipt(
+            terminal_id,
+            None,
+            settled,
+            terminal_snapshot,
+            None,
+            Some(recorded),
+        )
+        .map(|(terminal, terminal_revision, resource_revision, replayed, _)| {
+            (terminal, terminal_revision, resource_revision, replayed)
+        })
+    }
+
+    fn commit_terminal_exit_receipt(
+        &mut self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        observed: &TerminalExit,
+        mut terminal_snapshot: Value,
+        topology: Option<ExitTopology<'_>>,
+        replaces: Option<&TerminalExit>,
+    ) -> anyhow::Result<(RegistryTerminal, u64, u64, bool, Option<u64>)> {
         anyhow::ensure!(observed.is_valid(), "terminal exit outcome is invalid");
-        if let Some((patch, changes)) = topology {
+        if let Some((patch, changes, _)) = topology {
             validate_resource_patch(patch)?;
             anyhow::ensure!(
                 changes.is_array(),
@@ -120,7 +179,7 @@ impl WorkspaceRegistry {
 
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
             tx.commit()?;
-            return Ok((terminal, terminal_revision, resource_revision, true));
+            return Ok((terminal, terminal_revision, resource_revision, true, None));
         }
         if terminal
             .incarnation
@@ -129,7 +188,15 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("terminal_incarnation_mismatch");
         }
-        if terminal.lifecycle == TerminalLifecycle::Exited {
+        let replaces_stored = replaces.is_some_and(|recorded| {
+            terminal.lifecycle == TerminalLifecycle::Exited
+                && stored_terminal_exit(terminal.exit.as_ref()).as_ref() == Some(recorded)
+        });
+        if replaces.is_some() && !replaces_stored {
+            tx.commit()?;
+            return Ok((terminal, terminal_revision, resource_revision, true, None));
+        }
+        if terminal.lifecycle == TerminalLifecycle::Exited && !replaces_stored {
             let exit_revision = terminal
                 .exit
                 .as_ref()
@@ -138,7 +205,7 @@ impl WorkspaceRegistry {
                 .and_then(|revision| revision.parse::<u64>().ok())
                 .unwrap_or(resource_revision);
             tx.commit()?;
-            return Ok((terminal, terminal_revision, exit_revision, true));
+            return Ok((terminal, terminal_revision, exit_revision, true, None));
         }
 
         let next_terminal_revision = terminal_revision
@@ -193,7 +260,7 @@ impl WorkspaceRegistry {
             "id": public_id,
             "value": terminal_snapshot,
         })];
-        if let Some((_, topology_changes)) = topology {
+        if let Some((_, topology_changes, _)) = topology {
             for change in topology_changes.as_array().expect("validated topology changes") {
                 let mut change = change.as_object().cloned().ok_or_else(|| {
                     anyhow::anyhow!("terminal exit topology change is not an object")
@@ -203,7 +270,7 @@ impl WorkspaceRegistry {
             }
         }
         let changes = Value::Array(changes);
-        let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
         let fingerprint = json!({
             "op": "terminal-exited",
             "terminal_id": terminal_id,
@@ -222,7 +289,25 @@ impl WorkspaceRegistry {
         });
         let result_json = canonical_json(&result)?;
 
-        if let Some((patch, _)) = topology {
+        // The workspace the detach emptied closes in this transaction
+        // (LAST-TAB-CLOSES-WORKSPACE).
+        let mut workspace_revision = None;
+        if let Some((patch, _, workspace_close)) = topology {
+            if let Some(close) = workspace_close {
+                workspace_revision = Some(
+                    super::commit_workspace_registry_in_transaction(
+                        &tx,
+                        &mutation,
+                        &fingerprint_json,
+                        None,
+                        "workspace-closed",
+                        &close.workspace_key,
+                        &close.remaining_workspaces,
+                        &canonical_json(&close.legacy_result)?,
+                    )?
+                    .0,
+                );
+            }
             apply_resource_patch_unrecorded(&tx, patch, sqlite_resource_revision)?;
         }
 
@@ -281,17 +366,13 @@ impl WorkspaceRegistry {
                 &result_json,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, 'terminal-exited', ?3, ?4, ?5)",
-            params![
-                &mutation.origin,
-                &mutation.id,
-                &fingerprint_json,
-                &result_json,
-                sqlite_resource_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            &mutation,
+            "terminal-exited",
+            &fingerprint_json,
+            &result_json,
+            sqlite_resource_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -306,7 +387,7 @@ impl WorkspaceRegistry {
         )?;
         super::resource_store::prune_resource_mutations(&tx)?;
         tx.commit()?;
-        Ok((terminal, next_terminal_revision, next_resource_revision, false))
+        Ok((terminal, next_terminal_revision, next_resource_revision, false, workspace_revision))
     }
 
     #[cfg(test)]

@@ -7,12 +7,12 @@
 use std::io::{BufReader, Write};
 
 use cmux_tui_core::platform::transport;
-use cmux_tui_core::resource::{PROTOCOL, ResourceOperation, ResponseEnvelope};
+use cmux_tui_core::resource::{MAX_MESSAGE_BYTES, PROTOCOL, ResourceOperation, ResponseEnvelope};
 use serde_json::{Map, Value, json};
 
-use super::OutputMode;
-use super::command::{RequestPlan, Resolve};
+use super::command::{RequestPlan, Resolve, ZoomStep};
 use super::wire::{print_operation_error, random_request_id, read_envelope};
+use super::{GlobalArgs, OutputMode};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -20,11 +20,21 @@ pub(super) enum Failure {
     /// A resource error from the daemon, or a local one in that shape.
     Resource(Value),
     Transport(String),
+    /// The request belongs to the app, not the daemon: run this app action
+    /// (by id) on this target instead (a browser tab's page zoom).
+    AppAction {
+        action: &'static str,
+        target: String,
+    },
 }
 
 impl Failure {
     pub(super) fn report(self, output: OutputMode) -> i32 {
         match self {
+            Self::AppAction { action, .. } => {
+                eprintln!("cmux: {action} is an app action and this cmux cannot reach the app");
+                3
+            }
             Self::Resource(error) => print_operation_error(&error, output),
             Self::Transport(message) => {
                 eprintln!("{message}");
@@ -66,9 +76,101 @@ pub(super) fn apply(
                     params.insert(field.into(), Value::String(id));
                 }
             }
+            Resolve::TabZoom { step } => {
+                // A `current` or named tab resolves through its ancestors.
+                let mut selector = route.clone();
+                for key in ["workspace", "screen", "pane", "tab"] {
+                    if let Some(value) = params.get(key) {
+                        selector.insert(key.into(), value.clone());
+                    }
+                }
+                let snapshot = read(reader, ResourceOperation::TabGet, selector)?;
+                if let Some(action) = tab_zoom_route(&snapshot, step)? {
+                    let tab = snapshot.get("id").and_then(Value::as_str).unwrap_or_default();
+                    let pane = snapshot.get("pane_id").and_then(Value::as_str).unwrap_or_default();
+                    let shown = shown_tab(reader, &route, pane)?;
+                    if shown.as_deref() != Some(tab) {
+                        return Err(zoom_error(
+                            "tab.not_shown",
+                            format!(
+                                "page zoom acts on the tab its pane shows, and pane {pane} shows \
+                                 another tab; run `cmux tab {tab} focus` first"
+                            ),
+                        ));
+                    }
+                    return Err(Failure::AppAction { action, target: format!("pane:{pane}") });
+                }
+            }
         }
     }
     Ok(())
+}
+
+/// `Some(app action)` when `tab` is a browser tab, whose page zoom the app
+/// that hosts the page owns; `None` for a terminal's font zoom, which the
+/// daemon's `tab.update` sets.
+fn tab_zoom_route(tab: &Value, step: ZoomStep) -> Result<Option<&'static str>, Failure> {
+    let browser = tab.get("content_kind").and_then(Value::as_str) == Some("browser");
+    match (browser, step) {
+        (false, ZoomStep::In | ZoomStep::Out) => Err(zoom_error(
+            "validation.invalid",
+            "zoom in|out applies to browser tabs; give a terminal tab a value: zoom <0.25..5>|reset"
+                .into(),
+        )),
+        (false, _) => Ok(None),
+        (true, ZoomStep::Value) => Err(zoom_error(
+            "validation.invalid",
+            "a browser tab's page zoom takes in, out or reset; the app has no action that sets an \
+             exact page zoom yet"
+                .into(),
+        )),
+        (true, ZoomStep::In) => Ok(Some("browserZoomIn")),
+        (true, ZoomStep::Out) => Ok(Some("browserZoomOut")),
+        (true, ZoomStep::Reset) => Ok(Some("browserZoomReset")),
+    }
+}
+
+fn zoom_error(code: &str, message: String) -> Failure {
+    Failure::Resource(json!({
+        "code": code,
+        "message": message,
+        "details": {},
+        "retryable": false,
+    }))
+}
+
+/// The tab `pane` shows: its leaf's `active_tab_id` in its screen's layout.
+fn shown_tab(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    pane: &str,
+) -> Result<Option<String>, Failure> {
+    let mut selector = route.clone();
+    selector.insert("pane".into(), Value::String(pane.to_owned()));
+    let pane_snapshot = read(reader, ResourceOperation::PaneGet, selector)?;
+    let Some(screen) = pane_snapshot.get("screen_id").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let mut selector = route.clone();
+    selector.insert("screen".into(), Value::String(screen.to_owned()));
+    let screen = read(reader, ResourceOperation::ScreenGet, selector)?;
+    Ok(active_tab_of(&screen, pane))
+}
+
+/// Searches every layout object of a screen snapshot for the leaf of `pane`.
+fn active_tab_of(value: &Value, pane: &str) -> Option<String> {
+    match value {
+        Value::Object(object) => {
+            if object.get("pane_id").and_then(Value::as_str) == Some(pane)
+                && let Some(active) = object.get("active_tab_id").and_then(Value::as_str)
+            {
+                return Some(active.to_owned());
+            }
+            object.values().find_map(|value| active_tab_of(value, pane))
+        }
+        Value::Array(values) => values.iter().find_map(|value| active_tab_of(value, pane)),
+        _ => None,
+    }
 }
 
 fn route(params: &Map<String, Value>) -> Map<String, Value> {
@@ -137,8 +239,77 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
     }
 }
 
+/// `--machine` and `--session` name the scope of a request that names none
+/// (or `current`).
+pub(super) fn apply_global_route(
+    global: &GlobalArgs,
+    params: &mut Value,
+) -> Result<(), &'static str> {
+    let Some(params) = params.as_object_mut() else {
+        return Err("request params are not an object");
+    };
+    if let Some(machine) = &global.machine
+        && params.get("machine").is_none_or(|value| value.as_str() == Some("current"))
+    {
+        params.insert("machine".into(), Value::String(machine.clone()));
+    }
+    if let Some(session) = &global.session
+        && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
+    {
+        params.insert("session".into(), Value::String(session.clone()));
+    }
+    Ok(())
+}
+
+pub(super) fn encode_request_bytes(request: &Value) -> Result<Vec<u8>, String> {
+    match serde_json::to_vec(request) {
+        Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => Ok(encoded),
+        Ok(_) => Err("request exceeds the 4 MiB protocol limit".into()),
+        Err(error) => Err(format!("cannot encode request: {error}")),
+    }
+}
+
+/// Reads envelopes until the response to `request_id`: `Ok(Ok(result))`,
+/// `Ok(Err(resource error))`, or `Err` for a transport or protocol failure.
+pub(super) fn read_response(
+    reader: &mut Reader,
+    request_id: &str,
+) -> Result<Result<Value, Value>, String> {
+    loop {
+        let value = read_envelope(reader, false)?
+            .ok_or_else(|| "transport closed before response".to_string())?;
+        if value.get("type").and_then(Value::as_str) != Some("response") {
+            continue;
+        }
+        let response: ResponseEnvelope = serde_json::from_value(value)
+            .map_err(|error| format!("protocol error: invalid response envelope: {error}"))?;
+        if response.id.as_str() != request_id {
+            continue;
+        }
+        response.validate().map_err(|error| format!("protocol error: {}", error.message))?;
+        if response.ok {
+            return Ok(Ok(response.result.unwrap_or(Value::Null)));
+        }
+        let error = response
+            .error
+            .and_then(|error| serde_json::to_value(error).ok())
+            .unwrap_or_else(|| json!({"code": "operation.failed", "message": "request failed"}));
+        return Ok(Err(error));
+    }
+}
+
+/// Writes one encoded request line and flushes it.
+pub(super) fn send(reader: &mut Reader, encoded: &[u8]) -> Result<(), String> {
+    let stream = reader.get_mut();
+    stream
+        .write_all(encoded)
+        .and_then(|()| stream.write_all(b"\n"))
+        .and_then(|()| stream.flush())
+        .map_err(|error| format!("transport error: {error}"))
+}
+
 /// One read on the connection; returns its result.
-fn read(
+pub(super) fn read(
     reader: &mut Reader,
     operation: ResourceOperation,
     params: Map<String, Value>,
@@ -151,37 +322,11 @@ fn read(
         "operation": operation.wire_name(),
         "params": params,
     });
-    let mut encoded = serde_json::to_vec(&request).expect("JSON values serialize");
-    encoded.push(b'\n');
-    reader
-        .get_mut()
-        .write_all(&encoded)
-        .and_then(|()| reader.get_mut().flush())
-        .map_err(|error| Failure::Transport(format!("transport error: {error}")))?;
-    loop {
-        let value = read_envelope(reader, false)
-            .map_err(Failure::Transport)?
-            .ok_or_else(|| Failure::Transport("transport closed before response".into()))?;
-        if value.get("type").and_then(Value::as_str) != Some("response") {
-            continue;
-        }
-        let response: ResponseEnvelope = serde_json::from_value(value).map_err(|error| {
-            Failure::Transport(format!("protocol error: invalid response envelope: {error}"))
-        })?;
-        if response.id.as_str() != id {
-            continue;
-        }
-        if let Err(error) = response.validate() {
-            return Err(Failure::Transport(format!("protocol error: {}", error.message)));
-        }
-        if response.ok {
-            return Ok(response.result.unwrap_or(Value::Null));
-        }
-        let error = response.error.map(|error| serde_json::to_value(error).unwrap_or_default());
-        return Err(Failure::Resource(
-            error
-                .unwrap_or_else(|| json!({"code": "operation.failed", "message": "lookup failed"})),
-        ));
+    let encoded = serde_json::to_vec(&request).expect("JSON values serialize");
+    send(reader, &encoded).map_err(Failure::Transport)?;
+    match read_response(reader, &id).map_err(Failure::Transport)? {
+        Ok(result) => Ok(result),
+        Err(error) => Err(Failure::Resource(error)),
     }
 }
 
@@ -214,6 +359,35 @@ mod tests {
         assert_eq!(error["code"], "selector.ambiguous");
         assert_eq!(error["details"]["candidates"], json!(["g1", "g2"]));
         assert!(error["message"].as_str().unwrap().contains("tab group"));
+    }
+
+    #[test]
+    fn browser_zoom_goes_to_the_app_and_terminal_zoom_to_the_daemon() {
+        let browser = json!({"id": "tab_1", "content_kind": "browser", "pane_id": "pane_1"});
+        let terminal = json!({"id": "tab_2", "content_kind": "terminal", "pane_id": "pane_1"});
+        let route = |tab: &Value, step| match tab_zoom_route(tab, step) {
+            Ok(action) => Ok(action),
+            Err(Failure::Resource(error)) => Err(error["code"].as_str().unwrap().to_owned()),
+            Err(_) => Err("other".into()),
+        };
+        assert_eq!(route(&browser, ZoomStep::In), Ok(Some("browserZoomIn")));
+        assert_eq!(route(&browser, ZoomStep::Out), Ok(Some("browserZoomOut")));
+        assert_eq!(route(&browser, ZoomStep::Reset), Ok(Some("browserZoomReset")));
+        assert_eq!(route(&browser, ZoomStep::Value), Err("validation.invalid".into()));
+        assert_eq!(route(&terminal, ZoomStep::Value), Ok(None));
+        assert_eq!(route(&terminal, ZoomStep::Reset), Ok(None));
+        assert_eq!(route(&terminal, ZoomStep::In), Err("validation.invalid".into()));
+    }
+
+    #[test]
+    fn the_shown_tab_is_read_from_the_pane_leaf_of_the_screen_layout() {
+        let screen = json!({"layout": {"root": {"columns": [{"root": {
+            "kind": "split",
+            "first": {"kind": "leaf", "pane_id": "pane_a", "active_tab_id": "tab_a"},
+            "second": {"kind": "leaf", "pane_id": "pane_b", "active_tab_id": "tab_b"},
+        }}]}}});
+        assert_eq!(active_tab_of(&screen, "pane_b").as_deref(), Some("tab_b"));
+        assert_eq!(active_tab_of(&screen, "pane_c"), None);
     }
 
     #[test]

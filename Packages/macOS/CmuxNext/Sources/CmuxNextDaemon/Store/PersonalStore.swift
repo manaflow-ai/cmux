@@ -20,8 +20,15 @@ public final class PersonalStore {
     public internal(set) var groupRooms: [WorkspaceGroupID: ProfileID] = [:]
     /// Personal organization per qualified workspace.
     public internal(set) var workspaces: [PersonalWorkspace] = []
+    /// Per-terminal themes, keyed `session_id` then terminal key.
+    public internal(set) var terminalThemes: [String: [String: String]] = [:]
+    /// Browser profile records (`browser-profiles-v1`), in order.
+    public internal(set) var browserProfiles: [BrowserProfileSnapshot] = []
 
     public init() {}
+
+    /// The own theme of a session-qualified terminal.
+    public func terminalTheme(session: String, terminal: String) -> String? { terminalThemes[session]?[terminal] }
 
     public func session(_ id: String) -> SessionRecord? { sessions.first { $0.id == id } }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
@@ -33,7 +40,11 @@ public final class PersonalStore {
 
 extension DaemonStore {
     /// Whether this daemon serves personal state (`profiles-v1`).
-    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.profiles) ?? false }
+    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.shared.profiles) ?? false }
+
+    /// Whether personal groups carry a place among the loose workspaces
+    /// (`personal-mixed-order-v1`).
+    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapabilities.shared.personalMixedOrder) ?? false }
 
     func applyPersonal(_ state: PersonalState?) {
         guard let state else {
@@ -57,5 +68,10 @@ extension DaemonStore {
         let rooms = Dictionary(state.groups.map { ($0.id, $0.profile ?? .defaultProfile) }, uniquingKeysWith: { first, _ in first })
         if store.groupRooms != rooms { store.groupRooms = rooms }
         if store.workspaces != state.workspaces { store.workspaces = state.workspaces }
+        let terminals = Dictionary(grouping: state.terminals, by: \.sessionID).mapValues {
+            Dictionary($0.map { ($0.terminalKey, $0.theme) }, uniquingKeysWith: { first, _ in first })
+        }
+        if store.terminalThemes != terminals { store.terminalThemes = terminals }
+        if store.browserProfiles != state.browserProfiles { store.browserProfiles = state.browserProfiles }
     }
 }

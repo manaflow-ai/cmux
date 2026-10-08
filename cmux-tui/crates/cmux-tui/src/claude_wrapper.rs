@@ -77,13 +77,23 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     126
 }
 
-/// PATH for pane processes: the `claude` shim directory first, then the
-/// server's PATH. `None` leaves PATH alone (the shim could not be written).
-pub(crate) fn pane_path() -> Option<String> {
+/// Puts the `claude` shim directory first on the PATH of pane processes,
+/// then the server's PATH, and records the directory so the daemon keeps it
+/// first over a caller PATH. Leaves PATH alone when the shim could not be
+/// written.
+pub(crate) fn configure_pane_path(options: &mut cmux_tui_core::SurfaceOptions) {
+    let Some((dir, path)) = pane_path() else { return };
+    options.extra_env.push(("PATH".into(), path));
+    options.claude_shim_dir = Some(dir);
+}
+
+/// The shim directory and the pane PATH that starts with it.
+fn pane_path() -> Option<(String, String)> {
     let dir = shim_directory()?;
     let executable = current_executable().ok()?;
     install_shim(&dir, &executable).ok()?;
-    path_with_shim_first(&std::env::var_os("PATH").unwrap_or_default(), &dir)?.into_string().ok()
+    let path = path_with_shim_first(&std::env::var_os("PATH").unwrap_or_default(), &dir)?;
+    Some((dir.into_os_string().into_string().ok()?, path.into_string().ok()?))
 }
 
 /// Directory holding the `claude` shim, under cmux-tui's data home.
@@ -658,8 +668,7 @@ mod tests {
     /// Writes an executable (0755) script, creating its parent directory.
     fn write_executable(path: &Path, content: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, content).unwrap();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(path, content);
     }
 
     /// The permission bits of `path`.

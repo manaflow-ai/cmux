@@ -23,7 +23,10 @@ enum ControlTopologyMapper {
         case .disconnected: "disconnected"
         case .failed: "failed"
         }
-        topology.workspaceGroups = store.groups.map { group in
+        // The groups the sidebar draws: the home session's personal groups
+        // when it serves them (cx-qno.17), else the daemon's shared groups.
+        let groups = store.personal.isLoaded ? store.personal.groups : store.groups
+        topology.workspaceGroups = groups.map { group in
             ControlWorkspaceGroupInfo(id: group.id.rawValue, name: group.name, color: group.color, isCollapsed: group.collapsed)
         }
         topology.workspaces = store.workspaces.map { workspace(from: $0, selectedTab: selectedTab) }
@@ -73,9 +76,11 @@ enum ControlTopologyMapper {
         let kind = switch model.kind {
         case .pty: "terminal"
         case .browser: "browser"
+        case .remoteTerminal: "remote-terminal"
+        case .conversation: "conversation"
         case .other(let value): value
         }
-        return ControlTabInfo(
+        var info = ControlTabInfo(
             id: model.id,
             surface: model.surface.description,
             kind: kind,
@@ -93,5 +98,11 @@ enum ControlTopologyMapper {
             tabGroupID: model.tabGroup?.rawValue,
             agentState: model.agent?.state.rawValue
         ).withTerminalResource(model.terminalResourceID?.rawValue)
+        info.agent = model.agent?.agent
+        info.remoteSessionID = model.remote?.sessionID
+        info.remoteTerminalID = model.remote?.terminalID.rawValue
+        if model.kind == .browser { info.browserProfileID = model.snapshot.browserProfileID ?? "default" }
+        info.agentSessionID = model.snapshot.conversation?.agentSession?.session
+        return info
     }
 }

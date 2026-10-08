@@ -2,7 +2,8 @@ public import CoreGraphics
 
 /// Pure chip sizing. The chip view measures text; this turns the measured
 /// widths into the pill and slot widths layout uses.
-public enum TabGroupChipLayout {
+public struct TabGroupChipLayout {
+    public init() {}
     /// What the chip shows.
     public struct Content: Equatable, Sendable {
         public var nameWidth: CGFloat

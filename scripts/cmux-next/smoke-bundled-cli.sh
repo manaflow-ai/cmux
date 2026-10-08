@@ -54,6 +54,8 @@ bin_dir="$app/Contents/Resources/bin"
 cli_path="$bin_dir/cmux"
 socket="/tmp/cmux-debug-$slug.sock"
 [[ -x "$cli_path" ]] || { echo "error: bundled CLI missing at $cli_path" >&2; exit 1; }
+[[ -x "${cli_path%/*}/cmux-code-mode-runner" ]] || { echo "error: bundled code-mode runner missing" >&2; exit 1; }
+[[ -x "${cli_path%/*}/cmux-code-mode-macos-profile" ]] || { echo "error: bundled macOS code-mode profile helper missing" >&2; exit 1; }
 
 work="$(mktemp -d /tmp/cmux-next-cli-smoke.XXXXXX)"
 app_pid=""
@@ -65,7 +67,10 @@ cleanup() {
     for _ in $(seq 1 25); do kill -0 "$app_pid" 2>/dev/null || break; sleep 0.2; done
     kill -9 "$app_pid" 2>/dev/null || true
     # The app leaves its cmux-tui daemon running by design; this run started it.
-    pkill -f "$bin_dir/cmux-tui" 2>/dev/null || true
+    # Stop it by its socket, never by pattern (a pattern also kills the hosts).
+    # shellcheck source=SCRIPTDIR/../lib/stop-cmux-tui-owners.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/../lib/stop-cmux-tui-owners.sh"
+    cmux_stop_cmux_tui_owners "$bin_dir"
   fi
   if [[ $status -ne 0 ]]; then
     echo "FAIL during step: $step" >&2

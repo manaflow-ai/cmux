@@ -11,7 +11,7 @@ import Testing
         defer { server.stop() }
         let attempts = Mutex(0)
         let failures = Mutex<[DaemonError]>([])
-        let result = await DaemonStartup.connect(clock: ImmediateClock()) {
+        let result = await DaemonStartup.shared.connect(clock: ImmediateClock()) {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) {
                 let attempt = attempts.withLock { value -> Int in
                     value += 1
@@ -35,7 +35,7 @@ import Testing
 
     @Test func incompatibleDaemonStopsRetrying() async {
         let attempts = Mutex(0)
-        let result = await DaemonStartup.connect(clock: ImmediateClock()) {
+        let result = await DaemonStartup.shared.connect(clock: ImmediateClock()) {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) {
                 attempts.withLock { $0 += 1 }
                 throw DaemonError.binaryNotFound(searched: ["/nope"])
@@ -47,7 +47,7 @@ import Testing
 
     @Test func cancellationEndsTheLoop() async {
         let task = Task {
-            await DaemonStartup.connect(policy: RetryPolicy(initial: .seconds(60), maximum: .seconds(60), timedRetries: 10)) {
+            await DaemonStartup.shared.connect(policy: RetryPolicy(initial: .seconds(60), maximum: .seconds(60), timedRetries: 10)) {
                 DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) {
                     throw DaemonError.launchFailed("down")
                 }

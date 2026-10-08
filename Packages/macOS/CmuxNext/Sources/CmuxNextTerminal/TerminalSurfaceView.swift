@@ -1,6 +1,8 @@
 public import AppKit
+import CmuxNextDesign
 import CmuxNextTerminalGeometry
-import GhosttyKit
+import CmuxNextWakeups
+import GhosttyNextKit
 import os
 import QuartzCore
 
@@ -17,7 +19,9 @@ public final class TerminalSurfaceView: NSView {
     // MARK: State
 
     private(set) var surface: ghostty_surface_t?
-    private let bridge: Unmanaged<SurfaceBridge>
+    /// The light/dark scheme last given to this surface (diagnostics).
+    var colorSchemeIsDark = false
+    let bridge: Unmanaged<SurfaceBridge>
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
     weak var session: TerminalSession?
@@ -41,7 +45,7 @@ public final class TerminalSurfaceView: NSView {
     /// Grid the PTY owner announced last (``applyAnnouncedGrid(_:)``).
     var announcedGrid: TerminalGridSize? { geometry.announced }
 
-    /// App-controlled pause (off-screen niri column, unselected tab).
+    /// App-controlled pause (off-screen strip column, unselected tab).
     var isRenderingSuspended = false {
         didSet { if isRenderingSuspended != oldValue { updateOcclusion() } }
     }
@@ -53,6 +57,7 @@ public final class TerminalSurfaceView: NSView {
     }
 
     private(set) var lastOcclusionVisible: Bool?
+    private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     var trackingArea: NSTrackingArea?
@@ -63,6 +68,11 @@ public final class TerminalSurfaceView: NSView {
     var keyTextAccumulator: [String]?
     var lastPerformKeyEventTimestamp: TimeInterval?
     var previousPressureStage = 0
+
+    /// Keyboard copy mode (``TerminalCopyMode``).
+    private(set) lazy var copyMode = TerminalCopyMode(view: self)
+    /// Ghostty's clipboard reads and confirmations (``TerminalClipboardRequests``).
+    private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
 
     // MARK: Lifecycle
 
@@ -117,7 +127,11 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
+        TerminalFontScale(self).installCallback()
+        // Light/dark themes (default Apple System Colors) follow the app.
+        GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
+        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()
         updateSurfaceSize(forceReport: true)
@@ -188,6 +202,7 @@ public final class TerminalSurfaceView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateSurfaceSize()
+        copyMode.syncCursor()
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
@@ -207,49 +222,45 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// Resizes the mirror to the grid the PTY owner announced. Call only
-    /// when every earlier output chunk has been parsed (``TerminalSession``
-    /// drains the lane first), so the reflow happens at the same point in the
-    /// byte stream as the owner's.
-    func applyAnnouncedGrid(_ grid: TerminalGridSize) {
+    /// Locks the mirror to the owner's grid on the output lane, behind every
+    /// earlier chunk (`ghostty_surface_set_grid`), at the owner's point in the
+    /// byte stream. `restored`: a local-history restore resizes the terminal
+    /// itself, so only the lock's record follows (no set_grid).
+    func applyAnnouncedGrid(_ grid: TerminalGridSize, restored: Bool = false) {
         geometry.announce(grid)
+        if restored { gridLock.adopt(grid) } else { lockAnnouncedGrid() }
         updateSurfaceSize()
     }
 
-    /// Sizes the surface and reports the view's grid when it changed.
+    /// Sends the announced grid to Ghostty in stream order (``TerminalGridLock``).
+    private var gridLock = TerminalGridLock()
+
+    private func lockAnnouncedGrid() {
+        guard let grid = geometry.gridToRender, let lane else { return }
+        gridLock.lock(grid, on: lane)
+    }
+
+    /// Sizes the surface to the view and reports the view's grid when it
+    /// changed.
     ///
-    /// Before any announcement the surface fits the view and Ghostty decides
-    /// the grid. After one, the surface renders exactly the announced grid
-    /// (`ghostty_surface_set_grid_size`, ghostty.h:1464) and the view's grid
-    /// is computed from the cell and padding sizes Ghostty resolved, without
-    /// resizing the terminal. The report reaches the owner; the surface
-    /// follows when the owner announces the grid it applied.
+    /// The view's pixel size always goes to `ghostty_surface_set_size`, and
+    /// `ghostty_surface_size` reports how many cells fit. Before any
+    /// announcement that is also the terminal grid. After one, the terminal
+    /// grid is locked to the announced grid (`ghostty_surface_set_grid`):
+    /// a larger view draws padding, a smaller one crops, and the report still
+    /// says what would fit. The owner decides; the surface follows its
+    /// announcement.
     func updateSurfaceSize(forceReport: Bool = false) {
         guard let surface else { return }
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
-        let desired: TerminalGridSize
-        let metrics: TerminalGridMetrics
-        if let grid = geometry.gridToRender,
-           let columns = UInt16(exactly: grid.columns), let rows = UInt16(exactly: grid.rows) {
-            var resolved = ghostty_surface_size_s()
-            guard ghostty_surface_set_grid_size(surface, columns, rows, &resolved),
-                  let resolvedMetrics = TerminalGridMetrics(
-                      resolving: grid, widthPixels: Int(resolved.width_px), heightPixels: Int(resolved.height_px),
-                      cellWidth: Int(resolved.cell_width_px), cellHeight: Int(resolved.cell_height_px))
-            else { return }
-            publish(size: resolved)
-            metrics = resolvedMetrics
-            desired = metrics.grid(fittingWidth: Int(pixels.width), height: Int(pixels.height))
-        } else {
-            ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
-            let size = ghostty_surface_size(surface)
-            publish(size: size)
-            guard size.columns > 0, size.rows > 0 else { return }
-            desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
-            metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
+        ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
+        let size = ghostty_surface_size(surface)
+        publish(size: size)
+        guard size.columns > 0, size.rows > 0 else { return }
+        let desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+        let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)
-        }
         guard let report = geometry.viewSized(desired, force: forceReport) else { return }
         let cells = metrics.cellPixels(of: report)
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
@@ -257,7 +268,7 @@ public final class TerminalSurfaceView: NSView {
 
     private func publish(size: ghostty_surface_size_s) {
         guard let model = session?.model else { return }
-        let grid = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+        let grid = geometry.gridToRender ?? TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
         if model.grid != grid { model.grid = grid }
         let cell = CGSize(width: Int(size.cell_width_px), height: Int(size.cell_height_px))
         if model.cellPixelSize != cell { model.cellPixelSize = cell }
@@ -275,9 +286,12 @@ public final class TerminalSurfaceView: NSView {
         return pixels * 4 * 3 + cells * 64
     }
 
-    /// The grid the surface renders now.
+    /// The grid the surface renders now: the locked grid, or what fits the
+    /// view before a lock.
     var currentGrid: TerminalGridSize? {
         guard let surface else { return nil }
+        let grid = ghostty_surface_grid(surface)
+        if grid.locked { return TerminalGridSize(columns: Int(grid.columns), rows: Int(grid.rows)) }
         let size = ghostty_surface_size(surface)
         return TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
     }
@@ -292,15 +306,14 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Occlusion
 
-    /// `ghostty_surface_set_occlusion(surface, visible)` (ghostty.h:1442).
-    /// Hidden surfaces stop drawing but keep parsing output.
+    /// `ghostty_surface_set_occlusion` (ghostty.h:1442) per ``WindowDrawPolicy``. Paused surfaces
+    /// keep parsing output; Ghostty draws the current content on its `.visible` message.
     func updateOcclusion() {
         guard let surface else { return }
-        let onScreen = window.map { $0.occlusionState.contains(.visible) } ?? false
-        let visible = mirrorDemand > 0 || (onScreen && !isHiddenOrHasHiddenAncestor && !isRenderingSuspended)
-        guard visible != lastOcclusionVisible else { return }
-        lastOcclusionVisible = visible
-        ghostty_surface_set_occlusion(surface, visible)
+        pause = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0).pause
+        guard (pause == nil) != lastOcclusionVisible else { return }
+        lastOcclusionVisible = pause == nil
+        ghostty_surface_set_occlusion(surface, pause == nil)
     }
 
     // MARK: Focus

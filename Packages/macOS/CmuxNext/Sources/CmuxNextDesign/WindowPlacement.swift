@@ -12,7 +12,8 @@ public import AppKit
 /// once at launch; the shell windows use ``screenIndex(test:parent:count:)``
 /// too, so both follow one rule.
 @MainActor
-public enum WindowPlacement {
+public struct WindowPlacement {
+    public init() {}
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN`: an `NSScreen.screens` index (0 is the
     /// menu-bar screen) or the last screen.
     public enum TestScreen: Sendable, Equatable {
@@ -56,7 +57,27 @@ public enum WindowPlacement {
         return CGRect(x: x.rounded(), y: y.rounded(), width: width, height: height)
     }
 
+    /// `frame` moved (and shrunk if needed) inside `visible`, keeping its
+    /// position where it already fits.
+    public nonisolated static func contain(_ frame: CGRect, in visible: CGRect) -> CGRect {
+        let width = min(frame.width, visible.width)
+        let height = min(frame.height, visible.height)
+        let x = min(max(frame.minX, visible.minX), visible.maxX - width)
+        let y = min(max(frame.minY, visible.minY), visible.maxY - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
     // MARK: AppKit
+
+    /// `frame` kept on the test screen in an agent screenshot launch
+    /// (unchanged otherwise). Shell windows apply it to every frame they
+    /// are given, so no creation or move path (tear-off, new window,
+    /// move-window, restore) can put one on the user's display.
+    public static func containedOnTestScreen(_ frame: CGRect) -> CGRect {
+        let screens = NSScreen.screens
+        guard let test = testScreen, let index = screenIndex(test: test, parent: nil, count: screens.count) else { return frame }
+        return contain(frame, in: screens[index].visibleFrame)
+    }
 
     /// The shell window an auxiliary window belongs to when the caller has
     /// none: the main window, else the key window's parent chain.

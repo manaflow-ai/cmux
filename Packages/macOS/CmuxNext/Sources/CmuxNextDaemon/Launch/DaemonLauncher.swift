@@ -1,5 +1,6 @@
 public import Foundation
 import os
+import Synchronization
 
 /// Locates the bundled cmux-tui binary and runs `cmux-tui --session <S>
 /// --json server ensure`, which returns a running owner or spawns a detached
@@ -25,14 +26,42 @@ public struct DaemonLauncher: Sendable {
         /// second one that cannot take the session lock, and never connect.
         /// Defaults to the user's Darwin temp directory, which is fixed per user.
         public var runtimeBase: URL
+        /// `server ensure --terminal-reap-grace-seconds`: how long the owner
+        /// keeps a terminal with no tab before it ends it (`keep` exempts
+        /// one). cmux-tui reaps only when started with the option; the app
+        /// keeps a closed tab's terminal 30 s for Reopen Closed Tab and a
+        /// closed workspace, then ends it so closed tabs never leak PTYs.
+        /// An owner that is already running keeps the grace it started with.
+        public var terminalReapGraceSeconds: UInt32
+        /// The socket the last connection used (`DaemonSocketMemory`). The
+        /// first endpoint request returns it when it accepts a connection,
+        /// skipping the `server status` spawn; later ones (reconnects) run
+        /// `ensure`, which restarts a crashed daemon.
+        public var rememberedSocket: String?
+        /// The app's install key (P8 3b-2): handed on stdin to an owner that
+        /// `ensure` spawns, and proved by `client-hello` on each connection.
+        public var installKey: FrontendInstallKey?
+        /// True when `binary` is the app bundle's own `bin/cmux-tui`, built
+        /// from this tree. That build always accepts
+        /// `--terminal-reap-grace-seconds` (since c40e1186701d), so the
+        /// launcher passes it without the `--help` probe, which can time out
+        /// on a loaded machine and start an owner that never reaps. An
+        /// external binary (`CMUX_NEXT_TUI_BIN`) is still probed.
+        public var binaryIsBundled: Bool
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
-                    runtimeBase: URL = DaemonLauncher.userTemporaryDirectory()) {
+                    runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
+                    terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
+                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false) {
             self.binary = binary
+            self.binaryIsBundled = binaryIsBundled
             self.session = session
             self.stateDirectory = stateDirectory
             self.configFile = configFile
             self.runtimeBase = runtimeBase
+            self.terminalReapGraceSeconds = terminalReapGraceSeconds
+            self.rememberedSocket = rememberedSocket
+            self.installKey = installKey
         }
     }
 
@@ -55,7 +84,14 @@ public struct DaemonLauncher: Sendable {
     public static let binaryOverrideKey = "CMUX_NEXT_TUI_BIN"
 
     public let configuration: Configuration
-    private let clock: any Clock<Duration>
+    /// `configuration.rememberedSocket` until the first endpoint request of
+    /// any provider of this launcher takes it: the startup loop's retries
+    /// and every reconnect then ask the owner (`ensure`), so a hung daemon
+    /// behind a live socket cannot keep a retry loop away from `ensure`.
+    private let rememberedSocket: RememberedSocket
+    /// Version handoff state (`handOffIfStale`).
+    let handoff = DaemonHandoffState()
+    let clock: any Clock<Duration>
     private let ensureTimeout: Duration
     private let environmentProvider: @Sendable () async -> [String: String]
 
@@ -66,6 +102,7 @@ public struct DaemonLauncher: Sendable {
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.configuration = configuration
+        rememberedSocket = RememberedSocket(configuration.rememberedSocket)
         self.environmentProvider = environment
         self.ensureTimeout = ensureTimeout
         self.clock = clock
@@ -73,29 +110,75 @@ public struct DaemonLauncher: Sendable {
 
     /// The standard app launcher: bundled binary, session from the app's own
     /// tag (never an inherited `CMUX_TAG`), login-shell environment captured
-    /// once and cached. `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
+    /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) reaches every shell the daemon spawns.
     public static func forApp(
         tag: String?,
         terminalEnvironment: [String: String],
         bundle: Bundle = .main,
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        socketMemory: DaemonSocketMemory = DaemonSocketMemory()
     ) throws -> DaemonLauncher {
         let tag = tag.flatMap { $0.isEmpty ? nil : $0 }
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
+        DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
         let session = try sessionName(tag: tag)
         let stateDirectory = tag.map { tagStateDirectory(tag: $0) }
-        let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory)
-        let cache = LoginEnvironmentCache.shared
+        let keyStore = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)
+        let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
+                                          rememberedSocket: socketMemory.socket(session: session),
+                                          installKey: keyStore?.loadOrCreate(),
+                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
-        let fixedOverrides = overrides
-        return DaemonLauncher(configuration: configuration, environment: {
-            DaemonLaunchTimings.mark("daemon.login_env_start")
-            let login = await cache.value()
-            DaemonLaunchTimings.mark("daemon.login_env_end")
-            return LoginEnvironment.daemonEnvironment(login: login, base: processEnvironment, overrides: fixedOverrides)
-        })
+        return DaemonLauncher(configuration: configuration, environment: appEnvironment(
+            cache: .shared, base: processEnvironment, overrides: overrides))
+    }
+
+    /// The launcher of a Chief home's conversation owner
+    /// (plans/cmux-next/home-state-ownership.md): session `session` with its
+    /// state in `stateDirectory`, shared by every build of one account. It
+    /// spawns no terminals, so `server ensure` gets the process environment
+    /// without any app or terminal identity, and it is never handed off to a
+    /// connecting build's binary.
+    public static func forChief(
+        session: String,
+        stateDirectory: URL,
+        bundle: Bundle = .main,
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> DaemonLauncher {
+        let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
+        let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
+                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+        let environment = chiefEnvironment(processEnvironment)
+        return DaemonLauncher(configuration: configuration, environment: { environment })
+    }
+
+    /// The Chief owner's `server ensure` environment: the user's basic
+    /// variables only, never a build's `CMUX_*` identity.
+    static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
+        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"]
+        return base.filter { kept.contains($0.key) }
+    }
+
+    /// The app launcher's `server ensure` environment: the login
+    /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
+    /// this launch's capture, else the one remembered from the last launch,
+    /// else the app's own), filtered, plus the app's identity keys and
+    /// `overrides`. It never waits for `$SHELL -l -i`, which takes 5-17 s
+    /// on some setups; the app's terminals do not depend on it, because
+    /// each carries its own login `env` (`TerminalEnvironment.shared`).
+    static func appEnvironment(
+        cache: LoginEnvironmentCache,
+        base: [String: String],
+        overrides: [String: String]
+    ) -> @Sendable () async -> [String: String] {
+        {
+            DaemonLaunchTimings.shared.mark("daemon.login_env_start")
+            let login = await cache.immediate()
+            DaemonLaunchTimings.shared.mark("daemon.login_env_end")
+            return LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: overrides)
+        }
     }
 
     // MARK: - Resolution
@@ -114,6 +197,14 @@ public struct DaemonLauncher: Sendable {
             if fileManager.isExecutableFile(atPath: bundled.path) { return bundled }
         }
         throw DaemonError.binaryNotFound(searched: searched)
+    }
+
+    /// True when `binary` is `bundle`'s `Contents/Resources/bin/cmux-tui`.
+    static func isBundledBinary(_ binary: URL, bundle: Bundle) -> Bool {
+        guard let resources = bundle.resourceURL else { return false }
+        let bundled = resources.appendingPathComponent("bin/cmux-tui")
+        return binary.standardizedFileURL.resolvingSymlinksInPath().path
+            == bundled.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     /// `cmux-app`, or `cmux-app-<tag>` with the tag reduced to a safe single
@@ -164,27 +255,39 @@ public struct DaemonLauncher: Sendable {
     }
 
     /// Returns the live endpoint: a running owner from `server status`
-    /// (no login environment needed, about 50 ms), else `server ensure`
-    /// with the login environment, which spawns one. Capturing the login
-    /// environment runs `$SHELL -l -i` (about 0.9 s on a real zsh setup), so
-    /// a warm launch must not wait for it.
+    /// (no login environment needed, about 50 ms), else `server ensure`,
+    /// which spawns one with the provider's environment. The app's provider
+    /// (`appEnvironment`) never waits for the login shell.
     public func ensure() async throws -> EnsureResult {
         if let stateDirectory = configuration.stateDirectory {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
         }
         if let running = await runningOwner() { return running }
+        // The probe runs while the environment is gathered.
+        async let reapGrace = supportsReapGrace()
         let environment = await ensureEnvironment()
-        DaemonLaunchTimings.mark("daemon.ensure_start")
-        defer { DaemonLaunchTimings.mark("daemon.ensure_end") }
+        let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace)
+        DaemonLaunchTimings.shared.mark("daemon.ensure_start")
+        defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
             executable: configuration.binary,
-            arguments: ["--session", configuration.session, "--json", "server", "ensure"],
+            arguments: arguments,
             environment: environment,
+            stdin: configuration.installKey?.payload,
             timeout: ensureTimeout,
             clock: clock
         )
         return try Self.parseEnsure(result)
+    }
+
+    /// The `server ensure` command line for `configuration`. `reapGrace`
+    /// says whether the binary accepts `--terminal-reap-grace-seconds`
+    /// (``supportsReapGrace()``); a client without it refuses the option.
+    static func ensureArguments(_ configuration: Configuration, reapGrace: Bool = true) -> [String] {
+        ["--session", configuration.session, "--json", "server", "ensure"]
+            + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
+            + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
     }
 
     /// `server status`: the running owner, or nil when none runs (or the
@@ -196,8 +299,8 @@ public struct DaemonLauncher: Sendable {
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
         environment["XDG_RUNTIME_DIR"] = nil
         environment["TMPDIR"] = configuration.runtimeBase.path
-        DaemonLaunchTimings.mark("daemon.status_start")
-        defer { DaemonLaunchTimings.mark("daemon.status_end") }
+        DaemonLaunchTimings.shared.mark("daemon.status_start")
+        defer { DaemonLaunchTimings.shared.mark("daemon.status_end") }
         guard let result = try? await ProcessRunner.run(
             executable: configuration.binary,
             arguments: ["--session", configuration.session, "--json", "server", "status"],
@@ -208,12 +311,12 @@ public struct DaemonLauncher: Sendable {
         return parsed
     }
 
-    /// Starts capturing the login environment now, so a cold launch (no
-    /// daemon yet) has it by the time `server ensure` needs it. Call at the
-    /// top of `main`; the capture runs off the main thread.
+    /// Starts capturing the login environment now, so the first terminals
+    /// have it as early as possible and the next launch remembers it. Call
+    /// at the top of `main`; the capture runs off the main thread.
     public static func prewarmLoginEnvironment() {
         // task-owner: one-shot fill of the process-lifetime login-env cache; ends with the capture's own timeout.
-        Task.detached(priority: .userInitiated) { _ = await LoginEnvironmentCache.shared.value() }
+        Task.detached(priority: .userInitiated) { await LoginEnvironmentCache.shared.start() }
     }
 
     static func parseEnsure(_ result: ProcessResult) throws -> EnsureResult {
@@ -234,7 +337,23 @@ public struct DaemonLauncher: Sendable {
     /// Endpoint provider for `DaemonConnection`: every (re)connect re-runs
     /// `ensure`, which restarts a crashed daemon.
     public var endpointProvider: DaemonConnection.EndpointProvider {
-        { try await ensure().endpoint }
+        let remembered = rememberedSocket
+        let handoff = handoff
+        let clock = clock
+        return {
+            // A daemon exiting for a version handoff still answers `server
+            // status` for a moment: start its successor only once it is gone.
+            if let exiting = handoff.takeExiting() {
+                _ = await ProcessExit.exitEvent(pid: exiting, within: .seconds(60), clock: clock)
+            }
+            if let path = remembered.take() {
+                if DaemonSocketMemory.acceptsConnections(path) {
+                    DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
+                    return DaemonEndpoint(socketPath: path)
+                }
+            }
+            return try await ensure().endpoint
+        }
     }
 
     /// Build commit of the bundled binary (`cmux 0.1.0 (<commit>; ghostty …)`).
@@ -266,16 +385,9 @@ public struct DaemonLauncher: Sendable {
     }
 }
 
-/// Captures the login env once per app launch; concurrent callers share it.
-actor LoginEnvironmentCache {
-    static let shared = LoginEnvironmentCache()
-
-    private var task: Task<[String: String]?, Never>?
-
-    func value() async -> [String: String]? {
-        if let task { return await task.value }
-        let task = Task { await LoginEnvironment.capture() }
-        self.task = task
-        return await task.value
-    }
+/// A remembered socket path that is handed out once.
+final class RememberedSocket: Sendable {
+    private let path: Mutex<String?>
+    init(_ path: String?) { self.path = Mutex(path) }
+    func take() -> String? { path.withLock { $0.take() } }
 }

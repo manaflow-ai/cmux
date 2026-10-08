@@ -9,12 +9,37 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + appearance + browser + notifications
+        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
+            + ComputerUseSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+            + PanePlacementSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+            + ChatSettingsSchema().descriptors + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
+            + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + AgentPaneEditedFilesSettingsSchema.descriptors
+        return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
+            + BrowserAppSettingsSchema.descriptors
     }
 
-    /// The descriptors of one section, in order.
+    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
+    /// `appearance.metrics.*` rows say so themselves.
+    static let sharedWithBrowser: Set<String> = [
+        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed",
+        "focusRing.enabled", "focusRing.width", "focusRing.color",
+        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
+        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
+    ]
+
+    /// Keys Reset All Settings leaves alone: the look picked at onboarding
+    /// (the app theme and the terminal font), which each row still resets.
+    public static let keptOnResetAll: Set<[String]> = [
+        AppThemeSetting().configPath, ChromeThemeSetting().configPath, TerminalFontSetting().familyPath,
+        TerminalFontSetting().sizePath,
+    ]
+
+    /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
+    /// page-hidden keys stay out).
     public static func settings(in section: SettingsSection) -> [SettingDescriptor] {
-        all.filter { $0.section == section }
+        all.filter { $0.section == section && $0.isShownOnSettingsPage }
     }
 
     /// The descriptor for a dotted key or key path.
@@ -26,146 +51,162 @@ public nonisolated enum SettingsSchema {
     /// availability come from the action registry).
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
-        case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
-        case .appearance: ["palette.openGhosttySettings"]
+        case .general: ["palette.welcomeChecklist", "onboarding.continueSetup", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
+        case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
-        case .browser: ["browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .keyboard: ["palette.searchShortcuts"]
+        case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
+        case .home: []
+        case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: []
-        case .rooms: ["room.new", "room.switch", "room.rename"]
+        case .accounts: ["accounts.refresh", "openTeamPicker"]
+        case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
-        case .advanced: ["palette.openCmuxSettingsFile", "reloadConfiguration"]
+        // The page draws Open <settings file> itself, named from the loaded path.
+        case .advanced: ["reloadConfiguration"]
         }
     }
 
     // MARK: General
 
     static var general: [SettingDescriptor] {
-        let window = SettingsText.text("settings.group.window", "Window")
-        let columns = SettingsText.text("settings.group.columns", "Columns")
+        let window = SettingsText.keyed("settings.group.window", "Window")
+        let columns = SettingsText.keyed("settings.group.columns", "Columns")
+        let quitting = SettingsText.keyed("settings.group.quit", "Quitting")
+        let history = SettingsText.keyed("settings.group.history", "History")
+        let tabs = SettingsText.keyed("settings.group.tabs", "Tabs")
         return [
             SettingDescriptor(
-                WindowTitlebarSetting.configPath, section: .general, group: window,
-                title: SettingsText.text("settings.window.titlebar", "Titlebar"),
-                help: SettingsText.text("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
+                TerminalCommandHistorySetting.configPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.terminalCommands", "Record Terminal Commands"),
+                help: SettingsText.keyed("settings.history.terminalCommands.help",
+                                        "Lists finished shell commands in History. Command lines can contain secrets."),
+                kind: .toggle, default: .bool(TerminalCommandHistorySetting.fallback),
+                keywords: ["history", "commands", "shell", "privacy", "osc 133"]
+            ),
+            SettingDescriptor(
+                NavigationHistoryScopeSetting.configPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.navigation.historyScope", "Back and Forward"),
+                help: SettingsText.keyed("settings.navigation.historyScope.help",
+                                        "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."),
                 kind: .choice([
-                    SettingChoice(TitlebarStyle.minimal.rawValue, SettingsText.text("settings.choice.minimal", "Minimal")),
-                    SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.text("settings.choice.standard", "Standard")),
+                    SettingChoice("workspace", SettingsText.keyed("settings.navigation.historyScope.workspace", "Workspace")),
+                    SettingChoice("window", SettingsText.keyed("settings.navigation.historyScope.window", "Window")),
+                    SettingChoice("surface", SettingsText.keyed("settings.navigation.historyScope.surface", "Focused Page")),
+                ]),
+                default: .string(NavigationHistoryScopeSetting.fallback),
+                keywords: ["history", "back", "forward", "navigation", "location", "scope"]
+            ),
+            SettingDescriptor(
+                NavigationHistoryStepSetting.configPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
+                help: SettingsText.keyed("settings.navigation.historySteps.help",
+                                        "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                kind: .choice([
+                    SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
+                    SettingChoice("everything", SettingsText.keyed("settings.navigation.historySteps.everything", "Everything")),
+                ]),
+                default: .string(NavigationHistoryStepSetting.fallback),
+                keywords: ["history", "back", "forward", "navigation", "workspace", "tab", "pane"]
+            ),
+            SettingDescriptor(
+                WindowTitlebarSetting.configPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
+                help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
+                kind: .choice([
+                    SettingChoice(TitlebarStyle.minimal.rawValue, SettingsText.keyed("settings.choice.minimal", "Minimal")),
+                    SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
                 ]),
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
             ),
             SettingDescriptor(
+                TitlebarButtonsSetting.configPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
+                help: SettingsText.keyed("settings.window.titlebarButtons.help",
+                                        "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."),
+                kind: .choice([
+                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                ]),
+                default: .string(TitlebarButtonsSetting.fallback.rawValue),
+                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.globalHotKeyPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
+                help: SettingsText.keyed("settings.app.globalHotKey.help",
+                                        "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
+                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
+            ),
+            TabSettingsSchema.newTabKind(group: tabs),
+            TabSettingsSchema.plusButton(group: tabs),
+        ] + TabBarSettingsSchema.descriptors(group: tabs) + [
+            TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
+            TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
+        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
+            SettingDescriptor(
+                QuitBehaviorSetting.configPath, section: .general, group: quitting,
+                title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
+                help: SettingsText.keyed("settings.app.quitBehavior.help",
+                                        "Terminals run in cmux-tui and keep running after cmux quits unless you end them."),
+                kind: .choice([
+                    SettingChoice(QuitBehavior.ask.rawValue, SettingsText.keyed("settings.choice.quitAsk", "Ask")),
+                    SettingChoice(QuitBehavior.keep.rawValue, SettingsText.keyed("settings.choice.quitKeep", "Keep Sessions Running")),
+                    SettingChoice(QuitBehavior.endKeepLayout.rawValue,
+                                  SettingsText.keyed("settings.choice.quitEndKeepLayout", "End Sessions, Keep Layout")),
+                    SettingChoice(QuitBehavior.endEverything.rawValue, SettingsText.keyed("settings.choice.quitEndEverything", "End Everything")),
+                ]),
+                default: .string(QuitBehaviorSetting.fallback.rawValue),
+                keywords: ["quit", "exit", "sessions", "terminals", "cmux-tui", "daemon", "background"]
+            ),
+            SettingDescriptor(
                 DefaultColumnWidthSetting.configPath, section: .general, group: columns,
-                title: SettingsText.text("settings.layout.defaultColumnWidth", "New Column Width"),
-                help: SettingsText.text("settings.layout.defaultColumnWidth.help", "A share of the window width."),
+                title: SettingsText.keyed("settings.layout.fixedColumnWidth", "Fixed Column Width"),
+                help: SettingsText.keyed("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
-                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["niri", "width"]
+                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["width"]
             ),
             SettingDescriptor(
                 CenterFocusedColumnSetting.configPath, section: .general, group: columns,
-                title: SettingsText.text("settings.layout.centerFocusedColumn", "Center Focused Column"),
+                title: SettingsText.keyed("settings.layout.centerFocusedColumn", "Center Focused Column"),
                 kind: .choice([
-                    SettingChoice(CenterFocusedColumn.never.rawValue, SettingsText.text("settings.choice.never", "Never")),
-                    SettingChoice(CenterFocusedColumn.always.rawValue, SettingsText.text("settings.choice.always", "Always")),
-                    SettingChoice(CenterFocusedColumn.onOverflow.rawValue, SettingsText.text("settings.choice.onOverflow", "When It Does Not Fit")),
+                    SettingChoice(CenterFocusedColumn.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
+                    SettingChoice(CenterFocusedColumn.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                    SettingChoice(CenterFocusedColumn.onOverflow.rawValue, SettingsText.keyed("settings.choice.onOverflow", "When It Does Not Fit")),
                 ]),
-                default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["niri", "scroll"]
+                default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["scroll"]
+            ),
+            SettingDescriptor(
+                StripScrollbarSetting.configPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.stripScrollbar", "Column Scroll Bar"),
+                help: SettingsText.keyed("settings.layout.stripScrollbar.help", "A thin bar under the columns that shows and moves the visible range."),
+                kind: .choice([
+                    SettingChoice(StripScrollbarMode.auto.rawValue, SettingsText.keyed("settings.choice.stripScrollbarAuto", "While Scrolling")),
+                    SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                    SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "minimap"]
+            ),
+            SettingDescriptor(
+                CloseFocusSetting.configPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.closeFocus", "Focus After Closing a Pane"),
+                help: SettingsText.keyed("settings.layout.closeFocus.help", "Which pane gets focus when the focused pane closes."),
+                kind: .choice([
+                    SettingChoice(CloseFocusPolicy.previousNeighbor.rawValue, SettingsText.keyed("settings.choice.closeFocusPreviousNeighbor", "Previous Neighbor")),
+                    SettingChoice(CloseFocusPolicy.mostRecent.rawValue, SettingsText.keyed("settings.choice.closeFocusMostRecent", "Most Recently Focused")),
+                ]),
+                default: .string(CloseFocusSetting.fallback.rawValue), keywords: ["close", "focus", "neighbor", "recent"]
             ),
         ]
     }
 
+
     // MARK: Appearance
 
     static var appearance: [SettingDescriptor] {
-        let look = SettingsText.text("settings.group.densityMotion", "Density and Motion")
-        let panes = SettingsText.text("settings.group.panes", "Panes")
-        let ring = SettingsText.text("settings.group.focusRing", "Focus Ring")
-        let densityDefault = SettingsText.text("settings.default.density", "Density default")
-        let theme = SettingsText.text("settings.default.theme", "Theme")
-        return [
-            SettingDescriptor(
-                ["appearance", "density"], section: .appearance, group: look,
-                title: SettingsText.text("settings.appearance.density", "Density"),
-                kind: .choice([
-                    SettingChoice("compact", SettingsText.text("settings.choice.compact", "Compact")),
-                    SettingChoice("comfortable", SettingsText.text("settings.choice.comfortable", "Comfortable")),
-                ]),
-                default: "compact", keywords: ["size", "spacing"]
-            ),
-            SettingDescriptor(
-                AnimationSpeedSetting.configPath, section: .appearance, group: look,
-                title: SettingsText.text("settings.ui.animationSpeed", "Animations"),
-                kind: .choice([
-                    SettingChoice(MotionSpeed.fast.rawValue, SettingsText.text("settings.choice.fast", "Fast")),
-                    SettingChoice(MotionSpeed.normal.rawValue, SettingsText.text("settings.choice.normal", "Normal")),
-                    SettingChoice(MotionSpeed.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
-                ]),
-                default: .string(AnimationSpeedSetting.fallback.rawValue), keywords: ["motion", "speed"]
-            ),
-            SettingDescriptor(
-                ["layout", "panePadding"], section: .appearance, group: panes,
-                title: SettingsText.text("settings.layout.panePadding", "Padding"),
-                kind: .number(points(PaneChromeOverrides.paddingRange, step: 1, placeholder: 4)),
-                default: nil, defaultLabel: densityDefault
-            ),
-            SettingDescriptor(
-                ["layout", "paneCornerRadius"], section: .appearance, group: panes,
-                title: SettingsText.text("settings.layout.paneCornerRadius", "Corner Radius"),
-                kind: .number(points(PaneChromeOverrides.cornerRadiusRange, step: 1, placeholder: 6)),
-                default: nil, defaultLabel: densityDefault, keywords: ["rounded"]
-            ),
-            SettingDescriptor(
-                ["layout", "paneBorder"], section: .appearance, group: panes,
-                title: SettingsText.text("settings.layout.paneBorder", "Border"),
-                kind: .choice([
-                    SettingChoice(PaneBorderStyle.subtle.rawValue, SettingsText.text("settings.choice.subtle", "Subtle")),
-                    SettingChoice(PaneBorderStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
-                ]),
-                default: .string(PaneBorderStyle.subtle.rawValue)
-            ),
-            SettingDescriptor(
-                ["layout", "paneBorderColor"], section: .appearance, group: panes,
-                title: SettingsText.text("settings.layout.paneBorderColor", "Border Color"),
-                kind: .color, default: nil, defaultLabel: theme
-            ),
-            SettingDescriptor(
-                ["layout", "paneBorderWidth"], section: .appearance, group: panes,
-                title: SettingsText.text("settings.layout.paneBorderWidth", "Border Width"),
-                kind: .number(points(PaneChromeOverrides.borderWidthRange, step: 0.5, placeholder: 0.5)),
-                default: nil, defaultLabel: SettingsText.text("settings.default.onePixel", "One pixel")
-            ),
-            SettingDescriptor(
-                ["focusRing", "enabled"], section: .appearance, group: ring,
-                title: SettingsText.text("settings.focusRing.enabled", "Show Focus Ring"),
-                kind: .toggle, default: .bool(FocusRingSettings().enabled)
-            ),
-            SettingDescriptor(
-                ["focusRing", "style"], section: .appearance, group: ring,
-                title: SettingsText.text("settings.focusRing.style", "Style"),
-                kind: .choice([
-                    SettingChoice(FocusRingStyle.ring.rawValue, SettingsText.text("settings.choice.ring", "Ring")),
-                    SettingChoice(FocusRingStyle.glow.rawValue, SettingsText.text("settings.choice.glow", "Glow")),
-                    SettingChoice(FocusRingStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
-                ]),
-                default: .string(FocusRingSettings().style.rawValue)
-            ),
-            SettingDescriptor(
-                ["focusRing", "color"], section: .appearance, group: ring,
-                title: SettingsText.text("settings.focusRing.color", "Color"),
-                kind: .color, default: nil, defaultLabel: theme
-            ),
-            SettingDescriptor(
-                ["focusRing", "width"], section: .appearance, group: ring,
-                title: SettingsText.text("settings.focusRing.width", "Width"),
-                kind: .number(points(FocusRingSettings.widthRange, step: 0.5)),
-                default: .number(Double(FocusRingSettings().width))
-            ),
-            SettingDescriptor(
-                ["focusRing", "showWhenSinglePane"], section: .appearance, group: ring,
-                title: SettingsText.text("settings.focusRing.showWhenSinglePane", "Show With One Pane"),
-                kind: .toggle, default: .bool(FocusRingSettings().showsForSinglePane)
-            ),
-        ]
+        AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
+            + DiffViewerSettingsSchema.descriptors
     }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {

@@ -84,9 +84,15 @@ final class ScopedCommandExecutor: ControlActionExecutor {
         return await router.handle(ControlRequest(id: "1", method: "action.run", params: params))
     }
 
-    func waitUntil(_ condition: () -> Bool) async {
-        let end = ContinuousClock.now + .seconds(5)
+    /// Waits up to 5 s; a timeout records an Issue at the caller with the time waited.
+    func waitUntil(sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) async {
+        let start = ContinuousClock.now
+        let end = start + .seconds(5)
         while !condition(), ContinuousClock.now < end { await Task.yield() } // test-only wait
+        if !condition() {
+            Issue.record("waitUntil timed out after \(ContinuousClock.now - start): the condition at \(sourceLocation.fileName):\(sourceLocation.line) never held",
+                         sourceLocation: sourceLocation)
+        }
     }
 
     @Test func waitsForTheScopeThenForTheSnapshotAndReportsCreatedPublicIDs() async throws {
@@ -152,10 +158,12 @@ final class ScopedCommandExecutor: ControlActionExecutor {
     @Test func aStartedRunThatMissesItsDeadlineIsInProgress() async throws {
         let executor = ScopedCommandExecutor()
         let frames = ManualFrameSource()
-        let router = makeRouter(executor, deadline: .seconds(1), frames: frames)
+        // The deadline leaves a loaded runner room to start the handler;
+        // the frames stop firing a second before it.
+        let router = makeRouter(executor, deadline: .seconds(5), frames: frames)
         let reply = Task { await run(router, ["target": "tab:tab-1"]) }
         // The handler runs as soon as the frame fires: the run has started.
-        let end = ContinuousClock.now + .seconds(1)
+        let end = ContinuousClock.now + .seconds(4)
         while executor.calls.load(ordering: .relaxed) == 0, ContinuousClock.now < end { await MainActor.run { frames.fire() } } // test-only wait
         let calls = executor.calls.load(ordering: .relaxed)
         try #require(calls == 1, "the handler never ran before the deadline (a loaded machine)")

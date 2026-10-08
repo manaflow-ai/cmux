@@ -1,13 +1,13 @@
 public import AppKit
 
 /// What else a chord may mean where an action's shortcut runs, supplied by
-/// the App: the user's Ghostty keybinds and the chords Chrome gives a
+/// the App: the user's Ghostty keybinds and the browser chords that have a
 /// meaning in a web page (plans/cmux-next/focus.md section 5).
 public struct ShortcutEditEnvironment: Sendable {
     /// The cmux action title a Ghostty keybind for this chord maps to, or
     /// the Ghostty action name; nil when Ghostty does not bind it.
     public var ghosttyBinding: @MainActor @Sendable (Shortcut) -> String?
-    /// Chrome for Mac's chords (`BrowserChordTable.chromeReserved`).
+    /// The browser chords a page keeps (`BrowserChordTable.chromeReserved`).
     public var chromeChords: Set<Shortcut>
 
     public init(ghosttyBinding: @escaping @MainActor @Sendable (Shortcut) -> String? = { _ in nil }, chromeChords: Set<Shortcut> = []) {
@@ -18,8 +18,9 @@ public struct ShortcutEditEnvironment: Sendable {
 
 /// Chords macOS keeps for itself; an app never sees them, or taking them
 /// breaks a system feature.
-public enum SystemReservedShortcuts {
-    public static let table: [Shortcut: String] = [
+public struct SystemReservedShortcuts {
+    public static let shared = Self()
+    public let table: [Shortcut: String] = [
         Shortcut(" ", modifiers: [.command]): "Spotlight",
         Shortcut(" ", modifiers: [.command, .option]): "Finder search",
         Shortcut(" ", modifiers: [.control]): "Input Sources",

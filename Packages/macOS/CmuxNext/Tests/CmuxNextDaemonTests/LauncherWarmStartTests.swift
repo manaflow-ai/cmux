@@ -8,8 +8,8 @@ import Testing
 /// environment only matters when `server ensure` spawns a new owner.
 @Suite struct LauncherWarmStartTests {
     /// A stand-in cmux-tui: `server status` answers with `statusJSON` (or
-    /// exits 3, like a missing owner), `server ensure` logs itself and
-    /// answers "started".
+    /// exits 3, like a missing owner), `server ensure` (with its options)
+    /// logs itself and answers "started".
     final class Flag: Sendable {
         private let value = Mutex(false)
         func set() { value.withLock { $0 = true } }
@@ -23,9 +23,10 @@ import Testing
         let started = #"{"generation":"g2","message":"local server started","pid":4343,"session":"s","socket":"/tmp/s.sock","status":"started"}"#
         let script = """
         #!/bin/sh
-        for arg in "$@"; do last="$arg"; done
-        echo "$last" >> '\(log.path)'
-        case "$last" in
+        action=""; previous=""
+        for arg in "$@"; do [ "$previous" = server ] && action="$arg"; previous="$arg"; done
+        echo "$action" >> '\(log.path)'
+        case "$action" in
           status) \(isRunning ? "echo '\(running)'; exit 0" : "echo '{\"code\":\"server.unavailable\"}'; exit 3") ;;
           ensure) echo '\(started)'; exit 0 ;;
         esac
@@ -75,6 +76,25 @@ import Testing
         let result = try await launcher.ensure()
         #expect(result.status == "started")
         #expect(loginAsked.isSet)
+        let calls = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
+        #expect(calls.last == "ensure")
+    }
+
+    /// A cold launch runs `server ensure` while the login shell is still
+    /// running: the daemon gets the remembered (here: the app's own)
+    /// environment instead of waiting up to the capture's deadline.
+    @Test(.timeLimit(.minutes(1))) func aMissingDaemonIsStartedBeforeTheLoginShellAnswers() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (binary, log) = try fakeBinary(running: false, in: directory)
+        let shell = SlowLoginShell()
+        defer { shell.close() }
+        let cache = LoginEnvironmentCache(store: MemoryLoginEnvironmentFile().store, capture: { await shell.capture($0) })
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: "s", stateDirectory: directory.appendingPathComponent("state")),
+            environment: DaemonLauncher.appEnvironment(cache: cache, base: ["PATH": "/usr/bin:/bin"], overrides: [:]))
+        let result = try await launcher.ensure()
+        #expect(result.status == "started")
         let calls = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
         #expect(calls.last == "ensure")
     }

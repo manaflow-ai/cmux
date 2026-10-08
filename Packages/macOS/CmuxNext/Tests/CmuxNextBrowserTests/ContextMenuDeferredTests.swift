@@ -19,9 +19,10 @@ import Testing
             items: [BrowserContextMenuItem(id: 1, title: "Back")], target: BrowserContextMenuTarget(),
             location: CGPoint(x: 4, y: 4)
         ) { _ in completed = true }
-        BrowserContextMenuBuilder.present(request, in: view)
+        let presenter = BrowserContextMenuBuilder()
+        presenter.present(request, in: view)
         #expect(!completed)
-        #expect(BrowserContextMenuBuilder.presentedMenu == nil)
+        #expect(presenter.presentedMenu == nil)
         window.contentView = nil  // the deferred block then dismisses it (view gone)
     }
 }

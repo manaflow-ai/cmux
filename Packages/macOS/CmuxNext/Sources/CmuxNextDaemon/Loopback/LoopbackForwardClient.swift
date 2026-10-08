@@ -15,7 +15,7 @@ public actor LoopbackForwardClient {
 
     /// This client's receive window per stream.
     public static let receiveWindow = 256 * 1024
-    public static let capability = DaemonCapabilities.loopbackForward
+    public static let capability = DaemonCapabilities.shared.loopbackForward
 
     private let endpoint: EndpointProvider
     private let requestTimeout: Duration
@@ -91,7 +91,7 @@ public actor LoopbackForwardClient {
         }
         let transport: LineTransport
         do {
-            transport = try LineTransport(path: endpoint.socketPath)
+            transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         } catch {
             throw LoopbackForwardError.unavailable(error.description)
         }
@@ -135,7 +135,7 @@ public actor LoopbackForwardClient {
 
     private static func map(_ error: DaemonError) -> LoopbackForwardError {
         switch error {
-        case .command(_, let message, let code): .from(code: code, message: message)
+        case .command(_, let message, let code, _, _): .from(code: code, message: message)
         case .timedOut: .timedOut
         default: .unavailable(error.description)
         }

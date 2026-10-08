@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
+import Observation
 import Synchronization
 import Testing
 @testable import CmuxNextApp
@@ -10,7 +11,7 @@ import Testing
 /// updated in place (its link socket stays), the app must connect without a
 /// relaunch.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct RemoteMachineCompatTests {
-    nonisolated static let required = DaemonCapabilities.required
+    nonisolated static let required = DaemonCapabilities.shared.required
 
     /// identify/set-client-info/subscribe/list-workspaces for a daemon with
     /// `capabilities()`.
@@ -29,10 +30,58 @@ import Testing
         }
     }
 
-    func waitUntil(_ condition: () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(10))
-        while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) } // test-only wait
+    private func waitFor(_ expected: DaemonStartupState, service: DaemonService,
+                         timeout: Duration = .seconds(10)) async throws {
+        let observation = Task { @MainActor () -> Bool in
+            for await state in Observations({ service.startup }) where state == expected { return true }
+            return false
+        }
+        let timeoutTask = Task<Void, Never> {
+            try? await Task.sleep(for: timeout)
+        }
+        let observed = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await observation.value }
+            group.addTask {
+                await timeoutTask.value
+                return false
+            }
+            let result = await group.next() ?? false
+            observation.cancel()
+            timeoutTask.cancel()
+            group.cancelAll()
+            return result
+        }
+        guard observed else {
+            throw DaemonError.timedOut("daemon startup state did not become \(expected)")
+        }
+    }
+
+    private func waitForConnected(_ service: DaemonService,
+                                  timeout: Duration = .seconds(10)) async throws {
+        let observation = Task { @MainActor () -> Bool in
+            for await state in Observations({ service.store.connectionState }) {
+                if case .connected = state { return true }
+            }
+            return false
+        }
+        let timeoutTask = Task<Void, Never> {
+            try? await Task.sleep(for: timeout)
+        }
+        let observed = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await observation.value }
+            group.addTask {
+                await timeoutTask.value
+                return false
+            }
+            let result = await group.next() ?? false
+            observation.cancel()
+            timeoutTask.cancel()
+            group.cancelAll()
+            return result
+        }
+        guard observed else {
+            throw DaemonError.timedOut("daemon connection did not become connected")
+        }
     }
 
     @Test func tooOldCloudDaemonIsNotShownAsConnectingAndConnectsOnceUpdated() async throws {
@@ -47,7 +96,7 @@ import Testing
         service.start(remote: { path })
         defer { service.shutdownConnection() }
 
-        try await waitUntil { service.startup.isUnavailable }
+        try await waitFor(.unavailable(.missingCapabilities(["view-attachment-detach-v1"])), service: service)
         #expect(service.startup == .unavailable(.missingCapabilities(["view-attachment-detach-v1"])))
         let header = SidebarBridge.machine(for: service, name: "vm", kind: .cloud)
         #expect(header.status != .connecting, "an incompatible machine must not look like it is still connecting")
@@ -58,7 +107,7 @@ import Testing
         // The machine is updated in place: same link socket, newer daemon.
         updated.withLock { $0 = true }
         service.retryWake.fire()
-        try await waitUntil { if case .connected = service.store.connectionState { true } else { false } }
+        try await waitForConnected(service)
         guard case .connected = service.store.connectionState else {
             Issue.record("the updated machine never connected: \(service.store.connectionState)")
             return
@@ -66,9 +115,11 @@ import Testing
         // Connected with the required set only: the optional features stay
         // off and the header offers the update instead of hiding it.
         #expect(service.compatibility?.level == .limited)
-        // Rooms (profiles-v1) live on the home session; a remote machine
-        // without them is not limited by that.
-        #expect(service.compatibility?.missingOptional == DaemonCapabilities.optional.filter { $0 != DaemonCapabilities.profiles })
+        // Home-only personal state does not make a remote machine limited;
+        // workspace groups remain machine capabilities until the local
+        // MachineRegistry has a profiles-backed home store.
+        let homeOnly = Set(DaemonCapabilities.shared.homeOnly)
+        #expect(service.compatibility?.missingOptional == DaemonCapabilities.shared.optional.filter { !homeOnly.contains($0) })
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .cloud).status == .updateAvailable)
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .local).status == .connected)
     }

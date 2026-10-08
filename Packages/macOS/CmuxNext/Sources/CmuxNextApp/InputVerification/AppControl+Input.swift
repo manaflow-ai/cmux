@@ -28,9 +28,15 @@ extension AppControl {
         ])
         #if DEBUG
         service?.router.register([
+            // This app's own light/dark override (never the system's).
+            .mainActor("debug.appearance") { call in .value(DebugAppearance.handle(call.params)) },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugMouse.send(call.params, services: services))
+            },
+            .mainActor("debug.tab_drag") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugTabDrag.report(services: services))
             },
         ])
         #endif

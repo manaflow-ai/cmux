@@ -1,10 +1,11 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextTabs
 
 /// User feedback on nxdog9: the tab x shows only on the hovered tab, and
 /// the title never moves or resizes when it appears (the x overlays the
-/// title's end, which fades out, as in Chrome and Safari).
+/// title's end, which fades out).
 @MainActor @Suite struct TabHoverChromeTests {
     final class Harness {
         let window: NSWindow
@@ -40,19 +41,22 @@ import Testing
     @Test func titleKeepsItsFrameWhenTheCloseButtonAppears() {
         let h = Harness(titles: [Self.longTitle, "Two"])
         let cell = h.strip.cells[TabID("t0")]!
+        // The layer may widen for the hover marquee (its extra width is
+        // masked out); the text itself stays where it is.
         let before = cell.titleLayer.frame
         cell.isHovered = true
         #expect(cell.closeButtonRect != nil)
-        #expect(cell.titleLayer.frame == before, "the title does not jump when the x shows")
+        #expect(cell.titleLayer.frame.origin == before.origin, "the title does not jump when the x shows")
+        #expect(cell.titleLayer.frame.height == before.height)
         cell.isHovered = false
-        #expect(cell.titleLayer.frame == before)
+        #expect(cell.titleLayer.frame.origin == before.origin)
     }
 
     @Test func titleUsesTheFullWidthWhenTheCloseButtonIsHidden() {
         let h = Harness(titles: [Self.longTitle, "Two"])
         let cell = h.strip.cells[TabID("t0")]!
         let metrics = h.strip.metrics
-        #expect(cell.titleLayer.frame.maxX == cell.bounds.width - metrics.contentTrailingInset)
+        #expect(cell.titleLayer.frame.maxX == cell.pillFrameInCell.maxX - metrics.contentTrailingInset)
     }
 
     @Test func titleFadesOutBeforeTheOverlayingCloseButton() throws {
@@ -63,9 +67,11 @@ import Testing
         let mask = try #require(cell.titleLayer.mask as? CAGradientLayer)
         let locations = try #require(mask.locations).map { CGFloat($0.doubleValue) }
         let colors = try #require(mask.colors as? [CGColor])
-        let firstClear = try #require(colors.firstIndex { $0.alpha == 0 })
-        // Fully clear where the x starts (title coordinates).
-        let clearAt = cell.titleLayer.frame.minX + locations[firstClear] * cell.titleLayer.frame.width
+        // The first clear stop after the opaque run: where the fade ends.
+        let firstOpaque = try #require(colors.firstIndex { $0.alpha == 1 })
+        let firstClear = try #require(colors[firstOpaque...].firstIndex { $0.alpha == 0 })
+        // Fully clear where the x starts (strip-cell coordinates).
+        let clearAt = cell.titleLayer.frame.minX + mask.frame.minX + locations[firstClear] * mask.frame.width
         #expect(clearAt <= close.minX + 0.5)
     }
 
@@ -83,5 +89,28 @@ import Testing
         #expect(cell.titleLayer.mask != nil, "fades out before the x")
         cell.isHovered = false
         #expect(cell.titleLayer.mask == nil)
+    }
+
+    /// nxdog13: a clipped title scrolls while the pointer rests on its tab
+    /// and stops at once when the pointer leaves or a drag lifts the tab.
+    @Test func hoverScrollsAClippedTitleAndLeavingStopsIt() {
+        let h = Harness(titles: [Self.longTitle, "Two"])
+        let cell = h.strip.cells[TabID("t0")]!
+        cell.titleFade.policy = { MotionPolicy(speed: .fast, reduceMotion: false) }
+        cell.isHovered = true
+        #expect(cell.titleFade.isMarqueeActive)
+        cell.isHovered = false
+        #expect(!cell.titleFade.isMarqueeActive)
+        cell.isHovered = true
+        cell.isLifted = true
+        #expect(!cell.titleFade.isMarqueeActive)
+    }
+
+    @Test func aTitleThatFitsNeverScrolls() {
+        let h = Harness(titles: ["One", "Two"])
+        let cell = h.strip.cells[TabID("t1")]!
+        cell.titleFade.policy = { MotionPolicy(speed: .fast, reduceMotion: false) }
+        cell.isHovered = true
+        #expect(!cell.titleFade.isMarqueeActive)
     }
 }

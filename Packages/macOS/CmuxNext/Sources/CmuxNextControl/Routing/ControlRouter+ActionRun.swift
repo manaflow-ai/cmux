@@ -21,7 +21,8 @@ extension ControlRouter {
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
-        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds)
+        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
+                                              connection: call.connection)
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {
@@ -31,12 +32,14 @@ extension ControlRouter {
             _ = call.progress.begin()
             return try Self.replayed(outcome)
         case .join(let joiner):
-            guard let outcome = await joiner.outcome() else {
-                // Not started here either: the timeout says `not_run`.
-                throw ControlError(code: "timeout", message: ControlStrings.format("control.error.idempotentRunNotStarted",
-                                                                                   "The earlier run with idempotency key %@ never started; retry", key))
-            }
+            // The keyed run is active: a timeout while waiting says `in_progress`.
             _ = call.progress.begin()
+            guard let outcome = await joiner.outcome() else {
+                // It never started after all: say `not_run` explicitly.
+                throw ControlError(code: "timeout", message: ControlStrings.format("control.error.idempotentRunNotStarted",
+                                                                                   "The earlier run with idempotency key %@ never started; retry", key),
+                                   data: ["idempotency_key": .string(key), "not_run": true])
+            }
             return try Self.replayed(outcome)
         case .conflict:
             _ = call.progress.begin()
@@ -77,7 +80,7 @@ extension ControlRouter {
             ])
         }
         if action.isDestructive, request.arguments["confirm"] != .bool(true) {
-            throw Self.confirmationRequired(action.id)
+            throw ControlError.confirmationRequired(action.id)
         }
         let executor = self.executor
         let progress = call.progress
@@ -89,8 +92,14 @@ extension ControlRouter {
             guard progress.begin() else { throw expired }
             return ControlCommandScope.$current.withValue(scope) { executor.performActionTracked(request) }
         }
-        try Self.check(run.outcome, action: action.id)
-        var reply: [String: JSONValue] = [
+        do {
+            try Self.check(run.outcome, action: action.id)
+        } catch let error as ControlError {
+            // The run started, so `runAction` keeps the key: record the refusal.
+            if let key { idempotency.finish(key, with: .failure(error)) }
+            throw error
+        }
+        let reply: [String: JSONValue] = [
             "action": .string(action.id),
             "ran": true,
             "waited": .bool(wait),
@@ -99,22 +108,11 @@ extension ControlRouter {
             "idempotency_key": .optional(key),
         ]
         let settleDeadline = max(call.deadline, .now + Self.settleLimit)
-        let settling = Task { [self] in
-            await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline)
-        }
-        guard wait else {
-            // The scope keeps deriving mutation ids until the handler's work settles.
-            if let target = request.target { reply["resolved"] = resolvedJSON(target, in: call.snapshot.topology) }
-            reply["created"] = []
-            reply["sequence"] = JSONValue.number(Double(snapshots.current.topology.daemonSequence))
-            let result = JSONValue.object(reply)
-            if let key { idempotency.finish(key, with: .success(result)) }
-            return result
-        }
-        // Unstructured on purpose: a request that times out answers
-        // `in_progress` while the run keeps settling for a retry.
-        let outcome = await Task { [self] () -> ControlIdempotencyCache.Outcome in
-            let settled = await settling.value
+        // Unstructured on purpose: a request that times out (or does not
+        // wait) answers while the run keeps settling, and the key stays
+        // pending until settlement records the final reply for a retry.
+        let settling = Task { [self] () -> ControlIdempotencyCache.Outcome in
+            let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline)
             let result = settled.map { snapshot -> JSONValue in
                 var reply = reply
                 if let target = request.target { reply["resolved"] = resolvedJSON(target, in: snapshot.topology) }
@@ -124,8 +122,16 @@ extension ControlRouter {
             }
             if let key { idempotency.finish(key, with: result) }
             return result
-        }.value
-        return try outcome.get()
+        }
+        guard wait else {
+            // The scope keeps deriving mutation ids until the handler's work settles.
+            var immediate = reply
+            if let target = request.target { immediate["resolved"] = resolvedJSON(target, in: call.snapshot.topology) }
+            immediate["created"] = []
+            immediate["sequence"] = JSONValue.number(Double(snapshots.current.topology.daemonSequence))
+            return .object(immediate)
+        }
+        return try await settling.value.get()
     }
 
     /// `target` resolved to the object's public id, with the model key the handler got.
@@ -140,7 +146,7 @@ extension ControlRouter {
         defer { scope.close() }
         let failure: ActionWorkFailure?
         do {
-            failure = try await ControlDeadline.run(method: method, deadline: deadline) {
+            failure = try await ControlDeadline.shared.run(method: method, deadline: deadline) {
                 let tracked = await Self.firstFailure(of: run.work)
                 await Self.awaitIdle(scope)
                 return tracked
@@ -148,15 +154,29 @@ extension ControlRouter {
         } catch {
             return .failure(Self.stillRunning(method, action: action))
         }
-        if let failure { return .failure(Self.workError(failure, action: action, method: method)) }
+        if let failure { return .failure(ControlError.actionWork(failure, action: action, method: method)) }
         if let failure = scope.failures.first { return .failure(Self.scopeError(failure, action: action, method: method)) }
-        // No local daemon command: the work queue's frame already published
-        // the app-local change (selection, focus, settings).
-        guard let barrier = scope.barrier(machine: ControlCommandScope.localMachine) else { return .success(snapshots.current) }
-        guard let snapshot = await snapshots.snapshot(reflecting: barrier, deadline: deadline) else {
+        // No daemon command: the work queue's frame already published the
+        // app-local change (selection, focus, settings).
+        let barriers = scope.barriers
+        guard !barriers.isEmpty else { return .success(snapshots.current) }
+        guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
+                                                      deadline: deadline) else {
             return .failure(Self.stillRunning(method, action: action))
         }
         return .success(snapshot)
+    }
+
+    /// The scope's per-machine barriers as snapshot sequences: the local
+    /// daemon's is the home sequence, a remote machine's its session's. A
+    /// machine the topology no longer lists cannot be waited for.
+    static func sequenceBarrier(_ barriers: [String: UInt64], in topology: ControlTopology) -> ControlSequenceBarrier {
+        var barrier = ControlSequenceBarrier(home: barriers[ControlCommandScope.localMachine] ?? 0)
+        for (machine, sequence) in barriers where machine != ControlCommandScope.localMachine {
+            guard let session = topology.sessions.first(where: { $0.machineID == machine && !$0.isHome }) else { continue }
+            barrier.sessions[session.id] = sequence
+        }
+        return barrier
     }
 
     /// Returns once no command of `scope` is open, checked on the main
@@ -178,30 +198,13 @@ extension ControlRouter {
     }
 
     static func scopeError(_ failure: ControlCommandScope.Failure, action: String, method: String) -> ControlError {
-        workError(ActionWorkFailure(failure.message, terminalMayAppear: failure.terminalMayAppear), action: action, method: method,
-                  mayHaveApplied: failure.mayHaveApplied)
+        ControlError.actionWork(ActionWorkFailure(failure.message, mayHaveApplied: failure.mayHaveApplied, terminalMayAppear: failure.terminalMayAppear),
+                  action: action, method: method)
     }
 
     /// Maps a non-`ran` outcome to its error.
     static func check(_ outcome: ControlActionOutcome, action: String) throws {
-        switch outcome {
-        case .ran:
-            return
-        case .unknownAction:
-            throw ControlError(code: "not_found", message: ControlStrings.format("control.error.unknownAction", "Unknown action '%@'", action))
-        case .notBound:
-            throw ControlError(code: "not_bound", message: ControlStrings.format("control.error.actionNotBound", "%@ has no handler in this build", action), data: ["action": .string(action)])
-        case .unavailable:
-            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action), data: ["action": .string(action)])
-        case .disabled:
-            throw ControlError(code: "disabled", message: ControlStrings.format("control.error.actionDisabled", "%@ is disabled right now", action), data: ["action": .string(action)])
-        case .refused(let reason):
-            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionUnavailableReason", "%1$@ unavailable: %2$@", action, reason), data: ["action": .string(action), "reason": .string(reason)])
-        case .notFound(let reason):
-            throw ControlError(code: "not_found", message: reason, data: ["action": .string(action), "reason": .string(reason)])
-        case .confirmationRequired:
-            throw confirmationRequired(action)
-        }
+        if let error = ControlError.actionOutcome(outcome, action: action) { throw error }
     }
 
     /// Runs the target resolver over the target and every target argument,

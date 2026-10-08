@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # Installs the cmux-tui binary into an app bundle as Contents/Resources/bin/cmux, the
 # cmux CLI, with bin/cmux-tui and bin/acpmux as relative symlinks to it (the binary
-# picks its program from argv[0]; plans/cmux-next/cli.md). The app carries the exact
-# client that talks to cmux Cloud machines, so the Machines panel needs no separate install.
+# picks its program from argv[0]; plans/cmux-next/cli.md). When the manifest publishes
+# cmux-tui-app-host-<target>, the app host goes to Contents/Resources/bin/cmux-app-host,
+# where the daemon looks for it; cmux-tui-cloud-server-<target> (the first-party Cloud
+# app server, cmux/cloud) goes beside it as bin/cmux-cloud. The app carries the exact client that talks to cmux
+# Cloud machines, so the Machines panel needs no separate install.
+# cmux-tui-browser-host-<target> goes beside bin/cmux as bin/cmux-browser-host, where
+# the daemon looks for it (the sibling of its own executable), but only once
+# scripts/cmux-next/notices/bundle-map.json maps that path: release and nightly
+# bundles fail check_bundle_notices.py on an unmapped Mach-O, and the map's test
+# requires its THIRD_PARTY_LICENSES.md section. Until then it is not installed.
 #
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
@@ -29,8 +37,10 @@
 # Builds from before that lack it: `bin/acpmux --version` then does not identify as
 # acpmux, which is a warning, or an error with --require-acpmux.
 #
-# Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, and CMUX_TUI_CLIENT_LOCAL
-# points at a prebuilt binary to install instead of downloading (offline/dev builds).
+# Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
+# a prebuilt binary to install instead of downloading (offline/dev builds).
+# CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
+# (default 60, below 1 KiB/s) bound each download attempt.
 # --arch selects downloaded slices only; the local override is copied unchanged
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
@@ -101,10 +111,28 @@ verify_manifest_attestation() {
     exit 1
   }
   [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
-  gh attestation verify "$MANIFEST" "${args[@]}" >&2 || {
+  # An exhausted GitHub API quota says nothing about the attestation, and
+  # failing on it discards a signed nightly leg (run 37526635018). Retry only
+  # that answer, with backoff (1, 2, 4, 8 minutes by default); any other
+  # failure is a verdict and stays final.
+  local delay="${CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS:-60}"
+  local retries_left="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-4}"
+  local output status
+  while :; do
+    status=0
+    output="$(gh attestation verify "$MANIFEST" "${args[@]}" 2>&1)" || status=$?
+    [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+    [[ $status -eq 0 ]] && return 0
+    if [[ "$output" == *"rate limit"* ]] && (( retries_left > 0 )); then
+      echo "cmux-tui attestation lookup was rate-limited; retrying in ${delay}s ($retries_left retries left)" >&2
+      sleep "$delay"
+      retries_left=$((retries_left - 1))
+      delay=$((delay * 2))
+      continue
+    fi
     echo "error: no valid build-provenance attestation for the cmux-tui manifest at $MANIFEST_URL (signer $ATTEST_SIGNER_WORKFLOW)" >&2
     exit 1
-  }
+  done
 }
 
 verify_probe() {
@@ -158,18 +186,65 @@ check_acpmux() {
   echo "warning: installed binary does not run acpmux through bin/acpmux ($version); the agent chat pane falls back to acpmux on PATH" >&2
 }
 
+# The companions this bundle may carry: the browser host only once its license
+# notices are mapped (see the header).
+COMPANIONS=(cmux-app-host cmux-cloud)
+BUNDLE_MAP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/notices/bundle-map.json"
+if python3 -c 'import json,sys; sys.exit(0 if any(e.get("path") == "Contents/Resources/bin/cmux-browser-host" for e in json.load(open(sys.argv[1]))["entries"]) else 1)' "$BUNDLE_MAP" 2>/dev/null; then
+  COMPANIONS+=(cmux-browser-host)
+  SHIP_BROWSER_HOST=1
+else
+  SHIP_BROWSER_HOST=0
+  echo "note: bin/cmux-browser-host is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
+fi
+
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
   install_binary "$CMUX_TUI_CLIENT_LOCAL"
+  # A local client brings its app host and app servers when they sit beside it.
+  rm -f "$DEST_DIR/cmux-browser-host"
+  for companion in "${COMPANIONS[@]}"; do
+    rm -f "$DEST_DIR/$companion"
+    if [[ -f "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" ]]; then
+      install -m 755 "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" "$DEST_DIR/$companion"
+    fi
+  done
   verify_probe
   check_acpmux
   echo "Installed local cmux-tui client at $DEST"
   exit 0
 fi
 
+# A dead HTTP/2 stream holds a transfer open until the server resets it, which
+# took twenty minutes per attempt on a Release job, and curl's own --retry
+# reuses that connection. Bound each attempt by progress, not total time, so a
+# slow but moving download of a 40 MB slice still finishes, and give each its
+# own curl process, so a retry opens a fresh connection.
+DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
+DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
+for budget in CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS="$DOWNLOAD_ATTEMPTS" \
+  CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS"; do
+  [[ "${budget#*=}" =~ ^[1-9][0-9]*$ ]] \
+    || { echo "error: ${budget%%=*} must be a positive integer, got '${budget#*=}'" >&2; exit 64; }
+done
+download() { # <url> <output>
+  local attempt=1
+  until curl --proto '=https' --tlsv1.2 -fsSL \
+      --connect-timeout 30 \
+      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS" \
+      "$1" -o "$2"; do
+    if (( attempt >= DOWNLOAD_ATTEMPTS )); then
+      echo "error: could not download $1 after $attempt attempts" >&2
+      return 1
+    fi
+    attempt=$((attempt + 1))
+    sleep 3
+  done
+}
+
 mkdir -p "$CACHE_DIR"
 MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
-curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$MANIFEST_URL" -o "$MANIFEST"
+download "$MANIFEST_URL" "$MANIFEST"
 if (( ALLOW_UNATTESTED )); then
   echo "warning: installing an unattested cmux-tui manifest from $MANIFEST_URL (--allow-unattested)" >&2
 else
@@ -200,7 +275,7 @@ fetch_slice() { # <artifact-name> -> path
   if [[ -f "$out" ]] && [[ "$(sha256_of "$out")" == "$want" ]]; then
     printf '%s' "$out"; return
   fi
-  curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$BASE/$name" -o "$out.tmp"
+  download "$BASE/$name" "$out.tmp" || exit 1
   got="$(sha256_of "$out.tmp")"
   [[ "$got" == "$want" ]] || { echo "error: sha256 mismatch for $name (want $want, got $got)" >&2; rm -f "$out.tmp"; exit 1; }
   mv -f "$out.tmp" "$out"
@@ -228,6 +303,45 @@ case "$ARCH" in
     ;;
 esac
 install_binary "$CLIENT"
+# The app host (apps-v1) and the first-party app servers ship from the same build when
+# the manifest has them. Older builds have none; then none is bundled (the app reports
+# that it needs a newer cmux-tui, and the supervisor answers apps.server_missing).
+manifest_has() {
+  python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) else 1)' "$MANIFEST" "$1"
+}
+# install_companion <artifact prefix> <installed name>: both darwin slices, lipo'd
+# like the client, sha256-verified by fetch_slice.
+install_companion() {
+  local prefix="$1" name="$2" dest="$DEST_DIR/$2" binary arm x64 arch
+  if ! { manifest_has "$prefix-aarch64-apple-darwin" && manifest_has "$prefix-x86_64-apple-darwin"; }; then
+    rm -f "$dest"
+    echo "note: cmux-tui ${COMMIT:0:10} publishes no $name"
+    return 0
+  fi
+  case "$ARCH" in
+    arm64) binary="$(fetch_slice "$prefix-aarch64-apple-darwin")" ;;
+    x86_64) binary="$(fetch_slice "$prefix-x86_64-apple-darwin")" ;;
+    universal)
+      arm="$(fetch_slice "$prefix-aarch64-apple-darwin")"
+      x64="$(fetch_slice "$prefix-x86_64-apple-darwin")"
+      binary="$BUILD_DIR/$name-universal"
+      if [[ ! -f "$binary" ]]; then
+        lipo -create "$arm" "$x64" -output "$binary.tmp"
+        mv -f "$binary.tmp" "$binary"
+      fi
+      ;;
+  esac
+  rm -f "$dest"
+  install -m 755 "$binary" "$dest"
+  for arch in "${VERIFY_ARCHS[@]}"; do lipo "$dest" -verify_arch "$arch"; done
+}
+install_companion cmux-tui-app-host cmux-app-host
+install_companion cmux-tui-cloud-server cmux-cloud
+if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
+  install_companion cmux-tui-browser-host cmux-browser-host
+else
+  rm -f "$DEST_DIR/cmux-browser-host"
+fi
 # One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
 # arch after -verify_arch and read the second as an extra input file, failing
 # with "requires exactly one input file".

@@ -8,7 +8,8 @@ import Security
 /// relay through the v2 directory and the v2 same-account gate admits it
 /// (the ticket's token authorizes nothing here). Built on the shared
 /// CMUXMobileCore ticket and URL coders the phone decodes with.
-public enum MobileAttachTicket {
+public struct MobileAttachTicket {
+    public init() {}
     /// Who consumes the URL. Each has one representation the phone accepts.
     public enum Target: String, Sendable {
         case simulatorInjection = "simulator_injection"

@@ -10,6 +10,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/permission_groups.rs"]
+mod permission_groups;
+#[path = "hub_integration/questions.rs"]
+mod questions;
+
 struct TestClient {
     tx: mpsc::Sender<String>,
     rx: mpsc::Receiver<String>,
@@ -55,6 +60,14 @@ impl TestClient {
 }
 
 async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
+    setup_env(policy, BTreeMap::new()).await
+}
+
+/// `setup` with the fake agent's env (FAKE_* switches).
+async fn setup_env(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -62,7 +75,7 @@ async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
         HarnessProfile {
             kind: Default::default(),
             argv: vec!["python3".into(), fake.into()],
-            env: BTreeMap::new(),
+            env,
             description: None,
             fallback: None,
             family: None,
@@ -627,6 +640,7 @@ async fn restart_marks_unknown_outcome() {
                 dir: "mux".into(),
                 kind: "turn_started".into(),
                 msg: json!({"prompt": "lost"}),
+                host_seq: None,
             },
         )
         .unwrap();
@@ -1016,15 +1030,20 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
 
     let mut next = original.clone();
     // Override all ambient discovery with test fixtures: no real provider is launched.
-    for name in acpmux::config::discover_harnesses().keys() {
+    for name in acpmux::config::discover_harnesses(None).keys() {
         next.harnesses.insert(name.clone(), profile.clone());
     }
     next.harnesses.remove("fake");
     next.harnesses.insert("deepseek".into(), profile.clone());
     next.default_harness = Some("deepseek".into());
     next.permission_policy = PermissionPolicy::ApproveAll;
-    next.websocket =
-        Some(acpmux::config::WebSocketConfig { listen: "127.0.0.1:1".into(), token: None });
+    next.websocket = Some(acpmux::config::WebSocketConfig {
+        listen: "127.0.0.1:1".into(),
+        token: None,
+        allowed_origins: Vec::new(),
+        allowed_hosts: Vec::new(),
+        token_rotated: 0,
+    });
     next.defaults.insert(
         "deepseek".into(),
         acpmux::config::SessionDefaults { model: Some("m2".into()), ..Default::default() },
@@ -1037,6 +1056,8 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
             effort: None,
             policy: None,
             env: BTreeMap::new(),
+            args: Vec::new(),
+            system_prompt_sha256: None,
             description: None,
         },
     );
@@ -1327,233 +1348,11 @@ async fn session_cancel_as_a_request_is_answered() {
     );
 }
 
-#[tokio::test]
-async fn events_and_attach_page_backwards_through_transcript_records() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    let id = new_session(&mut c, "pages").await;
-    for text in ["one", "two", "three"] {
-        c.request(method::SESSION_PROMPT, prompt(&id, text, None)).await.unwrap();
-    }
-    let session = hub.resolve("pages").unwrap();
-    let all = hub.events(&session.id, 0, 10_000).unwrap();
-    assert!(all.iter().any(|e| e.dir == "out"), "the log has wire records to filter");
-    let transcript: Vec<u64> = c
-        .request(
-            method::MUX_EVENTS,
-            json!({"sessionId": id, "kinds": ["transcript"], "limit": 1000}),
-        )
-        .await
-        .unwrap()["events"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["seq"].as_u64().unwrap())
-        .collect();
-    assert!(transcript.len() >= 9, "{transcript:?}");
+#[path = "hub_integration/transcript_events.rs"]
+mod transcript_events;
 
-    // Walk back two at a time from the end: pages are newest-first chunks,
-    // each oldest-first inside, and together they are the whole transcript.
-    let mut before = session.meta().last_seq + 1;
-    let mut walked: Vec<u64> = Vec::new();
-    loop {
-        let page = c
-            .request(
-                method::MUX_EVENTS,
-                json!({"sessionId": id, "kinds": ["transcript"], "beforeSeq": before, "limit": 2}),
-            )
-            .await
-            .unwrap();
-        let events = page["events"].as_array().unwrap();
-        for e in events {
-            let kind = e["kind"].as_str().unwrap();
-            assert!(e["dir"] != "out" && kind != "response" && !kind.ends_with(".replay"), "{e}");
-        }
-        let seqs: Vec<u64> = events.iter().map(|e| e["seq"].as_u64().unwrap()).collect();
-        assert!(seqs.windows(2).all(|w| w[0] < w[1]));
-        walked.splice(0..0, seqs.iter().copied());
-        if page["hasMore"] != true {
-            break;
-        }
-        assert_eq!(seqs.len(), 2);
-        before = seqs[0];
-    }
-    assert_eq!(walked, transcript);
-
-    // Forward paging reports hasMore too.
-    let fwd = c
-        .request(
-            method::MUX_EVENTS,
-            json!({"sessionId": id, "kinds": ["transcript"], "afterSeq": 0, "limit": 3}),
-        )
-        .await
-        .unwrap();
-    assert_eq!(fwd["hasMore"], true);
-    assert_eq!(fwd["events"].as_array().unwrap().len(), 3);
-
-    // Attach: the newest `limit` transcript records, then older ones with beforeSeq.
-    let mut a = connect(&hub).await;
-    let att = a
-        .request(method::MUX_ATTACH, json!({"sessionId": id, "kinds": ["transcript"], "limit": 4}))
-        .await
-        .unwrap();
-    let seqs: Vec<u64> =
-        att["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
-    assert_eq!(seqs, transcript[transcript.len() - 4..]);
-    assert_eq!(att["hasMore"], true);
-    let older = a
-        .request(
-            method::MUX_ATTACH,
-            json!({"sessionId": id, "kinds": ["transcript"], "limit": 4, "beforeSeq": seqs[0]}),
-        )
-        .await
-        .unwrap();
-    let older: Vec<u64> =
-        older["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
-    assert_eq!(older, transcript[transcript.len() - 8..transcript.len() - 4]);
-    // Without kinds, attach still returns the raw log as before.
-    let raw = a.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5})).await.unwrap();
-    let raw_last = raw["lastSeq"].as_u64().unwrap();
-    let raw: Vec<u64> =
-        raw["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
-    let last = raw_last;
-    assert_eq!(raw, (last - 4..=last).collect::<Vec<_>>());
-}
-
-#[tokio::test]
-async fn live_updates_keep_agent_meta_and_event_stream_nests_them() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    let id = new_session(&mut c, "live").await;
-    let mut stream = connect(&hub).await;
-    stream
-        .request(
-            method::MUX_ATTACH,
-            json!({"sessionId": id, "limit": 0, "eventStream": true, "kinds": ["transcript"]}),
-        )
-        .await
-        .unwrap();
-    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "meta: hello", None)).await;
-    let (r, seen) = c.response(rid).await;
-    // The agent's response _meta survives next to acpmux's.
-    let r = r.unwrap();
-    assert_eq!(r["_meta"]["fake"]["done"], true);
-    assert!(r["_meta"]["acpmux"]["turnId"].is_string());
-    let upd = seen
-        .iter()
-        .find(|(m, p)| {
-            m == method::SESSION_UPDATE && p["update"]["sessionUpdate"] == "agent_message_chunk"
-        })
-        .map(|(_, p)| p.clone())
-        .expect("live session/update");
-    assert_eq!(upd["_meta"]["fake"]["n"], 1, "agent _meta kept: {upd}");
-    let seq = upd["_meta"]["acpmux"]["seq"].as_u64().unwrap();
-    assert!(seq > 0);
-    assert_eq!(upd["_meta"]["acpmux"]["kind"], "agent_message_chunk");
-
-    // The event-stream connection got the same record as _acpmux/event,
-    // with the original notification nested, and no wire records.
-    let seen =
-        stream.collect_until(|m, p| m == method::MUX_EVENT && p["kind"] == "turn_result").await;
-    assert!(seen.iter().all(|(m, _)| m != method::SESSION_UPDATE));
-    let evs: Vec<&Value> =
-        seen.iter().filter(|(m, _)| m == method::MUX_EVENT).map(|(_, p)| p).collect();
-    let chunk = evs.iter().find(|e| e["seq"] == seq).expect("chunk as _acpmux/event");
-    assert_eq!(chunk["msg"]["method"], "session/update");
-    assert_eq!(chunk["msg"]["params"]["_meta"]["fake"]["n"], 1);
-    assert!(evs.iter().any(|e| e["kind"] == "user_message"));
-    assert!(evs.iter().any(|e| e["kind"] == "turn_result"));
-    assert!(
-        evs.iter().all(|e| e["dir"] != "out" && e["kind"] != "response" && e["kind"] != "turn_end")
-    );
-}
-
-#[tokio::test]
-async fn codex_retry_records_message_superseded_before_the_redelivery() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    let id = new_session(&mut c, "retry").await;
-    c.request(method::SESSION_PROMPT, prompt(&id, "codex-retry", None)).await.unwrap();
-    let events = hub.events(&id, 0, 1000).unwrap();
-    let sup = find(&events, "message_superseded");
-    assert_eq!(sup.len(), 1, "{:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>());
-    assert_eq!(sup[0].msg["oldMessageId"], "m1");
-    assert_eq!(sup[0].msg["newMessageId"], "m2");
-    assert_eq!(sup[0].msg["reason"], "harness_retry");
-    let turn = find(&events, "turn_started")[0];
-    assert_eq!(sup[0].msg["turnId"], turn.msg["turnId"]);
-    let redelivered = events
-        .iter()
-        .find(|e| e.msg.pointer("/params/update/messageId") == Some(&json!("m2")))
-        .unwrap();
-    assert!(sup[0].seq < redelivered.seq);
-    // A willRetry error that the harness recovers from leaves the turn completed.
-    let result = find(&events, "turn_result")[0];
-    assert_eq!(result.msg["status"], "completed");
-    assert!(result.msg.get("errorText").is_none());
-
-    // A message that a tool call already finished is not abandoned by a retry.
-    c.request(method::SESSION_PROMPT, prompt(&id, "codex-retry-after-tool", None)).await.unwrap();
-    let events = hub.events(&id, 0, 1000).unwrap();
-    assert_eq!(find(&events, "message_superseded").len(), 1);
-}
-
-#[tokio::test]
-async fn turn_result_carries_error_text_and_streamed_error_chunks() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    let id = new_session(&mut c, "errs").await;
-    let last_result = |hub: &Arc<Hub>| {
-        let events = hub.events(&id, 0, 10_000).unwrap();
-        events.into_iter().rev().find(|e| e.kind == "turn_result").unwrap()
-    };
-
-    // Error text streamed as the answer: the chunk seqs are named.
-    assert!(
-        c.request(method::SESSION_PROMPT, prompt(&id, "fail-streamed: API Error: boom", None))
-            .await
-            .is_err()
-    );
-    let r = last_result(&hub);
-    assert_eq!(r.msg["status"], "failed");
-    assert_eq!(r.msg["errorText"], "API Error: boom");
-    assert_eq!(r.msg["errorCode"], -32000);
-    assert_eq!(r.msg["errorSource"], "agent");
-    let chunk = hub
-        .events(&id, 0, 10_000)
-        .unwrap()
-        .into_iter()
-        .rev()
-        .find(|e| e.kind == "agent_message_chunk")
-        .unwrap();
-    assert_eq!(r.msg["errorChunkSeqs"], json!([chunk.seq]));
-
-    // Partial output then a different error: text and code, no chunk marks.
-    assert!(
-        c.request(method::SESSION_PROMPT, prompt(&id, "fail-after-update: x", None)).await.is_err()
-    );
-    let r = last_result(&hub);
-    assert!(
-        r.msg["errorText"].as_str().unwrap().starts_with("simulated internal error after output")
-    );
-    assert_eq!(r.msg["errorCode"], -32603);
-    assert!(r.msg.get("errorChunkSeqs").is_none());
-
-    // Codex reports a terminal error in-band and still ends the turn: the
-    // turn failed, and the prompt is answered with that error.
-    let err = c.request(method::SESSION_PROMPT, prompt(&id, "codex-fail", None)).await.unwrap_err();
-    assert_eq!(err, "Selected model is at capacity.");
-    let r = last_result(&hub);
-    assert_eq!(r.msg["status"], "failed");
-    assert_eq!(r.msg["errorText"], "Selected model is at capacity.");
-    assert_eq!(r.msg["errorCode"], json!({"serverOverloaded": {}}));
-    assert_eq!(r.msg["errorSource"], "codex");
-    let summary = hub.session_summary(&hub.resolve("errs").unwrap());
-    assert_eq!(summary["lastTurn"]["status"], "failed");
-    assert_eq!(summary["lastTurn"]["turnId"], r.msg["turnId"]);
-
-    // A clean turn has no error fields.
-    c.request(method::SESSION_PROMPT, prompt(&id, "fine", None)).await.unwrap();
-    assert!(last_result(&hub).msg.get("errorText").is_none());
-    let summary = hub.session_summary(&hub.resolve("errs").unwrap());
-    assert_eq!(summary["lastTurn"]["status"], "completed");
-}
+#[path = "hub_integration/handoff.rs"]
+mod handoff;
 
 fn prompt_with_id(id: &str, text: &str, prompt_id: &str, resend: bool) -> Value {
     json!({
@@ -1650,3 +1449,18 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
     assert_eq!(user_messages(&hub2, &id), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[path = "hub_integration/adopt.rs"]
+mod adopt;
+
+#[path = "hub_integration/preset_args.rs"]
+mod preset_args;
+
+#[path = "hub_integration/lifecycle_fixes.rs"]
+mod lifecycle_fixes;
+
+#[path = "hub_integration/quit_spawn.rs"]
+mod quit_spawn;
+
+#[path = "hub_integration/claude_failover.rs"]
+mod claude_failover;

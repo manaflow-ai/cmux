@@ -1,25 +1,26 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 final class SectionHeaderRowView: SidebarRowView {
     private let glyph = NSImageView()
-    private let name = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textTertiary)
+    private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let status = CALayer()
     /// "Update needed" after the status dot, for a machine whose cmux-tui
     /// is too old (the tooltip says why).
-    private let badge = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textTertiary)
+    private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
     private var badgeText: String?
     private let chevron = NSImageView()
     let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.newWorkspace)
-    private var statusColor: NSColor?
+    /// The machine status dot's color, resolved in `updateLayer`.
+    private enum StatusTone { case success, attention, quiet, danger }
+    private var statusTone: StatusTone?
     private var collapsed = false
     var onAdd: (() -> Void)?
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        glyph.contentTintColor = Palette.textSecondary
-        chevron.contentTintColor = Palette.textTertiary
         layer?.addSublayer(status)
         [glyph, name, badge, chevron, addButton].forEach(addSubview)
         addButton.onPress = { [weak self] in self?.onAdd?() }
@@ -31,6 +32,7 @@ final class SectionHeaderRowView: SidebarRowView {
         // The section's kind, not its nodes: comparing 1,000 children per
         // reload would defeat the point.
         var kind: SidebarSection.Kind
+        var titlesProjects: Bool
         var collapsed: Bool
         var fontSize: CGFloat
         var iconSize: CGFloat
@@ -38,33 +40,33 @@ final class SectionHeaderRowView: SidebarRowView {
 
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
-            kind: section.kind, collapsed: row.isCollapsed,
+            kind: section.kind, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed,
             fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
         collapsed = row.isCollapsed
-        let symbol: String
-        let title: String
+        let symbol: IconName
+        var title: String
         switch section.kind {
         case .pinned:
-            symbol = "pin.fill"
+            symbol = .statePinned
             title = Strings.pinned
-            statusColor = nil
+            statusTone = nil
             badgeText = nil
             toolTip = nil
         case let .machine(machine):
             switch machine.kind {
-            case .local: symbol = "laptopcomputer"
-            case .cloud: symbol = "cloud.fill"
-            case .ssh: symbol = "server.rack"
+            case .local: symbol = .machineLocal
+            case .cloud: symbol = .cloud
+            case .ssh, .server: symbol = .machineRemote
             }
             title = machine.name
             switch (machine.kind, machine.status) {
-            case (.local, .connected): statusColor = nil
-            case (_, .connected), (_, .updateAvailable): statusColor = Palette.success
-            case (_, .connecting), (_, .installing), (_, .installRequired): statusColor = Palette.attention
-            case (_, .offline): statusColor = Palette.textTertiary
-            case (_, .updateRequired), (_, .authFailed), (_, .unreachable): statusColor = Palette.danger
+            case (.local, .connected): statusTone = nil
+            case (_, .connected), (_, .updateAvailable): statusTone = .success
+            case (_, .connecting), (_, .installing), (_, .installRequired): statusTone = .attention
+            case (_, .offline): statusTone = .quiet
+            case (_, .updateRequired), (_, .authFailed), (_, .unreachable): statusTone = .danger
             }
             var label = machine.name
             switch machine.status {
@@ -91,15 +93,22 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityLabel(label)
             setAccessibilityHelp(machine.detail)
         }
-        if section.kind == .pinned { setAccessibilityLabel(title) }
-        glyph.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
+        // The only machine needs no name or status: the header heads the
+        // workspace list, apart from the destinations above it.
+        if row.titlesProjects {
+            title = Strings.projects
+            statusTone = nil
+            badgeText = nil
+            toolTip = nil
+            setAccessibilityHelp(nil)
+        }
+        if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }
+        glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
         name.stringValue = title
         name.font = SidebarStyle.headerFont
         badge.stringValue = badgeText ?? ""
         badge.font = SidebarStyle.headerFont
-        chevron.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
-            .withSymbolConfiguration(SidebarStyle.chevronConfig)
+        chevron.image = SidebarStyle.chevron(collapsed: collapsed)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityExpanded(!collapsed)
@@ -113,10 +122,26 @@ final class SectionHeaderRowView: SidebarRowView {
     override func updateLayer() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        status.backgroundColor = statusColor.map(resolvedCGColor)
-        status.isHidden = statusColor == nil
+        performWithTheme {
+            name.textColor = Palette.textTertiary
+            badge.textColor = Palette.textTertiary
+            glyph.contentTintColor = Palette.textSecondary
+            chevron.contentTintColor = Palette.textTertiary
+            status.backgroundColor = statusTone.map(Self.color)?.cgColor
+        }
+        status.isHidden = statusTone == nil
         CATransaction.commit()
         layer?.backgroundColor = nil
+    }
+
+    // theme-scoped: called only inside performWithTheme
+    private static func color(_ tone: StatusTone) -> NSColor {
+        switch tone {
+        case .success: Palette.success
+        case .attention: Palette.attention
+        case .quiet: Palette.textTertiary
+        case .danger: Palette.danger
+        }
     }
 
     override func layout() {
@@ -130,9 +155,10 @@ final class SectionHeaderRowView: SidebarRowView {
         name.isHidden = false
         let nameX = SidebarStyle.horizontalInset
         var trailing = b.width - Metrics.space2
+        // The add button keeps its slot, so the name never re-truncates on hover.
         addButton.isHidden = !(isHovered && allowsAdd)
         let control = SidebarStyle.controlSize
-        if !addButton.isHidden {
+        if allowsAdd {
             addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
@@ -160,6 +186,8 @@ final class SectionHeaderRowView: SidebarRowView {
         super.hoverChanged()
         needsLayout = true
     }
+
+    var nameFrame: NSRect { name.frame }
 }
 
 // MARK: - Empty section drop zone
