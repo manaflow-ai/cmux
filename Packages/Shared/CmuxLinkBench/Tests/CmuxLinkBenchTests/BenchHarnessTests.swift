@@ -242,7 +242,7 @@ struct BenchHarnessTests {
     func splitServerRejectsUnavailableRig() async throws {
         for rig in [BenchRigKind.v1, .v2WebRTC] {
             let server = BenchSplitServer(configuration: .init(allowAnyDevice: true))
-            #expect(throws: BenchSplitError.self) {
+            await #expect(throws: BenchSplitError.self) {
                 try await server.start(rig: rig)
             }
             let descriptor = try await server.start(rig: .v3)
