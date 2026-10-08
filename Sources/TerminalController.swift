@@ -3988,13 +3988,13 @@ class TerminalController {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
             }
             if let linkError = error as? CloudMachineLink.LinkError,
-               String(describing: linkError).lowercased().contains("daemon") {
+               linkError.category == .daemonUnavailable {
                 return v2Error(
                     id: id,
                     code: "vm_tui_daemon_unavailable",
                     message: String(
                         localized: "socket.cloudVM.tuiDaemonUnavailable",
-                        defaultValue: "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
+                        defaultValue: "Could not create a workspace on this Cloud VM. Wake the machine or retry `cmux vm workspace new`."
                     )
                 )
             }

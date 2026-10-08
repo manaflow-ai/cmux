@@ -109,6 +109,29 @@ struct SurfaceSocketCommandTests {
         #expect((error["message"] as? String)?.contains("remote workspace is unavailable") == true)
     }
 
+    @Test func providerErrorCopyKeepsDetailsWithoutInternalProductNames() {
+        let daemonFailure = CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated(
+            "cmux-tui rejected the request: retry the workspace"
+        )
+        #expect(daemonFailure.localizedDescription.contains("Cloud service"))
+        #expect(daemonFailure.localizedDescription.contains("retry the workspace"))
+
+        let providerFailures: [CmuxTuiSurfaceProvider.ProviderError] = [
+            .noWorkspaceOnMachine("machine"),
+            daemonFailure,
+            .invalidSnapshot("machine"),
+            .snapshotOnly("machine"),
+            .hubUnavailable,
+        ]
+        for failure in providerFailures {
+            #expect(!failure.localizedDescription.contains("cmux-tui"))
+        }
+
+        let nonDaemonFailure = CmuxTuiSurfaceProvider.ProviderError.remoteWorkspaceNotFound("workspace-id")
+        #expect(nonDaemonFailure.localizedDescription.contains("Remote workspace"))
+        #expect(!nonDaemonFailure.localizedDescription.contains("cmux-tui"))
+    }
+
     @Test func tunnelFailureKeepsTheSafeReasonAndDiagnosticReference() async throws {
         let response = await Task.detached {
             TerminalController.shared.v2VmCall(id: "tunnel-error", timeoutSeconds: 5) {

@@ -77,6 +77,19 @@ public actor CloudMachineLink {
     }
 
     public enum LinkError: Error, LocalizedError {
+        /// Stable classification used by callers that need to choose recovery
+        /// behavior without inspecting localized diagnostics.
+        public enum Category: String, Equatable, Sendable {
+            /// The remote Cloud service did not become available.
+            case daemonUnavailable = "daemon_unavailable"
+            /// The local Cloud client could not be started.
+            case clientUnavailable = "client_unavailable"
+            /// The request could not be sent because its input was invalid.
+            case requestRejected = "request_rejected"
+            /// The caller supplied a status or message without a stable class.
+            case other
+        }
+
         case clientMissing
         case spawnFailed(String)
         case failureMessage(String)
@@ -84,22 +97,53 @@ public actor CloudMachineLink {
         case timedOut
         case inputTooLarge
 
+        /// Stable recovery category for this link failure.
+        public var category: Category {
+            switch self {
+            case .exited, .timedOut:
+                return .daemonUnavailable
+            case .clientMissing, .spawnFailed:
+                return .clientUnavailable
+            case .inputTooLarge:
+                return .requestRejected
+            case .failureMessage:
+                return .other
+            }
+        }
+
         public var errorDescription: String? {
             switch self {
             case .inputTooLarge:
                 return String(localized: "cloud.link.inputTooLarge", defaultValue: "The machine input chunk is too large. Split it into smaller chunks and retry.")
             case .clientMissing:
-                return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
+                return String(localized: "cloud.link.clientMissing", defaultValue: "The Cloud connection client is unavailable in this build. Set CMUX_TUI_CLIENT or use a build with Cloud support.")
             case .spawnFailed(let detail):
-                return "cmux-tui could not be started: \(detail)"
+                return String(
+                    format: String(
+                        localized: "cloud.link.spawnFailed",
+                        defaultValue: "Cloud connection could not be started: %@"
+                    ),
+                    Self.sanitizedDetail(detail)
+                )
             case .failureMessage(let detail):
-                return detail
+                return Self.sanitizedDetail(detail)
             case .exited(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
-                return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
+                let message = String(
+                    format: String(
+                        localized: "cloud.link.exited",
+                        defaultValue: "Cloud connection exited with status %@"
+                    ),
+                    String(status)
+                )
+                return message + (tail.isEmpty ? "" : ": \(Self.sanitizedDetail(tail))")
             case .timedOut:
-                return "cmux-tui link did not report a socket within the connect timeout."
+                return String(localized: "cloud.link.timedOut", defaultValue: "The Cloud connection did not report a socket within the connect timeout.")
             }
+        }
+
+        private static func sanitizedDetail(_ detail: String) -> String {
+            detail.replacingOccurrences(of: "cmux-tui", with: "Cloud service", options: [.caseInsensitive])
         }
     }
 
