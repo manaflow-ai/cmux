@@ -351,11 +351,13 @@ function AccessMenu({
 }) {
   const [open, setOpen] = useState(false);
   const value = current ?? modes[0]?.id ?? "";
+  const currentMode = modes.find((choice) => choice.id === value);
   return (
     <span className={`acpmux-mode acpmux-access${current && unrestricted(current) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />
+          <span className="acpmux-mode-text">{currentMode?.name ?? label}</span>
           <ChevronIcon />
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-access-menu">

@@ -11,6 +11,29 @@ const finished = [
   summary(9, { status: "completed" }),
 ];
 
+const composerControls = {
+  configOptions: [
+    {
+      id: "thought_level",
+      name: "Speed",
+      category: "thought_level",
+      currentValue: "medium-fast",
+      options: [
+        { value: "slow", name: "Slow" },
+        { value: "medium-fast", name: "Medium Fast" },
+        { value: "fast", name: "Fast" },
+      ],
+    },
+  ],
+  modes: {
+    currentModeId: "bypassPermissions",
+    availableModes: [
+      { id: "ask", name: "Ask before edits", description: "Review changes before they run" },
+      { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+    ],
+  },
+};
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -81,7 +104,7 @@ export default agentPaneEntry({
           (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
         ).join("\n"),
       },
-      snapshot: chat(finished),
+      snapshot: chat(finished, { summary: { ...chat(finished).summary!, ...composerControls } }),
     },
     "long-draft-dark": {
       note: "The capped long draft in the dark theme proof matrix.",
@@ -91,7 +114,7 @@ export default agentPaneEntry({
           (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
         ).join("\n"),
       },
-      snapshot: chat(finished),
+      snapshot: chat(finished, { summary: { ...chat(finished).summary!, ...composerControls } }),
     },
     working: {
       note: "A turn running: Send becomes Stop.",
