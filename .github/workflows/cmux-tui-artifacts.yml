@@ -66,6 +66,43 @@ on:
       - "ghostty"
       - "ghostty-next"
       - "scripts/cmux-next/build-layout-reducer-ffi.sh"
+      - "scripts/ci/cmux-tui-darwin-builder"
+      - "scripts/ci/macos-cross.sh"
+      - "scripts/ci/macos_stubs.py"
+      - "scripts/ci/macho_weaken.py"
+      - "scripts/ci/macos-stubs/**"
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "backend/packages/home-core/conformance/conversation-cases.json"
+      - "backend/packages/home-core/conformance/conversation-import-cases.json"
+      - "backend/packages/home-core/conformance/conversation-search-cases.json"
+      - "mux/packages/brain/conformance/chief-cases.json"
+      - "plans/cmux-next/action-surfaces.json"
+      - "schemas/agent-url-policy/vectors.json"
+      - "schemas/automation-input/vectors.json"
+      - "schemas/automation-lease/vectors.json"
+      - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/remote-tab/client.json"
+      - "schemas/remote-tab/cookie-sync.json"
+      - "schemas/remote-tab/input-mapping.json"
+      - "schemas/remote-tab/menu-token.json"
+      - "schemas/remote-tab/messages.json"
+      - "schemas/remote-tab/scroll-writer.json"
+      - "schemas/remote-tab/session.json"
+      - "schemas/terminal-sizing/fixtures.json"
+      - "scripts/cmux-next/cmux-tui.pin"
+      - "skills/cmux-browser/SKILL.md"
+      - "skills/cmux-browser/references/authentication.md"
+      - "skills/cmux-browser/references/commands.md"
+      - "skills/cmux-browser/references/proxy-support.md"
+      - "skills/cmux-browser/references/session-management.md"
+      - "skills/cmux-browser/references/snapshot-refs.md"
+      - "skills/cmux-browser/references/surface-discovery.md"
+      - "skills/cmux-browser/references/video-recording.md"
+      - "skills/cmux-browser/templates/authenticated-session.sh"
+      - "skills/cmux-browser/templates/capture-workflow.sh"
+      - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-cua/SKILL.md"
   workflow_dispatch:
     inputs:
       macos_runner:
@@ -122,6 +159,7 @@ jobs:
       actions: read
       contents: read
     outputs:
+      darwin_builder: ${{ steps.darwin-builder.outputs.builder }}
       key: ${{ steps.inspect.outputs.key }}
       legacy_key: ${{ steps.inspect.outputs.legacy_key }}
       tree_ready: ${{ steps.inspect.outputs.tree_ready }}
@@ -134,6 +172,15 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 1
+
+      - name: Read the macOS builder switch
+        id: darwin-builder
+        run: |
+          set -euo pipefail
+          builder="$(tr -d '[:space:]' < scripts/ci/cmux-tui-darwin-builder)"
+          [[ "$builder" == mac || "$builder" == linux ]] || { echo "::error::scripts/ci/cmux-tui-darwin-builder must be mac or linux, not '$builder'"; exit 1; }
+          echo "builder=$builder" >> "$GITHUB_OUTPUT"
+          echo "macOS targets build on: $builder"
 
       - name: Check the branch head and tree publication
         id: inspect
@@ -435,6 +482,11 @@ jobs:
       macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
       macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
       checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
+      # MACOS-CROSS-COMPILE-ON-LINUX switch: the committed file
+      # scripts/ci/cmux-tui-darwin-builder (mac or linux), a tree-key input, so
+      # the published tree always says which builder made it. Fallback: commit
+      # `mac` to that file.
+      darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
 
   # The daemon tests the cmux-next app relies on (Rust tests named
   # cmux_next_), on the exact commit. publish-tree waits for them.
@@ -1140,19 +1192,26 @@ jobs:
   # the commit-addressed publication and the cmux_next_ daemon tests of this
   # commit pass. A key is published once: the first passing commit with a tree
   # wins, and a later commit with the same tree keeps that binary.
-  # MACOS-CROSS-COMPILE-ON-LINUX shadow. Builds the macOS artifacts that need
-  # no Apple SDK (cmux-app-host, cmux-browser-host, cmux-cloud, libghostty-vt)
-  # on Linux and compares each with the Mac-built artifact that `publish` just
-  # uploaded for this commit (scripts/ci/macos-cross.sh, macho_parity.py). It
-  # replaces nothing: no job reads its output, it holds no credentials, and
+  # MACOS-CROSS-COMPILE-ON-LINUX shadow. Builds every macOS artifact of the
+  # build job on Linux without an Apple SDK (cmux-app-host, cmux-browser-host,
+  # cmux-cloud, libghostty-vt, and through the framework stubs in
+  # scripts/ci/macos-stubs: cmux-tui, cmux-tui-hook, acpmux, cmux-relay,
+  # chatmux-relay) and compares each with the Mac-built artifact that `publish`
+  # just uploaded for this commit (scripts/ci/macos-cross.sh, macho_parity.py).
+  # It replaces nothing: no job reads its output, it holds no credentials, and
   # continue-on-error keeps a red comparison out of the run's conclusion. The
-  # report is the job summary and the macos-cross-parity artifact.
+  # report is the job summary and the macos-cross-parity artifact. The switch
+  # file scripts/ci/cmux-tui-darwin-builder moves publication to the same
+  # Linux build once this comparison is clean.
   macos-cross-shadow:
     name: macOS cross-compile shadow (Linux, compare only)
-    needs: [publish]
-    if: needs.publish.result == 'success' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 45
+    needs: [tree-preflight, publish]
+    # Only while the Mac builds publish: with darwin_builder=linux the
+    # references are this job's own output.
+    if: needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
+    # 8 vCPU: the shadow builds both macOS targets of every binary.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
     continue-on-error: true
     permissions:
       contents: read
@@ -1161,8 +1220,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Unit-test the parity verdict
-        run: python3 tests/test_ci_macho_parity.py
+      - name: Unit-test the parity verdict and the stub tools
+        run: |
+          python3 tests/test_ci_macho_parity.py
+          python3 tests/test_ci_macos_stubs.py
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty-next
@@ -1203,13 +1264,19 @@ jobs:
         run: ./scripts/ci/macos-cross.sh fetch-refs "$GITHUB_SHA"
 
       - name: Build on Linux (no Apple SDK)
+        env:
+          # Public keys compiled into cmux-tui, as in the build job.
+          CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
         run: |
           set -euo pipefail
           sdk="$(./scripts/ci/macos-cross.sh ref-sdk "$RUNNER_TEMP/macos-cross/ref/cmux-tui-app-host-aarch64-apple-darwin")"
           ./scripts/ci/macos-cross.sh toolchain "$sdk"
           start=$(date +%s)
-          ./scripts/ci/macos-cross.sh hosts "$GITHUB_SHA" "$(git -C ghostty-next rev-parse HEAD)"
+          ghostty="$(git -C ghostty-next rev-parse HEAD)"
+          ./scripts/ci/macos-cross.sh hosts "$GITHUB_SHA" "$ghostty"
           ./scripts/ci/macos-cross.sh vt
+          # The same stamps as the build job (cmux-tui-artifacts passes this version).
+          ./scripts/ci/macos-cross.sh bins "$GITHUB_SHA" "$ghostty" "0.0.0-r2.sha-$GITHUB_SHA"
           echo "LINUX_BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
       - name: Compare with the Mac builds
@@ -1219,6 +1286,8 @@ jobs:
           report="$RUNNER_TEMP/macos-cross-parity.txt"
           ./scripts/ci/macos-cross.sh parity-hosts > "$report" 2>&1 || status=1
           ./scripts/ci/macos-cross.sh parity-vt >> "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh stubs-check >> "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh parity-bins >> "$report" 2>&1 || status=1
           cat "$report"
           {
             echo "### macOS cross-compile shadow: ${GITHUB_SHA}"
@@ -1236,6 +1305,77 @@ jobs:
           name: macos-cross-parity
           path: ${{ runner.temp }}/macos-cross/reports/
           if-no-files-found: warn
+
+      # For the run-time half on a fleet Mac (scripts/ci/macos-cross-runtime-check.sh).
+      - name: Upload the Linux-built macOS binaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-cross-binaries
+          path: ${{ runner.temp }}/macos-cross/linux/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # MACOS-CROSS-COMPILE-ON-LINUX run-time half for x86_64, on a GitHub-hosted
+  # Intel Mac: each Linux-built x86_64 binary loads, matches the Mac build's
+  # minos, dylibs, ad-hoc signature and version text, and the Linux-built
+  # cmux-tui passes smoke-remote-release.sh (scripts/ci/macos-cross-runtime-check.sh).
+  # Compare-only like the shadow job it reads; it holds no credentials.
+  macos-cross-runtime-x86_64:
+    name: macOS cross-compile run-time check (Intel, compare only)
+    needs: [macos-cross-shadow]
+    if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled'
+    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download the Linux-built macOS binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos-cross-binaries
+          path: ${{ runner.temp }}/linux
+
+      - name: Fetch the Mac-built x86_64 references of this commit
+        env:
+          REF_DIR: ${{ runner.temp }}/mac
+        run: |
+          set -euo pipefail
+          mkdir -p "$REF_DIR"
+          base="https://files.cmux.com"
+          for n in cmux-tui cmux-tui-hook cmux-tui-acpmux cmux-tui-app-host cmux-tui-browser-host cmux-tui-cloud-server; do
+            curl -fsS --retry 3 -o "$REF_DIR/$n-x86_64-apple-darwin" "$base/cmux-tui/$GITHUB_SHA/$n-x86_64-apple-darwin"
+          done
+          curl -fsS --retry 3 -o "$REF_DIR/manifest.json" "$base/cmux-tui/$GITHUB_SHA/manifest.json"
+          for n in cmux-relay chatmux-relay; do
+            curl -fsS --retry 3 -o "$REF_DIR/$n-x86_64-apple-darwin" "$base/$n/$GITHUB_SHA/$n-x86_64-apple-darwin"
+            curl -fsS --retry 3 -o "$REF_DIR/$n-manifest.json" "$base/$n/$GITHUB_SHA/manifest.json"
+          done
+          python3 - "$REF_DIR" <<'PY'
+          import hashlib, json, pathlib, sys
+          out = pathlib.Path(sys.argv[1])
+          expected = dict(json.loads((out / "manifest.json").read_text())["binaries"])
+          expected.update(json.loads((out / "cmux-relay-manifest.json").read_text())["binaries"])
+          for files in json.loads((out / "chatmux-relay-manifest.json").read_text())["artifacts"].values():
+              expected[files["chatmux-relay"]["name"]] = files["chatmux-relay"]["sha256"]
+          for path in sorted(out.glob("*-apple-darwin")):
+              if expected.get(path.name) != hashlib.sha256(path.read_bytes()).hexdigest():
+                  raise SystemExit(f"checksum mismatch for {path.name}")
+          PY
+
+      - name: Run the Linux-built binaries beside the Mac-built ones
+        run: |
+          set -o pipefail
+          uname -m
+          status=0
+          ./scripts/ci/macos-cross-runtime-check.sh "$RUNNER_TEMP/linux" "$RUNNER_TEMP/mac" | tee "$RUNNER_TEMP/runtime.txt" || status=$?
+          { echo "### macOS cross-compile run-time check (x86_64): ${GITHUB_SHA}"; echo '```'; cat "$RUNNER_TEMP/runtime.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
   publish-tree:
     environment: artifacts

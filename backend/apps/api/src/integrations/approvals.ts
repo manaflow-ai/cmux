@@ -117,9 +117,11 @@ export const endApproval = (sql: Sql, request: string, state: Exclude<ApprovalSt
 }
 
 /** pending -> running before the provider call (expiry never ends a running request); false if it was not pending. */
-export const startRun = (sql: Sql, request: string): boolean => {
+export const startRun = (sql: Sql, request: string, now: number = Date.now()): boolean => {
   const row = approvalByRequest(sql, request)
   if (!row || row.state !== "pending") return false
+  // Expired while the answer-time checks ran (approval-gate.ts deliverAnswers): final, never run.
+  if (now >= row.expires_at) return (endApproval(sql, request, "expired", now), false)
   sql.exec(`UPDATE integration_approvals SET state = 'running' WHERE request = ?`, request)
   return true
 }

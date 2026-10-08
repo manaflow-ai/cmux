@@ -204,12 +204,15 @@ export const deliverAnswers = async (
   sql: SqlStorage,
   source: string,
   items: ReadonlyArray<{ readonly id: number; readonly params: unknown }>,
-  run: (row: ApprovalRow) => Promise<ExternalReply | "refused">
+  run: (row: ApprovalRow) => Promise<ExternalReply | "refused">,
+  /** Answer-time checks (membership, team SSO; approval-route.ts answerAdmitted); false ends it denied and runs nothing. */
+  admit?: (row: ApprovalRow, params: unknown) => Promise<boolean>
 ): Promise<Array<number>> => {
   const done: Array<number> = []
   for (const item of items) {
     const outcome = takeAnswer(sql, source, (item.params ?? {}) as Record<string, unknown>, Date.now())
     if (outcome.kind === "settle") settleRunning(sql, outcome.row, Date.now())
+    else if (outcome.kind === "run" && admit && !(await admit(outcome.row, item.params))) endApproval(sql, outcome.row.request, "denied", Date.now())
     else if (outcome.kind === "run" && startRun(sql, outcome.row.request)) {
       let reply: ExternalReply | "refused"
       inFlight(sql).add(outcome.row.request)
