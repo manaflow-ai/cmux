@@ -96,11 +96,6 @@ extension AgentPaneView {
         String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed repeatedly.", bundle: .module)
     }
 
-    /// Title of the save panel for the ACP inspector's exported log.
-    static var saveLogTitle: String {
-        String(localized: "agentPane.inspector.saveLog", defaultValue: "Save ACP Log", bundle: .module)
-    }
-
     /// Shown when automation would open the inspector without an explicit focus request.
     static var inspectorNeedsFocus: String {
         String(localized: "agentPane.inspector.needsFocus", defaultValue: "Opening the ACP inspector requires focus.", bundle: .module)
