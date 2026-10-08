@@ -112,7 +112,7 @@ struct CloudWelcomeView: View {
                     symbol: "person.2",
                     text: String(
                         localized: "cloud.enable.reason.team.detail",
-                        defaultValue: "Invite teammates, and share any port with a private link."
+                        defaultValue: "Invite teammates to the same machine and work together."
                     )
                 )
             }

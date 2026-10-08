@@ -43,21 +43,12 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             )
         ),
         CloudWelcomeSlide(
-            id: "share-port",
-            symbol: "link",
-            title: String(localized: "cloud.welcome.slide.sharePort.title", defaultValue: "Share any port"),
-            caption: String(
-                localized: "cloud.welcome.slide.sharePort.caption",
-                defaultValue: "Get a private link to any port on your machine."
-            )
-        ),
-        CloudWelcomeSlide(
             id: "team",
             symbol: "person.2",
-            title: String(localized: "cloud.welcome.slide.team.title", defaultValue: "Invite your team"),
+            title: String(localized: "cloud.welcome.slide.team.title", defaultValue: "Work together on one machine"),
             caption: String(
                 localized: "cloud.welcome.slide.team.caption",
-                defaultValue: "Teammates you invite can open the same machines."
+                defaultValue: "Invite teammates to the same machine and collaborate in a shared workspace."
             )
         ),
     ]

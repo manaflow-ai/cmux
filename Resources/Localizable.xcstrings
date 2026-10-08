@@ -624827,55 +624827,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invite teammates, and share any port with a private link."
+            "value": "Invite teammates to the same machine and work together."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ادعُ زملاءك وشارك أي منفذ برابط خاص."
+            "value": "ادعُ زملاءك إلى الجهاز نفسه واعملوا معًا."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lade Teammitglieder ein und teile jeden Port über einen privaten Link."
+            "value": "Lade Teammitglieder auf dieselbe Maschine ein und arbeitet zusammen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invita a tu equipo y comparte cualquier puerto con un enlace privado."
+            "value": "Invita a tu equipo a la misma máquina y trabajen juntos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invitez vos coéquipiers et partagez n’importe quel port avec un lien privé."
+            "value": "Invitez vos coéquipiers sur la même machine et travaillez ensemble."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チームメンバーを招待して、どのポートもプライベートリンクで共有できます。"
+            "value": "チームメンバーを同じマシンに招待して、一緒に作業できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "팀원을 초대하고 비공개 링크로 어떤 포트든 공유하세요."
+            "value": "팀원을 같은 머신에 초대하고 함께 작업하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "邀请团队成员，并通过私有链接分享任意端口。"
+            "value": "邀请团队成员使用同一台机器，一起协作。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "邀請團隊成員，並透過私人連結分享任何連接埠。"
+            "value": "邀請團隊成員使用同一台機器，一起協作。"
           }
         }
       }
@@ -641074,124 +641074,6 @@
         }
       }
     },
-    "cloud.welcome.slide.sharePort.caption": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Get a private link to any port on your machine."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erhalte einen privaten Link zu jedem Port deiner Maschine."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obtenez un lien privé vers n’importe quel port de votre machine."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "احصل على رابط خاص لأي منفذ على جهازك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obtén un enlace privado a cualquier puerto de tu máquina."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取得連往機器上任何連接埠的私人連結。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "获取指向机器上任意端口的私密链接。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "머신의 모든 포트에 대한 비공개 링크를 받으세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシン上の任意のポートへの非公開リンクを取得できます。"
-          }
-        }
-      }
-    },
-    "cloud.welcome.slide.sharePort.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share any port"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jeden Port teilen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Partagez n’importe quel port"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "شارك أي منفذ"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comparte cualquier puerto"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "分享任何連接埠"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共享任意端口"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모든 포트 공유"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意のポートを共有"
-          }
-        }
-      }
-    },
     "cloud.welcome.slide.spinUp.caption": {
       "extractionState": "manual",
       "localizations": {
@@ -641316,55 +641198,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Teammates you invite can open the same machines."
+            "value": "Invite teammates to the same machine and collaborate in a shared workspace."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eingeladene Teammitglieder können dieselben Maschinen öffnen."
+            "value": "Lade Teammitglieder auf dieselbe Maschine ein und arbeitet in einem gemeinsamen Workspace."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les membres de votre équipe peuvent ouvrir les mêmes machines."
+            "value": "Invitez vos coéquipiers sur la même machine et collaborez dans un espace de travail partagé."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكن لأعضاء فريقك الذين تدعوهم فتح الأجهزة نفسها."
+            "value": "ادعُ زملاءك إلى الجهاز نفسه وتعاونوا في مساحة عمل مشتركة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los compañeros que invites pueden abrir las mismas máquinas."
+            "value": "Invita a tu equipo a la misma máquina y colaboren en un espacio de trabajo compartido."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你邀請的隊友可以開啟相同的機器。"
+            "value": "邀請團隊成員使用同一台機器，在共享工作區中協作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你邀请的队友可以打开相同的机器。"
+            "value": "邀请团队成员使用同一台机器，在共享工作区中协作。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "초대한 팀원이 같은 머신을 열 수 있습니다."
+            "value": "팀원을 같은 머신에 초대하고 공유 워크스페이스에서 협업하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "招待したチームメンバーは同じマシンを開けます。"
+            "value": "チームメンバーを同じマシンに招待して、共有ワークスペースで共同作業できます。"
           }
         }
       }
@@ -641375,55 +641257,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invite your team"
+            "value": "Work together on one machine"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dein Team einladen"
+            "value": "Gemeinsam auf einer Maschine arbeiten"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invitez votre équipe"
+            "value": "Travaillez ensemble sur une machine"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ادعُ فريقك"
+            "value": "اعملوا معًا على جهاز واحد"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invita a tu equipo"
+            "value": "Trabajen juntos en una máquina"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "邀請你的團隊"
+            "value": "在同一台機器上一起工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "邀请你的团队"
+            "value": "在同一台机器上协作"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "팀 초대"
+            "value": "한 머신에서 함께 작업"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チームを招待"
+            "value": "1台のマシンで共同作業"
           }
         }
       }
