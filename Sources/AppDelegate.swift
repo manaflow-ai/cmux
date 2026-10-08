@@ -1385,6 +1385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
     var isTerminatingApp = false
+    private static let singleInstanceReplacementLeaseDefaultsKey = "cmux.singleInstance.replacementLease"
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
@@ -18389,6 +18390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let currentPid = ProcessInfo.processInfo.processIdentifier
         let environment = ProcessInfo.processInfo.environment
+        let replacementLease = Self.consumeSingleInstanceReplacementLease()
         var quitRequestedPids: [String] = []
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
@@ -18397,9 +18399,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 app.executableURL,
                 mainExecutableURL: Self.bundleExecutableURL(of: app)
             ) else { continue }
+            let replacementAuthorized = replacementLease?.authorizes(
+                bundleURL: Bundle.main.bundleURL,
+                processIdentifier: app.processIdentifier
+            ) == true
             switch SingleInstanceConflictPolicy(environment: environment).action(
                 currentBundleURL: Bundle.main.bundleURL,
-                existingBundleURL: app.bundleURL
+                existingBundleURL: app.bundleURL,
+                replacementAuthorized: replacementAuthorized
             ) {
             case .yieldToExisting:
                 // Another bundle sharing this id (a local Release build, a
@@ -18445,6 +18452,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "quitRequestedPids": quitRequestedPids.joined(separator: ",")
             ]
         )
+    }
+
+    private static func armSingleInstanceReplacementLease() {
+        let lease = SingleInstanceReplacementLease(
+            bundleURL: Bundle.main.bundleURL,
+            processIdentifier: ProcessInfo.processInfo.processIdentifier
+        )
+        guard let data = try? JSONEncoder().encode(lease) else { return }
+        UserDefaults.standard.set(data, forKey: singleInstanceReplacementLeaseDefaultsKey)
+        UserDefaults.standard.synchronize()
+    }
+
+    private static func consumeSingleInstanceReplacementLease() -> SingleInstanceReplacementLease? {
+        defer { UserDefaults.standard.removeObject(forKey: singleInstanceReplacementLeaseDefaultsKey) }
+        guard let data = UserDefaults.standard.data(forKey: singleInstanceReplacementLeaseDefaultsKey) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(SingleInstanceReplacementLease.self, from: data)
     }
 
     /// The main executable of the bundle `app` was registered with, if any.
@@ -20622,6 +20647,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     func updaterWillRelaunchApplication() {
         isRelaunchingForUpdate = true
+        Self.armSingleInstanceReplacementLease()
         persistSessionForUpdateRelaunch()
         NSApp.invalidateRestorableState()
         for window in NSApp.windows {

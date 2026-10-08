@@ -35,6 +35,17 @@ struct SingleInstanceConflictPolicyTests {
         #expect(SingleInstanceConflictPolicy.isSameBundle(stable, sameWithSlash))
     }
 
+    @Test("an authorized relaunch can replace the existing instance")
+    func authorizedRelaunchReplaces() {
+        #expect(
+            SingleInstanceConflictPolicy(environment: [:]).action(
+                currentBundleURL: stable,
+                existingBundleURL: stable,
+                replacementAuthorized: true
+            ) == .replaceExisting
+        )
+    }
+
     @Test("the explicit override restores replace-anything")
     func overrideReplaces() {
         #expect(

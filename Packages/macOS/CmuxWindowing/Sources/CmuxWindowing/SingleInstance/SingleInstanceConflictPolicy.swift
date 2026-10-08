@@ -32,9 +32,15 @@ public struct SingleInstanceConflictPolicy: Sendable {
         self.environment = environment
     }
 
-    public func action(currentBundleURL: URL, existingBundleURL: URL?) -> Action {
+    public func action(
+        currentBundleURL _: URL,
+        existingBundleURL: URL?,
+        replacementAuthorized: Bool = false
+    ) -> Action {
         guard existingBundleURL != nil else { return .yieldToExisting }
-        if environment[Self.allowReplacingEnvironmentKey] == "1" { return .replaceExisting }
+        if environment[Self.allowReplacingEnvironmentKey] == "1" || replacementAuthorized {
+            return .replaceExisting
+        }
         return .yieldToExisting
     }
 
