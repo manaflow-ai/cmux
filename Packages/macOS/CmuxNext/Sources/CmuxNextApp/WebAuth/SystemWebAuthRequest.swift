@@ -76,13 +76,16 @@ final class WebAuthSessionHandler: NSObject, ASWebAuthenticationSessionWebBrowse
         return true
     }
 
+    // crash-allow: the SDK protocol declares an implicitly unwrapped request; the guard below never traps
     func begin(_ request: ASWebAuthenticationSessionRequest!) {
         guard let request else { return }
+        // crash-allow: the request object is only read on the main actor after this hop; nothing else holds it
         nonisolated(unsafe) let unsafeRequest = request
         let broker = broker
         Task { @MainActor in broker.begin(SystemWebAuthRequest(unsafeRequest)) }
     }
 
+    // crash-allow: the SDK protocol declares an implicitly unwrapped request; the guard below never traps
     func cancel(_ request: ASWebAuthenticationSessionRequest!) {
         guard let request else { return }
         let id = request.uuid
