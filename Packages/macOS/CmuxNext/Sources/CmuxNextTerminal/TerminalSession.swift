@@ -42,7 +42,13 @@ public final class TerminalSession {
 
     /// Why a dead terminal's host was lost (nil: its process ended, or it runs).
     public var hostLoss: TerminalHostLoss? {
-        didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss) } }
+        didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
+    }
+
+    /// What the lost host left as evidence (who signalled it, whether it had
+    /// panicked), shown after the reason. Set it before `hostLoss`.
+    public var hostLossCause: TerminalHostLossCause? {
+        didSet { if hostLossCause != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
     }
 
     /// Pauses rendering while the terminal is scrolled off-screen (strip
