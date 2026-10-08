@@ -195,9 +195,7 @@ impl ProgramStatusRecords {
             ProgramStatusChange::Report { id, record } => {
                 ("report", Value::String(id.clone()), record.to_json(id))
             }
-            ProgramStatusChange::Clear { id } => {
-                ("clear", Value::String(id.clone()), Value::Null)
-            }
+            ProgramStatusChange::Clear { id } => ("clear", Value::String(id.clone()), Value::Null),
             ProgramStatusChange::PromptStart => ("prompt_start", Value::Null, Value::Null),
         };
         Some(json!({

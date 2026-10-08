@@ -326,14 +326,10 @@ fn program_status_osc7501_reaches_snapshot_and_event_feed() {
         .find(|record| {
             record.kind == "terminal.program_status"
                 && record.payload["result"]["program_status_change"]["event"] == "report"
-                && record.payload["result"]["program_status_change"]["record"]["state"]
-                    == "working"
+                && record.payload["result"]["program_status_change"]["record"]["state"] == "working"
         })
         .expect("a program status report must be visible to journal hooks");
-    assert_eq!(
-        working_hook_event.payload["result"]["program_status_change"]["record"]["id"],
-        ""
-    );
+    assert_eq!(working_hook_event.payload["result"]["program_status_change"]["record"]["id"], "");
 
     surface.write_bytes(b"\n").unwrap();
     let done = wait_for_status(
