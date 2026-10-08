@@ -184,17 +184,33 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p poll-reports
+
+          # Resolve and verify each downloaded recovery artifact once. Polling
+          # only needs the saved state file; repeating this command would
+          # re-hash the DMG and re-extract the app archive on every retry.
+          for variant in arm64 x86_64 universal; do
+            manifest="recovery/$variant/cmux-nightly-notarization-recovery.json"
+            if ! python3 scripts/ci/resolve-notarization-recovery.py \
+                "$manifest" "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$CHANNEL" "$variant" \
+                --run-attempt "$SOURCE_RUN_ATTEMPT" --strict --extract-app \
+                > "$RUNNER_TEMP/recovery-$variant.env"; then
+              echo "recovery resolver failed for $variant" >&2
+              exit 1
+            fi
+            state_file="$(awk -F= '$1 == "STATE_FILE" { print substr($0, index($0, "=") + 1) }' "$RUNNER_TEMP/recovery-$variant.env")"
+            [ -n "$state_file" ] || {
+              echo "recovery resolver did not return a state file for $variant" >&2
+              exit 1
+            }
+            printf '%s\n' "$state_file" > "$RUNNER_TEMP/recovery-$variant.state-file"
+          done
+
           deadline=$(( $(date +%s) + 80 * 60 ))
           while :; do
             pending=false
             terminal_failure=false
             for variant in arm64 x86_64 universal; do
-              manifest="recovery/$variant/cmux-nightly-notarization-recovery.json"
-              python3 scripts/ci/resolve-notarization-recovery.py \
-                "$manifest" "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$CHANNEL" "$variant" \
-                --run-attempt "$SOURCE_RUN_ATTEMPT" --strict --extract-app \
-                > "$RUNNER_TEMP/recovery-$variant.env"
-              state_file="$(awk -F= '$1 == "STATE_FILE" { print substr($0, index($0, "=") + 1) }' "$RUNNER_TEMP/recovery-$variant.env")"
+              state_file="$(cat "$RUNNER_TEMP/recovery-$variant.state-file")"
               report="poll-reports/$variant.log"
               set +e
               python3 scripts/ci/poll-notary-submission.py "$state_file" --output "$report" \
