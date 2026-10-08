@@ -148,3 +148,10 @@ extension AgentPaneDictation {
         }
     }
 }
+
+extension AgentPaneLoadingView {
+    /// The pane's loading state, read by VoiceOver while the page loads and acpmux starts.
+    static var label: String {
+        String(localized: "agentPane.loading", defaultValue: "Loading agent chat", bundle: .module)
+    }
+}

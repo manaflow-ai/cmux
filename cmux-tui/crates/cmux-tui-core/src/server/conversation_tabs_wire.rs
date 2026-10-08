@@ -107,7 +107,11 @@ fn record_of(
     }
 }
 
-pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow::Result<Value> {
+pub(super) fn create(
+    mux: &Arc<Mux>,
+    client: u64,
+    params: NewConversationTabParams,
+) -> anyhow::Result<Value> {
     let NewConversationTabParams {
         pane,
         workspace,
@@ -127,14 +131,16 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow
         (None, Some(workspace)) => ConversationTabTarget::Workspace(workspace),
         (Some(_), Some(_)) => anyhow::bail!("bad request: send pane or workspace, not both"),
     };
+    let actor = super::origin_gate::connection_actor(mux, client);
     let mutation = match (origin, mutation_id) {
-        (Some(origin), Some(id)) => Some(WorkspaceMutation::new(id, origin)?),
+        (Some(origin), Some(id)) => Some(WorkspaceMutation::new(id, origin, actor.clone())?),
         (None, None) => None,
         _ => anyhow::bail!("bad request: origin and mutation_id are sent together"),
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(conversation, owner, agent_session, page)?;
-    let outcome = mux.new_conversation_tab(target, record.clone(), mutation.as_ref(), size)?;
+    let outcome =
+        mux.new_conversation_tab_as(&actor, target, record.clone(), mutation.as_ref(), size)?;
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);

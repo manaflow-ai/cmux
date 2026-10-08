@@ -8,6 +8,8 @@
 //! - `logs <role> [--bytes N]`: the end of a process role's log.
 //! - `rekey <instance-id>`: internal; the off-critical-path identity job
 //!   the agent starts after a bind.
+//! - `cloud daemon-info | probe-activity`: bake and smoke evidence for the
+//!   Cloud agent role (the daemon block bind sends; the activity stream).
 //!
 //! Exit codes follow `cmux server`: 0 ok, 1 internal, 2 usage, 3 not
 //! found, 4 rejected (unsupported platform).
@@ -22,7 +24,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N]";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity [--root DIR] | team-ssh apply|principals <user>|session-open|reap|sync [--root DIR] | team-enroll --team T --epoch E --nonce N | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -140,6 +142,9 @@ pub fn run(args: &[String], self_argv: Vec<String>) -> u8 {
         "roles" => roles_verb(rest),
         "logs" => logs_verb(rest),
         "rekey" => rekey_verb(rest),
+        "cloud" => cloud_verb(rest),
+        "team-ssh" => crate::team_ssh::cli::run(rest),
+        "team-enroll" => crate::team_ssh::enroll::run(rest),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             code(0)
@@ -303,6 +308,9 @@ fn run_agent(mut cfg: Config) -> u8 {
             home: u.home,
         }
     });
+    // The Cloud agent role binds a cmux Cloud machine; it does nothing until
+    // the driver writes bind.json (or bound.json exists from a past bind).
+    let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone());
     let platform = match crate::linux::LinuxPlatform::new(cfg) {
         Ok(p) => p,
         Err(e) => {
@@ -311,7 +319,7 @@ fn run_agent(mut cfg: Config) -> u8 {
         }
     };
     let roles: Vec<Box<dyn cmux_server_core::role::Role>> =
-        vec![Box::new(crate::proc_roles::ProcessRoles::new(work_user))];
+        vec![Box::new(crate::proc_roles::ProcessRoles::new(work_user)), Box::new(cloud)];
     match Agent::new(platform, roles, install, log).run() {
         Ok(()) => code(0),
         Err(e) => {
@@ -344,6 +352,36 @@ fn rekey_verb(args: &[String]) -> u8 {
             code(1)
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn cloud_verb(args: &[String]) -> u8 {
+    let (paths, rest) = match root_arg(args) {
+        Ok(v) => v,
+        Err(e) => return usage(&e),
+    };
+    let timeout = Duration::from_secs(10);
+    let answer = match rest.as_slice() {
+        [verb] if verb == "daemon-info" => crate::cloud::role::print_daemon_info(&paths, timeout),
+        [verb] if verb == "probe-activity" => crate::cloud::role::probe_activity(&paths, timeout),
+        _ => return usage("cloud takes daemon-info or probe-activity"),
+    };
+    match answer {
+        Ok(value) => {
+            println!("{value}");
+            code(0)
+        }
+        Err(e) => {
+            eprintln!("cmux host cloud: {e}");
+            code(1)
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn cloud_verb(_args: &[String]) -> u8 {
+    eprintln!("cmux host cloud: Linux only");
+    code(4)
 }
 
 #[cfg(not(target_os = "linux"))]

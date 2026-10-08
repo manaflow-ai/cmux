@@ -103,6 +103,28 @@ describe("verifyRequest negative cache", () => {
     STACK_API_URL: "https://stack.test",
   };
 
+  it("verifies without a publishable key and never sends the header", async () => {
+    const { verifyRequest } = await import("../src/auth");
+    const realFetch = globalThis.fetch;
+    const sent: Array<string | null> = [];
+    const token = "opaque-keyless-token-" + Math.random().toString(36).slice(2);
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get("x-stack-publishable-client-key"));
+      return Response.json({ id: "user-1", primary_email: "a@example.com" });
+    }) as unknown as typeof fetch;
+    try {
+      const request = new Request("https://presence.test/v1/presence/snapshot", {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const user = await verifyRequest(request, { STACK_PROJECT_ID: "proj", STACK_API_URL: "https://stack.test" });
+      expect(user).not.toBeNull();
+      expect(sent.length).toBeGreaterThan(0);
+      expect(sent.every((value) => value === null)).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it("does not re-hit Stack for a token it already rejected", async () => {
     const { verifyRequest } = await import("../src/auth");
     const realFetch = globalThis.fetch;
