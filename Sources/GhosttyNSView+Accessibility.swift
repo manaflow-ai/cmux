@@ -101,7 +101,7 @@ extension GhosttyNSView {
             // Ghostty's grid range (which may include terminal padding).
             return NSRange(location: 0, length: (snapshot.string as NSString).length)
         }
-        selectedRange()
+        return selectedRange()
     }
 
     override func accessibilitySelectedText() -> String? {
