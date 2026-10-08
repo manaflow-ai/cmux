@@ -35,6 +35,16 @@ if ! awk '
 fi
 
 if ! awk '
+  /^      - name: Upload unsigned nightly app$/ { in_upload=1; next }
+  in_upload && /^      - name:/ { in_upload=0 }
+  in_upload && /compression-level: 0/ { found=1 }
+  END { exit !found }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the precompressed unsigned app artifact must disable a second compression pass"
+  exit 1
+fi
+
+if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
   /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
