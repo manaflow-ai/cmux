@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react"
 import { absoluteTime, approvalText, relativeTime, type ApprovalTextKey, type Locale } from "./approval-strings"
+import { useExpired } from "./expiry"
 import { approvalStatus, canApprove, canDeny, canonicalJson, type ApprovalStatus, type ApprovalView, type DigestCheck, type ParsedApproval } from "./approvals"
 
 export interface ApprovalCardProps {
@@ -38,8 +39,11 @@ const pretty = (params: unknown) => JSON.stringify(JSON.parse(canonicalJson(para
 /** One integration approval request: who asks (an integration), what, until when, and Approve or Deny. */
 export function ApprovalCard({ approval: a, view, digest, now, locale, open, busy, onToggle, onApprove, onDeny }: ApprovalCardProps) {
   const t = (key: ApprovalTextKey, vars?: Record<string, string>) => approvalText(locale, key, vars)
-  const status = approvalStatus(a, view, digest, now)
   const expiresAt = view?.expires_at ?? a.expiresAt
+  // Re-renders at the exact expiry (one timeout per card), so an expired card never offers Approve.
+  const expired = useExpired(expiresAt)
+  const at = expired ? Math.max(now, expiresAt) : now
+  const status = approvalStatus(a, view, digest, at)
   const live = status === "pending" || status === "stale" || status === "running"
   const target = view?.target || a.target
   const summary = view?.summary || a.summary
@@ -76,7 +80,7 @@ export function ApprovalCard({ approval: a, view, digest, now, locale, open, bus
       <div className="muted">
         {RISKS.has(a.risk) ? t(`risk.${a.risk}` as ApprovalTextKey) : null}
         {RISKS.has(a.risk) && (live || status === "expired") ? " · " : null}
-        {live ? t("time.expires", { when: relativeTime(locale, expiresAt, now) }) : status === "expired" ? t("time.expired", { when: relativeTime(locale, expiresAt, now) }) : null}
+        {live ? t("time.expires", { when: relativeTime(locale, expiresAt, at) }) : status === "expired" ? t("time.expired", { when: relativeTime(locale, expiresAt, at) }) : null}
       </div>
       <p className={status === "stale" || status === "denied" || status === "revoked" ? "error" : undefined} style={{ margin: "6px 0" }}>
         {t(detail)}

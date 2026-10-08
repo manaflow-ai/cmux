@@ -114,4 +114,35 @@ import Testing
         #expect(spawned["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == "agent")
         #expect(spawned["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
     }
+
+    /// cx-xqng: the throwaway launch shell exits as soon as it backgrounds the daemon; the
+    /// launcher reaps it, so launches leave no zombie children in this process (the AgentPane
+    /// suite left about 9, the app one per daemon start).
+    @Test func launchesLeaveNoZombieChildren() async throws {
+        let (environment, root) = try environment(script: #"""
+        printf '{"ready":true,"pid":%s,"webUrl":"http://127.0.0.1:5123/?token=tok"}\n' "$$" >&3
+        """#)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let before = ZombieChildren.count()
+        for _ in 0..<3 { _ = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(10)) }
+        let after = ZombieChildren.count()
+        // Other suites run in parallel and may hold a child for a moment; three launches
+        // that each leak a shell add three zombies that never go away.
+        #expect(after - before < 3, "zombie children before \(before), after \(after)")
+    }
+}
+
+/// This process's children that exited and were not reaped (`SZOMB`).
+enum ZombieChildren {
+    static func count() -> Int {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0 else { return -1 }
+        size += size / 4
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride)
+        guard sysctl(&mib, 3, &procs, &size, nil, 0) == 0 else { return -1 }
+        let me = getpid()
+        return procs.prefix(size / MemoryLayout<kinfo_proc>.stride)
+            .filter { $0.kp_eproc.e_ppid == me && $0.kp_proc.p_stat == SZOMB }.count
+    }
 }
