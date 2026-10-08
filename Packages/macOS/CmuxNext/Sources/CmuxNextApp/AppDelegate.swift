@@ -293,10 +293,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         routeOpenedURL(url)
     }
 
-    /// Files opened with cmux (scripts, folders, HTML) and URLs delivered
+    /// Files opened with cmux (every document type in Info.plist) and URLs delivered
     /// without an Apple event, routed like the Apple event's.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls { routeOpenedURL(url) }
+    }
+
+    /// Handoff of a web page (cmux as the default browser, Info.plist
+    /// `NSUserActivityTypes`): it opens as a browser tab, like a link.
+    func application(_ application: NSApplication, willContinueUserActivityWithType userActivityType: String) -> Bool {
+        userActivityType == NSUserActivityTypeBrowsingWeb
+    }
+
+    func application(_ application: NSApplication, continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        services?.externalOpen.continueActivity(type: userActivity.activityType, webpageURL: userActivity.webpageURL) ?? false
     }
 
     /// One route for every URL macOS hands cmux (`OpenedURLRouting`): the

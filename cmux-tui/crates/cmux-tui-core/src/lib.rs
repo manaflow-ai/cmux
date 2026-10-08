@@ -94,7 +94,12 @@ pub use agent_hooks::{
     stamp_agent_hook_observed_now,
 };
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+/// The owner raises its open-file soft limit at start; terminal hosts and
+/// PTY children get the original back (`cmux_pty::open_files`).
+#[cfg(unix)]
+pub use cmux_pty::{OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
+pub(crate) use journal_ingress::contention::JournalContention;
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
 pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
 pub use layout::{

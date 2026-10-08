@@ -270,7 +270,7 @@ impl WorkspaceRegistry {
             }
         }
         let changes = Value::Array(changes);
-        let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
         let fingerprint = json!({
             "op": "terminal-exited",
             "terminal_id": terminal_id,
