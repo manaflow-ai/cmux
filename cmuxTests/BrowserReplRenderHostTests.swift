@@ -28,13 +28,14 @@ struct BrowserReplRenderHostTests {
         )
     }
 
-    private func makeWindow() throws -> (NSWindow, NSView) {
-        let window = NSWindow(
+    private func makeWindow() throws -> (KeyStatusWindow, NSView) {
+        let window = KeyStatusWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
+        window.reportsKey = true
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
@@ -84,7 +85,11 @@ struct BrowserReplRenderHostTests {
         #expect(renderWindow.ignoresMouseEvents)
         #expect(renderWindow.level.rawValue <= NSWindow.Level.normal.rawValue)
 
-        // The pane shows the tab: the web view comes back at once.
+        // The pane shows the tab: the web view comes back at once. Make the
+        // pane window key again after the offscreen host has taken focus; the
+        // production policy keeps a shown tab rendering offscreen while its
+        // pane window is not key.
+        window.makeKeyAndOrderFront(nil)
         panel.noteWebViewVisibility(true, reason: "test.visible")
         await Task.yield()
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
