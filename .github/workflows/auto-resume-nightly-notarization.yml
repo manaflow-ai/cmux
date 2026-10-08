@@ -621,7 +621,8 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 10 });
             for (const issue of open.data) {
-              if (!(issue.body || '').toLowerCase().includes(process.env.SOURCE_HEAD_SHA.toLowerCase())) continue;
+              // The issue body keeps the first failed SHA; later failures are comments.
+              // The channel label identifies the one incident that this publication resolves.
               await github.rest.issues.createComment({
                 owner, repo, issue_number: issue.number,
                 body: `Notarization continuation accepted and published ${process.env.SOURCE_HEAD_SHA}: ${runUrl}`,
