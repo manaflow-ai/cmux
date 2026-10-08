@@ -137,9 +137,10 @@ export class FreestyleDriver implements TeamVmDriver {
     this.fail(gone.status, gone.json, "delete VM")
   }
 
-  /** POST /v5/vms/{id}/exec-await {command, timeoutMs} answers {statusCode, stdout, stderr} (as the web resource reader uses it). */
+  /** POST /v5/vms/{id}/exec-await {command, timeoutMs, linuxUser} answers {statusCode, stdout, stderr} (as the web resource reader uses it). */
   async exec(id: string, command: string, timeoutMs: number) {
-    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/exec-await`, { command, timeoutMs }, timeoutMs + 5_000)
+    // As root: the bind writes root-only state (/var/lib/cmux); the provider's default exec user is the work user.
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/exec-await`, { command, timeoutMs, linuxUser: "root" }, timeoutMs + 5_000)
     if (r.status === 404) throw new DriverError("team_vm.vm_missing", "exec: 404", true)
     if (r.status !== 200) this.fail(r.status, r.json, "exec")
     const code = typeof r.json.statusCode === "number" ? r.json.statusCode : -1
