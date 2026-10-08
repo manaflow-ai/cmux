@@ -189,6 +189,7 @@ struct TerminalSurfaceRemoteOutputTests {
         )
         defer { remote.surface!.deallocate() }
         #expect(!remote.allowsAutomaticClipboardWrite)
+        #expect(!remote.requiresClipboardReadGesture)
         if let callbackContext = remote.surfaceCallbackContext?.takeUnretainedValue() {
             let sawUserCopyIntent = remote.withUserInitiatedClipboardWriteIntent {
                 callbackContext.hasUserInitiatedClipboardWriteIntent

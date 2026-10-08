@@ -18,8 +18,8 @@ public protocol TerminalSurfaceControlling: AnyObject {
     /// does not currently exist.
     var runtimeSurfacePointer: ghostty_surface_t? { get }
 
-    /// Whether terminal-origin clipboard reads require a native paste gesture.
-    /// Remote and manual-I/O surfaces cannot read the Mac clipboard
-    /// without a synchronous native paste gesture.
+    /// Whether manual-I/O clipboard reads require a native paste gesture.
+    /// Manual mirrors cannot read the Mac clipboard without a synchronous
+    /// native paste gesture.
     var requiresClipboardReadGesture: Bool { get }
 }
