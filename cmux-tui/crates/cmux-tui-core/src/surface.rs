@@ -19,6 +19,8 @@ mod host_frames;
 mod hosted_callbacks;
 #[cfg(unix)]
 use hosted_callbacks::hosted_terminal_callbacks;
+#[cfg(all(test, unix))]
+mod journal_failure_tests;
 #[cfg(unix)]
 mod prelaunch;
 #[cfg(unix)]
@@ -2043,7 +2045,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             None,
             PtyLifetime::DaemonOwned,
             cell_pixels,
@@ -2060,7 +2062,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             Some(TabResourceIdentity::terminal(None)?),
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2073,13 +2075,14 @@ impl Surface {
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         cell_pixels: (u16, u16),
+        seed: &[u8],
     ) -> anyhow::Result<Arc<Surface>> {
         let identity = Some(TabResourceIdentity::terminal(None)?);
         Self::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
             id,
             opts,
             mux,
-            terminal_id,
+            (terminal_id, seed),
             identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2099,7 +2102,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             resource_identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2175,11 +2178,14 @@ impl Surface {
         )
     }
 
+    /// `launch` is the reserved terminal id, and the VT replay its host
+    /// applies before the child's first byte (a hosted launch with an id
+    /// only; empty: none).
     fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
-        terminal_id: Option<crate::terminal_host::TerminalId>,
+        (terminal_id, seed): (Option<crate::terminal_host::TerminalId>, &[u8]),
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
@@ -2196,16 +2202,14 @@ impl Surface {
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let attachment = match terminal_id {
-                Some(terminal_id) => {
-                    crate::terminal_host_runtime::launch_terminal_host_with_identity(
-                        &opts,
-                        &root,
-                        default_colors,
-                        cell_pixels,
-                        initial_kitty_limits,
-                        terminal_id,
-                    )?
-                }
+                Some(terminal_id) => crate::terminal_host_runtime::launch_terminal_host_seeded(
+                    &opts,
+                    &root,
+                    (default_colors, cell_pixels, initial_kitty_limits),
+                    terminal_id,
+                    None,
+                    seed,
+                )?,
                 None => crate::terminal_host_runtime::launch_terminal_host(
                     &opts,
                     &root,
@@ -2230,7 +2234,7 @@ impl Surface {
                 },
             );
         }
-        let _ = terminal_id;
+        let _ = (terminal_id, seed);
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,
@@ -6189,29 +6193,26 @@ impl PtySurface {
                         pending,
                     ) {
                         Ok(retry) => retry,
-                        Err(error) => {
-                            self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
-                            eprintln!(
-                                "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                            );
-                            return;
-                        }
+                        Err(error) => return self.stop_journal_capture(&error),
                     };
                     let Some((retry, space_epoch)) = retry else { break };
                     pending = retry;
                     space_epoch
                 };
                 if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
-                    eprintln!(
-                        "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                    );
-                    return;
+                    return self.stop_journal_capture(&error);
                 }
             }
         }
+    }
+
+    /// A failed journal writer stops this terminal's capture; the terminal
+    /// and the daemon keep running. The failure is involuntary, so it must
+    /// not take the user shutdown path (`request_daemon_shutdown` marks a
+    /// session shutdown, which records signal deaths as session_shutdown).
+    fn stop_journal_capture(&self, error: &str) {
+        self.journal_capture_open.store(false, Ordering::Release);
+        eprintln!("cmux-tui: terminal journal capture stopped: {error}");
     }
 
     fn journal_geometry(&self, geometry: PtyGeometry) {

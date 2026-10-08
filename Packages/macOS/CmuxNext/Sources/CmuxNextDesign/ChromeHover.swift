@@ -32,6 +32,8 @@ public final class ChromeHover {
     private let outset: NSSize
     private let trackingOptions: NSTrackingArea.Options
     private var tracking: NSTrackingArea?
+    /// The pointer hover that sets `state.hovering` (`followPointer`).
+    public private(set) var pointer: PointerHover?
     public var state = State() {
         didSet { if state != oldValue { refresh() } }
     }
@@ -97,9 +99,31 @@ public final class ChromeHover {
         fill.frame = view.bounds.insetBy(dx: -outset.width, dy: -outset.height)
     }
 
-    /// Call from the view's `updateTrackingAreas()`.
+    /// `state.hovering` follows the pointer through the shared hover owner
+    /// (`PointerHover`): enter and exit, and every geometry or visibility
+    /// change (a hide or collapse under a still pointer clears it). The view
+    /// sets no hover itself and needs no `updateTrackingAreas` call.
+    /// `isHoverable` gates it (a disabled control); `onChange` runs after
+    /// the state changes (the view's own colors).
+    public func followPointer(isHoverable: @escaping () -> Bool = { true }, onChange: (() -> Void)? = nil) {
+        guard let view, pointer == nil else { return }
+        if let tracking { view.removeTrackingArea(tracking) }
+        tracking = nil
+        let pointer = PointerHover(view, requiresKeyWindow: trackingOptions.contains(.activeInKeyWindow))
+        pointer.isHoverable = isHoverable
+        pointer.onChange = { [weak self] hovering in
+            guard let self else { return }
+            self.state.hovering = hovering
+            onChange?()
+        }
+        self.pointer = pointer
+        pointer.refresh()
+    }
+
+    /// Call from the view's `updateTrackingAreas()` (not needed after
+    /// `followPointer`).
     public func updateTrackingAreas() {
-        guard let view else { return }
+        guard let view, pointer == nil else { return }
         if let tracking { view.removeTrackingArea(tracking) }
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, trackingOptions, .inVisibleRect], owner: view)
         view.addTrackingArea(area)

@@ -6,7 +6,7 @@
 //! never send one. The actor is not part of the idempotency fingerprint, so a
 //! replay keeps the actor of the first commit.
 
-use rusqlite::{Connection, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::{new_uuid_v4, validate_identifier};
 
@@ -26,6 +26,11 @@ pub enum Actor {
     Frontend { install_id: String },
     /// An app, as only the in-process app supervisor sets it.
     App { id: String },
+    /// Written before actors existed, or by a daemon without them.
+    Legacy,
+    /// A connection from another machine: a `cmux link` peer
+    /// (`link:<install>`), or a WebSocket or remote-entry connection.
+    Peer { id: String },
 }
 
 impl Actor {
@@ -40,6 +45,21 @@ impl Actor {
             Self::User { id } => format!("user:{id}"),
             Self::Frontend { install_id } => format!("frontend:{install_id}"),
             Self::App { id } => format!("app:{id}"),
+            Self::Peer { id } => format!("peer:{id}"),
+            Self::Legacy => LEGACY_ACTOR.to_string(),
+        }
+    }
+
+    /// The actor of a stored [`Actor::wire`] value; anything unknown is `legacy`.
+    pub fn from_wire(wire: &str) -> Self {
+        let owned = |id: &str| id.to_string();
+        match wire.split_once(':') {
+            None if wire == "daemon" => Self::Daemon,
+            Some(("user", id)) => Self::User { id: owned(id) },
+            Some(("frontend", id)) => Self::Frontend { install_id: owned(id) },
+            Some(("app", id)) => Self::App { id: owned(id) },
+            Some(("peer", id)) => Self::Peer { id: owned(id) },
+            _ => Self::Legacy,
         }
     }
 }
@@ -48,28 +68,48 @@ impl Actor {
 pub struct WorkspaceMutation {
     pub id: String,
     pub origin: String,
-    /// Set by the daemon, never by a caller. [`WorkspaceMutation::new`] and
-    /// [`WorkspaceMutation::local`] name the daemon; a request path names its
-    /// caller with [`WorkspaceMutation::by`].
+    /// Set by the daemon, never by a caller. Every constructor names it:
+    /// [`WorkspaceMutation::new`] and [`WorkspaceMutation::local`] take the
+    /// caller's actor, [`WorkspaceMutation::daemon`] and
+    /// [`WorkspaceMutation::daemon_local`] are the daemon's own work.
     pub actor: Actor,
 }
 
 impl WorkspaceMutation {
-    pub fn new(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
-        let mutation = Self { id: id.into(), origin: origin.into(), actor: Actor::Daemon };
+    pub fn new(
+        id: impl Into<String>,
+        origin: impl Into<String>,
+        actor: Actor,
+    ) -> anyhow::Result<Self> {
+        let mutation = Self { id: id.into(), origin: origin.into(), actor };
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         Ok(mutation)
     }
 
-    pub fn local(origin: &str) -> Self {
-        Self { id: new_uuid_v4(), origin: origin.to_string(), actor: Actor::Daemon }
+    pub fn local(origin: &str, actor: Actor) -> Self {
+        Self { id: new_uuid_v4(), origin: origin.to_string(), actor }
     }
 
-    /// The same mutation, caused by `actor`.
-    #[must_use]
-    pub fn by(self, actor: Actor) -> Self {
-        Self { actor, ..self }
+    /// The local user in the in-process TUI (their own frontend, no socket).
+    pub fn by_local_user(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
+        Self::new(id, origin, Actor::local_user())
+    }
+
+    /// A fresh mutation inside this one (a reservation it makes): same
+    /// origin and actor, its own id.
+    pub(crate) fn reservation(&self) -> Self {
+        Self::local(&self.origin, self.actor.clone())
+    }
+
+    /// The daemon's own work (startup, reaps, reducers), never a request.
+    pub fn daemon(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
+        Self::new(id, origin, Actor::Daemon)
+    }
+
+    /// [`WorkspaceMutation::daemon`] with a fresh id.
+    pub fn daemon_local(origin: &str) -> Self {
+        Self::local(origin, Actor::Daemon)
     }
 }
 
@@ -99,23 +139,43 @@ pub(crate) fn insert_resource_mutation(
     )
 }
 
-/// Forward-only, additive: rows written before this column get `legacy`, and
-/// an older daemon that omits the column on its writes gets `legacy` too.
-/// Probed by table shape, not by schema number, so older builds keep opening
-/// the registry.
-pub(crate) fn migrate_resource_mutations_add_actor(connection: &Connection) -> anyhow::Result<()> {
-    let has_actor = connection
-        .prepare("PRAGMA table_info(resource_mutations)")?
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<Result<Vec<_>, _>>()?
-        .iter()
-        .any(|column| column == "actor");
-    if !has_actor {
-        connection.execute_batch(&format!(
-            "ALTER TABLE resource_mutations ADD COLUMN actor TEXT NOT NULL DEFAULT '{LEGACY_ACTOR}';"
-        ))?;
+/// Forward-only, additive: rows written before the column get `legacy`,
+/// and an older daemon that omits the column on its writes gets `legacy`
+/// too. Probed by table shape, not by schema number, so older builds keep
+/// opening the registry.
+pub(crate) fn migrate_add_actor_columns(connection: &Connection) -> anyhow::Result<()> {
+    for table in ["resource_mutations", "resource_effect_receipts"] {
+        let has_actor = connection
+            .prepare(&format!("PRAGMA table_info({table})"))?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .any(|column| column == "actor");
+        if !has_actor {
+            connection.execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN actor TEXT NOT NULL DEFAULT '{LEGACY_ACTOR}';"
+            ))?;
+        }
+    }
+    // Nullable, no default: a record or segment without one is legacy.
+    for (table, column) in [("session_journal", "actor"), ("journal_segments", "actors_json")] {
+        let columns = connection
+            .prepare(&format!("PRAGMA table_info({table})"))?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if !columns.iter().any(|name| name == column) {
+            connection.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT;"))?;
+        }
     }
     Ok(())
+}
+
+/// The actor stored with the effect receipt `key` when it was prepared:
+/// an effect commits as its caller, also after a daemon restart.
+pub(crate) fn effect_receipt_actor(connection: &Connection, key: &str) -> anyhow::Result<Actor> {
+    let sql = "SELECT actor FROM resource_effect_receipts WHERE idempotency_key = ?1";
+    let stored = connection.query_row(sql, [key], |row| row.get::<_, String>(0)).optional()?;
+    Ok(stored.map_or(Actor::Legacy, |wire| Actor::from_wire(&wire)))
 }
 
 #[cfg(test)]
@@ -125,8 +185,58 @@ impl super::WorkspaceRegistry {
         &self,
         key: &str,
     ) -> anyhow::Result<Option<String>> {
-        use rusqlite::OptionalExtension;
         let sql = "SELECT actor FROM resource_mutations WHERE idempotency_key = ?1";
         Ok(self.connection.query_row(sql, [key], |row| row.get::<_, String>(0)).optional()?)
+    }
+}
+
+/// Tests prepare receipts as the daemon; production names the caller
+/// (`prepare_resource_effect_for`, `prepare_resource_creation_for`).
+#[cfg(test)]
+impl super::WorkspaceRegistry {
+    pub fn prepare_resource_effect(
+        &mut self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &serde_json::Value,
+        intent: &serde_json::Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<super::ResourceEffectPreparation> {
+        let mutation = WorkspaceMutation::daemon(idempotency_key, "test")?;
+        let (generation, revision) = (expected_generation, expected_revision);
+        self.prepare_resource_effect_for(
+            &mutation,
+            operation,
+            fingerprint,
+            intent,
+            generation,
+            revision,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_resource_creation(
+        &mut self,
+        correlation_key: &str,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &serde_json::Value,
+        intent: &serde_json::Value,
+        effectful: bool,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<super::ResourceCreationPreparation> {
+        let mutation = WorkspaceMutation::daemon(idempotency_key, "test")?;
+        self.prepare_resource_creation_for(
+            correlation_key,
+            &mutation,
+            operation,
+            fingerprint,
+            intent,
+            effectful,
+            expected_generation,
+            expected_revision,
+        )
     }
 }

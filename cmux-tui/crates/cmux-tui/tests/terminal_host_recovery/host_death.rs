@@ -402,6 +402,15 @@ mod stray_signals;
 #[path = "host_self_errors.rs"]
 mod host_self_errors;
 
+#[path = "loss_causes.rs"]
+mod loss_causes;
+
+#[path = "orphan_hosts.rs"]
+mod orphan_hosts;
+
+#[path = "restored_end.rs"]
+mod restored_end;
+
 #[path = "pty_custody.rs"]
 mod pty_custody;
 
@@ -416,3 +425,6 @@ mod dead_host_restart;
 
 #[path = "terminal_respawn.rs"]
 mod terminal_respawn;
+
+#[path = "archive_on_close.rs"]
+mod archive_on_close;

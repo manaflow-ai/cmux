@@ -464,7 +464,7 @@ describe("connections end to end (workerd)", () => {
     expect(forged.status).toBe(401)
   })
 
-  it("install tokens without a send-external grant cannot post; private connections stay private", async () => {
+  it("install tokens never post directly (G8 asks the user); private connections stay private", async () => {
     const { token, user } = await signedIn("conn-user-2")
     const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
     const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
@@ -478,8 +478,8 @@ describe("connections end to end (workerd)", () => {
     const c = await op(token, "integration.connect", { provider: "slack" })
     const conn = c.json.value.connection.id as string
     const post = await op(jwt, "slack.post_as_bot", { connection: conn, channel: "C1", text: "x" })
-    expect(post.json).toMatchObject({ ok: false, error: { code: "auth.forbidden" } })
-    expect(post.json.error.message).toMatch(/send-external/)
+    // The connection is still pending, so nothing is asked or run (integration-approvals.test.ts covers the approval).
+    expect(post.json).toMatchObject({ ok: false, error: { code: "integration.unavailable" } })
     // integration.connect is session-only (a human approves in the provider anyway).
     expect((await op(jwt, "integration.connect", { provider: "slack" })).json.error.code).toBe("auth.forbidden")
     // The install lists this user's private connection; another user's session does not see it.

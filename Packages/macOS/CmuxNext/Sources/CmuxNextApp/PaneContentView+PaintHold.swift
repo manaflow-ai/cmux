@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextPages
 
 /// Content that draws nothing until its document paints (an agent page is
 /// transparent until then). A pane switching to it keeps what it showed
@@ -17,6 +18,17 @@ extension AgentPaneView: PaneFirstPaintGated {
 
     func whenFirstPainted(_ body: @escaping () -> Void) {
         model.whenPainted(body)
+    }
+}
+
+/// A page tab: transparent until its document paints, like an agent page
+/// (no-flicker audit). Content that is not a page has nothing to wait for.
+extension InternalPageView: PaneFirstPaintGated {
+    var awaitsFirstPaint: Bool { (content as? PageWebView).map { !$0.hasPainted } ?? false }
+
+    func whenFirstPainted(_ body: @escaping () -> Void) {
+        guard let page = content as? PageWebView else { return body() }
+        page.whenPainted(body)
     }
 }
 

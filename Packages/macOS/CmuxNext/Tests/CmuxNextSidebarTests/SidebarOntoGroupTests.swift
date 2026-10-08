@@ -109,8 +109,12 @@ import Testing
         #expect(shape(h.model.sections, cloudSection) == "x y")
     }
 
+    /// With a header per computer (`sidebar.groupByComputer`): in one list
+    /// the top of a computer's first row is also the end of the one above.
     @Test func theTopOfARowReorders() throws {
         let h = Harness()
+        h.model.groupsByComputer = true
+        h.list.reload(animated: false)
         defer { h.window.close() }
         try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.1)
         #expect(h.list.drag?.target == .position(DropPosition(section: cloudSection, index: 0)))

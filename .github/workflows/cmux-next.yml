@@ -42,6 +42,16 @@ on:
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
+      - scripts/ci/cmux-tui-darwin-builder
+      - scripts/ci/macho_weaken.py
+      - scripts/ci/macos-cross.sh
+      - scripts/ci/macos-stubs/**
+      - scripts/ci/macos_stubs.py
+      # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/packages/home-core/conformance/**
+      - mux/packages/brain/conformance/**
+      - skills/cmux-browser/**
+      - skills/cmux-cua/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -695,6 +705,7 @@ jobs:
           bash scripts/cmux-next/tests/request-nightly-next.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
+          bash scripts/cmux-next/tests/tree-key-embeds.test.sh
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh

@@ -82,6 +82,13 @@ const MATH = [
   "With $d_0 = 250\\,\\text{ms}$, $d_{\\max} = 4\\,\\text{s}$ and $N = 3$ that is $E[W] = 1000\\,\\text{ms}$.",
 ].join("\n");
 
+const WEB_VIDEO = "https://github.com/user-attachments/assets/7d3f2c1a-58b4-4e0f-9a61-2c8e5b0d4f17";
+const WEB_VIDEO_REPLY = [
+  "Yes. The recording attached to the PR shows all six login tests passing:",
+  "",
+  WEB_VIDEO,
+].join("\n");
+
 const BUILD_CHART = [
   "The app target dominates the build. Per-target wall time from the last 20 CI runs on main:",
   "",
@@ -458,6 +465,27 @@ export default agentPaneEntry({
         ),
         assistant("All six login tests pass; the recording is ready to attach.", 3.6),
         summary(3.6, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "web-video": {
+      note: "A GitHub attachment alone on its line: with images.remote = click (the default) it shows its site and Load video.",
+      chipHost: { media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
+      snapshot: chat([
+        user("Did the PR's recording show the login tests passing?", 3),
+        assistant(WEB_VIDEO_REPLY, 2.9),
+        summary(2.9),
+      ]),
+    },
+    "web-video-loaded": {
+      note: "The same reply with images.remote = always: the host fetched the attachment and the copy plays inline.",
+      chipHost: {
+        policy: { remoteImages: "always" as const },
+        media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      snapshot: chat([
+        user("Did the PR's recording show the login tests passing?", 3),
+        assistant(WEB_VIDEO_REPLY, 2.9),
+        summary(2.9),
       ]),
     },
     "vega-lite-chart": {
