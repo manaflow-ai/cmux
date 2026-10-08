@@ -1,5 +1,6 @@
 import { useId } from "react";
-import { useSettingsState } from "../context";
+import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { useSettingsState, useStore } from "../context";
 import { Editor } from "../editors/Editor";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
@@ -24,12 +25,25 @@ export function SettingRow({
   filtered?: boolean;
 }) {
   const state = useSettingsState();
+  const store = useStore();
   const labelId = useId();
   const managed = managedOf(state, row.key);
   const customized = state.rows.get(row.key)?.customized ?? false;
   const disabled = !state.connected || !state.readable || managed !== null;
   const diagnostics = state.diagnostics.get(row.key);
   const error = state.errors.get(row.key);
+  // Right-click on the setting's title or help: copy its cmux.json key, or reset it (the row's
+  // Reset control's path).
+  const menu: ContextMenuItem[] = [
+    { id: "copyKey", label: t("settingsPage.copySettingKey"), onSelect: () => void store.copy(row.key) },
+    {
+      id: "reset",
+      label: t("settingsPage.resetToDefault"),
+      separatorBefore: true,
+      disabled: !customized || managed !== null || !state.connected || !state.readable,
+      onSelect: () => void store.reset(row.key),
+    },
+  ];
   return (
     <div
       className="row"
@@ -45,7 +59,7 @@ export function SettingRow({
     >
       {diagnostics && <RowNotice settingKey={row.key} messages={diagnostics} disabled={disabled} />}
       <div className="row-main">
-        <div className="row-label">
+        <ContextMenu className="row-label" items={menu}>
           <div className="row-title" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
           </div>
@@ -70,7 +84,7 @@ export function SettingRow({
               {row.key === "agents.chats.roots" && error.detail ? error.detail : error.message}
             </div>
           )}
-        </div>
+        </ContextMenu>
         <div className="row-control">
           <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />
           <ResetButton
