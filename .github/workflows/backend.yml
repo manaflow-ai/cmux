@@ -17,6 +17,8 @@ on:
     paths:
       - backend/**
       - clients/ts/**
+      # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
+      - libs/integrations-core/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   push:
@@ -24,6 +26,8 @@ on:
     paths:
       - backend/**
       - clients/ts/**
+      # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
+      - libs/integrations-core/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   workflow_dispatch:
