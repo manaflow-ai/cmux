@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import Foundation
 
 extension ContentView {
     static func commandPaletteGoToFileContribution() -> CommandPaletteCommandContribution {
