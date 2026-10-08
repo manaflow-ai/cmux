@@ -99,3 +99,76 @@ async fn a_fallback_never_resumes_a_conversation_the_dead_launcher_never_stored(
     assert_eq!(resumed, ["exact"], "the respawn resumes the stored conversation");
     let _ = std::fs::remove_dir_all(&store);
 }
+
+/// A daemon restart between a fresh Claude spawn and its first finished
+/// turn (a dogfood reload) keeps the "never stored" mark: the session
+/// record carries it, so the respawn after the restart starts fresh too.
+#[tokio::test]
+async fn a_restart_before_the_first_turn_still_never_resumes_an_unstored_conversation() {
+    let root = std::env::temp_dir().join(format!("acpmux-claude-restart-{}", uuid::Uuid::now_v7()));
+    let claude_store = root.join("claude");
+    let state = root.join("acpmux");
+    std::fs::create_dir_all(&claude_store).unwrap();
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let agents = BTreeMap::from([(
+        "direct".to_owned(),
+        HarnessProfile {
+            kind: acpmux::config::HarnessKind::ClaudeStdio,
+            argv: vec!["python3".into(), fake_claude.into()],
+            env: BTreeMap::from([(
+                "FAKE_CLAUDE_STORE".to_owned(),
+                claude_store.to_string_lossy().into_owned(),
+            )]),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    )]);
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("direct".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Local;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let connect = |hub: Arc<Hub>| async move {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection(hub, in_rx, out_tx));
+        let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+        c.request(
+            method::INITIALIZE,
+            json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}),
+        )
+        .await
+        .unwrap();
+        c
+    };
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &state).unwrap());
+    let mut c = connect(hub.clone()).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "reload"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    // The daemon restarts before any prompt reached Claude.
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &state).unwrap());
+    let mut c = connect(hub.clone()).await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "after the reload"}]}),
+        )
+        .await
+        .expect("the first prompt after the restart starts a fresh conversation");
+    assert_eq!(r["stopReason"], "end_turn");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

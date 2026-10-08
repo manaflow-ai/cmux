@@ -71,7 +71,6 @@ use crate::terminal_host_protocol::PROTOCOL_VERSION;
 use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit,
 };
-use cmux_tui_cdp::BrowserMode;
 
 /// Ghostty's default maximum retained scrollback backing storage.
 pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 50_000_000;
@@ -173,22 +172,8 @@ pub struct SurfaceOptions {
     pub extra_env: Vec<(String, String)>,
     /// The `claude` shim directory, kept first on every child's PATH.
     pub claude_shim_dir: Option<String>,
-    /// Optional Chrome/Chromium binary for browser surfaces.
-    pub chrome_binary: Option<String>,
     /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
     pub cdp_url: Option<String>,
-    /// Whether browser panes should probe local debuggable Chrome ports.
-    pub browser_discover: bool,
-    /// Local ports to probe for /json/version when discovery is enabled.
-    pub browser_discover_ports: Vec<u16>,
-    /// Optional Chrome user data directory for launched browser runtime.
-    pub browser_user_data_dir: Option<String>,
-    /// Whether launched Chrome should show a visible window or run headless.
-    pub browser_mode: BrowserMode,
-    /// Session component for the default launched Chrome profile path.
-    pub browser_session_name: String,
-    /// Use a temporary launched Chrome profile and delete it on shutdown.
-    pub browser_ephemeral: bool,
     /// Maximum browser capture size before downscaling, in megapixels.
     pub browser_max_capture_megapixels: f64,
     /// Optional maximum browser capture scale, further reduced to honor the megapixel cap.
@@ -254,14 +239,7 @@ impl Default for SurfaceOptions {
             scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             claude_shim_dir: None,
-            chrome_binary: None,
             cdp_url: None,
-            browser_discover: false,
-            browser_discover_ports: vec![9222],
-            browser_user_data_dir: None,
-            browser_mode: BrowserMode::Headful,
-            browser_session_name: "default".to_string(),
-            browser_ephemeral: false,
             browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
             terminal_host_root: None,
