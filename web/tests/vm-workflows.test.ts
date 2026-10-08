@@ -142,6 +142,49 @@ describe("Cloud prompt rename", () => {
   });
 });
 
+test("classifies already-created VM state protection without probing the guest", async () => {
+  const rows = [
+    testCloudVmRow({
+      providerVmId: "vm-reserved",
+      imageId: "sh-1b0dc82174cf450891606ec5fee9139f",
+      providerMetadata: {},
+    }),
+    testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000002",
+      providerVmId: "vm-legacy",
+      imageId: "sh-fb3dcf7b47894114889b10186626af5b",
+      providerMetadata: {},
+    }),
+    testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000003",
+      providerVmId: "vm-recorded-legacy",
+      imageId: "sh-1b0dc82174cf450891606ec5fee9139f",
+      providerMetadata: { cmuxTuiStateProtection: "legacy" },
+    }),
+    testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000004",
+      providerVmId: "vm-unknown",
+      imageId: "snapshot-from-user",
+      providerMetadata: {},
+    }),
+  ];
+  const repo: VmRepositoryShape = {
+    ...testWorkflowRepo({ vm: rows[0] }),
+    listUserVms: () => Effect.succeed(rows),
+  };
+
+  const result = await Effect.runPromise(
+    listUserVms(rows[0].userId).pipe(Effect.provide(Layer.succeed(VmRepository, repo))),
+  );
+
+  expect(result.map((vm) => [vm.providerVmId, vm.cmuxTuiStateProtection])).toEqual([
+    ["vm-reserved", "reserved-v1"],
+    ["vm-legacy", "legacy"],
+    ["vm-recorded-legacy", "legacy"],
+    ["vm-unknown", "unknown"],
+  ]);
+});
+
 let sql: Sql | null = null;
 
 type RecordedUsageEvent = Parameters<VmRepositoryShape["recordUsageEvent"]>[0];

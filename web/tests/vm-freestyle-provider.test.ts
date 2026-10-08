@@ -631,6 +631,18 @@ function recoverableTunnel(clientPublicKey: string) {
 }
 
 describe("FreestyleProvider create with edge rules", () => {
+  test("records whether the source image protects cmux-tui state", async () => {
+    const current = await providerWith(fakeFreestyle({ probeExit: 0 })).create({
+      image: "sh-1b0dc82174cf450891606ec5fee9139f",
+    });
+    const legacy = await providerWith(fakeFreestyle({ probeExit: 0 })).create({
+      image: "sh-fb3dcf7b47894114889b10186626af5b",
+    });
+
+    expect(current.providerMetadata).toMatchObject({ cmuxTuiStateProtection: "reserved-v1" });
+    expect(legacy.providerMetadata).toMatchObject({ cmuxTuiStateProtection: "legacy" });
+  });
+
   test("creates persistent machines with idle pausing disabled", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     await providerWith(fake).create({ image: "sh-devbox" });
@@ -878,6 +890,24 @@ describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
       providerMetadata: { cmuxTuiContract: "snapshot-v2", networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" },
     });
     expect(endpoint).toMatchObject({ route: "ws://10.4.0.7:1337/v1/link", trustedCarrier: true });
+    expect(commands).toEqual([]);
+  });
+
+  test("keeps a known legacy state layout attachable without guest work", async () => {
+    const commands: string[] = [];
+    const vm = {
+      exec: async ({ command }: { command: string }) => { commands.push(command); return { statusCode: 0, stdout: "", stderr: "" }; },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    const endpoint = await provider.openCmuxRemote(VM_ID, {
+      providerMetadata: {
+        cmuxTuiContract: "snapshot-v2",
+        cmuxTuiStateProtection: "legacy",
+        networkIpv4: "10.4.0.7",
+      },
+    });
+    expect(endpoint.route).toBe("ws://10.4.0.7:1337/v1/link");
     expect(commands).toEqual([]);
   });
 

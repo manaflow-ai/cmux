@@ -65,7 +65,8 @@ struct CloudTreeMachineRowContent: View {
     /// The status glyph drawn after the name. A locked machine keeps its lock
     /// there, so the name stays on the column every other machine row uses.
     var statusSymbol: String? {
-        machine.freeAccess == .expired ? "lock.fill" : nil
+        if machine.freeAccess == .expired { return "lock.fill" }
+        return machine.cmuxTuiStateProtectionWarning ? "exclamationmark.triangle.fill" : nil
     }
 
     /// Combines this machine's identity, activity, and resource readings for assistive technology.
@@ -80,12 +81,14 @@ struct CloudTreeMachineRowContent: View {
         var parts = [machine.displayName, machine.activityLabel, metrics.summary]
         parts.append(subtitle)
         parts.append(usageSummary)
+        if let storageWarning { parts.append(storageWarning) }
         return parts.joined(separator: ", ")
     }
 
     /// Expands the row with its sample time, machine details, and optional billing usage.
     var toolTip: String {
         var lines = [machine.displayName, machine.activityLabel, metrics.summary]
+        if let storageWarning { lines.append(storageWarning) }
         if let sampledAt = machine.stats?.resourceSampledAt {
             lines.append(String(
                 format: String(localized: "cloudTree.resources.sampled", defaultValue: "Sampled %@"),
@@ -102,6 +105,11 @@ struct CloudTreeMachineRowContent: View {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
+    }
+
+    private var storageWarning: String? {
+        guard machine.cmuxTuiStateProtectionWarning else { return nil }
+        return String(localized: "machines.stateProtection.warning", defaultValue: "Full-disk protection is unverified. Keep disk space free to avoid losing access to this machine.")
     }
 
     /// A missing backend report remains visible instead of looking like a removed feature.
@@ -122,7 +130,7 @@ struct CloudTreeMachineRowContent: View {
             usage.periodDays
         )
         return String(
-            format: String(localized: "machines.usage.line", defaultValue: "%1$@ \u{00B7} %2$@ tokens \u{00B7} %3$@"),
+            format: String(localized: "machines.usage.line", defaultValue: "%1$@ · %2$@ tokens · %3$@"),
             cost, tokens, period
         )
     }

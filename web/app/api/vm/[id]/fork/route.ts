@@ -113,6 +113,7 @@ export async function POST(
         status: result.fork.status,
         createdAt: result.fork.createdAt,
         capabilities: vmCapabilitiesFor(result.fork.provider),
+        cmuxTuiStateProtection: result.fork.cmuxTuiStateProtection,
       });
     },
   );

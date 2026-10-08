@@ -61,12 +61,16 @@ export type VmImageManifestEntry = {
   readonly cmuxdRemoteCommit: string;
   /** The cmux commit whose devbox definition produced this image. */
   readonly repoCommit?: string;
+  /** The cmux-tui state filesystem contract baked into this image. */
+  readonly cmuxTuiStateProtection?: "reserved-v1";
   readonly builtAt: string;
   readonly builderScriptVersion: string;
   readonly agentToolResolvedVersions?: Record<string, string>;
   readonly validationStatus: "passed" | "failed" | "unknown";
   readonly notes?: string;
 };
+
+export type VmCmuxTuiStateProtection = "reserved-v1" | "legacy" | "unknown";
 
 export type VmImageSelection = {
   readonly provider: ProviderId;
@@ -123,6 +127,16 @@ export function findVmImageManifestEntry(
     if (ofKind) return ofKind;
   }
   return matches[0] ?? null;
+}
+
+/** Classifies the image contract without probing or modifying a guest. */
+export function cmuxTuiStateProtectionForImage(
+  provider: ProviderId,
+  image: string,
+): VmCmuxTuiStateProtection {
+  const entry = findVmImageManifestEntry(provider, image);
+  if (!entry) return "unknown";
+  return entry.cmuxTuiStateProtection === "reserved-v1" ? "reserved-v1" : "legacy";
 }
 
 /** Every entry flagged `defaultForKind` for `kind`, smallest size first (size-less entries last). */

@@ -964,6 +964,8 @@ export type DevboxManifestEntry = {
   cmuxTuiSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
   repoCommit?: string;
+  /** The cmux-tui state filesystem contract baked into this image. */
+  cmuxTuiStateProtection?: "reserved-v1";
   /** The Dockerfile's CMUX_IMAGE_EPOCH at bake time; older entries carry it in `notes` only (see manifestEntryEpoch). */
   epoch?: string;
   /** The layers the image carries and the digest of the sources they were baked from (devboxSourceDigest). Absent on older entries. */
@@ -994,6 +996,7 @@ export function manifestEntrySkeleton(
     // artifacts manifest; no cmuxd-remote build is baked.
     cmuxdRemoteCommit: "none-cmux-tui",
     repoCommit: metadata.repoCommit,
+    cmuxTuiStateProtection: "reserved-v1",
     epoch: metadata.epoch,
     devboxSource: metadata.devboxSource,
     builtAt: metadata.builtAt,

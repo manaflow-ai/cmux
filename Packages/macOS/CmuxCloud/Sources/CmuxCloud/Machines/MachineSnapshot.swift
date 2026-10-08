@@ -18,6 +18,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         stats: VMStats? = nil,
         usage: MachineUsageSnapshot? = nil,
         privateAddress: String? = nil,
+        cmuxTuiStateProtectionWarning: Bool = false,
         isPinned: Bool = false
     ) {
         self.id = id
@@ -34,6 +35,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         self.stats = stats
         self.usage = usage
         self.privateAddress = privateAddress
+        self.cmuxTuiStateProtectionWarning = cmuxTuiStateProtectionWarning
         self.isPinned = isPinned
     }
 
@@ -87,6 +89,8 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
     public var privateAddress: String?
+    /// True when the backend cannot prove that cmux-tui state has reserved disk space.
+    public var cmuxTuiStateProtectionWarning: Bool = false
     /// True when the user explicitly pinned this machine in the Cloud tree.
     public var isPinned: Bool = false
     /// Coding-agent update setting; nil when the server predates it.

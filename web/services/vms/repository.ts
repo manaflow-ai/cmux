@@ -401,6 +401,8 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
+    /** Provider metadata known before allocation (for example image contracts). */
+    readonly providerMetadata?: Record<string, unknown>;
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
     readonly displayName?: string | null;
@@ -2017,11 +2019,14 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 displayName: input.displayName ?? null,
                 idempotencyKey,
                 agentUpdates: storedAgentUpdates(input.agentUpdates),
-                providerMetadata: reservationMetadataForInput(
-                  input.resourceReservation,
-                  input.forkPending,
-                  input.forkMinimumResourceReservation ?? input.resourceReservation,
-                ),
+                providerMetadata: {
+                  ...reservationMetadataForInput(
+                    input.resourceReservation,
+                    input.forkPending,
+                    input.forkMinimumResourceReservation ?? input.resourceReservation,
+                  ),
+                  ...providerMetadataPatchForPersistence(input.providerMetadata),
+                },
                 slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
               .returning();
