@@ -426,7 +426,8 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h",
-        "schemas/agent-url-policy/vectors.json"
+        "schemas/agent-url-policy/vectors.json",
+        "schemas/local-file-handoff/vectors.json"
       ]
     },
     "CmuxNextCloud": {
