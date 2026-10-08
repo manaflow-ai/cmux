@@ -523,6 +523,7 @@
       ],
       "packages": [],
       "reads": [
+        "Resources/bin/",
         "cmux-tui/spec/fixtures/terminal-snapshot-dogfood-png.jsonl",
         "plans/cmux-next/daemon-capabilities.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
