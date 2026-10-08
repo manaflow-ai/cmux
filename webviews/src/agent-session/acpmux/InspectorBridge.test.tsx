@@ -117,6 +117,31 @@ test("Show ACP Inspector toggles the inspector through the page bridge and repor
   }
 });
 
+test("the inspector bridge stays closed on quick and new-tab surfaces", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  try {
+    for (const ready of [
+      { protocolVersion: 1, transport: "test", surface: "quick" },
+      { protocolVersion: 1, transport: "test", newTab: { layout: "a", kind: "agent" } },
+    ]) {
+      host.cmuxAcpmuxActions = { ready: async () => ready };
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      let open = false;
+      await act(async () => {
+        open = host.cmuxAcpmuxBridge!.toggleInspector();
+      });
+      expect(open).toBe(false);
+      expect(container.querySelector(".acpmux-inspector")).toBeNull();
+      await act(async () => root.render(createElement("div")));
+      delete host.cmuxAcpmuxActions;
+    }
+  } finally {
+    await act(async () => root.unmount());
+    delete host.cmuxAcpmuxActions;
+  }
+});
+
 test("a native save resolves saved, cancelled, or unavailable when the host cannot save", async () => {
   const posted: { method: string; params: Record<string, unknown> }[] = [];
   const reply = (value: unknown) => {
