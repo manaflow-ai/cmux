@@ -57,6 +57,25 @@ enum SidebarMembership {
         return result
     }
 
+    /// `sections` without the `hidden` workspaces (those the sidebar's top
+    /// region shows as tiles or top rows). Groups stay, like `pinnedFirst`.
+    static func hiding(_ sections: [SidebarRowSection], workspaces hidden: Set<String>) -> [SidebarRowSection] {
+        guard !hidden.isEmpty else { return sections }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.compactMap { node in
+                switch node {
+                case let .workspace(workspace):
+                    return hidden.contains(workspace.id.rawValue) ? nil : node
+                case var .group(group):
+                    group.workspaces.removeAll { hidden.contains($0.id.rawValue) }
+                    return .group(group)
+                }
+            }
+            return section
+        }
+    }
+
     /// The daemon root index for local index `localIndex` into `local` (the
     /// window's remaining workspaces of one machine, in order), given that
     /// machine's full remaining order `global`: before the workspace at that

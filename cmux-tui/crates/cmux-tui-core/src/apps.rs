@@ -42,6 +42,8 @@ mod open_tokens;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
+mod relay;
+#[cfg(unix)]
 mod routing;
 #[cfg(unix)]
 mod runs;

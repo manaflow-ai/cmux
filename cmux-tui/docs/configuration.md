@@ -291,7 +291,7 @@ The cloud connector runs `cmux provider control` and `cmux provider stream` remo
 | `browser.max_capture_megapixels` | number | `2.0` | Maximum browser capture size before downscaling, from 0.0 through 2.0 |
 | `browser.capture_scale` | number or null | `null` | Maximum capture scale from 0.0 through 1.0, reduced further when needed to stay under the megapixel limit |
 
-The compatibility keys `browser.chrome_binary`, `browser.mode`, `browser.discover`, `browser.discover_ports`, `browser.user_data_dir`, and `browser.ephemeral` are still accepted when reading older config files but no longer select or launch a browser. Production browser tabs wait for cmux-browser's connection-scoped provider lease. `browser.cdp_url` and `CMUX_MUX_CDP_URL` bypass that lease only for explicit development harnesses; neither path performs discovery or process launch.
+The compatibility keys `browser.chrome_binary`, `browser.mode`, `browser.discover`, `browser.discover_ports`, `browser.user_data_dir`, and `browser.ephemeral` are still accepted, with any value, when reading older config files, and are ignored: they never select or launch a browser, and a stale value never discards the live `browser` keys beside them. Production browser tabs wait for cmux-browser's connection-scoped provider lease. `browser.cdp_url` and `CMUX_MUX_CDP_URL` bypass that lease only for explicit development harnesses; neither path performs discovery or process launch.
 
 ## Pane
 
@@ -360,7 +360,7 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | `server.ws_token` | string | unset | Adds a static-token bypass for interactive TUI pairing |
 | `server.detached_owner` | boolean | `true` | Plain `cmux` starts or reuses a detached headless session owner and attaches as a client, so the session survives every client detaching. `false` hosts the session inside the first TUI process |
 
-WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
+WebSocket clients pair through a six-digit browser/TUI comparison by default. Approve a pairing with `y` or the Approve button; Enter does not approve. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`, and every handshake keeps the Host and Origin checks: list the names clients use with `--ws-allow-host` and extra browser origins with `--ws-allow-origin`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
 ## Commands
 

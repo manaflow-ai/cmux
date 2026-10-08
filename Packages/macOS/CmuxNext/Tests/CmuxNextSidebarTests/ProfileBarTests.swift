@@ -6,15 +6,48 @@ import Testing
 @Suite struct ProfileBarTests {
     private let a = ProfileKey("default"), b = ProfileKey("prof_b"), c = ProfileKey("prof_c")
 
-    @Test func dotsStayCenteredAndThePlusTrailsThem() {
-        #expect(ProfileBarLogic.slotXs(count: 2, slot: 10, width: 100) == [40, 50, 60])
-        #expect(ProfileBarLogic.slotXs(count: 3, slot: 10, width: 100) == [35, 45, 55, 65])
+    /// cx-5k3r: the strip centers on `center`, clamped into the bar; the
+    /// "+" sits at the trailing edge and is not part of the centering.
+    @Test func theStripCentersAndThePlusStaysAtTheTrailingEdge() {
+        func strip(_ count: Int, center: Double, width: Double = 200, active: Int? = 0) -> SpaceStrip {
+            ProfileBarLogic.strip(count: count, active: active, width: width, center: center, slot: 20, plus: 20,
+                                  fullMinimum: 15, compactMinimum: 8)
+        }
+        let three = strip(3, center: 100)
+        #expect(three.slots.map(\.x) == [70, 90, 110] && three.slots.allSatisfy { $0.width == 20 })
+        #expect(three.midX == 100 && !three.compact)
+        #expect(three.plus.x == 180 && three.plus.width == 20)
+        // Clamped: a center near an edge never pushes a dot out or under the "+".
+        #expect(strip(3, center: 10).slots.first?.x == 0)
+        #expect(strip(3, center: 190).slots.last.map { $0.x + $0.width } == 180)
+        // Too many for full slots: every slot narrows evenly while it can.
+        let ten = strip(10, center: 100)
+        #expect(!ten.compact && ten.slots.allSatisfy { $0.width == 18 } && ten.slots.first?.x == 0)
+        // Then compact: the active space keeps a full slot, the others share the rest.
+        let many = strip(19, center: 100, active: 4)
+        #expect(many.compact && many.slots[4].width == 20 && many.slots[0].width == 160.0 / 18)
+        #expect(abs((many.slots.last.map { $0.x + $0.width } ?? 0) - 180) < 0.001)
     }
 
     @Test func hiddenWithOneRoom() {
         #expect(!ProfileBarLogic.isVisible(profileCount: 0))
         #expect(!ProfileBarLogic.isVisible(profileCount: 1))
         #expect(ProfileBarLogic.isVisible(profileCount: 2))
+    }
+
+    /// Coordinator (2026-10-06): one space drew a stray dot above the footer. The bar stays
+    /// mounted (stable chrome), but a lone dot switches nothing, so it draws only with the "+"
+    /// while the pointer is over the bar.
+    @MainActor @Test func aLoneSpaceDrawsNoDotAtRest() {
+        let model = SidebarModel()
+        model.profiles = [SidebarProfile(id: a, name: "Default")]
+        let bar = ProfileBarView(model: model)
+        #expect(bar.drawnDotCount == 0)
+        bar.setPointerInside(true)
+        #expect(bar.drawnDotCount == 1, "hover shows it with the + for a new space")
+        bar.setPointerInside(false)
+        model.profiles.append(SidebarProfile(id: b, name: "Work"))
+        #expect(bar.drawnDotCount == 2)
     }
 
     @Test func stepClampsAtTheEnds() {

@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -19,6 +18,8 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     private(set) var controller: OnboardingWindowController?
+    /// The cookie import card on browser pages (cx-367y).
+    private(set) lazy var cookiePrompt = CookieImportPromptService(services: services)
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
@@ -27,9 +28,8 @@ final class OnboardingService {
     /// Shows onboarding on the first launch even in a no-activate test launch.
     static let forceKey = "CMUX_NEXT_ONBOARDING"
 
-    /// The cmux-cua socket the computer use step reads (CMUX_NEXT_CUA_SOCKET,
-    /// else cmux-cua's default). Tests point it at their own socket.
-    var computerUseConfiguration = AgentActivitySocketSource.Configuration.standard(machineName: "")
+    /// Computer Use Setup: the helper's grants for the palette action, Settings and this step.
+    private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
     /// Whether an open window can show `step`: it already has that step (or
     /// no step was asked for). Otherwise the window is rebuilt for the step.
@@ -135,11 +135,21 @@ final class OnboardingService {
     }
 
     /// Opens onboarding at `step` (or brings the open one to that step).
-    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil) {
+    /// `importKinds` checks only those kinds on the import step and
+    /// `importTarget` names the cmux browser profile they go into (the cookie
+    /// import card: cookies, into the tab's profile); without kinds the step
+    /// makes one profile per source.
+    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil,
+              importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
         var interrupted: OnboardingModel.Step?
         if let controller {
             if resume == nil, Self.reusesWindow(showing: controller.model.steps, for: step) {
                 if let step { controller.model.go(to: step) }
+                if let importKinds {
+                    controller.model.importer.preset(kinds: importKinds, into: importTarget)
+                } else {
+                    controller.model.importer.resetTarget()
+                }
                 controller.present()
                 return
             }
@@ -148,10 +158,11 @@ final class OnboardingService {
             // leaves the first run unfinished (never skipped); it continues
             // at its step when this window closes.
             if controller.model.isFirstRun { interrupted = controller.model.step }
-            controller.close()
+            controller.closeForRebuild()
             self.controller = nil
         }
         let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step, resumingFirstRunAt: resume)
+        if let importKinds { model.importer.preset(kinds: importKinds, into: importTarget) }
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self] in
             self?.controller = nil
@@ -168,9 +179,28 @@ final class OnboardingService {
     }
 
     /// The first run is at `step`: kept so a relaunch resumes it there.
-    func recordProgress(_ step: OnboardingModel.Step) {
+    func recordProgress(_ step: OnboardingModel.Step, interacted: Bool) {
         let state = state
-        write("onboarding progress") { try state.markProgress(step) }
+        write("onboarding progress") { try state.markProgress(step, interacted: interacted) }
+    }
+
+    /// The person closed the first run ("not now"): it comes back on the
+    /// next `OnboardingStateFile.notNowLaunches` launches, then only through
+    /// Continue Setup.
+    func recordNotNow() {
+        let state = state
+        write("onboarding not now") { try state.markNotNow() }
+    }
+
+    /// Continue Setup (Help menu, palette, Settings): the first run at its
+    /// saved step, or from its start when none is saved.
+    func continueSetup() {
+        let state = state
+        // task-owner: one small file read, then the window opens
+        Task { [weak self] in
+            let resume = await Task.detached { state.resumeStep() }.value
+            self?.show(resumingFirstRunAt: resume)
+        }
     }
 
     /// First launch: show once the first window is up. A no-activate launch
@@ -181,10 +211,15 @@ final class OnboardingService {
         let state = state
         // task-owner: one-shot launch check; ends after one file read
         Task { [weak self] in
-            let (needed, resume) = await Task.detached { (state.needsOnboarding(), state.resumeStep()) }.value
-            guard needed, let self, !self.isShowing else { return }
-            // An unfinished first run (quit, crash, new build) resumes at its step.
-            show(resumingFirstRunAt: resume)
+            let decision = await Task.detached { state.takeLaunchShow() }.value
+            guard let self, !self.isShowing else { return }
+            switch decision {
+            case .start: show()
+            // An unfinished first run (quit, crash, new build, or a "not now"
+            // with launches left) resumes at its step.
+            case .resume(let step): show(resumingFirstRunAt: step)
+            case .none: break
+            }
         }
     }
 

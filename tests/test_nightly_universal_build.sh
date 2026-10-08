@@ -35,6 +35,18 @@ if ! awk '
 fi
 
 if ! awk '
+  /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
+  in_build && /^      - name:/ { in_build=0 }
+  in_build && /notary_test_flags=\(build\)/ { saw_default=1 }
+  in_build && /notary_test_flags=/ && /OTHER_SWIFT_FLAGS/ && /build\)/ { saw_notary=1 }
+  in_build && /"\$\{notary_test_flags\[@\]\}" build/ { saw_unsafe_empty_expansion=1 }
+  END { exit !(saw_default && saw_notary && !saw_unsafe_empty_expansion) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must make notary-test xcodebuild arguments non-empty under bash -u"
+  exit 1
+fi
+
+if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
   /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
@@ -387,8 +399,9 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must always build the universal download alongside the thin update tracks"
+# nightly-next ships arm64 only (tests/test_nightly_next_arm64_only.py); main's nightly keeps all three.
+if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: main's nightly must always build the universal download alongside the thin update tracks"
   exit 1
 fi
 
@@ -421,6 +434,21 @@ if ! awk '
   echo "FAIL: nightly must smoke-launch the signed app before paying the Apple notarization wait"
   exit 1
 fi
+
+# Published nightly-next must hand Apple the signed DMG asynchronously and
+# retain state for continuation. It cannot run distribution policy, appcast or
+# release publication from the unaccepted build job.
+for expected in \
+  "id: notarize-nightly" \
+  "CMUX_NOTARY_SUBMIT_ONLY: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}" \
+  "- name: Prepare pending notarization recovery artifact" \
+  "- name: Upload pending notarization recovery artifact" \
+  "needs.decide.outputs.track != 'nightly-next'"; do
+  if ! grep -Fq -- "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: nightly-next recovered notarization contract is missing: $expected"
+    exit 1
+  fi
+done
 
 RELEASE_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/release.yml"
 if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Use' "$RELEASE_WORKFLOW_FILE"; then
@@ -667,13 +695,14 @@ if ! awk '
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
   in_publish && /publish-release-assets\.py/ { saw_publisher=1 }
-  in_publish && /--immutable .*arm64-.*NIGHTLY_BUILD/ { saw_immutable_arm=1 }
-  in_publish && /--immutable .*x86_64-.*NIGHTLY_BUILD/ { saw_immutable_intel=1 }
-  in_publish && /--immutable .*universal-.*NIGHTLY_BUILD/ { saw_immutable_universal=1 }
-  in_publish && /--alias .*CHANNEL_DMG_PREFIX.*\.dmg/ { alias_count++ }
-  in_publish && /--feed nightly-out\/appcast/ { feed_count++ }
-  END { exit !(saw_publish_if && saw_publisher && saw_immutable_arm && saw_immutable_intel && saw_immutable_universal && alias_count == 4 && feed_count == 4) }
-' "$WORKFLOW_FILE"; then
+  # Main publishes every variant, four aliases and the four feeds decide lists;
+  # nightly-next publishes arm64 only (tests/test_nightly_next_arm64_only.py).
+  in_publish && /variants=\(arm64 x86_64 universal\)/ { saw_all_variants=1 }
+  in_publish && /--immutable .*CHANNEL_DMG_PREFIX.*-\$\{variant\}-\$\{NIGHTLY_BUILD\}\.dmg/ { saw_immutable_variants=1 }
+  in_publish && /aliases=\(.*-arm64\.dmg.*-x86_64\.dmg.*-universal\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg"\)/ { saw_four_aliases=1 }
+  in_publish && /for feed in \$NIGHTLY_FEEDS/ { saw_feeds=1 }
+  END { exit !(saw_publish_if && saw_publisher && saw_all_variants && saw_immutable_variants && saw_four_aliases && saw_feeds) }
+' "$WORKFLOW_FILE" || ! grep -Fq ": ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];" "$WORKFLOW_FILE"; then
   echo "FAIL: nightly publication must verify every architecture and publish all aliases before the four feeds"
   exit 1
 fi
@@ -717,7 +746,7 @@ if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.track != 'nightly-next' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true'" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi

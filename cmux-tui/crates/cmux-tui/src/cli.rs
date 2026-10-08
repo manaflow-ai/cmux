@@ -19,7 +19,14 @@ mod command;
 mod docs;
 mod extra_help;
 mod federation;
+#[cfg(unix)]
+mod frontend_browser;
+#[cfg(unix)]
+mod host_mount;
 mod lifecycle;
+#[cfg(unix)]
+#[cfg(unix)]
+pub(crate) use host_mount::early_unix_scope;
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
@@ -856,6 +863,8 @@ const PAIRING_HELP: &str = "\
 USAGE
   cmux pairing request list
   cmux pairing request <selector> respond <accept|reject>
+
+  accept works only from the cmux app or the TUI that runs the daemon.
 ";
 
 const PROJECTION_HELP: &str = "\

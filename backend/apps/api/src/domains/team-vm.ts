@@ -121,6 +121,8 @@ export const teamVmDomain: Domain<TeamVmState> = {
         if (!d.ok) return d
         // Only the current VM may bind, and only once per epoch (a second install for the same epoch is refused).
         if (state.vm === null || d.value.epoch !== state.epoch) return reject("team_vm.stale_epoch", "bind is for another epoch")
+        // The bind names the VM it proved (vm-image.md 6b): a bind for another VM of this epoch is refused.
+        if (d.value.vm !== undefined && d.value.vm !== state.vm) return reject("team_vm.stale_epoch", "bind is for another VM")
         if (state.vm_install && state.vm_install !== d.value.install) return reject("team_vm.already_bound", "this epoch's VM install is already bound")
         if (state.vm_install === d.value.install) return { ok: true, state, value: { install: d.value.install, epoch: state.epoch }, changed: false }
         return { ok: true, state: { ...state, vm_install: d.value.install, updated_at: ctx.now }, value: { install: d.value.install, epoch: state.epoch } }

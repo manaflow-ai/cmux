@@ -19,10 +19,23 @@ pub struct AdoptRequest {
     pub harness: Option<String>,
     /// The harness's own session id.
     pub agent_session_id: String,
+    /// What to do when the session is live in another process (`adopt_live`).
+    pub if_live: IfLive,
+}
+
+/// `adopt.ifLive`: a chat live in another process is refused (the
+/// default), forked into a new chat (Claude Code only), or opened anyway.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IfLive {
+    #[default]
+    Refuse,
+    Fork,
+    Open,
 }
 
 impl AdoptRequest {
-    /// Reads `{harness, agentSessionId}`; `None` when absent, an error when malformed.
+    /// Reads `{harness, agentSessionId, ifLive?}`; `None` when absent, an
+    /// error when malformed.
     pub fn from_meta(meta: Option<&Value>) -> Result<Option<Self>, String> {
         let Some(adopt) = meta.and_then(|m| m.get("adopt")) else { return Ok(None) };
         let id = adopt
@@ -30,7 +43,15 @@ impl AdoptRequest {
             .and_then(Value::as_str)
             .ok_or("adopt needs agentSessionId")?;
         let harness = adopt.get("harness").and_then(Value::as_str).map(str::to_owned);
-        Ok(Some(Self { harness, agent_session_id: id.to_owned() }))
+        let if_live = match adopt.get("ifLive").and_then(Value::as_str) {
+            None | Some("refuse") => IfLive::Refuse,
+            Some("fork") => IfLive::Fork,
+            Some("open") => IfLive::Open,
+            Some(other) => {
+                return Err(format!("adopt ifLive {other:?} is not refuse, fork or open"));
+            }
+        };
+        Ok(Some(Self { harness, agent_session_id: id.to_owned(), if_live }))
     }
 }
 
@@ -185,10 +206,18 @@ mod tests {
         let req = AdoptRequest::from_meta(Some(&meta)).unwrap().unwrap();
         assert_eq!(
             req,
-            AdoptRequest { harness: Some("claude".into()), agent_session_id: CLAUDE_ID.into() }
+            AdoptRequest {
+                harness: Some("claude".into()),
+                agent_session_id: CLAUDE_ID.into(),
+                if_live: IfLive::Refuse,
+            }
         );
         assert_eq!(AdoptRequest::from_meta(Some(&json!({}))).unwrap(), None);
         assert!(AdoptRequest::from_meta(Some(&json!({"adopt": {"harness": "claude"}}))).is_err());
+        let fork = json!({"adopt": {"agentSessionId": CLAUDE_ID, "ifLive": "fork"}});
+        assert_eq!(AdoptRequest::from_meta(Some(&fork)).unwrap().unwrap().if_live, IfLive::Fork);
+        let bad = json!({"adopt": {"agentSessionId": CLAUDE_ID, "ifLive": "steal"}});
+        assert!(AdoptRequest::from_meta(Some(&bad)).is_err());
     }
 
     #[test]

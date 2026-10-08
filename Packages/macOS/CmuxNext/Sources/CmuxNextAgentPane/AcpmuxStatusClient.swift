@@ -26,6 +26,16 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxStatus(result)
     }
 
+    /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
+    /// (nil when the answer is not a plan this build reads).
+    @concurrent static func chatOpen(socketPath: String, key: String, cwd: String? = nil,
+                                     deadline: Duration = .seconds(2)) async throws -> AcpmuxChatOpenPlan? {
+        var params: [String: any Sendable] = ["key": key]
+        if let cwd { params["cwd"] = cwd }
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_open", params: params, deadline: deadline)
+        return AcpmuxChatOpenPlan(result: result)
+    }
+
     /// `_acpmux/shutdown`: the daemon stops; agents under agent hosts keep
     /// running for the next daemon. With `endAgents` (Quit Everything) they
     /// end, except the agents of `keepSessions`.
@@ -54,6 +64,16 @@ nonisolated enum AcpmuxStatusClient {
               let fields = result["modeFields"] as? [String], let free = result["freeConfigIds"] as? [String] else { return nil }
         return AcpmuxWebModes(modeFields: Set(fields), freeConfigIds: Set(free),
                               asks: (result["session"] as? [String: Any])?["asks"] as? Bool)
+    }
+
+    /// `_acpmux/harness_enable {folder, id}` without sha256 (unix socket): the Enable harness
+    /// prompt. Writes nothing. Nil when the daemon refuses (no trusted answer, an invalid file, no
+    /// such profile) or cannot answer.
+    @concurrent static func harnessEnablePrompt(socketPath: String, folder: String, id: String,
+                                                deadline: Duration = .seconds(5)) async -> AgentPaneHarnessEnablePrompt? {
+        guard let result = try? await call(socketPath: socketPath, method: "_acpmux/harness_enable",
+                                           params: ["folder": folder, "id": id], deadline: deadline) else { return nil }
+        return AgentPaneHarnessEnablePrompt(result: result)
     }
 
     private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],

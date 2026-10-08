@@ -91,6 +91,9 @@ public nonisolated struct PageNativeOp {
     public nonisolated init() {}
     /// Runs a registry action in the app with origin `user`: `{action, args}`.
     public static let actionRun = "cmux.app.action.run"
+    /// The refusal of a person-only action (``ActionDescriptor/isPersonOnly``) that a page asked
+    /// for without a real click or key in the page view.
+    public static let userOnlyCode = "cmux.app.user_only"
     /// Writes text to the pasteboard: `{text}`.
     public static let clipboardWrite = "cmux.app.clipboard.write"
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
@@ -129,7 +132,9 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration"])
+                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration",
+                  // Agents > Computer Use card (ComputerUseSetup).
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
             .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop"], ownsSearchField: true)
 

@@ -40,12 +40,16 @@ pub const DAEMON_OWNED_ENV_KEYS: [&str; 12] = [
 
 /// Ghostty shell-integration keys. The daemon owns them only when it
 /// integrates the default shell itself.
-pub const INTEGRATION_OWNED_ENV_KEYS: [&str; 5] = [
+pub const INTEGRATION_OWNED_ENV_KEYS: [&str; 8] = [
     "GHOSTTY_ZSH_ZDOTDIR",
     "GHOSTTY_BASH_ENV",
     "GHOSTTY_BASH_INJECT",
     "GHOSTTY_BASH_UNEXPORT_HISTFILE",
     "GHOSTTY_SHELL_INTEGRATION_XDG_DIR",
+    // The app's bundled-CLI layer over the injection (`shell_integration::cli_path`).
+    "CMUX_CLI_ZSH_ZDOTDIR",
+    "CMUX_CLI_BASH_ENV",
+    "CMUX_CLI_FISH_XDG_DIR",
 ];
 
 /// The daemon's socket keys for every terminal it creates: `CMUX_TUI_SOCKET`

@@ -25,6 +25,10 @@ mod cloud_conversations_backend;
 mod coderouter_usage;
 mod config;
 mod headless;
+mod local_actor;
+mod private_mode;
+#[cfg(unix)]
+mod signal_sender;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
@@ -71,6 +75,7 @@ mod remote_cli {
         1
     }
 }
+mod owner_start;
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
@@ -138,20 +143,6 @@ unsafe extern "C" {
     static mut environ: *mut *mut libc::c_char;
 }
 
-#[cfg(unix)]
-extern "C" fn handle_signal(_: libc::c_int) {
-    SHUTDOWN_REQUESTED.store(true, Ordering::Release);
-    let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
-    if writer >= 0 {
-        let byte = 1_u8;
-        // SAFETY: write(2) is async-signal-safe, `writer` is a process-lifetime
-        // socket descriptor, and the one-byte source remains valid for the call.
-        unsafe {
-            let _ = libc::write(writer, std::ptr::from_ref(&byte).cast(), 1);
-        }
-    }
-}
-
 pub(crate) fn shutdown_requested() -> bool {
     SHUTDOWN_REQUESTED.load(Ordering::Acquire)
 }
@@ -176,7 +167,7 @@ fn install_signal_handlers() -> io::Result<()> {
     SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
+        action.sa_sigaction = signal_sender::handle_signal as *const () as libc::sighandler_t;
         if libc::sigemptyset(&mut action.sa_mask) != 0 {
             SIGNAL_WAKE_READER.store(-1, Ordering::Release);
             SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
@@ -185,7 +176,8 @@ fn install_signal_handlers() -> io::Result<()> {
         // Termination must interrupt startup and teardown syscalls. In
         // particular, reopening `/dev/tty` can block forever after the host
         // PTY disappears if the handler is installed with SA_RESTART.
-        action.sa_flags = 0;
+        // SA_SIGINFO names the sender (cx-0tgl LA).
+        action.sa_flags = libc::SA_SIGINFO;
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
                 SIGNAL_WAKE_READER.store(-1, Ordering::Release);
@@ -1670,9 +1662,8 @@ fn run_main() {
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
-    #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
-        client_log::exit(agent_browser_provider::run());
+    if let Some(code) = private_mode::run(&raw_args) {
+        client_log::exit(code);
     }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
@@ -1695,9 +1686,9 @@ fn run_main() {
         client_log::exit(acp::run(args));
     }
     #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("link") {
+    if let Some(run) = cli::early_unix_scope(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(link::run(&raw_args[1..]));
+        client_log::exit(run(&raw_args[1..]));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
@@ -2103,9 +2094,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
-    if args.ephemeral && args.state.is_some() {
-        anyhow::bail!("--ephemeral and --state are mutually exclusive");
-    }
+    owner_start::prepare(args.ephemeral, args.state.is_some())?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2117,7 +2106,7 @@ fn run_server(
         );
     }
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
-    let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
+    let ws_token = headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
@@ -2156,7 +2145,6 @@ fn run_server(
     ) {
         return start_detached_owner_session(args, config, socket_path);
     }
-
     #[cfg(unix)]
     let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {
         let relays =
@@ -2182,6 +2170,7 @@ fn run_server(
         (Vec::new(), None, None)
     };
 
+    localization::terminal_respawn::install();
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     surface_options.scrollback = config.scrollback_limit_bytes();

@@ -38,6 +38,8 @@ public struct SidebarMapping {
                     name: group.name,
                     color: color(group.color) ?? .grey,
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
+                    isPinned: group.pinned,
+                    icon: group.icon.flatMap { WorkspaceIcon.parse($0) },
                     workspaces: rows
                 )))
             } else {
@@ -75,7 +77,7 @@ public struct SidebarMapping {
             pullRequest: Self.entry(Self.pullRequestKey, in: entries),
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
-            agentWorking: tabs.contains { $0.agent?.state == .working },
+            agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
             icon: Self.icon(color: workspace.color, icon: workspace.icon),
             kind: kind(front),
             kindBrand: AgentBrandCatalog.brand(for: front?.agentSession?.harness ?? front?.agent?.agent)?.rawValue,

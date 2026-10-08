@@ -68,38 +68,35 @@ fn harness_with(settings: impl FnOnce(&std::path::Path) -> Settings) -> Harness 
     Harness::configured(dir, default_script(), owner(), s, Arc::new(|_: &str| {}))
 }
 
+/// Spec 3.3 (gist 3c190e0): the view goes in blocks of 4 lines, one marker
+/// on the last whole block; the system prompt is the constant text alone, so
+/// turns and compactions send the same one.
 #[test]
-fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_at_the_last_mark() {
+fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 1_200);
     let view = h.chat.render_view().text;
-    let marks = optchat_core::cache_marks(&view);
-    assert_eq!(
-        marks.len(),
-        3,
-        "a view past 100k characters: {}",
-        view.len()
-    );
+    let pieces = optchat_core::block_pieces(&view);
     h.connect();
     h.say("user_local", "where is project 7?");
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
-    // The turn names the turn preset, whose system prompt it set first.
     assert_eq!(inner.specs[0].preset.as_deref(), Some(TURN_PRESET));
-    let expected = format!("{}\n\n{}", claude_md(None), &view[..marks[0]]);
     assert_eq!(
         inner.prompt_sets,
-        vec![(TURN_PRESET.to_owned(), expected.clone())]
+        vec![(TURN_PRESET.to_owned(), claude_md(None))]
     );
-    assert_eq!(inner.systems[0].as_deref(), Some(expected.as_str()));
-    // The rest of the view, one marker on the piece ending at 100k, then
-    // the new message.
+    assert_eq!(inner.systems[0].as_deref(), Some(claude_md(None).as_str()));
     let blocks = &inner.prompts[0];
     let t = texts(blocks);
-    assert_eq!(t[..t.len() - 1].concat(), view[marks[0]..]);
+    assert_eq!(t[..t.len() - 1].concat(), view);
+    assert_eq!(t.len(), pieces.len() + 1);
     assert_eq!(t.last().unwrap(), "where is project 7?");
+    // The last whole block: the piece before the incomplete one.
     assert_eq!(markers(blocks), vec![t.len() - 3]);
+    let marked = &t[t.len() - 3];
+    assert_eq!(marked.lines().count(), optchat_core::BLOCK_LINES);
     assert_eq!(
         blocks[t.len() - 3]["cache_control"],
         json!({"type": "ephemeral"})
@@ -108,12 +105,11 @@ fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_
         *blocks,
         cached_layout(&claude_md(None), &view, "where is project 7?", true).blocks
     );
-    // The system prompt carries the instructions: no CLAUDE.md as well.
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
 
 #[test]
-fn consecutive_claude_turns_send_a_byte_identical_system_prompt_while_the_view_head_holds() {
+fn consecutive_claude_turns_find_the_last_turns_marker_within_the_lookback() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 1_200);
@@ -124,18 +120,13 @@ fn consecutive_claude_turns_send_a_byte_identical_system_prompt_while_the_view_h
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 2);
-    assert_eq!(inner.prompt_sets.len(), 2);
-    assert_eq!(
-        inner.prompt_sets[0], inner.prompt_sets[1],
-        "the cached prefix: same bytes in the second turn"
-    );
-    // The marked piece is the same text in both turns (it ends at 100k,
-    // before anything the first turn added at the tail).
-    let marked = |i: usize| {
-        let b = &inner.prompts[i];
-        b[markers(b)[0]]["text"].as_str().unwrap().to_owned()
-    };
-    assert_eq!(marked(0), marked(1));
+    assert_eq!(inner.prompt_sets[0], inner.prompt_sets[1]);
+    // The second turn has the first turn's marked block at the same place,
+    // and its own marker at most 20 blocks later (the API's lookback).
+    let (a, b) = (&inner.prompts[0], &inner.prompts[1]);
+    let (ma, mb) = (markers(a)[0], markers(b)[0]);
+    assert_eq!(texts(a)[..=ma], texts(b)[..=ma]);
+    assert!(mb >= ma && mb - ma <= 20, "markers {ma} then {mb}");
 }
 
 #[test]
@@ -306,8 +297,8 @@ fn the_harness_is_one_setting_for_turns_and_the_compactor() {
     use optchat_chief::host::harness_choice;
     assert_eq!(
         harness_choice(None, None, None),
-        ("claude-sr".to_owned(), "claude-sr".to_owned()),
-        "our Claude Code ACP adapter, through the subrouter account pool"
+        ("claude".to_owned(), "claude".to_owned()),
+        "our Claude Code adapter on the user's own login, never the subrouter by default"
     );
     assert_eq!(
         harness_choice(Some("codex"), None, None),
@@ -454,6 +445,58 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     let flags = optchat_chief::cli::Flags::default();
     let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
     assert!(child.tags.is_empty(), "{:?}", child.tags);
+}
+
+#[test]
+fn the_default_is_the_users_login_or_the_configured_coderouter_route() {
+    use optchat_chief::host::{DEFAULT_HARNESS, default_harness};
+    // `MUX_HARNESS` unset in the test process: the child takes the default.
+    let flags = optchat_chief::cli::Flags::default();
+    if std::env::var_os("MUX_HARNESS").is_none() {
+        let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
+        assert_eq!(child.harness, DEFAULT_HARNESS);
+    }
+    // No route configured (acpmux has no claude-cr): the user's own login,
+    // never the subrouter even when it is installed.
+    let plain = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
+    }});
+    assert_eq!(default_harness(&plain), "claude");
+    let admitted = optchat_chief::harness_gate::admit(&plain, default_harness(&plain)).unwrap();
+    assert_eq!(admitted.argv0, "/u/bin/claude");
+    // A configured route: the Chief uses it.
+    let routed = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/coderouter", "team-route"]},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
+    }});
+    assert_eq!(default_harness(&routed), "claude-cr");
+    let admitted = optchat_chief::harness_gate::admit(&routed, "claude-cr").unwrap();
+    assert_eq!(admitted.profile, "claude-cr");
+    // A configured route acpmux could not run: refused with its reason
+    // (posted in the Chief chat), never a silent move to another account.
+    let down = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/cr", "team-route"],
+                      "unavailable": "`cr team-route --version` failed: unknown command"},
+    }});
+    assert_eq!(default_harness(&down), "claude-cr");
+    let refused = optchat_chief::harness_gate::admit(&down, "claude-cr").unwrap_err();
+    assert!(
+        refused.contains("unavailable") && refused.contains("unknown command"),
+        "{refused}"
+    );
+    let shown = optchat_chief::harness_gate::refusal(&refused);
+    assert!(shown.starts_with("refused: "), "{shown}");
+    assert!(!shown.contains("Authentication"), "{shown}");
+    // The subrouter still answers when it is asked for by name.
+    assert_eq!(
+        optchat_chief::harness_gate::admit(&routed, "claude-sr")
+            .unwrap()
+            .profile,
+        "claude-sr"
+    );
 }
 
 /// Live check 2026-10-04: acpmux records `turn_end` before it answers the

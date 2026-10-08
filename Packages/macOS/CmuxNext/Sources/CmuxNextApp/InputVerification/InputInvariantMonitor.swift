@@ -24,6 +24,8 @@ final class InputInvariantMonitor {
     private let store: DesyncReportStore
     private let tag: String?
     private var remaining = 0
+    /// A change was noted and its check has not run yet.
+    var isPending: Bool { remaining > 0 }
     /// Signatures seen at the last check, waiting for confirmation.
     private var suspected: Set<String> = []
     /// Signatures already reported and still broken.

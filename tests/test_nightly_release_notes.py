@@ -161,83 +161,94 @@ class SummaryTests(unittest.TestCase):
 
 
 class CollectionTests(unittest.TestCase):
-    def github(self, responses):
+    # The merged PRs of a published range are the PRs merged into the branch
+    # whose merge commit is in the range. They are read from the branch's merged
+    # PR list (newest update first, stopping a day before the base commit), not
+    # per commit: per-commit association queries timed out (HTTP 504) on the
+    # 1669-commit nightly-next range of run 37593192286, and run 37611677848 spent
+    # 29 of its 30 publish minutes on them before the job was cancelled.
+    BASE_DATE = "2026-10-05T12:00:00Z"
+
+    def compare(self, *shas, total=None, status="ahead"):
+        return {"status": status, "total_commits": len(shas) if total is None else total,
+                "commits": [{"sha": sha} for sha in shas],
+                "base_commit": {"commit": {"committer": {"date": self.BASE_DATE}}}}
+
+    def github(self, responses, pages):
         github = Mock(repo=REPO)
         github.rest.side_effect = responses
-        github.graphql.side_effect = self.route(github)
+        calls = []
+
+        def graphql(query):
+            calls.append(query)
+            after = re.search(r'after: "([^"]+)"', query)
+            index = int(after.group(1)) if after else 0
+            nodes, more = pages[index]
+            return {"pullRequests": {"pageInfo": {"hasNextPage": more, "endCursor": str(index + 1)},
+                                     "nodes": nodes}}
+
+        github.graphql.side_effect = graphql
+        github.calls = calls
         return github
 
-    def route(self, github, inner=None):
-        """Answer association queries from the test, and the follow-up
-        pullRequest(number:) detail queries from the PRs those returned."""
-        seen = {}
-
-        def call(query):
-            numbers = re.findall(r"(p\d+): pullRequest\(number: (\d+)\)", query)
-            if numbers:
-                return {alias: seen[int(number)] for alias, number in numbers}
-            result = inner(query) if inner else github.graphql.return_value
-            for obj in result.values():
-                for pr in ((obj or {}).get("associatedPullRequests") or {}).get("nodes", []):
-                    seen[pr["number"]] = pr
-            return result
-
-        return call
-
-    def associations(self, *prs, more=False):
-        return {"associatedPullRequests": {"pageInfo": {"hasNextPage": more}, "nodes": list(prs)}}
-
-    def merged(self, number, sha, branch="main", **kwargs):
+    def merged(self, number, sha, branch="main", updated="2026-10-06T12:00:00Z", **kwargs):
         return {**pull_request(number, f"fix: change {number}", **kwargs),
-                "baseRefName": branch, "mergeCommit": {"oid": sha}}
+                "baseRefName": branch, "mergeCommit": {"oid": sha}, "updatedAt": updated}
 
-    def test_collects_only_merged_prs_in_published_commit_range_and_deduplicates(self):
+    def test_collects_only_prs_merged_into_the_branch_inside_the_range(self):
         first, second, outside = "c" * 40, "d" * 40, "e" * 40
-        github = self.github([{"status": "ahead", "total_commits": 2,
-                               "commits": [{"sha": first}, {"sha": second}]}])
         expected = self.merged(10, second)
         unmerged = {**self.merged(13, first), "mergedAt": None, "mergeCommit": None}
-        github.graphql.return_value = {
-            "c0": self.associations(expected, self.merged(11, outside), unmerged),
-            "c1": self.associations(expected, self.merged(12, first, branch="release")),
-        }
+        github = self.github([self.compare(first, second)],
+                             [([expected, self.merged(11, outside), unmerged,
+                                self.merged(12, first, branch="release")], False)])
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
         github.rest.assert_called_once_with(f"compare/{BASE}...{HEAD}?per_page=100&page=1")
-        query = github.graphql.call_args_list[0].args[0]
-        # Membership is read cheaply; titles, labels and files only for kept PRs.
-        self.assertNotIn("files(first", query)
-        self.assertIn("pullRequest(number: 10)", github.graphql.call_args_list[-1].args[0])
-        self.assertIn(first, query)
-        self.assertIn(second, query)
+        self.assertIn('baseRefName: "main"', github.calls[0])
+        self.assertIn("states: MERGED", github.calls[0])
+        self.assertNotIn("associatedPullRequests", github.calls[0])
 
     def test_compare_pagination_does_not_lose_later_merged_prs(self):
         first, second = "c" * 40, "d" * 40
-        github = self.github([
-            {"status": "ahead", "total_commits": 2, "commits": [{"sha": first}]},
-            {"status": "ahead", "total_commits": 2, "commits": [{"sha": second}]},
-        ])
         expected = self.merged(10, second)
-        github.graphql.return_value = {"c0": self.associations(), "c1": self.associations(expected)}
+        github = self.github([self.compare(first, total=2), self.compare(second, total=2)],
+                             [([expected], False)])
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
         self.assertEqual([call.args[0] for call in github.rest.call_args_list],
                          [f"compare/{BASE}...{HEAD}?per_page=100&page={page}" for page in (1, 2)])
 
-    def test_batched_commit_queries_collect_later_prs(self):
-        shas = [f"{number:040x}" for number in range(1, 28)]
-        github = self.github([{"status": "ahead", "total_commits": len(shas),
-                               "commits": [{"sha": sha} for sha in shas]}])
-        expected = self.merged(10, shas[-1])
-
-        def graphql(query):
-            objects = re.findall(r'(c\d+): object\(oid: "([0-9a-f]{40})"\)', query)
-            self.assertGreater(len(objects), 0)
-            self.assertLessEqual(len(objects), 25)
-            return {alias: self.associations(expected) if sha == shas[-1] else self.associations()
-                    for alias, sha in objects}
-
-        github.graphql.side_effect = self.route(github, graphql)
+    def test_pages_while_prs_were_updated_after_the_base_commit(self):
+        sha = "c" * 40
+        expected = self.merged(10, sha, updated="2026-10-05T00:00:00Z")
+        github = self.github([self.compare(sha)],
+                             [([self.merged(20, "f" * 40, updated="2026-10-07T00:00:00Z")], True),
+                              ([expected], False)])
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
-        self.assertEqual(github.graphql.call_count, 3)
+        self.assertEqual(len(github.calls), 2)
+
+    def test_stops_paging_a_day_before_the_base_commit(self):
+        sha = "c" * 40
+        github = self.github([self.compare(sha)],
+                             [([self.merged(20, "f" * 40, updated="2026-10-04T00:00:00Z")], True),
+                              ([self.merged(10, sha)], False)])
+        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [])
+        self.assertEqual(len(github.calls), 1)
+
+    def test_a_branch_without_merged_prs_costs_one_query(self):
+        github = self.github([self.compare(*[f"{n:040x}" for n in range(1, 1700)], total=1699)], [([], False)])
+        github.rest.side_effect = [self.compare(*[f"{n:040x}" for n in range(1 + 100 * p, 101 + 100 * p)], total=1699)
+                                   for p in range(17)]
+        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "nightly-next"), [])
+        self.assertEqual(len(github.calls), 1)
+
+    def test_endless_pages_fail_instead_of_looping(self):
+        sha = "c" * 40
+        github = Mock(repo=REPO)
+        github.rest.side_effect = [self.compare(sha)]
+        github.graphql.return_value = {"pullRequests": {"pageInfo": {"hasNextPage": True, "endCursor": "x"},
+                                                        "nodes": [self.merged(1, "f" * 40, updated="2026-10-07T00:00:00Z")]}}
+        with self.assertRaisesRegex(RuntimeError, "merged PRs"):
+            NOTES.collect_prs(github, BASE, HEAD, "main")
 
     def test_identical_publication_needs_no_metadata_requests(self):
         github = Mock(repo=REPO)
@@ -246,79 +257,18 @@ class CollectionTests(unittest.TestCase):
         github.graphql.assert_not_called()
 
     def test_diverged_baseline_fails_instead_of_claiming_a_release_range(self):
-        github = self.github([{"status": "diverged", "total_commits": 1,
-                               "commits": [{"sha": "c" * 40}]}])
+        github = self.github([self.compare("c" * 40, status="diverged")], [])
         with self.assertRaisesRegex(RuntimeError, "ancestor"):
             NOTES.collect_prs(github, BASE, HEAD, "main")
         github.graphql.assert_not_called()
 
     def test_incomplete_compare_metadata_fails_instead_of_silently_omitting_prs(self):
-        github = self.github([{"status": "ahead", "total_commits": 1, "commits": []}])
+        github = self.github([self.compare(total=1)], [])
         with self.assertRaisesRegex(RuntimeError, "pagination"):
             NOTES.collect_prs(github, BASE, HEAD, "main")
 
-    def test_missing_associations_fail_instead_of_omitting_prs(self):
-        github = self.github([{"status": "ahead", "total_commits": 1,
-                               "commits": [{"sha": "c" * 40}]}])
-        github.graphql.return_value = {"c0": None}
-        with self.assertRaises(RuntimeError):
-            NOTES.collect_prs(github, BASE, HEAD, "main")
-
-    def test_commit_with_more_than_ten_associated_prs_pages_through_all_of_them(self):
-        # A main commit merged into feat-cmux-next is associated with every
-        # open PR that contains it. nightly-next run 37557900719 failed its
-        # publish on such a commit; the overflow is paged, not refused.
-        sha = "c" * 40
-        github = self.github([{"status": "ahead", "total_commits": 1, "commits": [{"sha": sha}]}])
-        noise = [{**self.merged(100 + n, "f" * 40), "mergedAt": None, "mergeCommit": None} for n in range(10)]
-        expected = self.merged(10, sha)
-        calls = []
-
-        def graphql(query):
-            calls.append(query)
-            if len(calls) == 1:
-                return {"c0": self.associations(*noise, more=True)}
-            after = re.search(r'after: "([^"]+)"', query)
-            if after is None:
-                return {"c0": {"associatedPullRequests": {
-                    "pageInfo": {"hasNextPage": True, "endCursor": "page-2"}, "nodes": noise}}}
-            self.assertEqual(after.group(1), "page-2")
-            return {"c0": {"associatedPullRequests": {
-                "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [expected]}}}
-
-        github.graphql.side_effect = self.route(github, graphql)
-        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
-        self.assertEqual(len(calls), 3)
-        self.assertIn(sha, calls[1])
-        self.assertIn("first: 100", calls[1])
-
-    def test_timed_out_batch_is_split_until_github_answers(self):
-        # nightly-next run 37593192286: a 25-commit association batch returned
-        # HTTP 504 and failed the publish. A transient 5xx splits the batch.
-        shas = [f"{number:040x}" for number in range(1, 5)]
-        github = self.github([{"status": "ahead", "total_commits": len(shas),
-                               "commits": [{"sha": sha} for sha in shas]}])
-        expected = self.merged(10, shas[-1])
-
-        def graphql(query):
-            objects = re.findall(r'(c\d+): object\(oid: "([0-9a-f]{40})"\)', query)
-            if len(objects) > 1:
-                raise NOTES.TransientGitHubError("HTTP 504")
-            alias, sha = objects[0]
-            return {alias: self.associations(expected) if sha == shas[-1] else self.associations()}
-
-        github.graphql.side_effect = self.route(github, graphql)
-        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
-
-    def test_single_commit_that_keeps_timing_out_fails(self):
-        github = self.github([{"status": "ahead", "total_commits": 1,
-                               "commits": [{"sha": "c" * 40}]}])
-        github.graphql.side_effect = NOTES.TransientGitHubError("HTTP 504")
-        with self.assertRaises(RuntimeError):
-            NOTES.collect_prs(github, BASE, HEAD, "main")
-
     def test_request_retries_a_transient_server_error(self):
-        responses = iter([(1, "", "gh: HTTP 504"), (0, '{"ok": true}', "")])
+        responses = iter([(1, "", "gh: HTTP 504"), (1, "", "unexpected end of JSON input"), (0, '{"ok": true}', "")])
 
         def run(*args, **kwargs):
             code, out, err = next(responses)
@@ -328,13 +278,13 @@ class CollectionTests(unittest.TestCase):
                 unittest.mock.patch.object(NOTES.time, "sleep"):
             self.assertEqual(NOTES.GitHub.request(["graphql"]), {"ok": True})
 
-    def test_endless_association_pages_fail_instead_of_looping(self):
-        github = self.github([{"status": "ahead", "total_commits": 1,
-                               "commits": [{"sha": "c" * 40}]}])
-        github.graphql.return_value = {"c0": {"associatedPullRequests": {
-            "pageInfo": {"hasNextPage": True, "endCursor": "again"}, "nodes": []}}}
-        with self.assertRaisesRegex(RuntimeError, "associated PRs"):
-            NOTES.collect_prs(github, BASE, HEAD, "main")
+    def test_request_fails_at_once_on_a_client_error(self):
+        with unittest.mock.patch.object(NOTES.subprocess, "run",
+                                        return_value=Mock(returncode=1, stdout="", stderr="gh: HTTP 403")), \
+                unittest.mock.patch.object(NOTES.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "metadata request failed"):
+                NOTES.GitHub.request(["graphql"])
+            sleep.assert_not_called()
 
 
 class AppcastTests(unittest.TestCase):
@@ -369,6 +319,21 @@ class AppcastTests(unittest.TestCase):
                     self.assertEqual(items[0].findtext("title"), old_items[0].findtext("title"))
                     self.assertEqual(items[0].find("enclosure").attrib, old_items[0].find("enclosure").attrib)
                     self.assertEqual(ET.tostring(items[1]), ET.tostring(old_items[1]))
+
+    def test_the_arm64_only_track_updates_its_one_feed(self):
+        """nightly-next publishes only the arm64 variant: one feed, and a missing one still fails."""
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            for name in APPCASTS[1:]:
+                (directory / name).unlink()
+            NOTES.update_appcasts(directory, "102", "Fresh notes", feeds=("appcast-arm64.xml",))
+            self.assertEqual(ET.parse(directory / "appcast-arm64.xml").findtext("channel/item/description"), "Fresh notes")
+            with self.assertRaises(RuntimeError):
+                NOTES.update_appcasts(directory, "102", "Fresh notes")
+            (directory / "appcast-arm64.xml").unlink()
+            with self.assertRaises(RuntimeError):
+                NOTES.update_appcasts(directory, "102", "Fresh notes", feeds=("appcast-arm64.xml",))
 
     def test_missing_feeds_fail_instead_of_silently_publishing_without_updater_notes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -472,6 +437,21 @@ class MetadataFallbackTests(unittest.TestCase):
             with unittest.mock.patch.object(NOTES, "GitHub", return_value=github), \
                     unittest.mock.patch.object(sys, "argv", argv), self.assertRaises(RuntimeError):
                 NOTES.main()
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_nightly_next_notes_read_prs_merged_into_feat_cmux_next(self):
+        # A nightly-next run is a push to the nightly-next branch, but its PRs
+        # merge into feat-cmux-next: with github.ref_name every publish listed
+        # 0 PRs (run 37611677848).
+        workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        step = workflow[workflow.index("- name: Prepare nightly release notes and appcast summaries"):]
+        step = step[:step.index("\n      - name:", 1)]
+        branch = re.search(r"NOTES_BRANCH: (.+)", step).group(1)
+        self.assertEqual(
+            branch,
+            "${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}",
+        )
 
 
 if __name__ == "__main__":

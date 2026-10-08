@@ -124,6 +124,21 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
+## `tabs.cmdWClosesPinnedTabs`
+
+What Cmd-W does on a pinned tab.
+
+```json
+{
+  "tabs": { "cmdWClosesPinnedTabs": true }
+}
+```
+
+- `false` (default): Cmd-W on a pinned tab selects the next tab and keeps the pinned tab, as in Chrome. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
+- `true`: Cmd-W closes a pinned tab like any other tab.
+
+A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.
@@ -215,6 +230,37 @@ Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, t
 - `tileBrowsers` (default `false`): with `split`, new browsers also get their own pane instead of a tab.
 
 The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
+
+## `workspaces.newPlacement`
+
+Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, and a tab moved to a new workspace.
+
+```json
+{
+  "workspaces": { "newPlacement": "top" }
+}
+```
+
+- `"top"` (default): first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
+- `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"bottom"`: after the last workspace that is not in a group.
+
+A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace in This Group. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement afterCurrent`.
+
+## `sidebar.groupByComputer`
+
+Whether the sidebar groups workspaces by computer.
+
+```json
+{
+  "sidebar": { "groupByComputer": false }
+}
+```
+
+- `false` (default): one list of workspaces with no computer headers. A workspace on another computer (a Cloud machine, an SSH host) shows that computer's name first on its second line. The Pinned section and your workspace groups stay.
+- `true`: a section per computer, each under a header you can collapse.
+
+Change it in **Settings > General > Sidebar** or with `cmux settings set sidebar.groupByComputer true`.
 
 ## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
 

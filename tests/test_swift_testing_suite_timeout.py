@@ -192,5 +192,145 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertIn("retrying ^ExampleTests\\.HangingSuite/ once", completed.stdout)
 
 
+    def test_a_failing_suite_does_not_stop_the_suites_after_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            calls = temp / "calls.txt"
+            fake_swift = temp / "swift"
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "if [[ \"$*\" == *\"test list\"* ]]; then\n"
+                "  echo 'ExampleTests.AFailingSuite/testOne()'\n"
+                "  echo 'ExampleTests.BHangingSuite/testTwo()'\n"
+                "  echo 'ExampleTests.CPassingSuite/testThree()'\n"
+                "  exit 0\n"
+                "fi\n"
+                "if [[ \"$*\" == *AFailingSuite* ]]; then\n"
+                "  echo 'Test run with 1 test failed after 0.001 seconds.'\n"
+                "  exit 17\n"
+                "fi\n"
+                "if [[ \"$*\" == *BHangingSuite* ]]; then\n"
+                "  sleep 30\n"
+                "fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
+            env["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] = "1"
+
+            completed = run_runner(package, env)
+
+            # The first failure's status, after every suite ran.
+            self.assertEqual(completed.returncode, 17, completed.stdout)
+            invocations = calls.read_text(encoding="utf-8").splitlines()
+            self.assertTrue(any("CPassingSuite" in call for call in invocations), invocations)
+            self.assertIn("Swift test suites: 1 passed, 2 failed", completed.stdout)
+            self.assertIn("FAIL (exit 17) ^ExampleTests\\.AFailingSuite/", completed.stdout)
+            self.assertIn("FAIL (timed out) ^ExampleTests\\.BHangingSuite/", completed.stdout)
+            self.assertIn("PASS ^ExampleTests\\.CPassingSuite/", completed.stdout)
+
+
+    def test_cmux_next_builds_the_web_bundles_before_the_swift_build(self) -> None:
+        """The bundles are build output (cx-vn5). Without them AgentPaneView.init returns nil
+        and the pane suites crash on the fleet (_setIgnoreFocusEngine, aws-m4pro-2 and -3)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            calls = temp / "calls.txt"
+            fake_swift = temp / "swift"
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'swift %s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "if [[ \"$*\" == *\"test list\"* ]]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            ensure = temp / "ensure"
+            ensure.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'ensure %s\\n' \"$PWD\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "exit \"${FAKE_ENSURE_STATUS:-0}\"\n",
+                encoding="utf-8",
+            )
+            ensure.chmod(0o755)
+            next_package = temp / "Packages" / "macOS" / "CmuxNext"
+            next_package.mkdir(parents=True)
+            other_package = temp / "Packages" / "macOS" / "CmuxCore"
+            other_package.mkdir(parents=True)
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
+            env["CMUX_ENSURE_WEB_BUNDLES"] = str(ensure)
+
+            completed = run_runner(next_package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            invocations = calls.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(invocations[0], f"ensure {ROOT}", invocations)
+            self.assertIn("test list", invocations[1])
+
+            calls.write_text("", encoding="utf-8")
+            completed = run_runner(other_package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertFalse(
+                [line for line in calls.read_text(encoding="utf-8").splitlines() if line.startswith("ensure")]
+            )
+
+            calls.write_text("", encoding="utf-8")
+            env["FAKE_ENSURE_STATUS"] = "3"
+            completed = run_runner(next_package, env)
+            self.assertNotEqual(completed.returncode, 0, completed.stdout)
+            self.assertEqual(calls.read_text(encoding="utf-8").splitlines(), [f"ensure {ROOT}"])
+
+    def test_string_catalogs_compile_after_the_build_and_before_the_suites(self) -> None:
+        """cx-v2k: swift build copies String Catalogs uncompiled, so QuitAlertContent,
+        RefusalLocalization, TerminalHostLossBanner, TerminalStatusBannerTranslation and
+        SettingsText failed on the fleet only (cmux-next.yml compiles them)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            calls = temp / "calls.txt"
+            fake_swift = temp / "swift"
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'swift %s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "if [[ \"$*\" == *\"test list\"* ]]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            compile_catalogs = temp / "compile"
+            compile_catalogs.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'compile %s\\n' \"$PWD\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "exit \"${FAKE_COMPILE_STATUS:-0}\"\n",
+                encoding="utf-8",
+            )
+            compile_catalogs.chmod(0o755)
+            package = temp / "ExampleTests"
+            (package / "Sources" / "Example" / "Resources").mkdir(parents=True)
+            (package / "Sources" / "Example" / "Resources" / "Localizable.xcstrings").write_text("{}", encoding="utf-8")
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
+            env["CMUX_COMPILE_STRING_CATALOGS"] = str(compile_catalogs)
+
+            completed = run_runner(package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            invocations = calls.read_text(encoding="utf-8").splitlines()
+            self.assertIn("test list", invocations[0])
+            self.assertEqual(invocations[1], f"compile {package.resolve()}", invocations)
+            self.assertIn("--skip-build", invocations[2])
+
+            calls.write_text("", encoding="utf-8")
+            env["FAKE_COMPILE_STATUS"] = "4"
+            completed = run_runner(package, env)
+            self.assertNotEqual(completed.returncode, 0, completed.stdout)
+            self.assertFalse([line for line in calls.read_text(encoding="utf-8").splitlines() if "--skip-build" in line])
+
 if __name__ == "__main__":
     unittest.main()

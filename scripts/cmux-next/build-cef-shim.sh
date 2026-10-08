@@ -88,6 +88,7 @@ done
   "$OUT_DIR/obj/shim/shim_extensions_ui.mm.o" "$OUT_DIR/obj/shim/shim_webstore.mm.o" \
   "$OUT_DIR/obj/shim/shim_cookie_import.mm.o" \
   "$OUT_DIR/obj/shim/shim_password_import.mm.o" "$OUT_DIR/obj/shim/shim_passkeys.mm.o" \
+  "$OUT_DIR/obj/shim/shim_password_core.mm.o" \
   "$OUT_DIR/obj/shim/shim_devtools_protocol.mm.o" "$OUT_DIR/obj/shim/shim_prefs.mm.o" \
   "$OUT_DIR/obj/shim/shim_page_scheme.mm.o" "$OUT_DIR/obj/shim/shim_downloads.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc

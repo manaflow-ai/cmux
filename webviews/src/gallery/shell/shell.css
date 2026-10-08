@@ -46,6 +46,22 @@ body {
   color: var(--g-text);
   font: inherit;
 }
+.gallery-browse-link {
+  display: block;
+  margin: 8px 2px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  color: var(--g-text);
+  text-decoration: none;
+  font-size: 12px;
+  text-align: center;
+}
+.gallery-browse-link:hover,
+.gallery-browse-link[aria-current="page"] {
+  background: var(--g-current);
+  border-color: var(--g-muted);
+}
 .gallery-group h2 {
   position: sticky;
   top: 50px;
@@ -187,6 +203,8 @@ body {
 }
 .gallery-segmented {
   display: inline-flex;
+  flex-wrap: wrap;
+  min-width: 0;
   gap: 8px;
   border: 1px solid var(--g-line);
   border-radius: 6px;
@@ -221,11 +239,25 @@ body {
   flex-direction: row;
   flex-wrap: wrap;
 }
+/* The all-variants view is a contact sheet: keep each preview at the same
+ * thumbnail width so the entry can be scanned without a long vertical stack. */
+.gallery-stages--variants {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.gallery-stages--variants .gallery-stage {
+  flex: 1 1 420px;
+  min-width: 0;
+  max-width: 100%;
+}
 .gallery-stage {
   margin: 0;
 }
 .gallery-stage figcaption {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: baseline;
   margin-bottom: 4px;
@@ -251,6 +283,105 @@ body {
   border: 1px solid var(--g-line);
   border-radius: 6px;
   background: transparent;
+}
+.gallery-browse {
+  padding: 16px 0 24px;
+}
+.gallery-browse-header {
+  margin-bottom: 14px;
+}
+.gallery-browse-header h1 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.gallery-browse-header p {
+  margin: 0;
+  max-width: 80ch;
+  color: var(--g-muted);
+}
+.gallery-browse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.gallery-browse-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--g-line);
+  border-radius: 8px;
+  background: var(--g-panel);
+}
+.gallery-browse-card-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+.gallery-browse-card-header h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.gallery-browse-card-header code {
+  display: block;
+  margin-top: 2px;
+  color: var(--g-muted);
+  font-size: 11px;
+}
+.gallery-browse-kind {
+  flex: 0 0 auto;
+  color: var(--g-muted);
+  font-size: 11px;
+}
+.gallery-browse-variants {
+  display: flex;
+  gap: 4px;
+  border: 0;
+  min-inline-size: 0;
+  margin: 0;
+  overflow-x: auto;
+  padding: 0 12px 8px;
+}
+.gallery-browse-variants button {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--g-line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--g-text);
+  font: inherit;
+  font-size: 11px;
+}
+.gallery-browse-variants button:hover,
+.gallery-browse-variants button.active {
+  background: var(--g-current);
+  border-color: var(--g-muted);
+}
+.gallery-browse-card .gallery-stage {
+  margin: 0;
+  overflow: hidden;
+}
+.gallery-browse-card .gallery-stage figcaption {
+  padding: 0 12px 6px;
+}
+.gallery-browse-card .gallery-stage figcaption strong {
+  display: none;
+}
+.gallery-browse-card .gallery-window {
+  max-width: 100%;
+  border-inline: 0;
+  border-radius: 0;
+}
+.gallery-browse-card-footer {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--g-line);
+  font-size: 11px;
+}
+.gallery-browse-card-footer a {
+  color: var(--g-muted);
 }
 .gallery-empty {
   padding: 24px;
@@ -336,7 +467,15 @@ main .gallery-entry-error {
   color: var(--g-muted);
 }
 /* Comparison previews keep their real thumbnail width; the shared picker scrolls the row. */
-.gallery .variant-pick-option { flex: 0 0 auto; }
+.gallery-stages--variants .variant-pick-options {
+  align-self: stretch;
+}
+.gallery-stages--variants .variant-pick-option {
+  flex: 1 0 220px;
+}
+.gallery-stages--variants .variant-pick-option .gallery-stage {
+  flex: 0 0 auto;
+}
 /* The compare view (CompareView.tsx): one cell per experiment arm, same size and scale. */
 .gallery-compare-bar {
   display: flex;
@@ -438,4 +577,135 @@ main .gallery-entry-error {
 .gallery-compare-measure {
   font: 11px ui-monospace, monospace;
   color: var(--g-muted);
+}
+/* Tunables (Tunables.tsx): one curve editor per tunable, under the controls. */
+.gallery-tunables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+}
+.gallery-tunable {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  padding: 2px 10px 8px;
+  margin: 0;
+}
+.gallery-tunable legend {
+  font-size: 11px;
+  color: var(--g-muted);
+  cursor: help;
+}
+.gallery-tunable-plot {
+  touch-action: none;
+  user-select: none;
+}
+.gallery-tunable-box {
+  fill: var(--g-current);
+}
+.gallery-tunable-diagonal {
+  stroke: var(--g-line);
+  stroke-dasharray: 3 3;
+}
+.gallery-tunable-arm {
+  stroke: var(--g-muted);
+}
+.gallery-tunable-curve {
+  fill: none;
+  stroke: var(--g-text);
+  stroke-width: 2;
+}
+.gallery-tunable-handle {
+  fill: var(--g-panel);
+  stroke: var(--g-text);
+  stroke-width: 1.5;
+  cursor: grab;
+}
+.gallery-tunable-handle[data-held] {
+  fill: var(--g-text);
+  cursor: grabbing;
+}
+.gallery-tunable-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 170px;
+}
+.gallery-tunable-side label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-tunable-side select,
+.gallery-tunable-side input {
+  font: inherit;
+  color: var(--g-text);
+}
+.gallery-tunable-css {
+  font-size: 11px;
+  color: var(--g-muted);
+  white-space: nowrap;
+}
+.gallery-tunable-track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--g-current);
+}
+.gallery-tunable-track span {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--g-text);
+  animation: gallery-tunable-run 1.4s infinite;
+}
+@keyframes gallery-tunable-run {
+  0% {
+    left: 1px;
+  }
+  65%,
+  100% {
+    left: calc(100% - 9px);
+  }
+}
+.gallery-tunable-side button {
+  align-self: start;
+}
+
+/* Keep the entry rail useful on the narrow gallery widths used by the matrix and phones. */
+@media (min-width: 761px) and (max-width: 980px) {
+  .gallery {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .gallery {
+    display: block;
+    min-height: 100vh;
+    height: auto;
+  }
+  .gallery-list {
+    max-height: 42vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--g-line);
+  }
+  .gallery-main {
+    overflow: visible;
+    min-height: 58vh;
+    padding-inline: 10px;
+  }
+  .gallery-banner {
+    margin-inline: -10px;
+  }
+  .gallery-browse-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

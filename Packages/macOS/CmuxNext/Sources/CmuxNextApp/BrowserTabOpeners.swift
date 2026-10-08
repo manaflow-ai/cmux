@@ -14,7 +14,8 @@ import CmuxNextDaemon
 /// - A tab that leaves the pane hands its children its own opener
 ///   (`FixOpeners`).
 /// - A user switch between tabs that are not opener and child or siblings
-///   forgets every relation (`SetSelection` with a user gesture), and so
+///   (two tabs with the same opener; no opener is not one) forgets every
+///   relation (`SetSelection` with a user gesture), and so
 ///   does a typed navigation (`TabNavigating`), except a new tab page at the
 ///   end of the strip.
 ///
@@ -87,13 +88,14 @@ final class BrowserTabOpeners {
 
     /// The user moved from tab `old` to tab `new` in a pane: every relation
     /// is forgotten unless one is the other's opener or both share one.
+    /// Two tabs without an opener are not siblings: moving between them
+    /// forgets too, so a page's next background tab goes right of it.
     func userActivated(from old: SurfaceID?, to new: SurfaceID?) {
         let oldOpener = old.flatMap { openerOf[$0] }
         let newOpener = new.flatMap { openerOf[$0] }
-        let unrelated = newOpener != oldOpener
-            && ((old == nil && newOpener == nil) || newOpener != old)
-            && ((new == nil && oldOpener == nil) || oldOpener != new)
-        if unrelated { forgetAll() }
+        let siblings = oldOpener != nil && oldOpener == newOpener
+        let openerAndChild = (old != nil && newOpener == old) || (new != nil && oldOpener == new)
+        if !siblings && !openerAndChild { forgetAll() }
     }
 
     /// A tab navigated by a typed URL: the user starts another task, so

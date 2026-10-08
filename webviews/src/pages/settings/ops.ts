@@ -9,6 +9,8 @@
 // These types are hand-written until the op set is declared with the cmux-pane-protocol
 // schemars macro; then they come from the generated client.
 
+import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+
 export type ManagedInfo = { source: string; reason: string; team?: string | null };
 
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
@@ -18,6 +20,9 @@ export type ListRow = {
   default: unknown;
   customized: boolean;
   managed: ManagedInfo | null;
+  /** Chat roots retain refused entries and administrator provenance for the list editor. */
+  folders?: Array<{ path: string; managed: boolean; reason: string | null }>;
+  user_roots?: string[];
 };
 
 export type Diagnostic = { path: string | string[]; message: string; kind?: string };
@@ -65,16 +70,39 @@ export type HostLists = {
   machines: HostListRow[];
   browser_profiles: BrowserProfile[];
   profile_colors: Array<{ name: string; swatch: string; fill: string }>;
-  /** Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme. */
-  theme?: { levels: string[]; current: Record<string, string | null> };
+  /**
+   * Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme: a
+   * level with a theme overrides appearance.theme there (the page shows it inline, P4).
+   * `config` is the Ghostty config's own theme colors (unnamed), sent while appearance.theme
+   * is unset: the preview of "Use Ghostty Config". The app theme is the key appearance.appTheme.
+   */
+  theme?: {
+    levels: string[];
+    current: Record<string, string | null>;
+    config?: GhosttyTheme | null;
+  };
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
   ghostty_diagnostics?: GhosttyDiagnostic[] | null;
   settings_file?: string | null;
+  /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
+  computer_use?: ComputerUseState | null;
   /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
   backdrops?: Array<{ id: string; title: string; attribution: string }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
+};
+
+/** `ComputerUseSetup.Phase` in the app. */
+export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "starting" | "ready" | "version_mismatch";
+
+/** The Computer Use card's state: the grants of the helper that runs (or would run). */
+export type ComputerUseState = {
+  phase: ComputerUsePhase;
+  accessibility: boolean | null;
+  screen_recording: boolean | null;
+  /** The helper app's name, null when this build has no signed helper. */
+  helper: string | null;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
@@ -135,6 +163,8 @@ export type SettingsOps = {
   "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
+  /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
+  "cmux.settings.theme.colors": [Record<string, never>, { themes: GhosttyTheme[] }];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
@@ -229,6 +259,9 @@ export const settingsPageActions = [
   "browserProfile.manageExtensions",
   "browserProfile.delete",
   "reloadConfiguration",
+  "palette.computerUse.setup",
+  "palette.computerUse.accessibility",
+  "palette.computerUse.screenRecording",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];
