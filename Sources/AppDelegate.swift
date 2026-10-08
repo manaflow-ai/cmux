@@ -619,6 +619,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the SDK is off.
     private var transportSentryReporter: TransportSentryReporter?
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
+    private let terminalWakeRefreshScheduler = TerminalWakeRefreshScheduler()
+#if DEBUG
+    var debugTerminalWakeRefreshScheduleCount = 0
+#endif
     private let connectivityInvalidationSubscriberCoordinator = ConnectivityInvalidationSubscriberCoordinator()
     let workspacePresenceController = WorkspacePresenceController()
     private let sudoApprovalCoordinator: SudoApprovalCoordinator?
@@ -4578,6 +4582,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             onDidWake: { [weak self] in
                 self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
                 self?.rearmRemoteSessionsAfterSystemWake()
+                self?.scheduleTerminalWakeRefresh(source: "workspace.didWake")
+            },
+            onScreensDidWake: { [weak self] in
+                self?.scheduleTerminalWakeRefresh(source: "workspace.screensDidWake")
             }
         )
         lifecycleSnapshotObservers.append(contentsOf: remotePowerObservers)
@@ -4626,6 +4634,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
     }
+
+    func scheduleTerminalWakeRefresh(source: String) {
+#if DEBUG
+        debugTerminalWakeRefreshScheduleCount += 1
+#endif
+        terminalWakeRefreshScheduler.schedule(
+            surfaces: { GhosttyApp.terminalSurfaceRegistry.allTerminalSurfacesUnordered() },
+            reason: source
+        )
+    }
+
+#if DEBUG
+    func debugInstallLifecycleSnapshotObserversForTesting() {
+        installLifecycleSnapshotObserversIfNeeded()
+    }
+#endif
 
     private func disableSuddenTerminationIfNeeded() {
         guard !didDisableSuddenTermination else { return }
