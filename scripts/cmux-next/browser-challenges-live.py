@@ -121,8 +121,13 @@ def snap(name):
     return path
 
 
+def action(name, args=None):
+    # focus: true, so user-origin view changes are allowed (a fresh tag shows Home).
+    return rpc("action.run", {"action": name, "args": args or {}, "focus": True})
+
+
 def open_webkit(url):
-    return rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": url}})
+    return action("openBrowser.webkit", {"url": url})
 
 
 def auth_dialog():
@@ -146,6 +151,9 @@ def run(theme):
         if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 90):
             failures.append(f"{theme}: tagged app did not come up")
             return
+        # A workspace of its own (`newTab` is New Workspace): Home has no pane for a tab.
+        notes.append({"theme": theme, "workspace": action("newTab")})
+        time.sleep(3)
         notes.append({"theme": theme, "open": open_webkit(f"https://localhost:{SECURE_PORT}/")})
         time.sleep(6)
         snap(f"interstitial-{tag}")
