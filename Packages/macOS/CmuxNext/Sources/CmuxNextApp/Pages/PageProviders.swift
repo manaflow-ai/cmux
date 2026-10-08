@@ -8,7 +8,7 @@ import Foundation
 /// The app's native UI ops for React pages (plans/cmux-next/react-pages.md 1.3):
 /// `cmux.app.action.run` runs one of the page's allowed registry actions with origin `page` (never
 /// `user` unless a native sheet confirmed it, so rules such as destructive confirmation still
-/// ask), and `cmux.app.clipboard.write` writes the pasteboard.
+/// ask), and `cmux.app.clipboard.write` writes the pasteboard, only on the person's own gesture.
 @MainActor
 final class AppPageNativeProvider: PageProvider {
     private unowned let services: AppServices
@@ -57,6 +57,12 @@ final class AppPageNativeProvider: PageProvider {
             return ["ran": .bool(services.registry.perform(id, invocation: invocation))]
         case PageNativeOp.clipboardWrite:
             guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
+            // Only right after the person's own key, click or native menu choice in this page view
+            // (tracked by the host, never by page script), or a native sheet they approved: page
+            // script alone never replaces the clipboard.
+            guard context.userGesture || context.isConfirmedUser else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
             return .object([:])
