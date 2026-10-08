@@ -358,7 +358,8 @@ impl Mux {
                         resolution.terminal.lifecycle == TerminalLifecycle::Running
                     });
                 match running.and_then(|resolution| {
-                    self.project_terminal_into_pane(&resolution.terminal.terminal_id, pane).ok()
+                    self.project_terminal_into_pane(actor, &resolution.terminal.terminal_id, pane)
+                        .ok()
                 }) {
                     Some(surface) => surface,
                     None => {
@@ -389,7 +390,7 @@ impl Mux {
                 tab: Some(self.public_tab_of(surface)?),
                 ..Self::ordinary_resource_selectors()
             };
-            self.state_pin_tab(StripRequest::local("tab.pin"), selectors, true)?;
+            self.state_pin_tab(StripRequest::local(actor, "tab.pin"), selectors, true)?;
         }
         Ok(())
     }
