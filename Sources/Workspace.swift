@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxAppKitSupportUI
 import CMUXMobileCore
@@ -2639,6 +2640,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
+@MainActor
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
     @MainActor var terminalGeometryTransition: TerminalWorkContext.Transition = .unknown
     enum BrowserPanelCreationPolicy {
@@ -4094,6 +4096,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// The MDM resolver every remote-connection and file-transfer gate on this
     /// workspace reads; tests inject a probe-backed one.
     let managedDevicePolicy: ManagedDevicePolicy
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
 
     init(
         id: UUID? = nil,
@@ -4117,6 +4120,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -4140,6 +4144,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
         self.managedDevicePolicy = managedDevicePolicy
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder

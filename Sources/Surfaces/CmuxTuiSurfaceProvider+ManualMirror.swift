@@ -123,7 +123,8 @@ extension CmuxTuiSurfaceProvider {
                         session?.claimGeometry()
                     },
                     attachment: session.attachmentStatus,
-                    allowsRemoteClipboardWrites: machine.cloudMachineID != nil
+                    allowsRemoteClipboardWrites: sshClipboardWriteTrustStore
+                        .allowsRemoteClipboardWrites(for: machine)
                 )
             }
             session.bind(surface: created.surface)

@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import AppKit
 import Bonsplit
@@ -5,6 +6,41 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension Workspace {
+    /// The configured cmux-tui SSH identity for this workspace, when present.
+    var configuredSSHClipboardMachine: SurfaceMachineID? {
+        guard let configuration = remoteConfiguration,
+              configuration.transport == .ssh else { return nil }
+        return .ssh(SSHTuiConnection(configuration: configuration).identityDigest)
+    }
+
+    /// The SSH identity for a plain `ssh-tmux` mirror, when this workspace is
+    /// backed by one. Plain mirrors do not have a ``remoteConfiguration``;
+    /// derive the same endpoint digest from the mirror host that the trust menu
+    /// and newly-created manual panes use.
+    var remoteTmuxSSHClipboardMachine: SurfaceMachineID? {
+        guard let host = remoteTmuxSessionMirror?.host,
+              host.transport == .ssh else { return nil }
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: host.destination,
+            port: host.port,
+            identityFile: host.identityFile,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        return .ssh(SSHTuiConnection(configuration: configuration).identityDigest)
+    }
+
+    /// Whether a new pane created by this plain `ssh-tmux` mirror may emit OSC 52.
+    var allowsRemoteTmuxClipboardWrites: Bool {
+        guard let machine = remoteTmuxSSHClipboardMachine else { return false }
+        return sshClipboardWriteTrustStore.allowsRemoteClipboardWrites(for: machine)
+    }
+
     var surfaceOwnershipPolicy: SurfaceOwnershipPolicy {
         SurfaceOwnershipPolicy(cloudMachine: cloudVMBinding.map { SurfaceMachineID(rawValue: $0.vmID) } ?? cloudVMID.map(SurfaceMachineID.cloud))
     }
@@ -22,6 +58,85 @@ extension Workspace {
             return .cloud(machine)
         }
         return panels[panelID]?.transferredSurfaceMachine ?? .local
+    }
+
+    /// Returns the machine identity for a terminal surface, including a pane
+    /// owned by a nested remote-tmux window mirror.
+    func sshClipboardMachine(
+        for panelID: UUID,
+        ownership: SSHClipboardWriteSurfaceOwnershipIndex
+    ) -> SurfaceMachineID? {
+        if let machine = ownership.machine(for: panelID) {
+            return machine
+        }
+
+        // Optimistic SSH cmux-tui panes are owned before their catalog
+        // projection/provider session exists. Preserve that exact reservation
+        // identity even when they are inserted into another remote workspace.
+        if let reservation = cloudPendingCreations[panelID] {
+            return reservation.machine
+        }
+
+        // A live cmux-tui session can briefly outlive its catalog projection
+        // while a restored or moved pane is being attached. Use the provider's
+        // machine identity only for that live session; an arbitrary manual
+        // mirror must not inherit the workspace's SSH configuration.
+        if let session = tuiMirrorSession(for: panelID) {
+            let machine = SurfaceMachineID(rawValue: session.machineID)
+            if machine.isSSH {
+                return machine
+            }
+        }
+
+        // A window container remains an owner even when its terminal panel
+        // has retired. Catalog ownership above takes precedence over its host.
+        if remoteTmuxWindowMirrors[panelID] != nil {
+            return remoteTmuxSSHClipboardMachine
+        }
+
+        guard let panel = panels[panelID] else {
+            // Inner panes are mirror-owned, not Workspace.panels entries. This
+            // lookup is needed for a single context-menu target, never per
+            // ordinary panel in a batch propagation pass.
+            guard let containerID = remoteTmuxWindowMirrors.first(where: { _, mirror in
+                mirror.panelsByPaneId.values.contains { $0.id == panelID }
+            })?.key else { return nil }
+            return sshClipboardMachine(for: containerID, ownership: ownership)
+        }
+        if let terminal = panel as? TerminalPanel,
+           terminal.surface.ioMode == .manualMirror {
+            // An unprojected generic/device mirror cannot borrow the SSH
+            // identity of the workspace it happens to be displayed in.
+            return panel.transferredSurfaceMachine
+        }
+        if let resource = (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.cloudResource {
+            return resource.machine
+        }
+        if activeRemoteTerminalSurfaceIds.contains(panelID),
+           let machine = remoteConfiguration?.managedCloudVMID {
+            return .cloud(machine)
+        }
+        return panel.transferredSurfaceMachine ?? .local
+    }
+
+    /// Reconciles every live terminal surface owned by `machine` from the
+    /// injected trust store, including panes outside `Workspace.panels`.
+    func applySSHClipboardWritePermission(
+        for machine: SurfaceMachineID,
+        ownership: SSHClipboardWriteSurfaceOwnershipIndex
+    ) {
+        let allowed = sshClipboardWriteTrustStore.allowsRemoteClipboardWrites(for: machine)
+        for panel in panels.values.compactMap({ $0 as? TerminalPanel })
+        where sshClipboardMachine(for: panel.id, ownership: ownership) == machine {
+            panel.surface.setAllowsRemoteClipboardWrites(allowed)
+        }
+
+        for (containerID, mirror) in remoteTmuxWindowMirrors
+        where sshClipboardMachine(for: containerID, ownership: ownership) == machine {
+            for panel in mirror.panelsByPaneId.values {
+                panel.surface.setAllowsRemoteClipboardWrites(allowed)
+            }
+        }
     }
 
     func surfaceDropRejection(

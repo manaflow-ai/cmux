@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxFoundation
 import CmuxSettings
@@ -19,6 +20,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var catalog: SurfaceCatalog?
     private var providers: [String: CmuxTuiSurfaceProvider] = [:]
     let links: CloudMachineLinkManager
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
     nonisolated let wireGuardHub: CloudWireGuardHub?
@@ -95,6 +97,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var isFeatureSuspended = false
     init(
         links: CloudMachineLinkManager,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         wireGuardHub: CloudWireGuardHub? = nil,
         isCloudEnabled: @escaping @MainActor () -> Bool = { true },
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
@@ -111,6 +114,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         notificationCenter: NotificationCenter = .default
     ) {
         self.links = links
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.wireGuardHub = wireGuardHub
         self.isCloudEnabled = isCloudEnabled
         self.allowsBackgroundWork = allowsBackgroundWork
@@ -170,6 +174,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         let provider = CmuxTuiSurfaceProvider(
             summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
             ownerTeamID: ownerTeamID, links: links, catalog: catalog,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
             portForwards: portForwards, portAccessStore: portAccess
         )
         providers[summary.id] = provider
@@ -555,6 +560,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             // limited to the selected team's machines.
             let provider = CmuxTuiSurfaceProvider(
                 summary: summary, ownerTeamID: target.team, links: links, catalog: catalog,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 portForwards: portForwards, portAccessStore: portAccess
             )
             providers[summary.id] = provider
@@ -786,6 +792,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 let provider = CmuxTuiSurfaceProvider(
                     summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
                     ownerTeamID: pageTeamID, links: links, catalog: catalog,
+                    sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                     portForwards: portForwards, portAccessStore: portAccess
                 )
                 providers[summary.id] = provider
@@ -835,6 +842,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 summary: summary,
                 fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
                 ownerTeamID: ownerTeamID, links: links, catalog: catalog,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 portForwards: portForwards, portAccessStore: portAccess
             )
             providers[machineID] = provider

@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import AppKit
 import CmuxAgentChat
 import CmuxCloudMachines
@@ -548,6 +549,7 @@ class TabManager: ObservableObject {
     let pullRequestProbeService: PullRequestProbeService
 
     private let managedDevicePolicy: ManagedDevicePolicy
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
 
     /// Picks how the automatic first-launch welcome reaches the new terminal.
     /// Tests replace it to exercise each delivery without depending on the host shell.
@@ -593,10 +595,12 @@ class TabManager: ObservableObject {
         closeTabWarningDefaults: UserDefaults = .standard,
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
-        cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil
+        cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.managedDevicePolicy = managedDevicePolicy
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.cloudWorkspaceSelection = cloudWorkspaceSelection ?? CloudWorkspaceSelectionState(scopeProvider: { nil })
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
@@ -1191,6 +1195,7 @@ class TabManager: ObservableObject {
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
             closeTabWarningDefaults: closeTabWarningDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             fileContentChangeCoordinator: fileContentChangeCoordinator,
@@ -1212,6 +1217,7 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
@@ -7053,6 +7059,7 @@ extension TabManager {
                 portOrdinal: ordinal,
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 fileContentChangeCoordinator: fileContentChangeCoordinator,
@@ -7089,6 +7096,7 @@ extension TabManager {
                 portOrdinal: ordinal,
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 fileContentChangeCoordinator: fileContentChangeCoordinator,

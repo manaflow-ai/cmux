@@ -189,6 +189,15 @@ struct TerminalSurfaceRemoteOutputTests {
         )
         defer { remote.surface!.deallocate() }
         #expect(!remote.allowsAutomaticClipboardWrite)
+        #expect(!remote.requiresClipboardReadGesture)
+        if let callbackContext = remote.surfaceCallbackContext?.takeUnretainedValue() {
+            let sawUserCopyIntent = remote.withUserInitiatedClipboardWriteIntent {
+                callbackContext.hasUserInitiatedClipboardWriteIntent
+            }
+            #expect(sawUserCopyIntent)
+        } else {
+            Issue.record("Remote test surface did not install a callback context")
+        }
 
         let cloud = makeSurface(
             runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
@@ -197,6 +206,23 @@ struct TerminalSurfaceRemoteOutputTests {
         )
         defer { cloud.surface!.deallocate() }
         #expect(cloud.allowsAutomaticClipboardWrite)
+    }
+
+    @Test
+    @MainActor
+    func remoteClipboardWriteGrantCanBeRevokedOnALiveSurface() {
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let remote = makeSurface(
+            runtimeSurfaceBits: UInt(bitPattern: runtimeSurface),
+            isRemoteTerminal: true
+        )
+        defer { remote.surface!.deallocate() }
+
+        #expect(!remote.allowsAutomaticClipboardWrite)
+        remote.setAllowsRemoteClipboardWrites(true)
+        #expect(remote.allowsAutomaticClipboardWrite)
+        remote.setAllowsRemoteClipboardWrites(false)
+        #expect(!remote.allowsAutomaticClipboardWrite)
     }
 
     @MainActor
