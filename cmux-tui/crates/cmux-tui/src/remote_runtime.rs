@@ -2101,6 +2101,10 @@ async fn run_daemon(
             persist_daemon_lifecycle_fence(&state_dir)?;
             lifecycle_fenced = true;
         }
+        #[cfg(unix)]
+        if lifecycle_fenced {
+            recover_inactive_predecessor_state(&state_dir, &link_socket, &admin_socket).await?;
+        }
         verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
         if !lifecycle_fenced {
             persist_daemon_lifecycle_fence(&state_dir)?;
@@ -2368,6 +2372,87 @@ async fn run_daemon(
         let _ = ready.send(Err(format!("{error:#}")));
     }
     setup
+}
+
+#[cfg(unix)]
+async fn recover_inactive_predecessor_state(
+    state_dir: &Path,
+    link_socket: &Path,
+    admin_socket: &Path,
+) -> anyhow::Result<()> {
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    let initial_runtime = read_optional_file(&runtime_path)
+        .context(catalog().remote.snapshot_runtime_for_recovery)?;
+    let initial_outcome = read_optional_file(&outcome_path)
+        .context(catalog().remote.snapshot_finalization_for_recovery)?;
+    let Some(runtime) = initial_runtime
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
+        .context(catalog().remote.verify_runtime_for_recovery)?
+    else {
+        return Ok(());
+    };
+    let Some(lifecycle_id) = runtime.lifecycle_id.as_deref().filter(|id| !id.is_empty()) else {
+        // Legacy and malformed lifecycle metadata must continue through the
+        // existing explicit migration/recovery paths.
+        return Ok(());
+    };
+    let outcome = initial_outcome
+        .as_deref()
+        .map(decode_shutdown_outcome)
+        .transpose()
+        .context(catalog().remote.verify_previous_finalization)?;
+    let stale = match outcome {
+        Some(outcome) => {
+            outcome.lifecycle_id != lifecycle_id || outcome.status == DaemonShutdownStatus::Failed
+        }
+        None => true,
+    };
+    if !stale {
+        return Ok(());
+    }
+
+    // The authorization lease is held by the caller. Probe every socket from
+    // the recorded lifecycle and the current defaults before treating its
+    // evidence as stale; a live predecessor must remain an explicit handoff.
+    verify_recovery_sockets_inactive(
+        Some(&runtime),
+        link_socket,
+        admin_socket,
+        catalog().remote.failed_finalization_label,
+    )
+    .await?;
+
+    let runtime_snapshot = read_optional_file(&runtime_path)
+        .context(catalog().remote.resnapshot_runtime_for_recovery)?;
+    let outcome_snapshot = read_optional_file(&outcome_path)
+        .context(catalog().remote.resnapshot_finalization_for_recovery)?;
+    if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
+    }
+    let Some(runtime) = runtime_snapshot
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
+        .context(catalog().remote.verify_runtime_for_recovery)?
+    else {
+        return Ok(());
+    };
+    if runtime.lifecycle_id.as_deref() != Some(lifecycle_id) {
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
+    }
+    verify_recovery_sockets_inactive(
+        Some(&runtime),
+        link_socket,
+        admin_socket,
+        catalog().remote.failed_finalization_label,
+    )
+    .await?;
+    remove_shutdown_recovery_evidence(state_dir, runtime_snapshot, outcome_snapshot)
+        .context("could not remove stale remote daemon lifecycle evidence")?;
+    Ok(())
 }
 
 async fn load_daemon_auth_during_handoff(

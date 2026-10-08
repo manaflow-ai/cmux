@@ -6729,9 +6729,8 @@ impl PtySurface {
                         Ok(retry) => retry,
                         Err(error) => {
                             self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
                             eprintln!(
-                                "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
+                                "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
                             );
                             return;
                         }
@@ -6742,9 +6741,8 @@ impl PtySurface {
                 };
                 if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
                     self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
                     eprintln!(
-                        "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
+                        "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
                     );
                     return;
                 }
