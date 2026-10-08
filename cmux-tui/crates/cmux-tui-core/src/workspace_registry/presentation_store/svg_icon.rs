@@ -41,6 +41,9 @@ pub const MAX_SVG_ICON_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_SVG_ICON_DEPTH: usize = 32;
 /// Most elements accepted in one icon, counting the root and dropped elements.
 pub(crate) const MAX_SVG_ICON_ELEMENTS: usize = 4096;
+/// Most elements a renderer draws for masks and clip paths: the sum, over
+/// every `mask`/`clip-path` reference, of the referenced subtree's size.
+pub(crate) const MAX_SVG_ICON_REFERENCE_WORK: usize = 16 * 1024;
 
 const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
 /// Every kept `id` and `url(#id)` target starts with this prefix.
@@ -160,6 +163,8 @@ struct Frame {
     keeps_text: bool,
     /// Inside a `mask` or `clipPath` (including the element itself).
     in_reference: bool,
+    /// The prefixed id of a kept `mask` or `clipPath` element.
+    reference_id: Option<String>,
 }
 
 /// Output under construction: literal markup, or an attribute holding
@@ -196,6 +201,9 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
 
     let mut pieces: Vec<Piece> = Vec::new();
     let mut ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Kept elements in each mask or clip path subtree, by prefixed id.
+    let mut reference_sizes: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     let mut stack: Vec<Frame> = Vec::new();
     let mut elements = 0usize;
     let mut root_seen = false;
@@ -246,7 +254,13 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
                 let kept = parent_kept.then(|| allowed_element(start.name().as_ref())).flatten();
                 let in_reference = stack.last().is_some_and(|frame| frame.in_reference)
                     || matches!(kept, Some("mask" | "clipPath"));
+                let mut reference_id = None;
                 if let Some(name) = kept {
+                    for frame in &stack {
+                        if let Some(id) = &frame.reference_id {
+                            *reference_sizes.entry(id.clone()).or_default() += 1;
+                        }
+                    }
                     let root = stack.is_empty();
                     let mut open = format!("<{name}");
                     if root {
@@ -260,8 +274,22 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
                         {
                             continue;
                         }
+                        if matches!(key, "mask" | "clip-path")
+                            && !(attribute.targets.len() == 1
+                                && attribute.value == format!("url(#{})", attribute.targets[0]))
+                        {
+                            continue;
+                        }
                         if key == "id" {
-                            ids.insert(attribute.value.clone());
+                            anyhow::ensure!(
+                                ids.insert(attribute.value.clone()),
+                                "bad request: svg icon defines id {:?} twice",
+                                attribute.value
+                            );
+                            if matches!(name, "mask" | "clipPath") {
+                                reference_sizes.insert(attribute.value.clone(), 1);
+                                reference_id = Some(attribute.value.clone());
+                            }
                         }
                         if attribute.targets.is_empty() {
                             push_markup(&mut pieces, &format!(r#" {key}="{}""#, attribute.value));
@@ -279,6 +307,7 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
                     kept,
                     keeps_text: kept.is_some_and(|name| TEXT_ELEMENTS.contains(&name)),
                     in_reference,
+                    reference_id,
                 });
             }
             Event::End(_) => {
@@ -317,16 +346,27 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
         "bad request: svg icon has no complete <svg> root"
     );
     let mut output = String::with_capacity(text.len());
+    let mut reference_work = 0usize;
     for piece in pieces {
         match piece {
             Piece::Markup(markup) => output.push_str(&markup),
             Piece::Reference { key, value, targets } => {
                 if targets.iter().all(|target| ids.contains(target)) {
+                    if matches!(key, "mask" | "clip-path") {
+                        reference_work += targets
+                            .iter()
+                            .map(|target| reference_sizes.get(target).copied().unwrap_or(0))
+                            .sum::<usize>();
+                    }
                     let _ = write!(output, r#" {key}="{value}""#);
                 }
             }
         }
     }
+    anyhow::ensure!(
+        reference_work <= MAX_SVG_ICON_REFERENCE_WORK,
+        "bad request: svg icon masks and clip paths draw more than {MAX_SVG_ICON_REFERENCE_WORK} elements"
+    );
     anyhow::ensure!(
         output.len() <= MAX_SVG_ICON_BYTES,
         "bad request: sanitized svg icon exceeds 64 KiB ({} bytes)",
@@ -477,10 +517,26 @@ fn resolve_reference(reference: &quick_xml::events::BytesRef<'_>) -> anyhow::Res
 
 /// A character that may appear in icon text: an XML 1.0 `Char` other than a
 /// control character (tab, LF and CR excepted), and no bidi override or
-/// isolate (the text can become a tooltip or accessibility label).
+/// isolate, and no invisible format character other than ZWJ (the text can
+/// become a tooltip or accessibility label).
 fn is_allowed_text_char(ch: char) -> bool {
     (!ch.is_control() || matches!(ch, '\t' | '\n' | '\r'))
-        && !matches!(ch, '\u{FFFE}' | '\u{FFFF}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+        && !matches!(
+            ch,
+            '\u{FFFE}'
+                | '\u{FFFF}'
+                | '\u{00AD}'
+                | '\u{061C}'
+                | '\u{180E}'
+                | '\u{200B}'
+                | '\u{200C}'
+                | '\u{200E}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{FEFF}'
+                | '\u{FFF9}'..='\u{FFFB}'
+                | '\u{E0000}'..='\u{E007F}'
+        )
 }
 
 /// Character data: whitespace only outside the root, kept (escaped) only in a

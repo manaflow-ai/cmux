@@ -323,8 +323,63 @@ fn drops_renderer_cost_and_layout_attributes() {
 
 #[test]
 fn refuses_noncharacters_and_bidi_overrides_in_text() {
-    for text in ["&#xFFFE;", "&#xFFFF;", "\u{FFFE}", "a\u{202E}b", "&#x2067;", "&#x85;"] {
+    for text in [
+        "&#xFFFE;",
+        "&#xFFFF;",
+        "\u{FFFE}",
+        "a\u{202E}b",
+        "&#x2067;",
+        "&#x85;",
+        "a\u{200B}b",
+        "&#x200F;",
+        "&#x2028;",
+        "&#xE0041;",
+        "&#xFEFF;",
+    ] {
         let input = format!("<svg {SVG_NS}><title>{text}</title></svg>");
         assert!(sanitize_svg_icon(input.as_bytes()).is_err(), "accepted {text:?}");
     }
+}
+
+#[test]
+fn keeps_zero_width_joiner_in_text() {
+    let input = format!("<svg {SVG_NS}><title>\u{1F468}\u{200D}\u{1F4BB}</title></svg>");
+    assert_eq!(clean(&input), input);
+}
+
+#[test]
+fn refuses_duplicate_ids_after_prefixing() {
+    for ids in [r#"id="x"/><g id="x""#, r#"id="x"/><g id="cmux-icon-x""#] {
+        let input = format!(r#"<svg {SVG_NS}><g {ids}/></svg>"#);
+        assert!(refused(input.as_bytes()).contains("twice"), "{input}");
+    }
+}
+
+#[test]
+fn mask_and_clip_path_take_exactly_one_reference() {
+    let output = clean(&format!(
+        r##"<svg {SVG_NS}><mask id="m"><rect width="1"/></mask>
+<rect width="2" mask="url(#m),url(#m)" clip-path="url(#m) url(#m)"/><rect width="3" mask="url(#m)"/></svg>"##
+    ));
+    assert_eq!(
+        output,
+        format!(
+            r##"<svg {SVG_NS}><mask id="cmux-icon-m"><rect width="1"></rect></mask><rect width="2"></rect><rect width="3" mask="url(#cmux-icon-m)"></rect></svg>"##
+        )
+    );
+}
+
+#[test]
+fn refuses_mask_fan_out_past_the_draw_budget() {
+    let fan_out = |children: usize, users: usize| {
+        format!(
+            r##"<svg {SVG_NS}><mask id="m">{}</mask>{}</svg>"##,
+            "<rect width=\"1\"/>".repeat(children),
+            "<rect width=\"2\" mask=\"url(#m)\"/>".repeat(users)
+        )
+    };
+    // The mask subtree is the mask plus its children.
+    assert!(sanitize_svg_icon(fan_out(127, 128).as_bytes()).is_ok());
+    assert!(refused(fan_out(127, 129).as_bytes()).contains("draw more"));
+    assert!(refused(fan_out(1000, 1000).as_bytes()).contains("draw more"));
 }
