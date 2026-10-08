@@ -151,6 +151,9 @@ extension SidebarSection {
         }
         SettingsCardDivider()
 
+        SidebarRowHoverSettingRow()
+        SettingsCardDivider()
+
         SettingsCardRow(
             configurationReview: .settingsOnly,
             String(localized: "settings.sidebar.peekReveal", defaultValue: "Sidebar Peek Reveal Speed"),
@@ -265,5 +268,26 @@ extension SidebarSection {
         case .spacious:
             String(localized: "settings.sidebar.rowDensity.spacious", defaultValue: "Spacious")
         }
+    }
+}
+
+/// Settings > Sidebar > Row Hover (`sidebarRowHover`, UI-only, on by
+/// default). Its own view so the key stays private to this file; the sidebar
+/// rows read it from UserDefaults and follow it live.
+private struct SidebarRowHoverSettingRow: View {
+    @AppStorage("sidebarRowHover") private var rowHover = true
+
+    var body: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            String(localized: "settings.sidebar.rowHover", defaultValue: "Row Hover"),
+            subtitle: String(localized: "settings.sidebar.rowHover.subtitle", defaultValue: "Highlight rows under the pointer.")
+        ) {
+            Toggle("", isOn: $rowHover)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+        .settingsSearchAnchors(["setting:sidebarAppearance:sidebar-row-hover"])
     }
 }
