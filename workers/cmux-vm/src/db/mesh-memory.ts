@@ -75,7 +75,8 @@ export function makeMemoryMeshStore() {
       Effect.sync(() => {
         const live = devices.some((row) => row.tenantId === tenantId && row.deviceId === deviceId && row.deletedAt === null);
         if (!live) return false;
-        addressTimes.set(deviceId, at);
+        if (at === null) addressTimes.delete(deviceId);
+        else addressTimes.set(deviceId, at);
         if (publicIpv6 === null) addresses.delete(deviceId);
         else addresses.set(deviceId, publicIpv6);
         return true;

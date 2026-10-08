@@ -86,7 +86,7 @@ export interface MeshStoreService {
   /** Records a rotated WireGuard key; false when another live device of the mesh holds it. */
   readonly updateDeviceKey: (tenantId: TenantId, deviceId: string, wgPublicKey: string, at: Date) => Effect.Effect<boolean, StoreError>;
   /** Sets (or with null clears) a live device's published public IPv6 address (migration 0009); false when the device is not live in this tenant. */
-  readonly setDeviceAddress: (tenantId: TenantId, deviceId: string, publicIpv6: string | null, at: Date) => Effect.Effect<boolean, StoreError>;
+  readonly setDeviceAddress: (tenantId: TenantId, deviceId: string, publicIpv6: string | null, at: Date | null) => Effect.Effect<boolean, StoreError>;
   /** A live device's published address and when it was last set; none when the device is not live in this tenant. */
   readonly getDeviceAddress: (
     tenantId: TenantId,
@@ -352,7 +352,7 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
                 WHERE device_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
                RETURNING 1)
              SELECT count(*)::int AS claimed FROM updated`,
-            [deviceId, tenantId, publicIpv6, at.toISOString()],
+            [deviceId, tenantId, publicIpv6, at === null ? null : at.toISOString()],
           )
           .pipe(Effect.flatMap(decode(ClaimedRow, "mesh.setDeviceAddress")), Effect.map((rows) => (rows[0]?.claimed ?? 0) > 0)),
       getDeviceAddress: (tenantId, deviceId) =>
