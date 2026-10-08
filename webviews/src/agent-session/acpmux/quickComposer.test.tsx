@@ -19,6 +19,7 @@ const saved = Object.fromEntries(
     "cancelAnimationFrame",
     "Node",
     "getSelection",
+    "getComputedStyle",
     "MutationObserver",
     "IS_REACT_ACT_ENVIRONMENT",
   ].map((key) => [key, globals[key]]),
@@ -29,6 +30,9 @@ Object.assign(globals, {
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // CI's Bun exposes an own global property with this name but leaves it undefined; Floating UI
+  // reads the unqualified function, so install the jsdom implementation explicitly.
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   // The diff viewer registers a custom element when App loads.
   customElements: dom.window.customElements,
   ResizeObserver: class {

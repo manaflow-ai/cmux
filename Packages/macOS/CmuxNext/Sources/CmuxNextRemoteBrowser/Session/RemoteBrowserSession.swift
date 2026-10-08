@@ -15,10 +15,15 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     public private(set) weak var tab: RemoteBrowserTab?
     public let pane: RemoteBrowserPane
     public let nativeUI: RemoteBrowserNativeUI
+    /// Popup surfaces (`rb.surface.*`), each on its own rd stream.
+    public let surfaces: RemoteBrowserSurfaces
     /// The App creates a tab for the page's `rb.open_tab` (Cmd-click,
     /// `target=_blank`) and calls the completion with the new tab's id, or
     /// nil when it refuses. Unset: every request is refused.
     public var openTab: ((URL, BrowserNewTabDisposition, @escaping @MainActor (String?) -> Void) -> Void)?
+    /// Runs once when the tab closes the session (the App stops a local
+    /// host it started for this tab).
+    public var onClose: (@MainActor () -> Void)?
     /// The first page to load once the session is open.
     private let initialURL: URL?
     private let transport: RemoteRdStreamTransport
@@ -27,9 +32,8 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     private let profileName: String
     private var serviceTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
-    private var opened = false
-    /// The last screen sent (`rb.open` carries the first).
-    private var screen: RbScreen?
+    /// `rb.open` waits for streaming and a real layout; then `rb.screen`.
+    private var openGate = RemoteBrowserOpenGate()
     /// The last reducer reject or note, for the debug socket.
     public private(set) var lastNote: String?
 
@@ -37,10 +41,10 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     /// `endpoint`; `url` is the first page to load. Nil when the core cannot
     /// allocate the transport or the client. Call `session(of:)?.start()`.
     public static func makeTab(
-        record: RemoteBrowserTabRecord, id: BrowserTabID, profile: BrowserProfileID, viewer: String
+        record: RemoteBrowserTabRecord, id: BrowserTabID, profile: BrowserProfileID, viewer: String, token: String? = nil
     ) -> RemoteBrowserTab? {
         guard let session = RemoteBrowserSession(endpoint: record.endpoint, tabKey: id.rawValue, viewer: viewer,
-                                                 initialURL: record.initialURL) else { return nil }
+                                                 initialURL: record.initialURL, token: token) else { return nil }
         let tab = RemoteBrowserTab(id: id, profile: profile, url: record.initialURL ?? record.url, pane: session.pane, channel: session)
         session.tab = tab
         return tab
@@ -51,8 +55,8 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         tab.channel as? RemoteBrowserSession
     }
 
-    private init?(endpoint: RemoteRdLoopbackEndpoint, tabKey: String, viewer: String, initialURL: URL?) {
-        guard let transport = RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: NSUserName(), install: viewer),
+    private init?(endpoint: RemoteRdLoopbackEndpoint, tabKey: String, viewer: String, initialURL: URL?, token: String?) {
+        guard let transport = RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: NSUserName(), install: viewer, token: token),
               let client = RbClient() else { return nil }
         self.transport = transport
         self.client = client
@@ -61,6 +65,12 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         profileName = "remote"
         pane = RemoteBrowserPane(source: transport)
         nativeUI = RemoteBrowserNativeUI(view: pane.view)
+        surfaces = RemoteBrowserSurfaces(
+            page: pane.view, source: { [transport] stream in transport.surfaceSource(stream: stream) },
+            send: { [transport] event, mustDeliver in
+                guard let bytes = RemoteBrowserInputEncoder.bytes(event) else { return }
+                _ = transport.sendServiceInput(bytes, mustDeliver: mustDeliver)
+            })
         nativeUI.onMenuChoice = { [weak self] token, choice in self?.apply(.menuChosen(token: token, choice: choice)) }
         nativeUI.onDialogAnswer = { [weak self] token, accept, text in self?.apply(.dialogAnswered(token: token, accept: accept, text: text)) }
         pane.view.onViewport = { [weak self] viewport in self?.resize(viewport) }
@@ -74,7 +84,12 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         // task-owner: the session's host messages; ends when the transport finishes its service stream.
         serviceTask = Task { [weak self] in
             for await body in bodies {
-                self?.apply(.host(body))
+                // The reducer has no popup surfaces; the session shows them.
+                if let surface = RbSurfaceMessage(body) {
+                    self?.surfaces.apply(surface)
+                } else {
+                    self?.apply(.host(body))
+                }
             }
         }
         // task-owner: sends rb.open once the rd session streams; ends with the transport's status stream.
@@ -85,21 +100,28 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         }
         transport.connect()
         pane.start()
+        // A view laid out before start reported its size to no one.
+        resize(pane.view.viewport)
     }
 
     /// The pane's page size changed (`rb.screen`, through the reducer's seq).
     public func resize(_ viewport: RemoteBrowserViewport) {
-        let next = RbScreen(viewport: viewport)
-        guard next != screen else { return }
-        screen = next
-        if opened { apply(.resize(next)) }
+        run(openGate.viewport(viewport))
     }
 
     private func sessionStreaming() {
-        guard !opened else { return }
-        opened = true
-        let first = screen ?? RbScreen(viewport: pane.view.viewport)
-        screen = first
+        run(openGate.streaming())
+    }
+
+    private func run(_ step: RemoteBrowserOpenGate.Step?) {
+        switch step {
+        case let .open(first): open(first)
+        case let .resize(next): apply(.resize(next))
+        case nil: break
+        }
+    }
+
+    private func open(_ first: RbScreen) {
         transport.sendService(.object([
             "t": .string("rb.open"), "tab": .string(tabKey), "profile": .string(profileName),
             "viewer": .string(NSUserName()), "screen": first.json,
@@ -152,7 +174,10 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
             // The decoder follows the stream's own size; nothing to resize here.
             break
         case let .session(state):
-            if state == "closed" || state == "crashed" { pane.stop() }
+            if state == "closed" || state == "crashed" {
+                surfaces.closeAll()
+                pane.stop()
+            }
         case let .keyUnhandled(inputSeq):
             tab?.keyUnhandled(inputSeq: inputSeq)
         case let .openTab(request, url, disposition, _):
@@ -185,8 +210,7 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
 
     public func sendPointer(_ event: NSEvent, at point: CGPoint) {
         guard let json = RemoteBrowserInputEncoder.pointer(event, at: point), let bytes = RemoteBrowserInputEncoder.bytes(json) else { return }
-        let isMove = event.type == .mouseMoved || event.type == .leftMouseDragged || event.type == .rightMouseDragged
-        _ = transport.sendServiceInput(bytes, mustDeliver: !isMove)
+        _ = transport.sendServiceInput(bytes, mustDeliver: RemoteBrowserInputEncoder.mustDeliver(event))
     }
 
     public func history(_ op: RemoteBrowserHistoryOp) {
@@ -202,10 +226,14 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     }
 
     public func close() {
+        surfaces.closeAll()
         transport.sendService(.object(["t": .string("rb.close")]))
         transport.stop()
         serviceTask?.cancel()
         statusTask?.cancel()
+        let closed = onClose
+        onClose = nil
+        closed?()
     }
 
 }

@@ -382,6 +382,10 @@ pub(super) fn parse_workspace_group(
                 "update" => {
                     insert_optional_string(&mut params.fields, flags, "name", "name");
                     nullable(&mut params, flags, "color", "color")?;
+                    nullable(&mut params, flags, "icon", "icon")?;
+                    if let Some(pinned) = flags.take("pinned") {
+                        params.insert("pinned", Value::Bool(parse_bool("--pinned", &pinned)?));
+                    }
                     params.room(flags, "room", "room")?;
                     group_collapse(flags, &mut params.fields)?;
                     top_index(&mut params, flags)?;
