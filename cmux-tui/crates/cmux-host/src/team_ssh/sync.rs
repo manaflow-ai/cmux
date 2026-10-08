@@ -110,10 +110,18 @@ pub fn run(paths: &Paths, once: bool) -> u8 {
                 Ok(applied) => {
                     let host = super::linux_host::LinuxHost::new(paths.at(super::SESSIONS_DIR));
                     let reaped = super::sessions::reap(paths, &host);
-                    if applied.krl_changed || !reaped.ended.is_empty() {
+                    if applied.krl_changed
+                        || !reaped.ended.is_empty()
+                        || !reaped.linger_off.is_empty()
+                        || !reaped.managers_stopped.is_empty()
+                    {
                         eprintln!(
-                            "cmux host team-ssh sync: krl_version {} generation {} ended {:?}",
-                            applied.state.krl_version, applied.state.generation, reaped.ended
+                            "cmux host team-ssh sync: krl_version {} generation {} ended {:?} linger_off {:?} managers_stopped {:?}",
+                            applied.state.krl_version,
+                            applied.state.generation,
+                            reaped.ended,
+                            reaped.linger_off,
+                            reaped.managers_stopped
                         );
                     }
                     for e in &reaped.errors {
