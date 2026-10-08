@@ -503,5 +503,8 @@ fn the_10s_window_counts_from_the_answer_not_the_send() {
     let (reqs, _) = session.line(&line, 1_000);
     assert!(reqs.is_empty(), "inside the window");
     assert_eq!(session.next_deadline(), Some(10_300), "10 s after the answer arrived");
-    assert!(session.fire(10_000).is_empty(), "10 s after the send is still inside the server's window");
+    assert!(
+        session.fire(10_000).is_empty(),
+        "10 s after the send is still inside the server's window"
+    );
 }
