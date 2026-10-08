@@ -102,6 +102,7 @@ public struct CloudHubConnector: Sendable {
         discard: @escaping @Sendable (Value) -> Void
     ) async throws -> Value {
         guard candidates > 0 else { throw CancellationError() }
+        let deadline = CloudHubDeadline(clock: clock, timeout: timeout)
         return try await withThrowingTaskGroup(of: CloudHubHedgeEvent<Value>.self) { group in
             var started = Array(repeating: false, count: candidates)
             var inFlight = Array(repeating: 0, count: candidates)
@@ -173,10 +174,7 @@ public struct CloudHubConnector: Sendable {
                 switch event {
                 case .success(let index, let value):
                     inFlight[index] -= 1
-                    // The deadline task is the source of truth for the erased
-                    // clock's instant; a result delivered after it fires is
-                    // never allowed to become the winner.
-                    if expired {
+                    if expired || deadline.isExpired() {
                         discard(value)
                     } else if winner == nil {
                         winner = value
@@ -267,6 +265,19 @@ public struct CloudHubConnector: Sendable {
         self.attemptTimeout = attemptTimeout
         self.clock = clock
     }
+}
+
+/// Type-erases a clock only after capturing its concrete instant type. Swift
+/// cannot call `InstantProtocol` comparison members on `any Clock` directly.
+private struct CloudHubDeadline: Sendable {
+    private let expired: @Sendable () -> Bool
+
+    init<C: Clock<Duration>>(clock: C, timeout: Duration) {
+        let deadline = clock.now.advanced(by: timeout)
+        self.expired = { clock.now >= deadline }
+    }
+
+    func isExpired() -> Bool { expired() }
 }
 
 enum CloudHubHedgeEvent<Value: Sendable>: Sendable {
