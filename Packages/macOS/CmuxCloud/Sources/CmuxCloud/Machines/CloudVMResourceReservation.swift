@@ -1,7 +1,7 @@
 import Foundation
 
 /// A machine's compute share in the subscription resource pool.
-public struct CloudVMResourceReservation: Equatable, Sendable {
+nonisolated public struct CloudVMResourceReservation: Equatable, Sendable {
     public init(vcpus: Int, memoryMb: Int, diskMb: Int? = nil) {
         self.vcpus = vcpus
         self.memoryMb = memoryMb
