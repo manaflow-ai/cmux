@@ -16,6 +16,9 @@ final class MobileLinkService {
     var servicesProvider: (@MainActor (MobileLinkSetting) -> MobileLinkServices)?
     private var runner: MobileLinkHostRunner?
     private var starting: Task<Void, Never>?
+    /// Teardown is retained so a rapid disable/enable or account switch
+    /// cannot start a second listener before the first one has closed.
+    private var teardown: Task<Void, Never>?
     /// Bumped by every start and stop; a start that lost the race drops out.
     private var generation = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.mobile-link")
@@ -32,17 +35,17 @@ final class MobileLinkService {
         starting = nil
         let previous = runner
         runner = nil
+        let priorTeardown = teardown
+        let replacementTeardown = Task { [previous] in
+            await priorTeardown?.value
+            await previous?.stop()
+        }
+        teardown = replacementTeardown
         let current = generation
 
-        guard setting.enabled else {
-            // task-owner: no replacement run exists; finish the previous host teardown.
-            Task { await previous?.stop() }
-            return
-        }
+        guard setting.enabled else { return }
         guard let provider = accountProvider else {
             logger.info("phone link: not started, no account source")
-            // task-owner: no replacement run exists; finish the previous host teardown.
-            Task { await previous?.stop() }
             return
         }
         let namespace = launch.bundleID ?? "com.cmuxterm.app.next"
@@ -51,7 +54,7 @@ final class MobileLinkService {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         let linkServices = servicesProvider?(setting) ?? MobileLinkServices()
         starting = Task { [weak self, logger] in
-            await previous?.stop()
+            await replacementTeardown.value
             guard !Task.isCancelled else { return }
             let name = await MacName.computerName()
             guard let self, self.generation == current, !Task.isCancelled else { return }
@@ -90,6 +93,10 @@ final class MobileLinkService {
         let runner = runner
         self.runner = nil
         // task-owner: teardown hop; MobileLinkHostRunner.stop() is idempotent
-        Task { await runner?.stop() }
+        let priorTeardown = teardown
+        teardown = Task {
+            await priorTeardown?.value
+            await runner?.stop()
+        }
     }
 }
