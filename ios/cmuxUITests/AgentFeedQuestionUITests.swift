@@ -194,8 +194,9 @@ final class AgentFeedQuestionUITests: XCTestCase {
             object: nil
         )
         let result = XCTWaiter.wait(for: [clearsKeyboard], timeout: 3)
+        let predictionFrame = predictions.exists ? "\(predictions.frame)" : "none"
         let geometry = XCTAttachment(string:
-            "card: \(card.frame), keyboard: \(keyboard.frame), predictions: \(predictions.frame)"
+            "card: \(card.frame), keyboard: \(keyboard.frame), predictions: \(predictionFrame)"
         )
         geometry.name = "custom-answer-keyboard-clearance-\(questionID)"
         geometry.lifetime = .keepAlways

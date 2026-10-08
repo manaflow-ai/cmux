@@ -7,6 +7,7 @@ struct AgentFeedQuestionCard: View {
     let index: Int
     @Binding var draft: AgentFeedQuestionAnswerBuilder.Draft
     var focusedCustomAnswerID: FocusState<String?>.Binding
+    let customAnswerHeightChanged: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -87,6 +88,9 @@ struct AgentFeedQuestionCard: View {
                 focusedQuestionID: focusedCustomAnswerID,
                 select: { draft.selectCustomAnswer() }
             )
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                customAnswerHeightChanged()
+            }
         }
         .padding(14)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))

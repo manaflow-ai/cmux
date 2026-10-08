@@ -28,30 +28,44 @@ struct AgentFeedQuestionComposer: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    AgentFeedQuestionComposerIntro(
-                        answeredCount: answeredCount,
-                        questionCount: questions.count
-                    )
-                    ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
-                        AgentFeedQuestionCard(
-                            question: question,
-                            index: index,
-                            draft: Binding(
-                                get: { drafts[question.id] ?? AgentFeedQuestionAnswerBuilder.Draft() },
-                                set: { drafts[question.id] = $0 }
-                            ),
-                            focusedCustomAnswerID: $focusedCustomAnswerID
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        AgentFeedQuestionComposerIntro(
+                            answeredCount: answeredCount,
+                            questionCount: questions.count
                         )
+                        ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
+                            AgentFeedQuestionCard(
+                                question: question,
+                                index: index,
+                                draft: Binding(
+                                    get: { drafts[question.id] ?? AgentFeedQuestionAnswerBuilder.Draft() },
+                                    set: { drafts[question.id] = $0 }
+                                ),
+                                focusedCustomAnswerID: $focusedCustomAnswerID,
+                                customAnswerHeightChanged: {
+                                    guard focusedCustomAnswerID == question.id else { return }
+                                    scrollProxy.scrollTo(question.id, anchor: .bottom)
+                                }
+                            )
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 24)
+                .safeAreaPadding(.bottom, 12)
+                .scrollDismissesKeyboard(.interactively)
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.size.height - $0.safeAreaInsets.bottom
+                } action: { _ in
+                    scrollToFocusedAnswer(using: scrollProxy)
+                }
+                .onChange(of: focusedCustomAnswerID) { _, _ in
+                    scrollToFocusedAnswer(using: scrollProxy)
+                }
             }
-            .safeAreaPadding(.bottom, 12)
-            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(String(
                 localized: "mobile.agentFeed.question.answerTitle",
                 defaultValue: "Answer questions",
@@ -94,6 +108,11 @@ struct AgentFeedQuestionComposer: View {
         }
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("MobileAgentFeedQuestionComposer")
+    }
+
+    private func scrollToFocusedAnswer(using proxy: ScrollViewProxy) {
+        guard let focusedCustomAnswerID else { return }
+        proxy.scrollTo(focusedCustomAnswerID, anchor: .bottom)
     }
 
     private func submit() {
