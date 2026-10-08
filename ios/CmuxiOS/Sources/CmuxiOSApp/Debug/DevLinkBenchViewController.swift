@@ -28,6 +28,7 @@ final class DevLinkBenchViewController: UIViewController {
     private let quickSwitch = UISwitch()
     private let runButton = UIButton(type: .system)
     private var runTask: Task<Void, Never>?
+    private var activeRunID: UUID?
     private var reportPersistenceError: String?
     /// The completed report as UTF-8 JSON, for DEV capture or tests.
     private(set) var reportData: Data?
@@ -53,7 +54,7 @@ final class DevLinkBenchViewController: UIViewController {
                 try? FileManager.default.removeItem(at: file)
             }
         }
-        controller.onReport = { data in
+        controller.onReport = { [weak controller] data in
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 let report = try JSONDecoder().decode(BenchReport.self, from: data)
@@ -65,7 +66,7 @@ final class DevLinkBenchViewController: UIViewController {
                 )
                 try data.write(to: directory.appendingPathComponent("link-bench-\(safeID).json"), options: .atomic)
             } catch {
-                controller.reportPersistenceError = error.localizedDescription
+                controller?.reportPersistenceError = error.localizedDescription
             }
         }
         return controller
@@ -152,6 +153,7 @@ final class DevLinkBenchViewController: UIViewController {
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        activeRunID = nil
         runTask?.cancel()
         runTask = nil
         runButton.isEnabled = true
@@ -176,41 +178,48 @@ final class DevLinkBenchViewController: UIViewController {
         let runner = self.runner
         let identity = self.identity
         let quick = quickSwitch.isOn
-        // Capture the controller through an immutable alias. The progress
-        // callback is `@Sendable`, so capturing the task closure's weak
-        // `self` variable directly is rejected by Swift's strict concurrency
-        // checking when this target is archived with whole-module
-        // optimisation.
-        let controller = self
-        runTask = Task { [weak controller] in
+        let runID = UUID()
+        activeRunID = runID
+        // Only this immutable, actor-isolated closure crosses the runner's
+        // Sendable boundary. Late progress from an older run is ignored.
+        let publishProgress: @MainActor @Sendable (String) -> Void = { [weak self] line in
+            guard let self, self.activeRunID == runID else { return }
+            self.statusLabel.text = line
+        }
+        runTask = Task { [weak self] in
             do {
                 let report = try await runner(descriptor, identity, quick) { line in
-                    Task { @MainActor [weak controller] in controller?.statusLabel.text = line }
+                    Task { @MainActor in publishProgress(line) }
                 }
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 let data = try encoder.encode(report)
                 guard !Task.isCancelled else { return }
-                guard let controller else { return }
-                controller.reportData = data
-                controller.reportPersistenceError = nil
-                controller.onReport?(data)
-                controller.resultView.text = String(decoding: data, as: UTF8.self)
-                if let error = controller.reportPersistenceError {
-                    controller.statusLabel.text = "Could not save report: \(error)"
+                guard let self, self.activeRunID == runID else { return }
+                self.reportData = data
+                self.reportPersistenceError = nil
+                self.onReport?(data)
+                self.resultView.text = String(decoding: data, as: UTF8.self)
+                if let error = self.reportPersistenceError {
+                    self.statusLabel.text = "Could not save report: \(error)"
                 } else {
-                    controller.statusLabel.text = report.errors.isEmpty ? "Completed." : "Completed with errors."
+                    self.statusLabel.text = report.errors.isEmpty ? "Completed." : "Completed with errors."
                 }
-                controller.runTask = nil
-                controller.runButton.isEnabled = true
+                self.activeRunID = nil
+                self.runTask = nil
+                self.runButton.isEnabled = true
             } catch is CancellationError {
-                controller?.statusLabel.text = "Cancelled."
-                controller?.runTask = nil
-                controller?.runButton.isEnabled = true
+                guard let self, self.activeRunID == runID else { return }
+                self.statusLabel.text = "Cancelled."
+                self.activeRunID = nil
+                self.runTask = nil
+                self.runButton.isEnabled = true
             } catch {
-                controller?.statusLabel.text = "Benchmark failed: \(error.localizedDescription)"
-                controller?.runTask = nil
-                controller?.runButton.isEnabled = true
+                guard let self, self.activeRunID == runID else { return }
+                self.statusLabel.text = "Benchmark failed: \(error.localizedDescription)"
+                self.activeRunID = nil
+                self.runTask = nil
+                self.runButton.isEnabled = true
             }
         }
     }
