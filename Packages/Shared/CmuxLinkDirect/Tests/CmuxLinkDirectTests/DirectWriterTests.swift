@@ -8,44 +8,67 @@ import Testing
 struct DirectWriterTests {
     @Test("cancelled bulk admission resumes without cancelling the active socket")
     func cancellationWhileWaitingForAdmission() async throws {
-        let socket = BlockingWriterSocket()
-        let writer = DirectWriter(socket: socket, cipher: NoiseCipherState())
-        let frame = bulkFrame()
+        let (admissionStream, admissionSink) = AsyncStream.makeStream(of: Void.self)
+        try await withWriter(admissionWaitObserver: { admissionSink.yield(()) }) { socket, writer, frame in
+            let active = Task { try await writer.write(frame) }
+            await socket.waitForSendStart()
 
-        let active = Task { try await writer.write(frame) }
-        await socket.waitForSendStart()
+            let waiting = Task { try await writer.write(frame) }
+            let admission = Task {
+                var iterator = admissionStream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            _ = try await within(.seconds(1)) { try await admission.value }
 
-        let waiting = Task { try await writer.write(frame) }
-        waiting.cancel()
-        await #expect(throws: CancellationError.self) {
-            try await within(.seconds(1)) { try await waiting.value }
+            waiting.cancel()
+            await #expect(throws: CancellationError.self) {
+                try await within(.seconds(1)) { try await waiting.value }
+            }
+            #expect(!socket.wasCancelled)
+
+            socket.releaseSends()
+            try await within(.seconds(1)) { try await active.value }
         }
-        #expect(!socket.wasCancelled)
-
-        socket.releaseSends()
-        try await within(.seconds(1)) { try await active.value }
-        await writer.fail()
     }
 
     @Test("already cancelled bulk admission does not strand a waiter")
     func cancellationBeforeAdmissionContinuation() async throws {
-        let socket = BlockingWriterSocket()
-        let writer = DirectWriter(socket: socket, cipher: NoiseCipherState())
-        let frame = bulkFrame()
+        try await withWriter { socket, writer, frame in
+            let active = Task { try await writer.write(frame) }
+            await socket.waitForSendStart()
 
-        let active = Task { try await writer.write(frame) }
-        await socket.waitForSendStart()
+            let gate = AdmissionGate()
+            let cancelled = Task {
+                await gate.wait()
+                try await writer.write(frame)
+            }
+            // Open only after cancellation. The write therefore enters the
+            // admission continuation already canceled, without ever appending
+            // an admission waiter.
+            cancelled.cancel()
+            await gate.open()
+            await #expect(throws: CancellationError.self) {
+                try await within(.seconds(1)) { try await cancelled.value }
+            }
+            #expect(!socket.wasCancelled)
 
-        let cancelled = Task { try await writer.write(frame) }
-        cancelled.cancel()
-        await #expect(throws: CancellationError.self) {
-            try await within(.seconds(1)) { try await cancelled.value }
+            socket.releaseSends()
+            try await within(.seconds(1)) { try await active.value }
         }
-        #expect(!socket.wasCancelled)
+    }
 
-        socket.releaseSends()
-        try await within(.seconds(1)) { try await active.value }
-        await writer.fail()
+    @Test("cancelling an active frame cancels the socket and resumes its write")
+    func cancellationOfActiveFrame() async throws {
+        try await withWriter { socket, writer, frame in
+            let active = Task { try await writer.write(frame) }
+            await socket.waitForSendStart()
+
+            active.cancel()
+            await #expect(throws: CancellationError.self) {
+                try await within(.seconds(1)) { try await active.value }
+            }
+            #expect(socket.wasCancelled)
+        }
     }
 
     private func bulkFrame() -> TransportFrame {
@@ -55,23 +78,111 @@ struct DirectWriterTests {
         )
     }
 
+    private func withWriter<T: Sendable>(
+        admissionWaitObserver: (@Sendable () -> Void)? = nil,
+        _ operation: @Sendable (BlockingWriterSocket, DirectWriter, TransportFrame) async throws -> T
+    ) async throws -> T {
+        let socket = BlockingWriterSocket()
+        let writer = DirectWriter(socket: socket, cipher: NoiseCipherState(),
+                                  admissionWaitObserver: admissionWaitObserver)
+        do {
+            let result = try await operation(socket, writer, bulkFrame())
+            socket.cancel()
+            await writer.fail()
+            return result
+        } catch {
+            socket.cancel()
+            await writer.fail()
+            throw error
+        }
+    }
+
     private func within<T: Sendable>(
         _ timeout: Duration,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw WriterTestTimeout()
+        let race = CompletionRace<T>()
+        let operationTask = Task { try await operation() }
+        let timeoutTask = Task {
+            try await Task.sleep(for: timeout)
+        }
+        Task {
+            do {
+                let result = try await operationTask.value
+                if await race.finish(.success(result)) { timeoutTask.cancel() }
+            } catch {
+                if await race.finish(.failure(error)) { timeoutTask.cancel() }
             }
-            defer { group.cancelAll() }
-            return try await group.next()!
+        }
+        Task {
+            do {
+                try await timeoutTask.value
+                if await race.finish(.failure(WriterTestTimeout())) { operationTask.cancel() }
+            } catch {
+                // The operation won the race or the enclosing test canceled.
+            }
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+                Task { await race.install(continuation) }
+            }
+        } onCancel: {
+            operationTask.cancel()
+            timeoutTask.cancel()
+            Task { _ = await race.finish(.failure(CancellationError())) }
         }
     }
 }
 
 private struct WriterTestTimeout: Error {}
+
+private actor CompletionRace<Value: Sendable> {
+    private var continuation: CheckedContinuation<Value, any Error>?
+    private var pending: Result<Value, any Error>?
+    private var finished = false
+
+    func install(_ continuation: CheckedContinuation<Value, any Error>) {
+        if let pending {
+            self.pending = nil
+            continuation.resume(with: pending)
+        } else {
+            self.continuation = continuation
+        }
+    }
+
+    func finish(_ result: Result<Value, any Error>) -> Bool {
+        guard !finished else { return false }
+        finished = true
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(with: result)
+        } else {
+            pending = result
+        }
+        return true
+    }
+}
+
+private actor AdmissionGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var opened = false
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            if opened {
+                continuation.resume()
+            } else {
+                self.continuation = continuation
+            }
+        }
+    }
+
+    func open() {
+        opened = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
 
 /// Blocks `send` after recording that the writer reached the socket. The
 /// first admitted frame therefore keeps the bulk budget occupied while the
@@ -80,6 +191,7 @@ private final class BlockingWriterSocket: DirectWriterSocket, @unchecked Sendabl
     private struct State {
         var sends: [CheckedContinuation<Void, any Error>] = []
         var cancelled = false
+        var released = false
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -91,16 +203,24 @@ private final class BlockingWriterSocket: DirectWriterSocket, @unchecked Sendabl
     }
 
     func send(record _: Data) async throws {
-        startedSink.yield(())
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            let cancelled = state.withLock { state in
+            let result = state.withLock { state -> Result<Void, any Error>? in
                 if state.cancelled {
-                    return true
+                    return .failure(CancellationError())
+                }
+                if state.released {
+                    return .success(())
                 }
                 state.sends.append(continuation)
-                return false
+                return nil
             }
-            if cancelled { continuation.resume(throwing: CancellationError()) }
+            if let result {
+                continuation.resume(with: result)
+            } else {
+                // Signal only after registration. This prevents the test from
+                // racing the continuation setup in the first send.
+                startedSink.yield(())
+            }
         }
     }
 
@@ -122,6 +242,7 @@ private final class BlockingWriterSocket: DirectWriterSocket, @unchecked Sendabl
 
     func releaseSends() {
         let sends = state.withLock { state -> [CheckedContinuation<Void, any Error>] in
+            state.released = true
             defer { state.sends.removeAll() }
             return state.sends
         }

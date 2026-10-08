@@ -31,11 +31,18 @@ actor DirectWriter {
     private var activeID: UInt64?
     private var closing = false
     private var bytesPerSecond: Int?
+    /// Internal observation seam used by deterministic transport tests. The
+    /// callback runs only after an admission continuation has been appended,
+    /// so a test can distinguish a registered waiter from an already-canceled
+    /// call without yielding or polling actor state.
+    private let admissionWaitObserver: (@Sendable () -> Void)?
 
-    init(socket: any DirectWriterSocket, cipher: NoiseCipherState, bytesPerSecond: Int? = nil) {
+    init(socket: any DirectWriterSocket, cipher: NoiseCipherState, bytesPerSecond: Int? = nil,
+         admissionWaitObserver: (@Sendable () -> Void)? = nil) {
         self.socket = socket
         self.cipher = cipher
         self.bytesPerSecond = bytesPerSecond
+        self.admissionWaitObserver = admissionWaitObserver
     }
 
     func write(_ frame: TransportFrame) async throws {
@@ -168,6 +175,7 @@ actor DirectWriter {
                     continuation.resume()
                 } else {
                     admissionWaiters.append(AdmissionWaiter(id: id, bytes: bytes, continuation: continuation))
+                    admissionWaitObserver?()
                 }
             }
         } onCancel: {
