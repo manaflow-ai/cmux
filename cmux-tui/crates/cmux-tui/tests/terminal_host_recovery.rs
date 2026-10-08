@@ -189,7 +189,9 @@ impl RecoveryHarness {
             .arg(&self.state)
             .args(&self.extra_args)
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::null())
+            // Host copies stay in the test directory, not the user's home.
+            .env("CMUX_TUI_HOST_EXE_DIR", self.dir.join("host-exe"));
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
         }
