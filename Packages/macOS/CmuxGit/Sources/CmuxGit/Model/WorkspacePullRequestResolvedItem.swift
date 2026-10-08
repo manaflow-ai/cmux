@@ -12,12 +12,21 @@ public struct WorkspacePullRequestResolvedItem: Sendable {
     public let statusRawValue: String
     /// The branch the PR was matched for.
     public let branch: String
+    /// The GitHub `owner/name` repository that supplied this PR.
+    public let repositorySlug: String?
 
     /// Creates a resolved item.
-    public init(number: Int, urlString: String, statusRawValue: String, branch: String) {
+    public init(
+        number: Int,
+        urlString: String,
+        statusRawValue: String,
+        branch: String,
+        repositorySlug: String? = nil
+    ) {
         self.number = number
         self.urlString = urlString
         self.statusRawValue = statusRawValue
         self.branch = branch
+        self.repositorySlug = repositorySlug
     }
 }
