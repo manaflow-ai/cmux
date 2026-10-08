@@ -82,6 +82,8 @@ pub struct ResourceMachineRequest {
     pub selectors: ResourceSelectors,
     pub fields: Map<String, Value>,
     pub idempotency_key: Option<String>,
+    /// Who sends it, set by the daemon's dispatcher.
+    pub actor: crate::Actor,
 }
 
 pub trait ResourceMachineService: Send + Sync {
@@ -194,7 +196,8 @@ impl LocalResourceMachineService {
         let intent = json!({"session_id":context.session_id});
         let preparation = mux
             .prepare_resource_effect(
-                key,
+                &crate::WorkspaceMutation::new(key, "resource-api", request.actor.clone())
+                    .map_err(operation_failed)?,
                 "session.open",
                 &fingerprint,
                 &intent,

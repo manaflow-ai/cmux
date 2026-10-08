@@ -37,6 +37,7 @@ import { conversationMutate, conversationRead } from "./home-routes.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
+import { approvalReader } from "./integrations/approval-route.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -388,7 +389,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           }
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
-        const reader = yield* principalFor(def.owner, principal)
+        const resolved = yield* principalFor(def.owner, principal)
+        // G8: an approval of a team's agent is read from that team, for its members (approval-route.ts).
+        const reader = payload.op === "integration.approval.get" ? yield* Effect.tryPromise({ try: () => approvalReader(env, resolved, payload.params), catch: unreachable }) : resolved
         // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
         if (payload.op === "home.search") {
           const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })

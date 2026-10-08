@@ -291,7 +291,7 @@ The cloud connector runs `cmux provider control` and `cmux provider stream` remo
 | `browser.max_capture_megapixels` | number | `2.0` | Maximum browser capture size before downscaling, from 0.0 through 2.0 |
 | `browser.capture_scale` | number or null | `null` | Maximum capture scale from 0.0 through 1.0, reduced further when needed to stay under the megapixel limit |
 
-The compatibility keys `browser.chrome_binary`, `browser.mode`, `browser.discover`, `browser.discover_ports`, `browser.user_data_dir`, and `browser.ephemeral` are still accepted when reading older config files but no longer select or launch a browser. Production browser tabs wait for cmux-browser's connection-scoped provider lease. `browser.cdp_url` and `CMUX_MUX_CDP_URL` bypass that lease only for explicit development harnesses; neither path performs discovery or process launch.
+The compatibility keys `browser.chrome_binary`, `browser.mode`, `browser.discover`, `browser.discover_ports`, `browser.user_data_dir`, and `browser.ephemeral` are still accepted, with any value, when reading older config files, and are ignored: they never select or launch a browser, and a stale value never discards the live `browser` keys beside them. Production browser tabs wait for cmux-browser's connection-scoped provider lease. `browser.cdp_url` and `CMUX_MUX_CDP_URL` bypass that lease only for explicit development harnesses; neither path performs discovery or process launch.
 
 ## Pane
 
