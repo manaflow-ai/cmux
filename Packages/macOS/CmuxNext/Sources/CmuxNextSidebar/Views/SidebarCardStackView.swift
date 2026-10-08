@@ -17,6 +17,8 @@ final class SidebarCardStackView: NSView {
     private var cards: [SidebarCard] = []
     private var views: [String: SidebarCardView] = [:]
     private var expanded = false
+    /// Every card shows in a column (the pointer is over the stack).
+    var isExpanded: Bool { expanded }
     private var observation: Task<Void, Never>?
 
     override var isFlipped: Bool { true }

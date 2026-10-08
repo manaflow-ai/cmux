@@ -30,7 +30,7 @@ final class StripScrollbarView: NSView {
     private(set) var thumbRect: CGRect?
     private var input: Input?
     private var trackingArea: NSTrackingArea?
-    private var isHovered = false
+    private(set) var isHovered = false
     private var drag: (grab: CGFloat, width: CGFloat)?
     private(set) var isShown = false
     private let hideTimer: DemandTimer

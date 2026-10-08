@@ -47,7 +47,7 @@ final class SidebarItemRowView: NSView {
     let title = NSTextField(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
-    private var isHovered = false { didSet { if isHovered != oldValue { pointerChanged() } } }
+    private(set) var isHovered = false { didSet { if isHovered != oldValue { pointerChanged() } } }
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
     /// The next fill change came from the pointer, so it fades.
     private var fadesNextFill = false
