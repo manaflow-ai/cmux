@@ -10,6 +10,9 @@ struct SSHTmuxSnapshot: Sendable {
     /// into a renderer burst. Older history remains available on the host but
     /// is not silently discarded into a partial replay.
     static let maximumHistoryRows = 256
+    /// An incomplete control string is renderer parser state, not visible
+    /// text. Refuse a huge pending string instead of hydrating it partially.
+    static let maximumPendingBytes = 16 * 1024
 
     static let fields = [
         "pane_id", "pane_width", "pane_height", "cursor_x", "cursor_y", "alternate_on",
@@ -25,7 +28,7 @@ struct SSHTmuxSnapshot: Sendable {
     /// tmux for history may leave it nil, retaining the older visible-only
     /// contract used by unit fixtures.
     static func replay(lines: [Data], metadata: [Data], pane: String, cols: Int, rows: Int,
-                       historyRows: Int? = nil) throws -> Data {
+                       historyRows: Int? = nil, pendingInput: [Data] = []) throws -> Data {
         guard metadata.count == 1 else { throw SSHSessionFailure.shellRejected }
         let fields = String(decoding: metadata[0], as: UTF8.self).split(separator: " ", omittingEmptySubsequences: false)
         guard fields.count == Self.fields.count, fields[0] == pane else { throw SSHSessionFailure.shellRejected }
@@ -58,6 +61,15 @@ struct SSHTmuxSnapshot: Sendable {
             history = []
             renderedLines = lines[...]
         }
+        // capture-pane -P -C prints a single octal-escaped pending-input
+        // line (including octal backslashes, unlike normal grid capture).
+        // Validate it before emitting any part of the reconstructed screen.
+        guard pendingInput.count <= 1,
+              pendingInput.first.map({ $0.count <= Self.maximumPendingBytes * 4 }) ?? true else {
+            throw SSHSessionFailure.shellRejected
+        }
+        let pending = try pendingInput.first.map { try SSHTmuxControlDecoder.unescape($0) } ?? Data()
+        guard pending.count <= Self.maximumPendingBytes else { throw SSHSessionFailure.shellRejected }
         var result = Data("\u{1b}c".utf8)
         if values[4] == 1 { result.append(Data("\u{1b}[?1049h".utf8)) }
         result.append(Data("\u{1b}[H".utf8))
@@ -78,6 +90,9 @@ struct SSHTmuxSnapshot: Sendable {
         guard cursorRow >= 0 else { throw SSHSessionFailure.shellRejected }
         suffix += "\u{1b}[\(cursorRow + 1);\(min(values[2], cols - 1) + 1)H"
         result.append(Data(suffix.utf8))
+        // This must be last: restoration escapes would otherwise become
+        // part of an unfinished OSC/DCS/CSI sequence or UTF-8 scalar.
+        result.append(pending)
         return result
     }
 }

@@ -25,8 +25,9 @@ actor SSHTmuxControlChannel: SSHShellChannel {
     private var requestedGrid: (cols: Int, rows: Int)
     private var pane: String?
     private var capture: [Data] = []
+    private var pendingInput: [Data] = []
 
-    private enum Request { case attach, identity, mute, size, inspect, capture, metadata, enable, input }
+    private enum Request { case attach, identity, mute, size, inspect, capture, pendingInput, metadata, enable, input }
 
     init(base: any SSHShellChannel, window: SSHTmuxWindow, cols: Int, rows: Int,
          clock: any Clock<Duration> = ContinuousClock(), changed: @escaping @Sendable () async -> Void) {
@@ -122,11 +123,15 @@ actor SSHTmuxControlChannel: SSHShellChannel {
         case .mute, .size, .input: break
         case .inspect: try await inspect(lines)
         case .capture: capture = lines
+        case .pendingInput:
+            guard lines.count == 1 else { throw SSHSessionFailure.shellRejected }
+            pendingInput = lines
         case .metadata:
             guard let pane else { throw SSHSessionFailure.sessionGone }
             try emit(SSHTmuxSnapshot.replay(lines: capture, metadata: lines, pane: pane, cols: cols, rows: rows,
-                                            historyRows: SSHTmuxSnapshot.maximumHistoryRows))
+                                            historyRows: SSHTmuxSnapshot.maximumHistoryRows, pendingInput: pendingInput))
             capture = []
+            pendingInput = []
         case .enable:
             refreshing = false
             if refreshAgain {
@@ -193,6 +198,7 @@ actor SSHTmuxControlChannel: SSHShellChannel {
             // the visible rows. The replay splits the final `rows` lines back
             // out; a partial or ambiguous capture fails closed.
             (.capture, "capture-pane -p -e -C -S -\(SSHTmuxSnapshot.maximumHistoryRows) -E - -t '\(selectedPane)'"),
+            (.pendingInput, "capture-pane -p -P -C -t '\(selectedPane)'"),
             (.metadata, "display-message -p -t '\(selectedPane)' '\(SSHTmuxSnapshot.format)'"),
             (.enable, "refresh-client -f '!no-output' \(outputs)"),
         ], separator: " ; ")
@@ -263,6 +269,7 @@ actor SSHTmuxControlChannel: SSHShellChannel {
         waiter = nil
         pending = []
         capture = []
+        pendingInput = []
         // Semantic refusal must not endlessly reconnect to an unsupported
         // layout. A dropped connection reattaches and obtains a fresh snapshot.
         if !failure.isRetryable { sink.yield(.exitStatus(1)) }

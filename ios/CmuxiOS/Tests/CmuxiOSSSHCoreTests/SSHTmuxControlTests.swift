@@ -38,7 +38,7 @@ import Testing
 
     @Test func modernDiscoveryUsesStableIDsAndNeverDowngradesMalformedWindows() throws {
         let discovery = SSHSessionDiscovery()
-        let listing = "@tmux2\t/usr/bin/tmux\nS\twork\t1\t0\t1\nW2\twork\t0\t1\t$1\t@9\t42\t100\tshell\n"
+        let listing = "@tmux2\t/usr/bin/tmux\nS\twork\t1\t0\t1\nW2\twork\t0\t1\t$1\t@9\t42\t100\tshell\nP2\t@9\t%2\t1\n"
         let window = try #require(discovery.parse(listing).first?.windows.first?.target)
         #expect(window.surfaceID == "ssh:tmux:42-100:$1:@9")
         #expect(window.attachCommand == "exec '/usr/bin/tmux' -C -N attach-session -E -f ignore-size,no-output -t '$1'")
@@ -90,15 +90,18 @@ import Testing
         let hydration = try #require(await writes.next())
         #expect(hydration.contains("capture-pane -p -e -C -S -256 -E - -t '%2'"))
         #expect(hydration.contains("-A '%3:off'"))
+        #expect(hydration.contains("capture-pane -p -P -C -t '%2'"))
         await base.reply(["ready"] + Array(repeating: "", count: 23))
+        await base.reply(["\\033[3"]) // Incomplete CSI, continued by the next live output.
         await base.reply(["%2 80 24 0 0 0 0 23 1 0 0 0 1 0 1 0 0 0 0 0"])
         await base.reply([])
         try await starting.value
         var output = control.events.makeAsyncIterator()
         guard case .stdout(let snapshot)? = await output.next() else { Issue.record("no snapshot"); return }
         #expect(snapshot.starts(with: Data("\u{1b}c\u{1b}[Hready".utf8)))
-        await base.notify("%output %3 invisible\n%output %2 a\\033[H\n")
-        #expect(await output.next() == .stdout(Data("a\u{1b}[H".utf8)))
+        #expect(snapshot.suffix(3) == Data("\u{1b}[3".utf8))
+        await base.notify("%output %3 invisible\n%output %2 1mred\n")
+        #expect(await output.next() == .stdout(Data("1mred".utf8)))
         try await control.write(Data(";kill-server\n".utf8))
         let input = try #require(await writes.next())
         #expect(input == "send-keys -H -t '%2' 3b 6b 69 6c 6c 2d 73 65 72 76 65 72 0a\n")
@@ -142,6 +145,7 @@ import Testing
         #expect(hydration.contains("capture-pane -p -e -C -S -256 -E - -t '%3'"))
         #expect(hydration.contains("-A '%2:off'"))
         await base.reply(Array(repeating: "", count: 24))
+        await base.reply([""])
         await base.reply(["%3 80 24 0 0 0 0 23 1 0 0 0 1 0 1 0 0 0 0 0"])
         await base.reply([])
         try await starting.value

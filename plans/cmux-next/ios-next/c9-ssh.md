@@ -187,3 +187,30 @@ server epoch, and a pane whose host-confirmed grid does not match the phone
 still fail closed. This is a safe targeting step toward multi-pane parity, not
 multi-pane composition: the current terminal source still exposes one pane per
 attachment and does not render a layout tree.
+
+### Pending terminal control input hydration (2026-10-07)
+
+The same tmux command sequence now captures `capture-pane -p -P -C` between the visible/history
+capture and mode metadata, before enabling live pane output. The phone decodes that pending control
+input as bytes and appends it after every screen/mode/cursor restoration escape. An incomplete CSI,
+OSC, or DCS therefore remains parser input when its next live bytes arrive, instead of losing the
+prefix or consuming the snapshot's own restoration commands.
+
+This follows tmux 3.3a's [pending-capture implementation](https://github.com/tmux/tmux/blob/3.3a/cmd-capture-pane.c)
+and [`input_pending` buffer](https://github.com/tmux/tmux/blob/3.3a/input.c). Pending capture uses octal
+backslash escaping, unlike the grid capture's doubled backslashes. One response line, at most 64 KiB
+encoded and 16 KiB decoded, is accepted. Malformed, multiline, or oversized state closes the attach
+before emitting the snapshot; it is never truncated. Pending bytes are cleared on completion/close.
+
+Four new deterministic tests cover control-string/cursor ordering, binary UTF-8 bytes within pending
+control strings, malformed/oversized state, and empty state. The fake-peer attachment test now proves
+a CSI split across hydration and live output, and a preexisting modern-discovery fixture now supplies
+the required `P2` active-pane row. Swift parsing, scoped iOS convention lint, mobile concurrency and
+crash-safety checks, and diff checks passed. Native execution remains blocked by the already-confirmed
+`cmux-lawrence-2` build-host DNS/SSH failure; no live tmux, renderer, simulator, or device result is
+claimed. The recurring connectivity workload is unchanged because this slice changes SSH/tmux
+hydration, not its paired-Mac Iroh workload; real SSH attach/reconnect verification remains due.
+
+This closes one parser-state gap only. tmux's `-P` buffer omits incomplete UTF-8 in the ground state;
+current pen attributes, saved cursor/charset state, pending wrap, on-demand history, multi-pane layout
+composition, and reconnect-safe lifecycle mutations still need follow-up. C9 remains incomplete.
