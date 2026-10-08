@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   SSHD_PAM_LINE,
+  SSH_SYNC_UNIT,
+  sshSyncUnit,
   SSHD_PRINCIPALS_COMMAND,
   SSH_CA_FILE,
   SSH_KRL_FILE,
@@ -105,6 +107,12 @@ describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () =>
     expect(sshdPamProblems(parts.pam)).toEqual([]);
     const cut = splitSshdBakeOutput(out.slice(0, out.indexOf("--- pam")));
     expect(sshdPamProblems(cut.pam)).not.toEqual([]);
+  });
+
+  test("the team trust sync unit runs the cmux binary's sync verb and restarts", () => {
+    expect(SSH_SYNC_UNIT).toBe("cmux-team-ssh-sync.service");
+    expect(sshSyncUnit()).toContain("ExecStart=/opt/cmux/current/bin/cmux host team-ssh sync\n");
+    expect(sshSyncUnit()).toContain("Restart=always\n");
   });
 
   test("the drop-in, read as sshd would, satisfies the policy", () => {

@@ -8,6 +8,8 @@ import { TeamVmLedger, type LedgerRow } from "./team-vm-ledger.ts"
 import { RegistryOutbox } from "./team-vm-registry-outbox.ts"
 import { TeamVmRegistry, type RegistryCounts, type RegistryEvent, type RegistryEventKind } from "./team-vm-registry.ts"
 import { TEAM_VM_REGISTRY } from "./team-vm-admin.ts"
+import { BindRunner } from "./team-vm-bind-run.ts"
+import { FakeGuest, type FakeGuestMode } from "./team-vm-fake-guest.ts"
 
 /** Prefix report bounds: pages of this size, at most this many pages, at most this many names in the answer. */
 const REPORT_PAGE = 100
@@ -30,6 +32,14 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   private inflight: Promise<void> | null = null
   private journalStore: TeamJournal | null = null
   private ledgerStore: TeamVmLedger | null = null
+
+  /** The bind (vm-image.md 6b, team-vm-bind-run.ts): one pass at a time; the alarm retries a failed one. */
+  private runnerStore: BindRunner | null = null
+  private get binder(): BindRunner {
+    const deps = { env: this.env, driver: () => teamVmDriver(this.env, this.sqlStore), state: () => this.boundEngine?.currentState, submitSystem: (op: string, p: unknown, k: string) => this.submitSystem(op, p, k), now: () => Date.now() }
+    if (!this.runnerStore) this.runnerStore = new BindRunner(this.sqlStore, deps, () => this.boundEngine && this.scheduleAlarm())
+    return this.runnerStore
+  }
 
   private get vmLedger(): TeamVmLedger {
     if (!this.ledgerStore) this.ledgerStore = new TeamVmLedger(this.sqlStore)
@@ -93,7 +103,8 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     const own = teamVmWakeAt(state)
     // Undelivered registry events retry with the alarm (only while some are left; no idle work).
     const outbox = this.outbox.size() > 0 ? now + REGISTRY_RETRY_MS : null
-    return own === null ? outbox : outbox === null ? own : Math.min(own, outbox)
+    const times = [own, outbox, this.binder.wakeAt(state)].filter((t): t is number => t !== null)
+    return times.length ? Math.min(...times) : null
   }
 
   protected override async onWake(now: number): Promise<void> {
@@ -103,6 +114,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (Object.values(state.leases).some((l) => l.expires_at <= now)) this.submitSystem("team_vm.leases_expire", { now }, `leases_expire:${now}`)
     if (state.pending && state.pending.retry_at <= now) await this.reconcile()
     await this.drainRegistry()
+    await this.binder.pass(now)
   }
 
   /**
@@ -113,6 +125,9 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   async ensureAwake(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     const result = await this.submit(entity, principal, frame)
     const ok = result.frames.some((f) => f.t === "result")
+    // A wake gives an epoch whose bind gave up a fresh set of attempts.
+    const current = this.boundEngine?.currentState
+    if (ok && current) this.binder.binds.reset(current.epoch)
     if (ok) await Promise.race([this.reconcile(), new Promise<void>((r) => setTimeout(r, ENSURE_AWAKE_WAIT_MS))])
     const state = this.boundEngine?.currentState
     if (!ok || !state) return result
@@ -293,6 +308,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
       await this.runPendingSteps()
     } finally {
       await this.drainRegistry()
+      await this.binder.pass()
     }
   }
 
@@ -433,9 +449,11 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     drop_ledger?: boolean
     drop_registry?: boolean
     reset_registry_seed?: boolean
+    guest_mode?: FakeGuestMode
   }): Promise<{ creates: number; starts: number }> {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     teamVmDriver(this.env, this.sqlStore)
+    if (cmd.guest_mode) new FakeGuest(this.sqlStore).setMode(cmd.guest_mode)
     if (cmd.seed_vm) this.sqlStore.exec(`INSERT OR REPLACE INTO fake_vm (slug, id, state, team) VALUES (?, ?, 'running', NULL)`, cmd.seed_vm.slug, cmd.seed_vm.id)
     if (cmd.drop_registry) this.registry.clear()
     if (cmd.reset_registry_seed) this.outbox.resetSeed()
@@ -449,6 +467,13 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (cmd.pause_all) this.sqlStore.exec(`UPDATE fake_vm SET state = 'paused'`)
     if (cmd.delete_all) this.sqlStore.exec(`DELETE FROM fake_vm`)
     return this.sqlStore.exec<{ creates: number; starts: number }>(`SELECT creates, starts FROM fake_ctl WHERE id = 1`)[0]!
+  }
+
+  /** Test only: the fake guest of `vm` (its install key and what the bind's commit delivered) and the epoch's last bind error. */
+  async fakeGuest(vm: string): Promise<{ guest: ReturnType<FakeGuest["state"]>; last_error: string | null }> {
+    if (this.env.ENVIRONMENT !== "test") throw new Error("fakeGuest is test only")
+    const state = this.boundEngine?.currentState
+    return { guest: new FakeGuest(this.sqlStore).state(vm), last_error: state ? this.binder.binds.lastError(state.epoch) : null }
   }
 
   /** Test only: the fake provider's VM ids. */
