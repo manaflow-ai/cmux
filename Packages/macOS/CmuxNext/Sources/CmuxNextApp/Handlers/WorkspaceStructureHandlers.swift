@@ -69,13 +69,18 @@ enum WorkspaceStructureHandlers {
         context.services.registry.track(Task {
             do {
                 let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
-                guard let connection = daemon.connection else { return nil }
                 let key = WorkspaceKey(rawValue: id)
-                try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine).build(blueprint)
-                if metadata, blueprint.color != nil || blueprint.icon != nil {
-                    try await connection.state.setWorkspaceIdentity(key, resource: daemon.store.stateResourceID(workspace: key),
-                                                              color: blueprint.color.map { .set($0) } ?? .unchanged,
-                                                              icon: blueprint.icon.map { .set($0) } ?? .unchanged)
+                let resource = daemon.store.stateResourceID(workspace: key), blueprint = blueprint
+                // Through the funnel: the action run waits for the layout's
+                // echo, so `created` names the tabs it made.
+                try await daemon.perform("duplicate workspace layout") { connection in
+                    try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine)
+                        .build(blueprint)
+                    if metadata, blueprint.color != nil || blueprint.icon != nil {
+                        try await connection.state.setWorkspaceIdentity(key, resource: resource,
+                                                                  color: blueprint.color.map { .set($0) } ?? .unchanged,
+                                                                  icon: blueprint.icon.map { .set($0) } ?? .unchanged)
+                    }
                 }
                 return nil
             } catch {
