@@ -313,6 +313,33 @@ struct CloudPortsVPNAffordanceTests {
         #expect(requested == [.cloud("refreshable"), .cloud("refreshable")])
     }
 
+    @Test("Scrolling a machine into view starts its deferred port discovery")
+    func offscreenPortsDemandWaitsForViewport() throws {
+        let suite = "ports-demand-viewport-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudTreeExpansionStore(defaults: defaults)
+        var requested: [SurfaceMachineID] = []
+        var actions = nodeActions()
+        actions.discoverPorts = { requested.append($0) }
+        let coordinator = CloudTreeOutlineView.Coordinator(machineActions: machineActions(), nodeActions: actions,
+            expansionStore: store, tabDragTransferRegistry: { nil })
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 34), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil }
+        let first = machineNode(id: "first")
+        let second = machineNode(id: "second")
+        coordinator.apply(nodes: [first, second])
+        coordinator.portsDemand.reconcile(coordinator: coordinator)
+        #expect(requested == [.cloud("first")])
+
+        let outline = try #require(coordinator.outlineView)
+        outline.scrollRowToVisible(outline.row(forItem: second))
+        coordinator.portsDemand.reconcile(coordinator: coordinator)
+        #expect(requested == [.cloud("first"), .cloud("second")])
+    }
+
     @Test("A failed Displays discovery is retried until it succeeds, at most three times",
           arguments: [[false, false, true], [false, false, false, false]])
     func displaysDemandRetriesFailedDiscovery(outcomes: [Bool]) {
