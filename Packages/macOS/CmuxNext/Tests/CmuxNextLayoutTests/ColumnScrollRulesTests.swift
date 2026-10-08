@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CoreGraphics
 import Testing
 @testable import CmuxNextLayout
