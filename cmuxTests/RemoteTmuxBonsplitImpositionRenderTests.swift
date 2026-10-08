@@ -1553,6 +1553,134 @@ import Testing
         #expect(mirror.hostProbeView === old)
     }
 
+    private func makeDisplayChangeMirror() throws -> (
+        mirror: RemoteTmuxWindowMirror,
+        connection: RemoteTmuxControlConnection,
+        window: DisplayChangeProbeWindow,
+        probe: MirrorHostProbeView
+    ) {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "display-change-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0, panelId: UUID(), connection: connection,
+            layout: node(.pane(1), w: 120, h: 40, x: 0, y: 0),
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0, scale: 2
+                )
+            },
+            makePanel: { _ in nil }
+        )
+        let window = DisplayChangeProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false
+        )
+        let probe = MirrorHostProbeView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        probe.mirror = mirror
+        try #require(window.contentView).addSubview(probe)
+        window.orderFront(nil)
+        mirror.isVisibleForSizing = true
+        mirror.noteContainerSize(pointSize: probe.bounds.size, scale: window.backingScaleFactor)
+        mirror.performSizingPassNow()
+        return (mirror, connection, window, probe)
+    }
+
+    private func drainDisplayChangeCallbacks() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
+    @Test(arguments: [NSWindow.didChangeScreenNotification, NSWindow.didChangeBackingPropertiesNotification])
+    func displayChangeRefreshesTheMirrorRegionWithoutALiveResize(notification: Notification.Name) async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let previous = try #require(connection.lastWindowSizes[0])
+
+        // Display removal need not end a mouse-driven live resize or deliver
+        // another SwiftUI geometry change. Only the host notification fires.
+        window.setContentSize(CGSize(width: 650, height: 500))
+        probe.setFrameSize(CGSize(width: 580, height: 430))
+        window.reportedScale = 1
+        NotificationCenter.default.post(name: notification, object: window)
+        NotificationCenter.default.post(name: notification, object: window)
+        // AppKit finishes laying out after the notification: sample at delivery.
+        let settledRegion = CGSize(width: 560, height: 410)
+        probe.setFrameSize(settledRegion)
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+
+        #expect(mirror.containerSizePt == settledRegion)
+        #expect(mirror.containerScale == 1)
+        let requested = try #require(connection.lastWindowSizes[0])
+        let expected = try #require(mirror.clientGrid(contentSize: settledRegion))
+        #expect(requested.0 == expected.columns && requested.1 == expected.rows)
+        #expect(requested.0 < previous.0 && requested.1 < previous.1)
+    }
+
+    @Test func displayScaleChangeRefreshesAnUnchangedRegion() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let previous = try #require(connection.lastWindowSizes[0])
+        window.reportedScale = 1
+        NotificationCenter.default.post(name: NSWindow.didChangeBackingPropertiesNotification, object: window)
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+
+        #expect(mirror.containerScale == 1)
+        #expect(mirror.containerSizePt == probe.bounds.size)
+        // Cell dimensions in points are unchanged by this fixture's scale move.
+        let requested = try #require(connection.lastWindowSizes[0])
+        #expect(requested.0 == previous.0 && requested.1 == previous.1)
+    }
+
+    @Test func hiddenMirrorAdoptsTheDisplayRegionWhenShown() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let previous = try #require(connection.lastWindowSizes[0])
+        mirror.isVisibleForSizing = false
+        let smallerRegion = CGSize(width: 560, height: 410)
+        probe.setFrameSize(smallerRegion)
+        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+        let hiddenClaim = try #require(connection.lastWindowSizes[0])
+        #expect(hiddenClaim.0 == previous.0 && hiddenClaim.1 == previous.1)
+
+        mirror.isVisibleForSizing = true
+        mirror.setNeedsSizingPassIgnoringInputs()
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == smallerRegion)
+        let visibleClaim = try #require(connection.lastWindowSizes[0])
+        #expect(visibleClaim.0 < previous.0 && visibleClaim.1 < previous.1)
+    }
+
+    @Test func displayChangeFromAReplacedOrDetachedProbeIsIgnored() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let originalRegion = mirror.containerSizePt
+        probe.setFrameSize(CGSize(width: 560, height: 410))
+        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
+        let replacement = MirrorHostProbeView()
+        replacement.mirror = mirror
+        mirror.hostProbeView = replacement
+        await drainDisplayChangeCallbacks()
+        #expect(mirror.containerSizePt == originalRegion)
+
+        mirror.hostProbeView = probe
+        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
+        probe.removeFromSuperview()
+        await drainDisplayChangeCallbacks()
+        #expect(mirror.containerSizePt == originalRegion)
+        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
+        await drainDisplayChangeCallbacks()
+        #expect(mirror.containerSizePt == originalRegion)
+        withExtendedLifetime(connection) {}
+    }
+
     /// A deselected mirror tab's split tree must be hidden at the APPKIT
     /// level, not just faded out. The workspace bonsplit keeps every tab's
     /// content alive (`contentViewLifecycle: .keepAllAlive`) and hides
@@ -1776,6 +1904,11 @@ import Testing
 private final class LiveResizeProbeWindow: NSWindow {
     var liveResizeActive = false
     override var inLiveResize: Bool { liveResizeActive }
+}
+
+private final class DisplayChangeProbeWindow: NSWindow {
+    var reportedScale: CGFloat = 2
+    override var backingScaleFactor: CGFloat { reportedScale }
 }
 
 private func node(
