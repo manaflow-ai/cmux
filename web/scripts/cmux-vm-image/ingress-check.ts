@@ -30,6 +30,7 @@ while True:
   c,a=s.accept()
   c.sendall(b"cmux-ingress-ok\\n")
   c.close()' && for i in $(seq 1 50); do ss -Hltn "sport = :${PORT}" | grep -q . && break; sleep 0.1; done && ss -Hltn "sport = :${PORT}"`;
+const PROBE_SNAPSHOT = "freestyle/ubuntu-sm";
 const ADDRESSES = "ip -o addr show scope global | awk '{print $4}' | cut -d/ -f1";
 
 type Created = { vm: Vm; vmId: string; name: string };
@@ -88,7 +89,9 @@ async function main(): Promise<number> {
     made.push(target);
     const control = await make(fs, ledger, `cmuxnp-dev-ingress-control-${stamp}`, snapshotId, true);
     made.push(control);
-    const probe = await make(fs, ledger, `cmuxnp-dev-ingress-probe-${stamp}`, snapshotId, false);
+    // The probe is always the plain base: an image clone would run its own listener on 1337 and
+    // answer the probe's dials to its own local addresses.
+    const probe = await make(fs, ledger, `cmuxnp-dev-ingress-probe-${stamp}`, PROBE_SNAPSHOT, false);
     made.push(probe);
     console.log(`VMS target=${target.vmId} control=${control.vmId} probe=${probe.vmId}`);
     for (const vm of [target, control]) {
@@ -104,8 +107,13 @@ async function main(): Promise<number> {
       const self = await run(vm.vm, `timeout 5 curl -sS --max-time 3 telnet://127.0.0.1:${PORT} </dev/null; timeout 5 curl -sS --max-time 3 'telnet://[::1]:${PORT}' </dev/null`);
       console.log(`loopback ${vm.name}: ${self.stdout.trim().replace(/\s+/g, " ")}`);
     }
-    const targetAddrs = await addresses(target.vm);
-    const controlAddrs = await addresses(control.vm);
+    // Every VM holds the same link-local, ULA and docker-bridge addresses: a dial to one of them
+    // stays inside the probe, so only addresses the probe does not hold are routes to test.
+    const probeAddrs = new Set(await addresses(probe.vm));
+    const routes = (all: string[]) => all.filter((a) => !probeAddrs.has(a));
+    const targetAddrs = routes(await addresses(target.vm));
+    const controlAddrs = routes(await addresses(control.vm));
+    console.log(`probe-local (skipped) ${[...probeAddrs].join(",")}`);
     console.log(`addresses target=${targetAddrs.join(",")} control=${controlAddrs.join(",")}`);
     if (targetAddrs.length === 0 || controlAddrs.length === 0) throw new Error("a machine has no global address");
     let controlReached = 0;
