@@ -183,6 +183,9 @@ test("the diff page embeds its data safely and lists changed states first", () =
   const html = diffPage([outcome({ variant: "</script><b>" }), outcome({ variant: "same", status: "unchanged" })], meta);
   expect(html).not.toContain("</script><b>");
   expect(html).toContain("PR #18189 gallery diff");
+  expect(html).toContain('id="entry-filter"');
+  expect(html).toContain('{id: o.key, "data-entry": o.entry}');
+  expect(html).toContain("applyEntryFilter");
   expect(html.indexOf('"status":"changed"')).toBeLessThan(html.indexOf('"status":"unchanged"'));
   expect(readFileSync(new URL("./report.ts", import.meta.url), "utf8")).toContain("onion");
 });

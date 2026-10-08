@@ -140,6 +140,8 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-a
 header{padding:20px 16px 8px;max-width:1240px;margin:0 auto}
 h1{font-size:18px;margin:0 0 4px}
 .sub{color:var(--muted)}
+label{display:inline-flex;align-items:center;gap:6px;margin-top:10px;color:var(--muted);font-size:12px}
+select{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--edge);border-radius:6px;padding:3px 6px}
 main{max-width:1240px;margin:0 auto;padding:8px 16px 48px}
 h2{font-size:15px;margin:28px 0 10px}
 article{background:var(--card);border-radius:10px;box-shadow:0 0 0 1px var(--edge);padding:12px;margin:0 0 16px}
@@ -163,11 +165,12 @@ details summary{cursor:pointer;color:var(--muted)}
 ul.plain{columns:2;padding-left:18px;color:var(--muted)}
 @media (max-width:640px){ul.plain{columns:1}.pair{grid-template-columns:1fr}}
 </style>
-<header><h1>${title}</h1><div class="sub" id="summary"></div></header>
+<header><h1>${title}</h1><div class="sub" id="summary"></div><label>Entry <select id="entry-filter" aria-label="Filter gallery diff by entry"><option value="">All entries</option></select></label></header>
 <main id="main"></main>
 <script>
 const {outcomes, labels} = ${data};
 const main = document.getElementById("main");
+const entryFilter = document.getElementById("entry-filter");
 const el = (tag, attrs = {}, ...kids) => { const n = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); n.append(...kids); return n; };
 const img = (src, alt) => el("img", {src, alt, loading: "lazy"});
 const pct = (n, of) => (100 * n / of) + "%";
@@ -205,17 +208,37 @@ function card(o, i) {
     const src = o.head || o.base;
     if (src) stage.append(img(src, o.status));
   }
-  return el("article", {id: o.key}, meta, stage);
+  return el("article", {id: o.key, "data-entry": o.entry}, meta, stage);
 }
 order.forEach((status) => {
   const list = outcomes.map((o, i) => [o, i]).filter(([o]) => o.status === status);
   if (!list.length) return;
   if (status === "unchanged") {
-    main.append(el("details", {}, el("summary", {}, list.length + " unchanged"), el("ul", {class: "plain"}, ...list.map(([, i]) => el("li", {}, labels[i])))));
+    const details = el("details", {"data-status": status});
+    details.append(
+      el("summary", {"data-summary": "unchanged"}, list.length + " unchanged"),
+      el("ul", {class: "plain"}, ...list.map(([o, i]) => el("li", {"data-entry": o.entry}, labels[i]))),
+    );
+    main.append(details);
     return;
   }
-  main.append(el("h2", {}, titles[status] + " (" + list.length + ")"), ...list.map(([o, i]) => card(o, i)));
+  const section = el("section", {"data-status": status});
+  section.append(el("h2", {}, titles[status] + " (" + list.length + ")"), ...list.map(([o, i]) => card(o, i)));
+  main.append(section);
 });
+for (const entry of [...new Set(outcomes.map((o) => o.entry))].sort()) entryFilter.append(el("option", {value: entry}, entry));
+const applyEntryFilter = () => {
+  const selected = entryFilter.value;
+  for (const node of main.querySelectorAll("[data-entry]")) node.hidden = Boolean(selected && node.dataset.entry !== selected);
+  for (const section of main.querySelectorAll("[data-status]")) {
+    const visible = [...section.querySelectorAll("[data-entry]")].filter((node) => !node.hidden);
+    section.hidden = visible.length === 0;
+    const summary = section.querySelector("[data-summary='unchanged']");
+    if (summary) summary.textContent = visible.length + " unchanged";
+  }
+};
+entryFilter.addEventListener("change", applyEntryFilter);
+applyEntryFilter();
 </script>
 </html>
 `;
