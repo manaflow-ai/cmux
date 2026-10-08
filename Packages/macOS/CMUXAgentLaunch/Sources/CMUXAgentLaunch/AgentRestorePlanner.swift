@@ -62,6 +62,18 @@ public struct AgentRestorePlanner: Sendable {
         ambientEnvironment: [String: String]
     ) -> AgentRestoreInvocation? {
         let kind = normalizedKind(request.kind)
+        // An OMP hook can run from a restored process whose PATH no longer
+        // contains the original shim. Do not turn that missing capture into
+        // a bare `omp --session …` invocation: it would silently select a
+        // different executable (or fail later under the launchd PATH).
+        if kind == "omp",
+           request.mode != .direct,
+           let launchCommand = request.launchCommand,
+           launchCommand.arguments.isEmpty,
+           request.preparedArguments?.isEmpty != false,
+           normalized(launchCommand.executablePath)?.contains("/") != true {
+            return nil
+        }
         let routedClaudeLaunch = routedClaudeResumeLaunch(
             for: request,
             kind: kind,
