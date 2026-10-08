@@ -74,14 +74,12 @@ impl JournalSensitivity {
     }
 }
 
-/// Stored records only (never wire input): tolerant like the record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JournalProducer {
     pub kind: String,
     pub id: String,
 }
 
-/// Stored records only (never wire input): tolerant like the record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JournalAuthority {
     pub principal_id: String,
@@ -98,9 +96,9 @@ pub struct JournalSubject {
 }
 
 /// Decoding tolerates unknown fields: a sealed segment written by a newer
-/// daemon must stay readable (P8 landing 2c). Limits: `JournalSubject` stays
-/// strict (it is also wire input, `JournalIngress`), and a new enum variant
-/// still breaks an older reader.
+/// daemon must stay readable (P8 landing 2c); so do `JournalProducer` and
+/// `JournalAuthority` (stored only). Limits: `JournalSubject` stays strict (it
+/// is also `JournalIngress` wire input) and a new enum variant still breaks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionJournalRecord {
     pub sequence: u64,
@@ -980,14 +978,7 @@ fn append_resource_journal_record_at(
         "changes": changes,
     });
     let event_id = format!("event_resource_{revision:020}");
-    // A migrated legacy revision has no actor (and its ledgers may predate the
-    // column); a fresh record is its ledger row's, else the daemon's own.
-    let actor = match with_current_state {
-        true => Some(
-            ledger_actor(transaction, idempotency_key)?.unwrap_or_else(|| Actor::Daemon.wire()),
-        ),
-        false => None,
-    };
+    let actor = resource_record_actor(transaction, idempotency_key, with_current_state)?;
     append_journal_record(
         transaction,
         &JournalAppend {
@@ -2194,4 +2185,4 @@ mod actor_tests;
 
 #[cfg(test)]
 pub(crate) use actors::journal_actor;
-pub(crate) use actors::{ledger_actor, segment_actors_json};
+pub(crate) use actors::{ledger_actor, resource_record_actor, segment_actors_json};

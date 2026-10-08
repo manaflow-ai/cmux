@@ -28,6 +28,21 @@ pub(crate) fn ledger_actor(
     Ok(actor)
 }
 
+/// The actor of a resource journal record for `idempotency_key`. A migrated
+/// legacy revision (`fresh` false) has none, and its ledgers may predate the
+/// column; a fresh record is its ledger row's, else the daemon's own.
+pub(crate) fn resource_record_actor(
+    transaction: &Transaction<'_>,
+    idempotency_key: &str,
+    fresh: bool,
+) -> anyhow::Result<Option<String>> {
+    if !fresh {
+        return Ok(None);
+    }
+    let actor = ledger_actor(transaction, idempotency_key)?;
+    Ok(Some(actor.unwrap_or_else(|| crate::Actor::Daemon.wire())))
+}
+
 /// The actor of record `sequence`, from its live row or from the segment
 /// that sealed it. `None`: no actor was stored (legacy) or no such record.
 /// Read by tests until the wire carries the actor (`journal-actor-v1`).
