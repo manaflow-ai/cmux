@@ -66,6 +66,7 @@ on:
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
       - tests/test_build_web_bundles_from.sh
+      - tests/test_cmux_next_web_bundle_cache.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
@@ -165,6 +166,7 @@ on:
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
       - tests/test_build_web_bundles_from.sh
+      - tests/test_cmux_next_web_bundle_cache.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
@@ -888,6 +890,7 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
           lookup-only: true
 
       - name: Build the web bundles for this source key
@@ -900,6 +903,7 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Prebuilt bundles install and stamp (build-web-bundles.sh --from)
         run: bash tests/test_build_web_bundles_from.sh
@@ -1054,6 +1058,7 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Install the restored web bundles
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
@@ -1255,6 +1260,7 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Install the restored web bundles
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
@@ -1421,6 +1427,7 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Install the restored web bundles
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
