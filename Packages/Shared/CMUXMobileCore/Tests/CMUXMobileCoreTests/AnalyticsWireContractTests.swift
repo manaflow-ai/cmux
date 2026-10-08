@@ -71,8 +71,11 @@ struct AnalyticsWireContractTests {
             ),
             count: 5
         )
-        #expect(throws: AnalyticsWireError.requestTooLarge) {
+        #expect {
             try AnalyticsWireBatch(events: events).encodedData()
+        } throws: { error in
+            guard case let AnalyticsWireError.requestTooLarge(byteCount) = error else { return false }
+            return byteCount > AnalyticsWireContract.maxRequestBytes
         }
     }
 }
