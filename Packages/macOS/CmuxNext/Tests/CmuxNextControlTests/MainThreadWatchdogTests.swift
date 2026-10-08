@@ -1,34 +1,63 @@
 @testable import CmuxNextControl
 import CoreFoundation
 import Foundation
+import Synchronization
 import Testing
 
 @Suite(.serialized, .timeLimit(.minutes(1))) struct MainThreadWatchdogTests {
+    #if DEBUG
+    /// The watchdog reads an injected clock that moves only inside the
+    /// stall, and the stall ends only once the watchdog thread sampled it:
+    /// host load (a descheduled main thread, other suites' main-actor work,
+    /// slow symbolication between runs) can neither add a stall nor make
+    /// the sample miss this one (cx-onbb).
     @MainActor
     @Test func recordsAMainThreadStallWithAStackSample() throws {
-        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false))
+        let clock = ManualUptime()
+        let sampled = SampleSignal()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
+        watchdog.afterSampleForTesting.withLock { $0 = { sampled.fire() } }
         watchdog.start()
         defer { watchdog.stop() }
-        // Drive the main run loop so the observer sees activity, then stall inside one source.
+        // Stall inside one source of the main run loop, then end the run.
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
-            stallForTest()
+            stallForTestUntilSampled(clock: clock, by: .milliseconds(150), sampled: sampled)
+            CFRunLoopStop(CFRunLoopGetMain())
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
-        CFRunLoopRunInMode(.defaultMode, 0.4, false)
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+        #expect(sampled.hasFired, "the watchdog thread did not sample the stall")
         let records = watchdog.log.records()
-        // The longest record: on a loaded machine a descheduled main thread
-        // can add a shorter stall before the test's own one.
-        let stall = try #require(records.max { $0.duration < $1.duration }, "no stall recorded")
-        #expect(stall.duration >= .milliseconds(100))
-        #expect(!stall.frames.isEmpty)
+        #expect(records.count == 1)
+        let stall = try #require(records.first, "no stall recorded")
+        #expect(stall.duration == .milliseconds(150))
         #expect(stall.frames.contains { $0.symbol?.contains("stallForTest") == true },
                 "frames: \(stall.frames.prefix(8).map(\.description))")
         // The main thread works between the two runs (the symbolication
         // above; on a loaded host it takes longer than the threshold), then
-        // the run loop idles: nothing further is recorded (cx-onbb).
+        // the run loop idles: the clock did not move, nothing is recorded.
         spin(for: .milliseconds(60))
         CFRunLoopRunInMode(.defaultMode, 0.2, false)
-        #expect(watchdog.log.summary.count == records.count)
+        #expect(watchdog.log.summary.count == 1)
+    }
+    #endif
+
+    /// Time the main run loop sleeps is not a stall; time between waking and
+    /// the next sleep is. Heartbeats driven by hand on an injected clock.
+    @MainActor
+    @Test func timeAsleepIsNotAStallAndWorkAwakeIs() {
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
+        watchdog.heartbeat(.afterWaiting)
+        clock.advance(by: .milliseconds(10))
+        watchdog.heartbeat(.beforeWaiting)
+        clock.advance(by: .seconds(5))
+        watchdog.heartbeat(.afterWaiting)
+        #expect(watchdog.log.summary.count == 0, "10 ms of work and 5 s asleep")
+        clock.advance(by: .milliseconds(80))
+        watchdog.heartbeat(.beforeWaiting)
+        #expect(watchdog.log.records().map(\.duration) == [.milliseconds(80)])
+        #expect(watchdog.log.summary.count == 1)
     }
 
     /// AppKit lays out, displays and commits Core Animation in
@@ -113,4 +142,32 @@ func stallForTest() {
 @inline(never)
 func stallForTestLong() {
     spin(for: .milliseconds(500))
+}
+
+/// Spins inside a symbol the stack sample can name: moves the injected clock
+/// past the threshold, then holds the main thread until the watchdog thread
+/// sampled it (a 20 s wall-clock bound turns a missing sample into a test
+/// failure, not a hang).
+@inline(never)
+func stallForTestUntilSampled(clock: ManualUptime, by duration: Duration, sampled: SampleSignal) {
+    clock.advance(by: duration)
+    let deadline = ContinuousClock.now + .seconds(20)
+    while !sampled.hasFired, ContinuousClock.now < deadline {}
+}
+
+/// An uptime clock (nanoseconds) that moves only when the test moves it.
+final class ManualUptime: Sendable {
+    private let nanos = Atomic<UInt64>(1_000_000_000)
+    var read: @Sendable () -> UInt64 { { [self] in nanos.load(ordering: .acquiring) } }
+    func advance(by duration: Duration) {
+        nanos.add(UInt64(duration.components.seconds) * 1_000_000_000 + UInt64(duration.components.attoseconds / 1_000_000_000),
+                  ordering: .releasing)
+    }
+}
+
+/// Set once by the watchdog thread after it sampled the main thread.
+final class SampleSignal: Sendable {
+    private let fired = Atomic(false)
+    var hasFired: Bool { fired.load(ordering: .acquiring) }
+    func fire() { fired.store(true, ordering: .releasing) }
 }
