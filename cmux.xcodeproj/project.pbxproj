@@ -1649,6 +1649,7 @@
 		E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A3000000000000000102 /* CmuxWorkspaces */; };
 		C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */; };
 		AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */; };
+		44B5601F54D3BB5BD1B5F913 /* CoderouterAccountState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E85236BC4E03F5BA8B908C /* CoderouterAccountState.swift */; };
 		C7FE4192A06F41C15B58BD85 /* CoderouterCLIAccountReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD9ECC7CA728BADD0DEA6F18 /* CoderouterCLIAccountReader.swift */; };
 		AA5547F98E95C043FFD28413 /* CoderouterCLIAccountReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50344B92A8552212731CAE50 /* CoderouterCLIAccountReaderTests.swift */; };
 		67F13AB1D70935EB1DA98379 /* CoderouterGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673E5C029E4E33D55D173734 /* CoderouterGuideView.swift */; };
@@ -6108,6 +6109,7 @@
 		A6AC72080000000000000002 /* CMUXWorkspaceLoadingCLIRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXWorkspaceLoadingCLIRegressionTests.swift; sourceTree = "<group>"; };
 		C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisher.swift; sourceTree = "<group>"; };
 		43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisherDemandTests.swift; sourceTree = "<group>"; };
+		B4E85236BC4E03F5BA8B908C /* CoderouterAccountState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterAccountState.swift; sourceTree = "<group>"; };
 		BD9ECC7CA728BADD0DEA6F18 /* CoderouterCLIAccountReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterCLIAccountReader.swift; sourceTree = "<group>"; };
 		50344B92A8552212731CAE50 /* CoderouterCLIAccountReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CoderouterCLIAccountReaderTests.swift"; sourceTree = "<group>"; };
 		673E5C029E4E33D55D173734 /* CoderouterGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterGuideView.swift; sourceTree = "<group>"; };
@@ -9771,6 +9773,7 @@
 				BD9ECC7CA728BADD0DEA6F18 /* CoderouterCLIAccountReader.swift */,
 				2BAEE91D3454ED56377518FE /* CoderouterProvider.swift */,
 				673E5C029E4E33D55D173734 /* CoderouterGuideView.swift */,
+				B4E85236BC4E03F5BA8B908C /* CoderouterAccountState.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -15071,6 +15074,7 @@
 				C51A73000000000000000013 /* CmuxWorkerEntrypoint.swift in Sources */,
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
 				C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */,
+				44B5601F54D3BB5BD1B5F913 /* CoderouterAccountState.swift in Sources */,
 				C7FE4192A06F41C15B58BD85 /* CoderouterCLIAccountReader.swift in Sources */,
 				67F13AB1D70935EB1DA98379 /* CoderouterGuideView.swift in Sources */,
 				ECC272858DDDFFEA5700CCE4 /* CoderouterProvider.swift in Sources */,
