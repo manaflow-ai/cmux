@@ -2,8 +2,9 @@
 //! host launches reaches no metadata, link-local or private address, by
 //! literal, by name (DNS rebinding), through a redirect or from page
 //! script, because every connection goes through the host's listener. No
-//! gate is in the path: the listener alone enforces it. Only the owner's
-//! allow-listed fixture port loads. A module of the `chromium` test target.
+//! gate is in the path: the listener alone enforces it. The machine's own
+//! loopback servers load (literal or `localhost`), except a cmux service
+//! port (here the listener itself). A module of the `chromium` test target.
 
 use super::*;
 use cmux_browser_host::egress_scope::{EgressRule, IsolatedEgress};

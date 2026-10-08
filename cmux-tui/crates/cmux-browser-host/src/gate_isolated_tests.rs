@@ -133,11 +133,9 @@ fn the_owner_allow_list_reaches_fetch_and_the_request_filter() {
     assert_eq!(decide("http://127.0.0.1:3000/app.js"), None);
     assert_eq!(decide("https://public.test/x"), None, "names are the listener's");
     assert_eq!(decide("http://127.0.0.1:3001/"), None, "the VM's own loopback");
-    for refused in [
-        "http://10.0.0.1/",
-        "http://169.254.169.254/",
-        "http://metadata.google.internal/",
-    ] {
+    for refused in
+        ["http://10.0.0.1/", "http://169.254.169.254/", "http://metadata.google.internal/"]
+    {
         assert!(decide(refused).is_some(), "{refused}");
     }
 }

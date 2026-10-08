@@ -60,7 +60,7 @@ pub fn start(rule: Arc<EgressRule>) -> io::Result<SocketAddr> {
             let spawned = std::thread::Builder::new()
                 .name("cmux-browser-host-egress-conn".into())
                 .spawn(move || {
-                    let _ = serve(client, &rule);
+                    let _ = serve(client, &rule, addr);
                     done.leave();
                 });
             if spawned.is_err() {
@@ -107,7 +107,7 @@ impl Live {
 }
 
 /// One client: handshake, rule, dial, copy.
-fn serve(mut client: TcpStream, rule: &EgressRule) -> io::Result<()> {
+fn serve(mut client: TcpStream, rule: &EgressRule, own: SocketAddr) -> io::Result<()> {
     client.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
     client.set_nodelay(true)?;
     let mut head = [0u8; 2];
@@ -135,6 +135,10 @@ fn serve(mut client: TcpStream, rule: &EgressRule) -> io::Result<()> {
         return send_reply(&mut client, reply::COMMAND_UNSUPPORTED);
     }
     let addrs = match rule.resolve(&target) {
+        // Never a connection to the listener itself (a cmux service port).
+        Ok(addrs) if addrs.iter().any(|a| is_self(*a, own)) => {
+            return send_reply(&mut client, reply::NOT_ALLOWED);
+        }
         Ok(addrs) => addrs,
         Err(Refusal::Blocked(_)) => return send_reply(&mut client, reply::NOT_ALLOWED),
         Err(Refusal::Unresolved(_)) => return send_reply(&mut client, reply::HOST_UNREACHABLE),
@@ -157,6 +161,15 @@ fn serve(mut client: TcpStream, rule: &EgressRule) -> io::Result<()> {
     keepalive(&client);
     keepalive(&upstream);
     copy_both_ways(client, upstream)
+}
+
+/// Whether `addr` reaches the listener bound at `own` (127.0.0.1).
+fn is_self(addr: SocketAddr, own: SocketAddr) -> bool {
+    let ip = match addr.ip() {
+        std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(addr.ip(), std::net::IpAddr::V4),
+        ip => ip,
+    };
+    addr.port() == own.port() && (ip == own.ip() || ip.is_unspecified())
 }
 
 /// The request's DST.ADDR and DST.PORT; `None` for an unknown address type.
