@@ -1164,6 +1164,7 @@ impl Mux {
 
     pub(super) fn commit_ordinary_tab_selection(
         self: &Arc<Self>,
+        actor: &Actor,
         selectors: ResourceSelectors,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let fingerprint = json!({
@@ -1176,7 +1177,7 @@ impl Mux {
             selectors,
             false,
             None,
-            &WorkspaceMutation::daemon_local("cmux-tui"),
+            &WorkspaceMutation::local("cmux-tui", actor.clone()),
             &fingerprint,
         )
     }
@@ -1543,7 +1544,7 @@ impl Mux {
             workspace.is_some() || !self.workspaces_are_provider_managed(),
             "managed workspace creation is not supported by tab moves"
         );
-        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         let fingerprint = json!({ "surface":surface, "workspace":workspace, "group":group,
             "group_index":group_index, "name":name });
         let presentation = self.presentation_snapshot();
@@ -2696,7 +2697,11 @@ impl Mux {
                     drop(_creation_handoff);
                     return Ok(self.finish_resource_close(committed));
                 }
-                let result = match self.execute_resource_topology_effect(operation, &intent) {
+                let result = match self.execute_resource_topology_effect(
+                    &mutation.actor,
+                    operation,
+                    &intent,
+                ) {
                     Ok(result) => result,
                     Err(error)
                         if error
@@ -3714,7 +3719,11 @@ impl Mux {
                     .unwrap()
                     .resource_creation_recovery(correlation_key)?
                     .context("executing resource creation omitted its recovery record")?;
-                let result = match self.execute_resource_topology_effect(operation, &intent) {
+                let result = match self.execute_resource_topology_effect(
+                    &mutation.actor,
+                    operation,
+                    &intent,
+                ) {
                     Ok(result) => result,
                     Err(error) => {
                         #[cfg(test)]
@@ -3903,7 +3912,8 @@ impl Mux {
             self.state.lock().unwrap().resource_indexes.workspaces.get(&public_id).copied();
         if let Some(workspace) = workspace {
             anyhow::ensure!(
-                self.close_workspace_at_revision_for_resource_effect(workspace)?.is_some(),
+                self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace)?
+                    .is_some(),
                 "interrupted staged workspace {public_id} disappeared during rollback"
             );
         }
@@ -4204,6 +4214,7 @@ impl Mux {
 
     fn execute_resource_topology_effect(
         self: &Arc<Self>,
+        actor: &Actor,
         operation: ResourceOperation,
         intent: &Value,
     ) -> anyhow::Result<Value> {
@@ -4236,7 +4247,7 @@ impl Mux {
                 let target =
                     self.effect_slots(&path)?.workspace.context("workspace disappeared")?;
                 anyhow::ensure!(
-                    self.close_workspace_at_revision_for_resource_effect(target)?.is_some(),
+                    self.close_workspace_at_revision_for_resource_effect(actor, target)?.is_some(),
                     "workspace disappeared"
                 );
                 Ok(json!({}))
