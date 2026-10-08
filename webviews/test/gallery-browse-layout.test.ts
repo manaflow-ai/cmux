@@ -9,10 +9,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("gallery-browse-layout.test.ts", async () => {
   setDefaultTimeout(120_000);
-  const shellCss = fs.readFileSync(
-    path.resolve(import.meta.dir, "../src/gallery/shell/shell.css"),
-    "utf8",
-  );
+  const shellCss = fs.readFileSync(path.resolve(import.meta.dir, "../src/gallery/shell/shell.css"), "utf8");
   const engines: [string, BrowserType][] = [];
   for (const engine of [
     ["chromium", chromium],

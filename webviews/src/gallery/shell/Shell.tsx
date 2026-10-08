@@ -361,10 +361,7 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
         <Controls
           env={env}
           onChange={(next) =>
-            go(
-              { ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } },
-              true,
-            )
+            go({ ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } }, true)
           }
         />
       </header>
@@ -384,13 +381,7 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
 }
 
 /** One entry's header and stages. */
-function EntryView({
-  entry,
-  address,
-}: {
-  entry: GalleryEntry;
-  address: Address;
-}) {
+function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }) {
   const [stagesRef, room] = useRoom();
   const { search } = address;
   const variant = entry.variants[address.variant] ? address.variant : Object.keys(entry.variants)[0]!;
