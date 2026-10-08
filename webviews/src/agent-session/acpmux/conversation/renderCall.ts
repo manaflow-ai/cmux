@@ -17,9 +17,12 @@ export const RENDER_FRAME_MIN_HEIGHT = 120;
 /// The tool's own name at the end of its title; a trailing "(server)" note is allowed.
 const NAME = /(?:^|[_./:\s])(?:html_)?render(?:\s*\([^)]*\))?$/i;
 
-/// The HTML a tool call renders, or nil for every other call and a failed one.
+/// Statuses of a call that did not render: it failed, or its turn was cancelled before it ran.
+const NOT_RENDERED = new Set(["failed", "pending", "in_progress"]);
+
+/// The HTML a tool call renders, or nil for every other call and one that did not run.
 export function renderCall(tool: Tool): RenderCall | undefined {
-  if (tool.status === "failed" || !NAME.test(tool.title.trim())) return undefined;
+  if (NOT_RENDERED.has(tool.status ?? "") || !NAME.test(tool.title.trim())) return undefined;
   const input = parseInput(tool.inputSummary);
   const html = input?.html;
   if (typeof html !== "string" || !html.trim()) return undefined;
