@@ -171,18 +171,20 @@ export function Stage({
     );
   }, [display.query, display.run, frameHeight, frameWidth, query, run, scale]);
   const frameRef = useCallback(
-    (content: FrameState) => (iframe: HTMLIFrameElement | null) => {
+    (iframe: HTMLIFrameElement | null) => {
       if (!iframe) return;
       const receive = (event: MessageEvent) => {
         const data = event.data as { type?: string; report?: PlayReport; status?: string } | null;
-        if (event.source !== iframe.contentWindow || iframe.dataset.galleryQuery !== content.query) return;
+        const query = iframe.dataset.galleryQuery;
+        const run = Number(iframe.dataset.galleryRun);
+        if (event.source !== iframe.contentWindow || !query || !Number.isFinite(run)) return;
         if (data?.type === "cmux-gallery-play") setReport(data.report);
         if (data?.type === "cmux-gallery-stage" && (data.status === "ready" || data.status === "error")) {
           const token = ++promotion.current;
           requestAnimationFrame(() => {
             if (token !== promotion.current) return;
             const current = pendingRef.current;
-            if (!current || current.query !== content.query || current.run !== content.run) return;
+            if (!current || current.query !== query || current.run !== run) return;
             pendingRef.current = undefined;
             setDisplay(current);
             setPending(undefined);
@@ -195,15 +197,16 @@ export function Stage({
         promotion.current += 1;
       };
     },
-    [content],
+    [],
   );
   const shown = display;
   const next = pending;
   const iframe = (content: typeof shown, hidden: boolean) => (
     <iframe
       key={`${content.run}:${content.query}`}
-      ref={frameRef(content)}
+      ref={frameRef}
       data-gallery-query={content.query}
+      data-gallery-run={content.run}
       title={`${entry.id} ${state}`}
       src={`frame.html?${content.query}`}
       style={{
