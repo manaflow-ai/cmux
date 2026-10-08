@@ -28,14 +28,21 @@ final class CookieImportPromptService {
 
     static let forceKey = "CMUX_NEXT_COOKIE_PROMPT"
 
-    init(services: AppServices, defaults: UserDefaults = .standard) {
+    /// Finds the installed browsers' apps (any thread); tests pass their own.
+    private let locate: @Sendable () -> [(browser: ImportBrowser, app: URL)]
+    /// Pins whether the card may show (tests); nil follows the launch.
+    var enabledOverride: Bool?
+
+    init(services: AppServices?, defaults: UserDefaults = .standard,
+         locate: @escaping @Sendable () -> [(browser: ImportBrowser, app: URL)] = { InstalledCookieBrowser.locate() }) {
         self.services = services
         self.defaults = defaults
+        self.locate = locate
         state = CookieImportPromptState.load(from: defaults)
     }
 
     private var enabled: Bool {
-        ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false
+        enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false)
     }
 
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).
@@ -59,10 +66,8 @@ final class CookieImportPromptService {
         let tab = entry.tab
         let personal = !OffTheRecordProfiles.shared.isOffTheRecord(tab.profileID) && !tab.isAgentDriven
             && BrowserProfileRecord.wireID(for: tab.profileID) != AgentBrowserProfile.id
-        // A window toast (a recovered draft, an undo) sits in the same spot: the card waits for a later page.
-        let toast = entry.chrome.window.map { !CmuxToastCenter.shared.toasts(in: $0).isEmpty } ?? false
         return CookieImportPage(url: url, isChromium: tab.engineKind == .cef, isPersonal: personal,
-                                showsOtherNotice: entry.chrome.noticeText != nil || toast)
+                                showsOtherNotice: entry.chrome.noticeText != nil)
     }
 
     /// Shows the card on `chrome` (also `debug.cookie_prompt show`, which skips the checks).
@@ -72,7 +77,10 @@ final class CookieImportPromptService {
                                              detail: CookieImportPromptStrings.detail, importTitle: CookieImportPromptStrings.importCookies,
                                              notNowTitle: CookieImportPromptStrings.notNow, neverTitle: CookieImportPromptStrings.never)
         let target = BrowserProfileRecord.wireID(for: chrome.tab.profileID)
-        chrome.showCookieImportOffer(offer) { [weak self] choice in self?.answer(choice, profile: target) }
+        // A window toast (a recovered draft, an undo) sits at the bottom too: the card rises above it
+        // instead of waiting (an inactive window keeps its toasts, so waiting could last the launch).
+        let toast = chrome.window.map { !CmuxToastCenter.shared.toasts(in: $0).isEmpty } ?? false
+        chrome.showCookieImportOffer(offer, aboveToast: toast) { [weak self] choice in self?.answer(choice, profile: target) }
     }
 
     /// `profile`: the cmux browser profile of the tab that showed the card;
@@ -115,7 +123,8 @@ final class CookieImportPromptService {
         guard finding == nil else { return }
         // task-owner: one Launch Services lookup per launch; ends after it
         finding = Task { [weak self] in
-            let apps = await Task.detached { InstalledCookieBrowser.locate() }.value
+            let locate = self?.locate ?? { [] }
+            let apps = await Task.detached { locate() }.value
             let found = apps.map { InstalledCookieBrowser(browser: $0.browser, icon: NSWorkspace.shared.icon(forFile: $0.app.path)) }
             guard let self else { return }
             browsers = found
@@ -136,10 +145,13 @@ struct InstalledCookieBrowser {
     /// The browsers people most often come from lead; the rest keep registry order.
     nonisolated static let leading: [ImportBrowser] = [.chrome, .edge, .firefox, .arc, .brave, .safari]
 
+    /// Launch Services' app for a bundle id; nonisolated so the off-main search never needs the main actor.
+    nonisolated static func appURL(_ bundleID: String) -> URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+    }
+
     /// The installed browsers and their apps, in offer order (any thread).
-    nonisolated static func locate(
-        _ locate: (String) -> URL? = { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-    ) -> [(browser: ImportBrowser, app: URL)] {
+    nonisolated static func locate(_ locate: (String) -> URL? = appURL) -> [(browser: ImportBrowser, app: URL)] {
         let candidates = ImportBrowser.allCases.filter { browser in
             browser.kind == .browser && !browser.refusesSessionData && [.chromium, .firefox, .safari].contains(browser.family)
         }
