@@ -2,12 +2,12 @@ use super::*;
 use base64::Engine;
 use flate2::bufread::GzDecoder;
 use rusqlite::Row;
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Result as IoResult};
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{borrow::Cow, sync::Arc};
 
+pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
 pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;

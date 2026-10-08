@@ -56,7 +56,13 @@ fn sealed_roster_store(session: &'static str) -> SealedRosterStore {
 
 /// Overwrite the content of every segment of one seal with bytes that are
 /// not gzip, and drop the roster snapshot so the reopen replays from zero.
-fn corrupt_seal_and_drop_roster_snapshot(store: &SealedRosterStore, seal: usize) {
+/// With `inflate_end`, the seal's last segment also claims to end at the
+/// first active row, past every later segment.
+fn corrupt_seal_and_drop_roster_snapshot(
+    store: &SealedRosterStore,
+    seal: usize,
+    inflate_end: bool,
+) {
     let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
     let database = registry.session_journal_database_path().unwrap();
     registry
@@ -74,10 +80,21 @@ fn corrupt_seal_and_drop_roster_snapshot(store: &SealedRosterStore, seal: usize)
             .unwrap();
         assert_eq!(changed, 1);
     }
+    if inflate_end {
+        let changed = connection
+            .execute(
+                "UPDATE journal_segments
+                 SET end_sequence = (SELECT MIN(sequence) FROM session_journal)
+                 WHERE segment_id = ?1",
+                rusqlite::params![store.seals[seal].last().unwrap()],
+            )
+            .unwrap();
+        assert_eq!(changed, 1);
+    }
 }
 
-fn reopen_and_check_roster(store: &SealedRosterStore, corrupt_seal: usize) {
-    corrupt_seal_and_drop_roster_snapshot(store, corrupt_seal);
+fn reopen_and_check_roster(store: &SealedRosterStore, corrupt_seal: usize, inflate_end: bool) {
+    corrupt_seal_and_drop_roster_snapshot(store, corrupt_seal, inflate_end);
     let reopened = open_persistent_test_mux(store.session, &store.root);
     for (step, terminal_id) in store.terminals.iter().enumerate() {
         let expected = if step == corrupt_seal { None } else { Some("idle") };
@@ -115,13 +132,20 @@ fn reopen_and_check_roster(store: &SealedRosterStore, corrupt_seal: usize) {
 #[test]
 fn open_skips_a_corrupt_middle_segment_and_keeps_every_decodable_roster_record() {
     let store = sealed_roster_store("roster-bad-middle-segment");
-    reopen_and_check_roster(&store, 1);
+    reopen_and_check_roster(&store, 1, false);
     std::fs::remove_dir_all(&store.root).unwrap();
 }
 
 #[test]
 fn open_skips_a_corrupt_first_segment_and_keeps_every_decodable_roster_record() {
     let store = sealed_roster_store("roster-bad-first-segment");
-    reopen_and_check_roster(&store, 0);
+    reopen_and_check_roster(&store, 0, false);
+    std::fs::remove_dir_all(&store.root).unwrap();
+}
+
+#[test]
+fn a_corrupt_segment_end_cannot_hide_the_records_after_it() {
+    let store = sealed_roster_store("roster-bad-segment-end");
+    reopen_and_check_roster(&store, 1, true);
     std::fs::remove_dir_all(&store.root).unwrap();
 }

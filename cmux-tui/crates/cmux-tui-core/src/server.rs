@@ -9971,17 +9971,14 @@ fn prepare_session_journal_stream(
     let stream_id = resource_stream_id(request)?;
     let shared_fanout = mux.shared_journal_enabled();
     let epoch = if shared_fanout { mux.shared_journal_epoch() } else { mux.journal_event_epoch() };
-    let head_sequence = mux
-        .session_journal_after(0, 1)
-        .map_err(|error| {
-            eprintln!("cmux-tui: read session journal head: {error:#}");
-            ResourceError::operation_failed(
-                "session.journal.subscribe",
-                "could not read the session journal",
-                json!({}),
-            )
-        })?
-        .head_sequence;
+    let head_sequence = mux.session_journal_head().map_err(|error| {
+        eprintln!("cmux-tui: read session journal head: {error:#}");
+        ResourceError::operation_failed(
+            "session.journal.subscribe",
+            "could not read the session journal",
+            json!({}),
+        )
+    })?;
     let current_cursor = journal_cursor(&session_id, head_sequence);
     let requested_cursor = request
         .fields
