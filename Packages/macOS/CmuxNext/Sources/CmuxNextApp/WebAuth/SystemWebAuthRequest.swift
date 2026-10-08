@@ -60,10 +60,16 @@ final class WebAuthSessionHandler: NSObject, ASWebAuthenticationSessionWebBrowse
         self.broker = broker
     }
 
+    /// The Info.plist key that tells macOS cmux serves sign-ins.
+    static let capabilitiesKey = "ASWebAuthenticationSessionWebBrowserSupportCapabilities"
+
     /// Installs `handler` as the app's session handler (once, at launch:
-    /// macOS delivers a request that launched cmux after this).
+    /// macOS delivers a request that launched cmux after this). Only a build
+    /// whose Info.plist declares the capability installs it (cx-q3y7: the key
+    /// waits until macOS delivers requests to a default browser).
     @MainActor
-    static func install(_ handler: WebAuthSessionHandler) {
+    static func install(_ handler: WebAuthSessionHandler, bundle: Bundle = .main) {
+        guard bundle.object(forInfoDictionaryKey: capabilitiesKey) != nil else { return }
         ASWebAuthenticationSessionWebBrowserSessionManager.shared.sessionHandler = handler
     }
 
