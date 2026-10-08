@@ -12,7 +12,7 @@
 // otherwise the server makes one. Either way it is reported only in the
 // owner-only state file.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { closeSync, readFileSync } from "node:fs";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,256}$/;
@@ -91,7 +91,13 @@ export function launchToken(argv: string[], env: Record<string, string | undefin
   const raw = argv[at].includes("=") ? argv[at].split("=")[1] : argv[at + 1];
   const fd = Number(raw);
   if (!Number.isInteger(fd) || fd < 3) throw new Error(`--token-fd needs a descriptor number of 3 or more, got ${JSON.stringify(raw)}`);
+  // Reads to end of file: the launcher closes its end of the pipe.
   const token = readFd(fd).trim();
+  try {
+    closeSync(fd);
+  } catch {
+    // Already closed.
+  }
   if (!TOKEN_PATTERN.test(token)) throw new Error("--token-fd: the token must be 32-256 characters of [A-Za-z0-9_-]");
   return token;
 }

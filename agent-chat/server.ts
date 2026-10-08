@@ -26,7 +26,7 @@ import { harnessCatalogs } from "./harness-messages";
 import { gate, launchToken, stripLaunchToken } from "./launch-auth";
 import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
 import { readFileSync, statSync, watch, type FSWatcher } from "node:fs";
-import { chmod, mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename as pathBasename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -43,7 +43,8 @@ const AUTH_TOKEN = launchToken(Bun.argv, process.env);
 const AUTH_PREFIX = `/${AUTH_TOKEN}`;
 // Where the port and token are reported (owner-only). Launchers name their
 // own; cmux-chat and manual runs use the default.
-const STATE_FILE = process.env.CMUX_AGENT_CHAT_STATE_FILE || join(homedir(), ".cmux", "agent-chat", "state.json");
+const DEFAULT_STATE_FILE = join(homedir(), ".cmux", "agent-chat", "state.json");
+const STATE_FILE = process.env.CMUX_AGENT_CHAT_STATE_FILE || DEFAULT_STATE_FILE;
 
 export function stripAuthPrefixForTest(path: string, token: string): string | null {
   const url = new URL(`http://127.0.0.1${path}`);
@@ -58,16 +59,20 @@ function prefixedPath(path: string): string {
 async function writeStateFilePath(path: string, port: number, token: string) {
   if (!path) return;
   const dir = dirname(path);
-  // Owner-only: the file holds this launch's token.
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  await chmod(dir, 0o700);
+  // Owner-only: the file holds this launch's token. The folder is narrowed
+  // only when this server made it or it is the default folder (its own);
+  // a launcher-named file may sit in a folder the server must not change.
+  const created = await mkdir(dir, { recursive: true, mode: 0o700 });
+  if (created !== undefined || path === DEFAULT_STATE_FILE) await chmod(dir, 0o700);
   const tmp = join(dir, `${pathBasename(path)}.${process.pid}.tmp`);
   // launchId lets the app match the file to ITS launch: with a stable state
   // path, a stale file from a previous sidecar (different token) must never
   // satisfy a new launch's discovery.
   const launchId = process.env.CMUX_AGENT_CHAT_LAUNCH_ID ?? null;
   const body = JSON.stringify({ port, pid: process.pid, protocolVersion: 2, launchId, token }) + "\n";
-  await writeFile(tmp, body, { encoding: "utf8", mode: 0o600, flag: "w" });
+  // A new file (never an existing one or a symlink there), 0600 from creation.
+  await rm(tmp, { force: true });
+  await writeFile(tmp, body, { encoding: "utf8", mode: 0o600, flag: "wx" });
   await chmod(tmp, 0o600);
   await rename(tmp, path);
 }

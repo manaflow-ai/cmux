@@ -225,6 +225,14 @@ Notes from the slice 2 review:
 - The acpmux dashboard reads a request head up to 32 KiB (large localhost
   cookies); a larger head is refused.
 
+Known residual for the agent-chat sidecar (cx-e3l1): its page URL carries the
+token, so `cmux-chat` passes it in the arguments of the `cmux` call that opens
+the browser surface. On macOS only the same user or root can read another
+process's arguments, and that user can already read the 0600 state file, so
+this widens nothing; a later change can hand the layout over stdin. Agents the
+sidecar starts run as the same user and can read the state file; they are
+inside this trust boundary by design.
+
 Raw TCP listeners (no HTTP) follow the same intent: loopback bind by default, a
 per-launch token before any frame, and an immediate close when the first bytes
 look like an HTTP request (a cross-protocol POST from a web page). The remote

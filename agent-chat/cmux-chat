@@ -58,26 +58,33 @@ curl_url() { # <url> [curl args...]
 state_token() {
   [ -r "$STATE" ] || return 1
   CC_PORT="$PORT" python3 -c '
-import json, os, sys
+import json, os, re, sys
 s = json.load(open(sys.argv[1]))
-if str(s.get("port")) != os.environ["CC_PORT"] or not s.get("token"): sys.exit(1)
-print(s["token"])' "$STATE"
+t = s.get("token")
+if str(s.get("port")) != os.environ["CC_PORT"] or not isinstance(t, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", t): sys.exit(1)
+print(t)' "$STATE"
+}
+
+# The state file names this server and its token is accepted. A stale file
+# from an earlier launch fails the probe until the new server rewrites it.
+accepted() {
+  local t
+  t="$(state_token 2>/dev/null)" || return 1
+  curl_url "$BASE/$t/api/theme" --max-time 2 -o /dev/null 2>/dev/null
 }
 
 if ! curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1; then
   echo "starting cmux-agent-ui server on :$PORT" >&2
-  rm -f "$STATE"
   (cd "$HERE" && CMUX_AGENT_CHAT_PORT="$PORT" "$BUN" server.ts >> /tmp/cmux-agent-ui.log 2>&1 &)
   ok=false
   for _ in $(seq 1 50); do
-    if curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1 && state_token >/dev/null 2>&1; then ok=true; break; fi
+    if accepted; then ok=true; break; fi
     sleep 0.2
   done
   $ok || { echo "server failed to start; see /tmp/cmux-agent-ui.log" >&2; exit 1; }
 fi
-token="$(state_token)" || { echo "a server runs on :$PORT but $STATE does not name it; stop that server and retry" >&2; exit 1; }
-curl_url "$BASE/$token/api/theme" --max-time 2 -o /dev/null 2>/dev/null \
-  || { echo "the server on :$PORT refused the token in $STATE; stop that server and retry" >&2; exit 1; }
+accepted || { echo "the server on :$PORT does not accept the token in $STATE; stop that server and retry" >&2; exit 1; }
+token="$(state_token)"
 BASE="$BASE/$token"
 
 url="$BASE/"

@@ -139,6 +139,18 @@ describe("agent-chat launch token and listener rule", () => {
     }
   });
 
+  test("path and Host tricks never reach a handler without the token", async () => {
+    const host = `127.0.0.1:${l.port}`;
+    for (const path of ["//app.js", `/x/..%2F${l.token}/`, `/%2F${l.token}/`, `/${l.token}%2Fapi/sessions`, "/../api/sessions"]) {
+      expect(await raw(l.port, path, { Host: host })).toBe(404);
+    }
+    for (const badHost of [`a@127.0.0.1:${l.port}`, "127.1", "localhost.", `127.0.0.1:${l.port}, evil.example`]) {
+      expect(await raw(l.port, `/${l.token}/`, { Host: badHost })).toBe(403);
+    }
+    // No Host header at all is never served.
+    expect(await raw(l.port, `/${l.token}/`, {})).not.toBe(200);
+  });
+
   test("the WebSocket opens only under the token", async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${l.port}/${l.token}/ws`);
     const hello = await new Promise<any>((resolve, reject) => {
