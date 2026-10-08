@@ -3428,7 +3428,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>confirm</string>
+			<string>open</string>
 			<key>pfm_description</key>
 			<string>What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.</string>
 			<key>pfm_name</key>
