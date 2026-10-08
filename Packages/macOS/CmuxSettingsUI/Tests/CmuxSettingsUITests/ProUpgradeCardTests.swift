@@ -135,6 +135,28 @@ struct ProUpgradeCardTests {
         await model.refresh(flow: flow, key: team)
         #expect(model.presentation(flow: flow, key: team) == .pro)
     }
+
+    @Test("a confirmed team switch does not expose the previous entitlement")
+    func confirmedTeamSwitchHidesPreviousPlan() async {
+        let flow = PlanTestAccountFlow()
+        flow.isWorkingOnAuth = false
+        flow.isAuthenticated = true
+        flow.confirmedTeamID = "team-a"
+        flow.selectedTeamID = "team-a"
+        flow.result = (isPro: true, canManage: false)
+        let model = AccountPlanModel()
+        let first = AccountPlanRefreshKey(flow: flow)
+        await model.refresh(flow: flow, key: first)
+        #expect(model.presentation(flow: flow, key: first) == .pro)
+
+        // The host invalidates isProStatusKnown as soon as the confirmed scope
+        // changes, before the new team's lookup returns.
+        flow.confirmedTeamID = "team-b"
+        flow.selectedTeamID = "team-b"
+        flow.isProStatusKnown = false
+        let second = AccountPlanRefreshKey(flow: flow)
+        #expect(model.presentation(flow: flow, key: second) == .checking)
+    }
 }
 
 @MainActor

@@ -20,8 +20,12 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private let browserSignIn: HostBrowserSignInFlow
     var isProUpgradeAvailable: Bool { true }
     private(set) var billingPlanState = BillingPlanState.unknown
-    var isProActive: Bool { billingPlanState.isPro }
-    var canManageBilling: Bool { billingPlanState.canManageBilling }
+    /// Exposes Pro only when the stored answer belongs to the live account and
+    /// confirmed team scope. A team switch invalidates the old answer before
+    /// the replacement request completes.
+    var isProActive: Bool { hasLoadedBillingPlan && billingPlanState.isPro }
+    /// Exposes billing management only for the live account/team answer.
+    var canManageBilling: Bool { hasLoadedBillingPlan && billingPlanState.canManageBilling }
     var isProStatusKnown: Bool {
         !isWorkingOnAuth && (currentIdentity == nil || hasLoadedBillingPlan)
     }
@@ -37,6 +41,17 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         guard let billingPlanIdentityID else { return false }
         return billingPlanIdentityID == currentIdentity?.id
             && billingPlanTeamID == confirmedTeamID
+    }
+
+    /// Drops an entitlement snapshot when auth or team scope changes. The
+    /// account card can then show Checking while the new scope is fetched,
+    /// instead of briefly reusing the previous team's answer.
+    func invalidateBillingPlanIfScopeChanged() {
+        guard billingPlanState.accountID == currentIdentity?.id,
+              billingPlanState.teamID == confirmedTeamID else {
+            billingPlanState = .unknown
+            return
+        }
     }
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
@@ -260,7 +275,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 accessToken: tokens?.accessToken,
                 refreshToken: tokens?.refreshToken
             )
-            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            guard currentIdentity?.id == identityID,
+                  confirmedTeamID == requestedTeamID,
+                  billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingSuccess(
                 for: identityID,
                 teamID: requestedTeamID,
@@ -271,7 +288,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         } catch {
             // A cancelled request (the panel went away) says nothing about the plan.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
-            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            guard currentIdentity?.id == identityID,
+                  confirmedTeamID == requestedTeamID,
+                  billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingFailure(for: identityID, teamID: requestedTeamID)
             return false
         }
