@@ -32,9 +32,9 @@ final class ComputerUseHelperV2 {
         case running(pid_t)
     }
 
-    static let helperAppName = "cmux Computer Use (dev).app"
-    static let helperBundleID = "com.cmuxterm.cua.dev"
-    static let helperExecutableName = "cmux-cua-helper"
+    nonisolated static let helperAppName = "cmux Computer Use (dev).app"
+    nonisolated static let helperBundleID = "com.cmuxterm.cua.dev"
+    nonisolated static let helperExecutableName = "cmux-cua-helper"
     /// The variable that names the endpoint directory for acpmux.
     nonisolated static let endpointDirectoryKey = "CMUX_NEXT_CUA_V2_DIR"
     nonisolated static let endpointFileName = "endpoint.json"
@@ -139,13 +139,13 @@ final class ComputerUseHelperV2 {
         let hashes = acpmux.flatMap { Self.cdhash($0.executable) }.map { [Self.hex($0)] } ?? []
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
                                 "acpmux_cdhashes": hashes]))
-        let ready = await Self.firstLine(of: spawned, type: "ready", within: readyTimeout, clock: clock)
+        let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
             spawner.terminate(spawned.pid)
             return
         }
-        guard ready?["socket"] as? String == socketPath else {
+        guard readySocket == socketPath else {
             spawned.closeInput()
             spawner.terminate(spawned.pid)
             return unavailable("the helper did not report ready")
@@ -279,14 +279,14 @@ final class ComputerUseHelperV2 {
         return (pid, info.pbi_start_tvsec, info.pbi_start_tvusec)
     }
 
-    /// The first stdout line of `type`, or nil after `within`.
-    nonisolated static func firstLine(of child: ComputerUseHelperV2Child, type: String, within: Duration,
-                                      clock: any Clock<Duration>) async -> [String: Any]? {
-        await withTaskGroup(of: [String: Any]?.self) { group in
+    /// The `socket` of the helper's first `ready` line, or nil after `within`.
+    nonisolated static func readySocket(of child: ComputerUseHelperV2Child, within: Duration,
+                                        clock: any Clock<Duration>) async -> String? {
+        await withTaskGroup(of: String?.self) { group in
             group.addTask {
                 for await line in child.lines {
                     if let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-                       object["type"] as? String == type { return object }
+                       object["type"] as? String == "ready" { return object["socket"] as? String }
                 }
                 return nil
             }
