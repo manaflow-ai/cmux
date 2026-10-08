@@ -74,6 +74,9 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         self.page = page
         page.delegate = self
         // The shim stops the callback before it loads; set before the first navigation.
+        if callback == .none {
+            services.daemon.logger.notice("sign-in window: callback unknown; the page URL check ends the session")
+        }
         if let cef = page as? CEFTab {
             cef.setSignInCallback(Self.shimCallback(callback)) { [weak self] url in self?.shimStopped(url) }
         }
@@ -107,8 +110,14 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     /// system's matcher decides; a URL it does not take goes where it would
     /// have gone (a page loads, another app's link opens in that app).
     private func shimStopped(_ url: URL) {
-        guard broker?.navigated(id, to: url) != true else { return }
-        if url.scheme?.lowercased() == "https" { page?.load(url) } else { NSWorkspace.shared.open(url) }
+        guard !ended, broker?.navigated(id, to: url) != true else { return }
+        services.daemon.logger.notice("sign-in window: the system did not take a stopped callback")
+        // An https page loads after all: the shim stops nothing more (or it
+        // would stop this load again), and the page URL check stays. Another
+        // app's link from a sign-in page does not open.
+        guard url.scheme?.lowercased() == "https", let cef = page as? CEFTab else { return }
+        cef.setSignInCallback(nil, onCallback: nil)
+        page?.load(url)
     }
 
     /// The last line when the shim could not know the callback: the session
@@ -149,7 +158,9 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         case .close, .unhandledEscape:
             close()
         case .openURL(let url, _):
-            // A link out of the sign-in (terms, help) opens as a normal tab.
+            // The callback in a new tab still ends this session; any other
+            // link out of the sign-in (terms, help) opens as a normal tab.
+            guard broker?.navigated(id, to: url) != true else { return }
             services.externalOpen.openWebLink(url)
         case .adoptTab(let child, _), .openPopup(let child, _):
             // A sign-in page's own popups have no tab to belong to.

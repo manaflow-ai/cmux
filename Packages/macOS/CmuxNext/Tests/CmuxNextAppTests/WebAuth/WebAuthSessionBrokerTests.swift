@@ -112,6 +112,48 @@ import Testing
         #expect(opener.opened.first?.1 == true)
     }
 
+    /// begin and cancel reach the main actor in separate tasks: a cancel
+    /// that comes first means the begin opens nothing; a repeated begin
+    /// opens one tab.
+    @Test func aCancelBeforeItsBeginOpensNothing() {
+        let opener = Opener()
+        let broker = WebAuthSessionBroker(opener: opener)
+        let request = Request("https://id.example.com/login", callback: .customScheme("myapp"))
+        broker.systemCancelled(request.id)
+        broker.begin(request)
+        #expect(opener.opened.isEmpty)
+        #expect(request.cancelled == 0)
+        let other = Request("https://id.example.com/login", callback: .customScheme("myapp"))
+        broker.begin(other)
+        broker.begin(other)
+        #expect(opener.opened.count == 1)
+    }
+
+    /// The handler goes to macOS only from a build whose Info.plist
+    /// declares the capability (cx-q3y7 keeps the key out for now).
+    @Test func theHandlerInstallsOnlyWithTheCapabilityKey() throws {
+        let handler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: Opener()))
+        var installed = 0
+        let without = try Self.bundle(declaring: false)
+        #expect(!WebAuthSessionHandler.install(handler, bundle: without) { _ in installed += 1 })
+        #expect(installed == 0)
+        let with = try Self.bundle(declaring: true)
+        #expect(WebAuthSessionHandler.install(handler, bundle: with) { _ in installed += 1 })
+        #expect(installed == 1)
+    }
+
+    static func bundle(declaring: Bool) throws -> Bundle {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("webauth-\(UUID().uuidString).app")
+        let contents = root.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        var info: [String: Any] = ["CFBundleIdentifier": "dev.cmux.webauth-test.\(UUID().uuidString)", "CFBundlePackageType": "APPL"]
+        if declaring {
+            info[WebAuthSessionHandler.capabilitiesKey] = ["IsSupported": true, "CallbackURLMatchingIsSupported": true]
+        }
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
+        return try #require(Bundle(url: root))
+    }
+
     @Test func callbackMatchingFollowsTheSystemRule() {
         let scheme = WebAuthCallback.customScheme("MyApp")
         #expect(scheme.matches(URL(string: "myapp://x")!))

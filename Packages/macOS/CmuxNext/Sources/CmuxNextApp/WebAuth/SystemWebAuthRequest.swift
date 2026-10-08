@@ -68,9 +68,12 @@ final class WebAuthSessionHandler: NSObject, ASWebAuthenticationSessionWebBrowse
     /// whose Info.plist declares the capability installs it (cx-q3y7: the key
     /// waits until macOS delivers requests to a default browser).
     @MainActor
-    static func install(_ handler: WebAuthSessionHandler, bundle: Bundle = .main) {
-        guard bundle.object(forInfoDictionaryKey: capabilitiesKey) != nil else { return }
-        ASWebAuthenticationSessionWebBrowserSessionManager.shared.sessionHandler = handler
+    @discardableResult
+    static func install(_ handler: WebAuthSessionHandler, bundle: Bundle = .main,
+                        set: (WebAuthSessionHandler) -> Void = { ASWebAuthenticationSessionWebBrowserSessionManager.shared.sessionHandler = $0 }) -> Bool {
+        guard bundle.object(forInfoDictionaryKey: capabilitiesKey) != nil else { return false }
+        set(handler)
+        return true
     }
 
     func begin(_ request: ASWebAuthenticationSessionRequest!) {

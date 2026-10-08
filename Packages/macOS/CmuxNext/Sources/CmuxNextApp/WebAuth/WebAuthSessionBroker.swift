@@ -80,6 +80,9 @@ final class WebAuthSessionBroker {
 
     private let opener: any WebAuthSessionOpening
     private(set) var pending: [UUID: Session] = [:]
+    /// Requests the system cancelled before their begin arrived (the two
+    /// reach the main actor in separate tasks, in either order).
+    private var cancelledEarly: Set<UUID> = []
 
     init(opener: any WebAuthSessionOpening) {
         self.opener = opener
@@ -87,6 +90,8 @@ final class WebAuthSessionBroker {
 
     /// The system asks cmux to run `request`. Only a web start page opens.
     func begin(_ request: any WebAuthSessionRequest) {
+        if cancelledEarly.remove(request.id) != nil { return }
+        guard pending[request.id] == nil else { return }
         guard let scheme = request.url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return request.cancel() }
         pending[request.id] = Session(request: request, surface: nil)
         guard let surface = opener.open(request, broker: self) else {
@@ -118,7 +123,10 @@ final class WebAuthSessionBroker {
     /// The system ended the session (the requesting app cancelled it): its
     /// tab closes, and nothing answers the request.
     func systemCancelled(_ id: UUID) {
-        guard let session = pending.removeValue(forKey: id) else { return }
+        guard let session = pending.removeValue(forKey: id) else {
+            cancelledEarly.insert(id)
+            return
+        }
         session.surface?.close()
     }
 }
