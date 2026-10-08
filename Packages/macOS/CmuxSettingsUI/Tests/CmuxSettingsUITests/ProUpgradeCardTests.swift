@@ -28,6 +28,44 @@ struct ProUpgradeCardTests {
         #expect(model.presentation(flow: flow, key: ready) == .managedPro)
     }
 
+    @Test("team confirmation refreshes the plan after an optimistic picker change")
+    func confirmedTeamRefreshesPlan() async {
+        let flow = PlanTestAccountFlow()
+        flow.isWorkingOnAuth = false
+        flow.isAuthenticated = true
+        flow.result = (isPro: false, canManage: false)
+        let model = AccountPlanModel()
+        var lastKey: AccountPlanRefreshKey?
+
+        // Model the keyed task's lifecycle: the view restarts a lookup only
+        // when its observed key changes. Requests use confirmed authority.
+        func updateCard() async {
+            let key = AccountPlanRefreshKey(flow: flow)
+            guard key != lastKey else { return }
+            lastKey = key
+            await model.refresh(flow: flow, key: key)
+        }
+
+        await updateCard()
+        flow.selectedTeamID = "paid-team"
+        await updateCard()
+        #expect(flow.refreshCount == 1)
+
+        flow.confirmedTeamID = "paid-team"
+        flow.result = (isPro: true, canManage: false)
+        await updateCard()
+        #expect(flow.refreshedTeams == [nil, "paid-team"])
+        #expect(model.presentation(flow: flow, key: AccountPlanRefreshKey(flow: flow)) == .pro)
+
+        // A rejected optimistic switch must not replace the paid team's plan.
+        flow.selectedTeamID = "rejected-team"
+        await updateCard()
+        flow.selectedTeamID = "paid-team"
+        await updateCard()
+        #expect(flow.refreshCount == 2)
+        #expect(model.presentation(flow: flow, key: AccountPlanRefreshKey(flow: flow)) == .pro)
+    }
+
     @Test("a failed lookup offers retry instead of an upgrade")
     func failedLookupCanRetry() async {
         let flow = PlanTestAccountFlow()
@@ -89,6 +127,7 @@ struct ProUpgradeCardTests {
         #expect(model.presentation(flow: flow, key: personal) == .unavailable)
 
         flow.selectedTeamID = "team-2"
+        flow.confirmedTeamID = "team-2"
         let team = AccountPlanRefreshKey(flow: flow)
         #expect(model.presentation(flow: flow, key: team) == .checking)
         flow.result = (isPro: true, canManage: false)
@@ -105,6 +144,8 @@ private final class PlanTestAccountFlow: AccountFlow {
     )
     var availableTeams: [AccountTeamSummary] = []
     var selectedTeamID: String?
+    var confirmedTeamID: String?
+    var refreshedTeams: [String?] = []
     var isWorkingOnAuth = true
     var isAuthenticated = false
     var signInIsSlow = false
@@ -117,6 +158,7 @@ private final class PlanTestAccountFlow: AccountFlow {
 
     func refreshBillingPlan() async {
         refreshCount += 1
+        refreshedTeams.append(confirmedTeamID)
         if let result {
             isProActive = result.isPro
             canManageBilling = result.canManage
