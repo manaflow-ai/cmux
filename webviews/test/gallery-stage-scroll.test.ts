@@ -6,6 +6,7 @@ import {
   restoreScrollPositionUnlessMoved,
   SCROLL_KEYS,
   scrollBaselineAfterEvent,
+  scrollStateAfterEvent,
   scrollTargetFor,
 } from "../src/gallery/shell/scroll";
 
@@ -68,5 +69,24 @@ describe("gallery stage scroll restoration", () => {
     main.scrollTop = 120;
     result = scrollBaselineAfterEvent(main, iframe, result.baseline, true);
     expect(result).toEqual({ baseline: { x: 0, y: 40 }, restore: false });
+  });
+
+  test("only latches intent after the pending input actually moves the target", () => {
+    const initial = { x: 0, y: 10 };
+    main.scrollLeft = initial.x;
+    main.scrollTop = initial.y;
+
+    let result = scrollStateAfterEvent(main, iframe, initial, false, true);
+    expect(result).toEqual({ baseline: initial, userMoved: false, intentPending: true, restore: false });
+
+    iframe.focus();
+    main.scrollTop = 90;
+    result = scrollStateAfterEvent(main, iframe, initial, false, false);
+    expect(result).toEqual({ baseline: initial, userMoved: false, intentPending: false, restore: true });
+
+    main.scrollTop = initial.y;
+    main.scrollTop = 90;
+    result = scrollStateAfterEvent(main, iframe, initial, false, true);
+    expect(result).toEqual({ baseline: initial, userMoved: true, intentPending: false, restore: false });
   });
 });

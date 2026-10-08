@@ -50,6 +50,28 @@ export function scrollBaselineAfterEvent(
   return { baseline: current, restore: false };
 }
 
+/**
+ * Treat an input event as intentional gallery scrolling only after it changes the
+ * shell's scroll position. Pointer/key events can be delivered without scrolling
+ * (for example, a click on a card control), so the intent is kept pending until
+ * the following scroll event proves that it moved the target.
+ */
+export function scrollStateAfterEvent(
+  target: HTMLElement | null,
+  iframe: HTMLIFrameElement,
+  baseline: GalleryScrollPosition,
+  userMoved: boolean,
+  intentPending: boolean,
+): { baseline: GalleryScrollPosition; userMoved: boolean; intentPending: boolean; restore: boolean } {
+  const current = readScrollPosition(target);
+  const moved = current.x !== baseline.x || current.y !== baseline.y;
+  if (intentPending && !userMoved && moved) {
+    return { baseline, userMoved: true, intentPending: false, restore: false };
+  }
+  const result = scrollBaselineAfterEvent(target, iframe, baseline, userMoved);
+  return { ...result, userMoved, intentPending };
+}
+
 export const SCROLL_KEYS = new Set([
   "ArrowDown",
   "ArrowLeft",
