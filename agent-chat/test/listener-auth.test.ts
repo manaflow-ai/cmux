@@ -119,6 +119,61 @@ test("Host edge cases are refused", async () => {
   expect(await request(generated.port, `/${token}/api/theme`, { Host: `LOCALHOST:${generated.port}` })).toBe(200);
 });
 
+/** One raw request; returns the status code and the Location header. */
+function requestWithLocation(port: number, path: string, headers: Record<string, string>, method = "GET", body = ""): Promise<{ status: number; location: string | null }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let data = "";
+    socket.setEncoding("latin1");
+    socket.on("connect", () => {
+      const lines = [`${method} ${path} HTTP/1.1`, ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`), "Connection: close", "", ""];
+      socket.write(lines.join("\r\n") + body);
+    });
+    socket.on("data", (chunk) => { data += chunk; });
+    socket.on("error", reject);
+    socket.on("close", () => {
+      const status = /^HTTP\/1\.1 (\d{3})/.exec(data);
+      if (!status) return reject(new Error(`no status: ${JSON.stringify(data)}`));
+      const location = /\r\nlocation: ([^\r]*)\r\n/i.exec(data);
+      resolve({ status: Number(status[1]), location: location ? location[1] : null });
+    });
+  });
+}
+
+async function issueCode(port: number, path: string): Promise<{ status: number; url?: string }> {
+  const res = await fetch(`http://127.0.0.1:${port}/${token}/api/open-code`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }),
+  });
+  return { status: res.status, url: res.ok ? (await res.json()).url : undefined };
+}
+
+test("an open code redirects once to its page and is then refused", async () => {
+  const host = { Host: `127.0.0.1:${generated.port}` };
+  const issued = await issueCode(generated.port, "/s/abc12345?transparent=1");
+  expect(issued.status).toBe(200);
+  const code = new URL(issued.url!).pathname;
+  expect(code.startsWith("/o/")).toBe(true);
+  expect(issued.url!.includes(token)).toBe(false);
+  expect(await requestWithLocation(generated.port, code, host)).toEqual({ status: 302, location: `/${token}/s/abc12345?transparent=1` });
+  expect((await requestWithLocation(generated.port, code, host)).status).toBe(404);
+});
+
+test("an open code obeys the Host and Origin rules and is spent by a refused try", async () => {
+  const code = new URL((await issueCode(generated.port, "/")).url!).pathname;
+  expect((await requestWithLocation(generated.port, code, { Host: `evil.example:${generated.port}` })).status).toBe(403);
+  expect((await requestWithLocation(generated.port, code, { Host: `127.0.0.1:${generated.port}`, Origin: "https://evil.example" })).status).toBe(403);
+  const other = new URL((await issueCode(generated.port, "/")).url!).pathname;
+  expect((await requestWithLocation(generated.port, `${other}x`, { Host: `127.0.0.1:${generated.port}` })).status).toBe(404);
+});
+
+test("an open code is never issued for a path outside the page routes, nor without the token", async () => {
+  for (const path of ["//evil.example/", "https://evil.example/", "/api/sessions", "/s/../api/theme", "/o/x"]) {
+    expect({ path, status: (await issueCode(generated.port, path)).status }).toEqual({ path, status: 400 });
+  }
+  const res = await fetch(`http://127.0.0.1:${generated.port}/api/open-code`, { method: "POST", body: JSON.stringify({ path: "/" }) });
+  expect(res.status).toBe(404);
+});
+
 test("a cross-site POST cannot create a session, also with the token", async () => {
   const headers = { Host: `127.0.0.1:${generated.port}`, Origin: "https://evil.example", "Content-Type": "text/plain", "Content-Length": "2" };
   expect(await request(generated.port, `/${token}/api/sessions`, headers, "POST", "{}")).toBe(403);
