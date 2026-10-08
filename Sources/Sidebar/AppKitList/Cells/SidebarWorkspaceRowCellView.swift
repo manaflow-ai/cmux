@@ -76,7 +76,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var pumpCancellables: [AnyCancellable] = []
     private weak var pumpWorkspace: Workspace?
     private var pumpRebuild: (@MainActor () -> Void)?
-    private var isPresentationActive = true
+    private(set) var isPresentationActive = true
 
 #if DEBUG
     /// Test seam: observes every full model application (configure, pump,

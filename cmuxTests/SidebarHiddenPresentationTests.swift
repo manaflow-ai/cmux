@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CmuxUpdater
 import QuartzCore
 import SwiftUI
@@ -219,7 +220,9 @@ struct SidebarHiddenPresentationTests {
         #expect(arc.preferredFrameRateRange.maximum <= 60)
     }
 
-    /// Ensures a hidden sidebar rebuilds retained rows from current Cloud state.
+    /// Ensures a hidden docked sidebar keeps its table and stays current
+    /// (rows and Cloud identity apply while hidden) with its row animations
+    /// paused, and that a reveal applies at most once.
     @Test
     func visibilityToggleKeepsAppKitTableContainerMounted() async throws {
         _ = NSApplication.shared
@@ -333,7 +336,7 @@ struct SidebarHiddenPresentationTests {
         #expect(window.firstResponder === initialContainer.tableView)
 
         sidebarState.toggle()
-        await drainMainRunLoop(for: window)
+        await awaitToggleLanding(of: sidebarState, in: window)
         let hiddenContainers = descendants(
             of: SidebarWorkspaceTableContainerView.self,
             in: window.contentView
@@ -352,13 +355,29 @@ struct SidebarHiddenPresentationTests {
         tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
         await drainMainRunLoop(for: window)
         #expect(
-            initialContainer.tableView.numberOfRows == initialRowCount,
-            "The retained native table must not apply workspace updates while hidden."
+            initialContainer.tableView.numberOfRows == initialRowCount + 1,
+            "A hidden docked list stays current: workspace updates still apply while hidden."
+        )
+        let hiddenRowCells = descendants(of: SidebarWorkspaceRowTableCellView.self, in: initialContainer)
+        #expect(!hiddenRowCells.isEmpty)
+        #expect(
+            hiddenRowCells.allSatisfy { !$0.isPresentationActive },
+            "While hidden, row spinners and status pulses must not run."
         )
         var cloudChangeIterator = focusedWorkspace.cloudBindingState.changes().makeAsyncIterator()
         _ = await cloudChangeIterator.next()
         focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         _ = await cloudChangeIterator.next()
+        // The parked row picks up the Cloud identity while hidden, so the
+        // reveal below has nothing left to rebuild.
+        var hiddenCloudRow: SidebarWorkspaceRowTableCellView?
+        let hiddenCloudDeadline = Date(timeIntervalSinceNow: 1)
+        while hiddenCloudRow == nil, Date() < hiddenCloudDeadline {
+            hiddenCloudRow = descendants(of: SidebarWorkspaceRowTableCellView.self, in: initialContainer)
+                .first { $0.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true }
+            if hiddenCloudRow == nil { await drainMainRunLoop(for: window, iterations: 1) }
+        }
+        #expect(hiddenCloudRow != nil, "A hidden docked list must apply Cloud identity changes while hidden.")
         // A doubled projection count means a SECOND sidebar body pass followed
         // the reveal. Record what landed inside the reveal window (the async
         // inputs the hidden phase queued: the workspace's directory channel,
@@ -389,7 +408,7 @@ struct SidebarHiddenPresentationTests {
         isMeasuringRevealInvalidations = true
         defer { isMeasuringRevealInvalidations = false }
         sidebarState.toggle()
-        await drainMainRunLoop(for: window, iterations: 1)
+        await awaitToggleLanding(of: sidebarState, in: window, drains: 1)
         let projectionsAfterFirstRevealTurn = revealRowInputProjections
         await drainMainRunLoop(for: window)
         isMeasuringRevealInvalidations = false
@@ -407,9 +426,13 @@ struct SidebarHiddenPresentationTests {
             "Reopening must reconcile the retained table from the current workspace model."
         )
         #expect(
-            revealRowInputProjections == tabManager.tabs.count,
+            descendants(of: SidebarWorkspaceRowTableCellView.self, in: initialContainer).allSatisfy(\.isPresentationActive),
+            "Revealing resumes row spinners and status pulses."
+        )
+        #expect(
+            revealRowInputProjections <= tabManager.tabs.count,
             """
-            Reopening must project each current workspace row exactly once. \
+            Reopening may project each current workspace row at most once. \
             firstTurn=\(projectionsAfterFirstRevealTurn) \
             signals=[\(revealSignals.summary)]
             """
@@ -457,16 +480,19 @@ struct SidebarHiddenPresentationTests {
         let sidebarEditor = try #require(sidebarField.currentEditor())
         let sidebarBoundary = SidebarFocusBoundaryReference()
         sidebarBoundary.attach(sidebarFocusHost)
-        #expect(sidebarBoundary.contains(sidebarEditor, in: window), "The fixture must belong to sidebar \(sidebarFrame).")
+        #expect(
+            sidebarBoundary.contains(sidebarEditor, in: window),
+            "The fixture must belong to sidebar \(sidebarFrame); field visible \(sidebarField.visibleRect) at \(sidebarField.convert(sidebarField.bounds, to: nil))."
+        )
         sidebarState.toggle()
-        await drainMainRunLoop(for: window)
+        await awaitToggleLanding(of: sidebarState, in: window)
         let responderAfterSidebarFieldHide = try #require(window.firstResponder)
         #expect(
             focusedPanel.ownedFocusIntent(for: responderAfterSidebarFieldHide, in: window) != nil,
             "Hiding must restore main-panel focus from controls in sidebar \(sidebarFrame)."
         )
         sidebarState.toggle()
-        await drainMainRunLoop(for: window)
+        await awaitToggleLanding(of: sidebarState, in: window)
         sidebarField.removeFromSuperview()
 
         let foreignField = NSTextField(frame: NSRect(x: 500, y: 400, width: 120, height: 24))
@@ -476,54 +502,10 @@ struct SidebarHiddenPresentationTests {
         let foreignEditor = try #require(foreignField.currentEditor())
         #expect(window.firstResponder === foreignEditor)
         sidebarState.toggle()
-        await drainMainRunLoop(for: window)
+        await awaitToggleLanding(of: sidebarState, in: window)
         #expect(
             window.firstResponder === foreignEditor && foreignField.currentEditor() === foreignEditor,
             "Hiding the sidebar must preserve focus owned by non-sidebar main content."
-        )
-    }
-
-    @Test
-    func persistenceIsScopedToDefaultProvider() throws {
-        #expect(
-            ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: true,
-                effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
-            )
-        )
-        #expect(
-            !ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: true,
-                effectiveProviderId: CmuxExtensionSidebarSelection.hostedExtensionsProviderId
-            )
-        )
-        let bundledProviderId = try #require(CmuxExtensionSidebarSelection.providers.first?.descriptor.id)
-        #expect(
-            !ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: true,
-                effectiveProviderId: bundledProviderId
-            )
-        )
-
-        let customSidebarsDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-sidebar-visibility-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: customSidebarsDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: customSidebarsDirectory) }
-        let customProviderId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + "lifecycle-test"
-        try Data().write(to: customSidebarsDirectory.appendingPathComponent("lifecycle-test.swift"))
-        CmuxExtensionSidebarSelection.withCustomSidebarsDirectoryForTesting(customSidebarsDirectory) {
-            #expect(
-                !ContentView.retainsDefaultAppKitSidebar(
-                    appKitListEnabled: true,
-                    effectiveProviderId: customProviderId
-                )
-            )
-        }
-        #expect(
-            !ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: false,
-                effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
-            )
         )
     }
 
@@ -537,6 +519,17 @@ struct SidebarHiddenPresentationTests {
             matches.append(contentsOf: descendants(of: type, in: subview))
         }
         return matches
+    }
+
+    /// Waits for a toggle to land. The slide commits `isVisible` when its
+    /// Core Animation spring reports it stopped; the instant path already
+    /// has. Then drains, so the landing's follow-up updates apply.
+    private func awaitToggleLanding(of state: SidebarState, in window: NSWindow, drains: Int = 20) async {
+        let target = state.requestedVisibility
+        if state.isVisible != target {
+            for await visible in state.$isVisible.values where visible == target { break }
+        }
+        await drainMainRunLoop(for: window, iterations: drains)
     }
 
     private func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {

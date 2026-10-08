@@ -1694,6 +1694,7 @@ struct ContentView: View {
     // must not shadow the in-layout instance's claim.
     func sidebarView(
         isPresented: Bool,
+        isRevealed: Bool = true,
         attachesFocusBoundary: Bool = true,
         usesCompactTopInset: Bool = false
     ) -> some View {
@@ -1703,6 +1704,7 @@ struct ContentView: View {
             sessionIndexStore: sessionIndexStore,
             featureFlags: featureFlags,
             isPresented: isPresented,
+            isRevealed: isRevealed,
             sidebarUnread: sidebarUnread,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
             windowId: windowId,
@@ -1964,8 +1966,9 @@ struct ContentView: View {
                 SidebarDockedPaneHost(
                     parkedOffset: sidebarState.occupiesLayout && sidebarLayout.docksSidebar ? 0 : width,
                     isPresented: listIsPresented,
+                    isRevealed: sidebarState.occupiesLayout,
                     presentationMode: sidebarState.presentationMode,
-                    content: AnyView(sidebarEnvironment(sidebarView(isPresented: listIsPresented)
+                    content: AnyView(sidebarEnvironment(sidebarView(isPresented: listIsPresented, isRevealed: sidebarState.occupiesLayout)
                         .environment(\.colorScheme, appearance.sidebarContentColorScheme)
                         .environment(\.sidebarReadabilityBackdrop, appearance.sidebarReadabilityBackdrop)))
                 )
@@ -11418,6 +11421,7 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.sidebarUnread === rhs.sidebarUnread
             && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
             && lhs.isPresented == rhs.isPresented
+            && lhs.isRevealed == rhs.isRevealed
             && lhs.presentationMode == rhs.presentationMode
             && lhs.chromeBackgroundColor.isEqual(rhs.chromeBackgroundColor)
     }
@@ -11427,6 +11431,9 @@ struct VerticalTabsSidebar: View, Equatable {
     let sessionIndexStore: SessionIndexStore
     var featureFlags: CmuxFeatureFlags = .shared
     var isPresented: Bool = true
+    /// False while a presented docked list is parked off screen: content
+    /// stays current, row animations, hover and the titlebar strip pause.
+    var isRevealed: Bool = true
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
     let windowId: UUID
@@ -11445,7 +11452,6 @@ struct VerticalTabsSidebar: View, Equatable {
     let chromeBackgroundColor: NSColor
     var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var sidebarState: SidebarState
     // Plain reference by design. Native row and titlebar subscribers own the
     // unread invalidation boundary, so this O(workspaces) root stays inert.
     var notificationStore: TerminalNotificationStore { .shared }
@@ -12448,6 +12454,7 @@ struct VerticalTabsSidebar: View, Equatable {
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
             isPresented: isPresented,
+            rowsOnScreen: isRevealed,
             usesCompactTopInset: usesCompactTopInset,
             unreadSource: sidebarUnread,
             onDeferredClickAwaitingApply: { appKitTableApplyRequestToken &+= 1 }
@@ -12460,7 +12467,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
             .overlay(alignment: .top) {
-                if isPresented {
+                if isPresented && isRevealed {
                     // The sidebar top strip remains draggable and handles
                     // double-clicks with the standard titlebar action.
                     WindowDragHandleView()
@@ -12469,7 +12476,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 }
             }
             .overlay(alignment: .topLeading) {
-                if isPresented { minimalModeSidebarTitlebarControlsOverlay() }
+                if isPresented && isRevealed { minimalModeSidebarTitlebarControlsOverlay() }
             }
             .background(Color.clear)
             .onChange(of: selectedWorkspaceId) { _, _ in

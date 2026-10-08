@@ -19,6 +19,9 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
     /// push; a change here never does (a dock/float switch moves the park
     /// and the list's presentation in the same update).
     let isPresented: Bool
+    /// On screen (not parked). The reveal's push waits a turn, so the
+    /// landing frame stays as light as the keypress.
+    let isRevealed: Bool
     let presentationMode: SidebarPresentationMode
     let content: AnyView
 
@@ -26,7 +29,9 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
         let hostingView: NSHostingView<AnyView>
         fileprivate var parkedOffset: CGFloat = 0
         fileprivate var isPresented = false
+        fileprivate var isRevealed = false
         fileprivate var presentationMode: SidebarPresentationMode = .docked
+        fileprivate var deferredContent: AnyView?
 
         init(content: AnyView) {
             hostingView = NSHostingView(rootView: content)
@@ -51,6 +56,7 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
     func makeNSView(context: Context) -> ContainerView {
         let view = ContainerView(content: content)
         view.isPresented = isPresented
+        view.isRevealed = isRevealed
         view.presentationMode = presentationMode
         apply(parkedOffset, to: view)
         return view
@@ -62,11 +68,28 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
         // landing frames. The next update pushes content as usual.
         let contentInputsChanged = view.isPresented != isPresented
             || view.presentationMode != presentationMode
-        if view.parkedOffset != parkedOffset {
+        let parks = view.parkedOffset != parkedOffset
+        if parks {
             apply(parkedOffset, to: view)
-            guard contentInputsChanged else { return }
+            if !contentInputsChanged {
+                guard view.isRevealed != isRevealed else { return }
+                // A show landing: one push, on the next turn.
+                view.isRevealed = isRevealed
+                let pending = view.deferredContent == nil
+                view.deferredContent = content
+                if pending {
+                    DispatchQueue.main.async { [weak view] in
+                        guard let view, let content = view.deferredContent else { return }
+                        view.deferredContent = nil
+                        view.hostingView.rootView = content
+                    }
+                }
+                return
+            }
         }
+        view.deferredContent = nil
         view.isPresented = isPresented
+        view.isRevealed = isRevealed
         view.presentationMode = presentationMode
         view.hostingView.rootView = content
     }

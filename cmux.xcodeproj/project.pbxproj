@@ -3331,6 +3331,7 @@
 		5B0C00010000000000000001 /* SidebarResizerOcclusionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000002 /* SidebarResizerOcclusionResolver.swift */; };
 		5B0C00010000000000000003 /* SidebarResizerOcclusionResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000004 /* SidebarResizerOcclusionResolverTests.swift */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
+		732C24510A2C03B924A3A3C5 /* SidebarRetainedProviderScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 519C34B311CB68481382511A /* SidebarRetainedProviderScopeTests.swift */; };
 		AABBCC000000000000000208 /* SidebarRowAccessibilityModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000207 /* SidebarRowAccessibilityModifier.swift */; };
 		B804A02E000000000000002E /* SidebarRowChecklistAddRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B02E000000000000002E /* SidebarRowChecklistAddRow.swift */; };
 		B804A02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift */; };
@@ -7798,6 +7799,7 @@
 		5B0C00010000000000000002 /* SidebarResizerOcclusionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarResizerOcclusionResolver.swift; sourceTree = "<group>"; };
 		5B0C00010000000000000004 /* SidebarResizerOcclusionResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizerOcclusionResolverTests.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
+		519C34B311CB68481382511A /* SidebarRetainedProviderScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarRetainedProviderScopeTests.swift"; sourceTree = "<group>"; };
 		AABBCC000000000000000207 /* SidebarRowAccessibilityModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarRowAccessibilityModifier.swift; sourceTree = "<group>"; };
 		B804B02E000000000000002E /* SidebarRowChecklistAddRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistAddRow.swift; sourceTree = "<group>"; };
 		B804B02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistAttachmentButton.swift; sourceTree = "<group>"; };
@@ -13635,6 +13637,7 @@
 				0FBCBAF21AECA805D71D54BD /* FilePreviewQuickLookRetirementTests.swift */,
 				67015335076C61C9D20E1D6A /* CmuxMainStartupTests.swift */,
 				07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */,
+				519C34B311CB68481382511A /* SidebarRetainedProviderScopeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18495,6 +18498,7 @@
 				2E9404437EB47D116E0EE48D /* SidebarPresentedWhileHiddenSnapshotTests.swift in Sources */,
 				C0DE48000000000000000001 /* SidebarProviderMenuRegressionTests.swift in Sources */,
 				5B0C00010000000000000003 /* SidebarResizerOcclusionResolverTests.swift in Sources */,
+				732C24510A2C03B924A3A3C5 /* SidebarRetainedProviderScopeTests.swift in Sources */,
 				3D0EDA5CB6EA473DB4DB9464 /* SidebarRowPaletteTests.swift in Sources */,
 				C12791000000000000000005 /* SidebarRowSnapshotCacheTests.swift in Sources */,
 				D70D754898C65B4C6FA39754 /* SidebarRowSwiftUIPopoverPresenterTests.swift in Sources */,

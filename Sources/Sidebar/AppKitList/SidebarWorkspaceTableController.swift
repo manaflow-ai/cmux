@@ -38,6 +38,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
     private var isPresentationActive = true
+    /// See `setRowsOnScreen`.
+    private var rowsAreOnScreen = true
     private var structuralUpdateDepth = 0
     private var deferredPumpHeightRowIds: Set<SidebarWorkspaceRenderItemID> = []
     private var deferredStructuralHeightRows = IndexSet()
@@ -2126,7 +2128,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// `windowPoint` is the location an event just delivered; recomputes
     /// without one read the live pointer.
     func recomputeHoveredRow(windowPoint: NSPoint? = nil) {
-        guard contextMenuRowId == nil,
+        guard contextMenuRowId == nil, rowsAreOnScreen,
               let table = containerView?.tableView else {
             return
         }
@@ -2335,6 +2337,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return containerView.clipView.bounds.width
     }
 
+    /// A hidden docked pane keeps applying content, so its reveal shows
+    /// current rows, but its spinners, status pulses and hover pause.
+    func setRowsOnScreen(_ onScreen: Bool) {
+        guard rowsAreOnScreen != onScreen else { return }
+        rowsAreOnScreen = onScreen
+        if !onScreen { setHoveredRowId(nil) }
+        let animates = isPresentationActive && onScreen
+        containerView?.tableView.enumerateAvailableRowViews { rowView, _ in
+            (rowView.view(atColumn: 0) as? SidebarWorkspaceRowTableCellView)?.setPresentationActive(animates)
+            (rowView.view(atColumn: 0) as? SidebarGroupHeaderTableCellView)?.setPresentationActive(animates)
+        }
+    }
+
     private func setHoveredRowId(_ next: SidebarWorkspaceRenderItemID?) {
         guard hoveredRowId != next else { return }
         let previous = hoveredRowId
@@ -2521,7 +2536,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if cell.currentModelForMeasurement != model {
             releasePumpHeightOverride(for: rowId, ownedBy: cell)
         }
-        cell.setPresentationActive(isPresentationActive)
+        cell.setPresentationActive(isPresentationActive && rowsAreOnScreen)
         cell.configure(
             model: model,
             actions: actions,
@@ -2768,7 +2783,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return
         }
         let rowId = configuration.id
-        cell.setPresentationActive(isPresentationActive)
+        cell.setPresentationActive(isPresentationActive && rowsAreOnScreen)
         cell.configure(
             model: model,
             actions: actions,

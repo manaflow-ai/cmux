@@ -23,6 +23,8 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
     let isPresented: Bool
+    /// False while a live list is parked off screen (see `setRowsOnScreen`).
+    var rowsOnScreen = true
     let usesCompactTopInset: Bool
     let unreadSource: SidebarUnreadModel
     /// Invoked when a completed row click parks awaiting live actions; the
@@ -62,6 +64,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
             workspaceIds: workspaceIds,
             rowIds: liveRowIds
         )
+        context.coordinator.setRowsOnScreen(rowsOnScreen)
         guard isPresented else { return }
         guard case let .apply(rows, actions) = contentUpdate else { return }
         context.coordinator.apply(
