@@ -7264,7 +7264,6 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.computerUseUXEnabled, featureFlags.isComputerUseUXEnabled)
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.accountFlow.isAuthenticated)
-            snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
             snapshot.setBool(CommandPaletteContextKeys.authWorking, auth.accountFlow.isWorkingOnAuth)
         }
 
@@ -15510,7 +15509,6 @@ struct SidebarFooterButtons: View {
             // The badge is an upgrade prompt, so Pro accounts don't get it.
             if shows(.upgrade),
                SidebarFooterPresentationPolicy.isUpgradeVisible(
-                   featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
                    isProActive: accountFlow?.isProActive == true,
                    isProStatusKnown: accountFlow?.isProStatusKnownForUpgrade ?? true
                ) {

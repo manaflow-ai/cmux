@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseCloudTelemetryBatch } from "../services/observability/cloudTelemetryContract";
 import { makeCloudTelemetryHandler } from "../services/observability/cloudTelemetryIngest";
 import { cloudSpanToOtlp } from "../services/observability/cloudTelemetryExport";
+import { canonicalCloudTelemetryOperation } from "../services/observability/cloudServerError";
 
 const now = Date.now();
 function span(overrides: Record<string, unknown> = {}) {
@@ -30,6 +31,12 @@ function request(body: unknown = batch(), headers: Record<string, string> = {}) 
 }
 
 describe("Cloud diagnostic boundary", () => {
+  test("canonicalizes the session-open route operation for retained errors", () => {
+    expect(canonicalCloudTelemetryOperation("open_session")).toBe("open");
+    expect(canonicalCloudTelemetryOperation("session")).toBe("session");
+    expect(canonicalCloudTelemetryOperation("not-a-cloud-operation")).toBe("unknown");
+  });
+
   test("acknowledges and exports placement failures without dropping neighboring spans", async () => {
     const { exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
     const payload = batch([

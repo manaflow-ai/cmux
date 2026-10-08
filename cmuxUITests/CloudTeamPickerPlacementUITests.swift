@@ -2,7 +2,6 @@ import XCTest
 
 final class CloudTeamPickerPlacementUITests: XCTestCase {
     private let flagKeys = [
-        "cmux.flags.override.cloud-machines-enabled-release",
         "cmux.flags.override.sidebar-account-button-enabled-release",
     ]
     private let teamPickerShortcutKey = "shortcut.openTeamPicker"
@@ -385,7 +384,7 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         }
         app.launchArguments += [
             "-workspacePresentationMode", "standard",
-            "-cloud.beta.machines.enabled", cloudEnabled ? "YES" : "NO",
+            "-cloud.beta.machines.enabled", cloudEnabled ? "<true/>" : "<false/>",
             "-fileExplorer.isVisible", sidebarVisible ? "YES" : "NO",
             "-rightSidebar.mode", "files",
             "-menuBarOnly", "false",

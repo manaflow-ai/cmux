@@ -206,7 +206,6 @@ struct SidebarFooterMenuButton: View {
         SidebarHelpMenuItems.addMaintenance(to: menu, browserDataImportCoordinator: browserDataImportCoordinator)
 
         let offersUpgrade = SidebarFooterPresentationPolicy.isUpgradeVisible(
-            featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
             isProActive: flow?.isProActive == true,
             isProStatusKnown: flow?.isProStatusKnownForUpgrade ?? true
         )

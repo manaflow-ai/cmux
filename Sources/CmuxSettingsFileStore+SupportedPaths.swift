@@ -237,5 +237,6 @@ extension CmuxSettingsFileStore {
         "customSidebars.beta.enabled",
         "cloud.beta.machines.enabled",
         "remoteTmux.beta.enabled",
+        "remoteTmux.multiplexer.beta.enabled",
     ]
 }
