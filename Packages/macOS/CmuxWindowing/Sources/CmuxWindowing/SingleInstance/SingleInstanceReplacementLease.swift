@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A short-lived, process-bound authorization for an intentional app relaunch.
 ///
