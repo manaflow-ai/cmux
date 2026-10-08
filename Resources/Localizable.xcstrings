@@ -522261,7 +522261,18 @@
             "state": "translated",
             "value": "vm resize: CPU は 1〜32、メモリは 1〜64 GiB（1 GiB 単位）、ディスクは 4〜256 GiB（4 GiB 単位）で指定してください。"
           }
-        }
+        },
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}}
       }
     },
     "cli.vm.resize.poolLimit": {
@@ -522275,7 +522286,18 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：此大小需要 %lld 個 vCPU 和 %lld GiB 記憶體，但方案資源池只剩 %lld 個 vCPU 和 %lld GiB。請暫停或刪除機器，或選擇較小的大小。"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：此大小需要 %lld 个 vCPU 和 %lld GiB 内存，但套餐资源池只剩 %lld 个 vCPU 和 %lld GiB。请暂停或删除机器，或选择更小的大小。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "vm resize: 이 크기에는 vCPU %lld개와 RAM %lldGiB가 필요하지만 요금제 풀에 남은 용량은 vCPU %lld개와 %lldGiB뿐입니다. 머신을 일시 중지하거나 삭제하거나 더 작은 크기를 선택하세요."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: このサイズには %lld vCPU と %lld GiB RAM が必要ですが、プランのプールに残っているのは %lld vCPU と %lld GiB だけです。VM を一時停止または削除するか、小さいサイズを選択してください。"}}
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: このサイズには %lld vCPU と %lld GiB RAM が必要ですが、プランのプールに残っているのは %lld vCPU と %lld GiB だけです。VM を一時停止または削除するか、小さいサイズを選択してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}}
       }
     },
     "cli.vm.resize.planLimit": {
@@ -522289,7 +522311,18 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 方案無法將 %@ 調整至 %@；上限為 %@。%@"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 套餐无法将 %@ 调整到 %@；上限为 %@。%@"}},
         "ko": {"stringUnit": {"state": "translated", "value": "vm resize: %@ 요금제에서는 %@을(를) %@까지 확장할 수 없습니다. 최대값은 %@입니다. %@"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: %@ プランでは %@ を %@ に拡張できません。上限は %@ です。%@"}}
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: %@ プランでは %@ を %@ に拡張できません。上限は %@ です。%@"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}}
       }
     },
     "cli.vm.resize.chooseSmaller": {
@@ -522303,7 +522336,18 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "請選擇較小的大小。"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "请选择更小的大小。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "더 작은 크기를 선택하세요."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "小さいサイズを選択してください。"}}
+        "ja": {"stringUnit": {"state": "translated", "value": "小さいサイズを選択してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Odaberite manju veličinu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vælg en mindre størrelse."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Scegli una dimensione più piccola."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ជ្រើសរើសទំហំតូចជាងនេះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Velg en mindre størrelse."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wybierz mniejszy rozmiar."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Escolha um tamanho menor."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Выберите меньший размер."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เลือกขนาดที่เล็กกว่า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Daha küçük bir boyut seçin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Виберіть менший розмір."}}
       }
     },
     "cli.vm.resize.upgradePro": {
@@ -522317,7 +522361,18 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "升級至 cmux Pro 以使用此大小。"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "升级到 cmux Pro 以使用此大小。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "이 크기를 사용하려면 cmux Pro로 업그레이드하세요."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "このサイズを使うには cmux Pro にアップグレードしてください。"}}
+        "ja": {"stringUnit": {"state": "translated", "value": "このサイズを使うには cmux Pro にアップグレードしてください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Nadogradite na cmux Pro da biste koristili ovu veličinu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Opgrader til cmux Pro for at bruge denne størrelse."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Passa a cmux Pro per usare questa dimensione."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដំឡើងទៅ cmux Pro ដើម្បីប្រើទំហំនេះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Oppgrader til cmux Pro for å bruke denne størrelsen."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ulepsz do cmux Pro, aby użyć tego rozmiaru."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Faça upgrade para o cmux Pro para usar este tamanho."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Перейдите на cmux Pro, чтобы использовать этот размер."}},
+        "th": {"stringUnit": {"state": "translated", "value": "อัปเกรดเป็น cmux Pro เพื่อใช้ขนาดนี้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu boyutu kullanmak için cmux Pro'ya yükseltin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перейдіть на cmux Pro, щоб використовувати цей розмір."}}
       }
     },
     "cli.vm.resize.upgradeMax": {
@@ -522331,7 +522386,18 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "升級至 cmux Max 以使用更大的大小。"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "升级到 cmux Max 以使用更大的大小。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "더 큰 크기를 사용하려면 cmux Max로 업그레이드하세요."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "より大きいサイズを使うには cmux Max にアップグレードしてください。"}}
+        "ja": {"stringUnit": {"state": "translated", "value": "より大きいサイズを使うには cmux Max にアップグレードしてください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Nadogradite na cmux Max da biste koristili veće veličine."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Opgrader til cmux Max for at bruge større størrelser."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Passa a cmux Max per usare dimensioni più grandi."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដំឡើងទៅ cmux Max ដើម្បីប្រើទំហំធំជាងនេះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Oppgrader til cmux Max for å bruke større størrelser."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ulepsz do cmux Max, aby użyć większych rozmiarów."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Faça upgrade para o cmux Max para usar tamanhos maiores."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Перейдите на cmux Max, чтобы использовать большие размеры."}},
+        "th": {"stringUnit": {"state": "translated", "value": "อัปเกรดเป็น cmux Max เพื่อใช้ขนาดที่ใหญ่ขึ้น"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Daha büyük boyutları kullanmak için cmux Max'a yükseltin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перейдіть на cmux Max, щоб використовувати більші розміри."}}
       }
     },
     "cli.vm.resize.success": {
@@ -522390,7 +522456,18 @@
             "state": "translated",
             "value": "OK %@ CPU=%@ メモリ=%@ GiB ディスク=%@ GiB"
           }
-        }
+        },
+        "bs": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "da": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "it": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "km": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "th": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"}}
       }
     },
     "socket.cloudVM.resize.idRequired": {
@@ -522567,7 +522644,18 @@
             "state": "translated",
             "value": "使用方法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n既存の Cloud VM のリソースを増量します。少なくとも1つのリソースを指定してください：\nCPU：1〜32 vCPU。メモリ：4〜64 GiB、1 GiB 単位。ディスク：4〜256 GiB、4 GiB 単位。\nメモリとディスクには G、GB、GiB の接尾辞を使用できます。縮小には対応していません。\nサーバーがプランの制限を適用し、プロバイダーが確認したリソースを返します。\n構造化された結果には --json を追加してください。"
           }
-        }
+        },
+        "bs": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "km": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "th": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}}
       }
     },
     "cli.vm.resize.helpDescription": {
@@ -522626,7 +522714,18 @@
             "state": "translated",
             "value": "既存のマシンの CPU、メモリ、ディスクを増量します。`cmux vm resize --help` を参照してください。"
           }
-        }
+        },
+        "bs": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "km": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "th": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."}}
       }
     },
     "machines.menu.resizeToGiB": {
@@ -643046,6 +643145,156 @@
             "value": "マシンの cmux-tui デーモンを利用できません。マシンを起動するか、`cmux vm workspace new` を再試行してください。"
           }
         }
+      }
+    },
+    "cli.vm.resize.listFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: Die Tariflimits konnten vor der Größenänderung nicht aktualisiert werden; es wurden keine Änderungen vorgenommen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : impossible d’actualiser les limites du forfait avant le redimensionnement ; aucune modification n’a été effectuée."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: تعذر تحديث حدود الخطة قبل تغيير الحجم؛ لم يتم إجراء أي تغييرات."}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: no se pudieron actualizar los límites del plan antes de cambiar el tamaño; no se realizaron cambios."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：調整大小前無法更新方案限制；未進行任何變更。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：调整大小前无法刷新套餐限制；未进行任何更改。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: 크기를 조정하기 전에 요금제 한도를 새로 고칠 수 없습니다. 변경하지 않았습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: サイズ変更前にプランの上限を更新できませんでした。変更は行われていません。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: could not refresh plan limits before resizing; no changes were made."}}
+      }
+    },
+    "cli.vm.resize.preflightIncomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: Der Server hat unvollständige Tarifdaten zurückgegeben; aktualisiere deine Cloud-Maschinen und versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : le serveur a renvoyé des données de capacité incomplètes ; actualisez vos machines Cloud et réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: أعاد الخادم بيانات سعة غير مكتملة؛ حدّث أجهزة Cloud ثم حاول مرة أخرى."}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: el servidor devolvió datos de capacidad incompletos; actualiza tus máquinas Cloud e inténtalo de nuevo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：伺服器回傳的方案容量資料不完整；請重新整理 Cloud 機器後再試。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：服务器返回的套餐容量数据不完整；请刷新 Cloud 机器后重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: 서버가 불완전한 요금제 용량 데이터를 반환했습니다. Cloud 머신을 새로 고친 후 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: サーバーから不完全なプラン容量データが返されました。Cloud マシンを更新して再試行してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."}}
+      }
+    },
+    "cli.vm.resize.notLarger": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: %@ ist bereits %@; wähle eine größere Größe."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : %@ fait déjà %@ ; choisissez une taille plus grande."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: قيمة %@ هي بالفعل %@؛ اختر حجماً أكبر."}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: %@ ya es %@; elige un tamaño mayor."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 已是 %@；請選擇更大的大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 已经是 %@；请选择更大的大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: %@은(는) 이미 %@입니다. 더 큰 크기를 선택하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: %@ はすでに %@ です。より大きいサイズを選択してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "da": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "it": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "km": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "th": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: %@ is already %@; choose a larger size."}}
+      }
+    },
+    "cli.vm.resize.resource.disk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Festplatte"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "disque"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "القرص"}},
+        "es": {"stringUnit": {"state": "translated", "value": "disco"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "磁碟"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "磁盘"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "디스크"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ディスク"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "da": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "it": {"stringUnit": {"state": "translated", "value": "disco"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ថាស"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "dysk"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "disco"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "диск"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ดิสก์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "disk"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "диск"}}
+      }
+    },
+    "cli.vm.resize.resource.cpu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Prozessor"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "processeur"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "المعالج"}},
+        "es": {"stringUnit": {"state": "translated", "value": "procesador"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "處理器"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "处理器"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "프로세서"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロセッサ"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "da": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "it": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "km": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "ЦП"}},
+        "th": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "CPU"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "ЦП"}}
+      }
+    },
+    "cli.vm.resize.resource.memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "memory"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsspeicher"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "mémoire"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الذاكرة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "memoria"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "記憶體"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "内存"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "메모리"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "メモリ"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "memoriju"}},
+        "da": {"stringUnit": {"state": "translated", "value": "hukommelse"}},
+        "it": {"stringUnit": {"state": "translated", "value": "memoria"}},
+        "km": {"stringUnit": {"state": "translated", "value": "អង្គចងចាំ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "minne"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "pamięć"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "memória"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "память"}},
+        "th": {"stringUnit": {"state": "translated", "value": "หน่วยความจำ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "bellek"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "пам’ять"}}
       }
     }
   },

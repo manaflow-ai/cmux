@@ -10,23 +10,27 @@ struct CloudTreeResizeMenu {
         submenu.autoenablesItems = false
         let currentCPUs = machine.resourceReservation?.vcpus ?? machine.stats?.cpus
         let currentMemoryMb = machine.resourceReservation?.memoryMb ?? machine.stats?.memoryTotalMb
+        let currentDiskMb = machine.resourceReservation?.diskMb ?? machine.stats?.diskTotalMb
+        let currentShape = CloudVMResizeShape(vcpus: currentCPUs, memoryMb: currentMemoryMb, diskMb: currentDiskMb)
+        let limits = CloudVMResizeLimits(
+            maxVcpus: action.resizeCPUMaximum,
+            maxMemoryMb: action.resizeMemoryMaximumGiB * 1024,
+            maxDiskMb: action.resizeDiskMaximumGiB * 1024,
+            resourcePool: action.resizeResourcePool
+        )
 
         if !action.resizeDiskOptionsGiB.isEmpty {
             let diskMenu = NSMenu(); diskMenu.autoenablesItems = false
-            let currentDiskMb = machine.resourceReservation?.diskMb ?? machine.stats?.diskTotalMb
             for gib in action.resizeDiskOptionsGiB {
                 let title = String(format: String(localized: "machines.menu.resizeToGiB", defaultValue: "Increase to %d GiB"), gib)
                 let entry = CloudTreeMenuItem(title: title) { action.resizeDisk(id, gib) }
-                let computeFits = machine.usesResourcePool || Self.poolFits(
-                    machine: machine,
-                    action: action,
-                    targetCPUs: currentCPUs,
-                    targetMemoryMb: currentMemoryMb
+                let failure = CloudVMResizeAdmission.failure(
+                    target: CloudVMResizeShape(diskMb: gib * 1024),
+                    current: currentShape,
+                    usesResourcePool: machine.usesResourcePool,
+                    limits: limits
                 )
-                if gib > action.resizeDiskMaximumGiB ||
-                    (currentDiskMb.map { $0 >= gib * 1024 } ?? false) || !computeFits {
-                    entry.isEnabled = false
-                }
+                entry.isEnabled = failure == nil
                 diskMenu.addItem(entry)
             }
             submenu.addItem(Self.group(title: String(localized: "machines.menu.increaseDisk", defaultValue: "Increase Disk"), menu: diskMenu))
@@ -37,16 +41,13 @@ struct CloudTreeResizeMenu {
             for cpu in action.resizeCPUOptions {
                 let title = String(format: String(localized: "machines.menu.resizeToVCPUs", defaultValue: "Increase to %d vCPUs"), cpu)
                 let entry = CloudTreeMenuItem(title: title) { action.resizeCPU(id, cpu) }
-                let exceedsPool = !Self.poolFits(
-                    machine: machine,
-                    action: action,
-                    targetCPUs: cpu,
-                    targetMemoryMb: currentMemoryMb
+                let failure = CloudVMResizeAdmission.failure(
+                    target: CloudVMResizeShape(vcpus: cpu),
+                    current: currentShape,
+                    usesResourcePool: machine.usesResourcePool,
+                    limits: limits
                 )
-                if cpu > action.resizeCPUMaximum ||
-                    (currentCPUs.map { $0 >= cpu } ?? false) || exceedsPool {
-                    entry.isEnabled = false
-                }
+                entry.isEnabled = failure == nil
                 cpuMenu.addItem(entry)
             }
             submenu.addItem(Self.group(title: String(localized: "machines.menu.increaseCPU", defaultValue: "Increase CPU"), menu: cpuMenu))
@@ -57,16 +58,13 @@ struct CloudTreeResizeMenu {
             for gib in action.resizeMemoryOptionsGiB {
                 let title = String(format: String(localized: "machines.menu.resizeToGiB", defaultValue: "Increase to %d GiB"), gib)
                 let entry = CloudTreeMenuItem(title: title) { action.resizeMemory(id, gib) }
-                let exceedsPool = !Self.poolFits(
-                    machine: machine,
-                    action: action,
-                    targetCPUs: currentCPUs,
-                    targetMemoryMb: gib * 1024
+                let failure = CloudVMResizeAdmission.failure(
+                    target: CloudVMResizeShape(memoryMb: gib * 1024),
+                    current: currentShape,
+                    usesResourcePool: machine.usesResourcePool,
+                    limits: limits
                 )
-                if gib > action.resizeMemoryMaximumGiB ||
-                    (currentMemoryMb.map { $0 >= gib * 1024 } ?? false) || exceedsPool {
-                    entry.isEnabled = false
-                }
+                entry.isEnabled = failure == nil
                 memoryMenu.addItem(entry)
             }
             submenu.addItem(Self.group(title: String(localized: "machines.menu.increaseMemory", defaultValue: "Increase Memory"), menu: memoryMenu))
@@ -87,30 +85,4 @@ struct CloudTreeResizeMenu {
         return item
     }
 
-    /// Tests the complete target shape against the shared pool. Active machines
-    /// already appear in `used*`, so their current reservation is removed
-    /// before evaluating the target. Paused machines are evaluated as a new
-    /// allocation because resizing wakes them. Unknown compute shape fails
-    /// closed when a pool is present; disk-only active resizes skip admission.
-    private static func poolFits(
-        machine: MachineSnapshot,
-        action: MachineRowActions,
-        targetCPUs: Int?,
-        targetMemoryMb: Int?
-    ) -> Bool {
-        guard let pool = action.resizeResourcePool else { return true }
-        guard let targetCPUs, let targetMemoryMb else { return false }
-
-        var usedCPUs = pool.usedVcpus
-        var usedMemoryMb = pool.usedMemoryMb
-        if machine.usesResourcePool {
-            let currentCPUs = machine.resourceReservation?.vcpus ?? machine.stats?.cpus
-            let currentMemoryMb = machine.resourceReservation?.memoryMb ?? machine.stats?.memoryTotalMb
-            guard let currentCPUs, let currentMemoryMb else { return false }
-            usedCPUs = max(0, usedCPUs - currentCPUs)
-            usedMemoryMb = max(0, usedMemoryMb - currentMemoryMb)
-        }
-        return targetCPUs <= max(0, pool.poolVcpus - usedCPUs) &&
-            targetMemoryMb <= max(0, pool.poolMemoryMb - usedMemoryMb)
-    }
 }

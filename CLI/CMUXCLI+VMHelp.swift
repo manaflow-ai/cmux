@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 // MARK: - `cmux vm <verb> --help`
@@ -43,20 +44,14 @@ extension CMUXCLI {
         return gib * 1024
     }
 
+    /// Parse a Freestyle memory allocation expressed in whole GiB.
     static func parseCloudVMMemoryMb(_ raw: String) -> Int? {
         guard let gib = parseCloudVMGiB(raw), (4...64).contains(gib) else { return nil }
         return gib * 1024
     }
 
-    /// The list response carries the caller's plan ceilings. Validate them
-    /// before sending a provider mutation so the CLI has the same affordance
-    /// gate as the sidebar. The backend repeats these checks transactionally.
-    static func validateCloudVMResizePlan(
-        diskMb: Int?,
-        cpu: Int?,
-        memoryMb: Int?,
-        limits: [String: Any]
-    ) throws {
+    /// Builds the typed resize limits from the server's list response.
+    private static func cloudVMResizeLimits(from limits: [String: Any]) throws -> (CloudVMResizeLimits, planID: String) {
         // Older app/control-plane pairs may omit the limits object entirely.
         // Keep the client-side gate conservative in that case instead of
         // accidentally allowing a Max-only request through to the provider.
@@ -80,38 +75,146 @@ extension CMUXCLI {
             default: return 128 * 1_024
             }
         }()
-        if let diskMb, diskMb > maxDiskMb {
-            throw cloudVMResizePlanError(planID: planID, resource: "disk", requested: diskMb, maximum: maxDiskMb)
-        }
-        if let cpu, cpu > maxVcpus {
-            throw cloudVMResizePlanError(planID: planID, resource: "CPU", requested: cpu, maximum: maxVcpus)
-        }
-        if let memoryMb, memoryMb > maxMemoryMb {
-            throw cloudVMResizePlanError(planID: planID, resource: "memory", requested: memoryMb, maximum: maxMemoryMb)
+        return (
+            CloudVMResizeLimits(
+                maxVcpus: maxVcpus,
+                maxMemoryMb: maxMemoryMb,
+                maxDiskMb: maxDiskMb,
+                resourcePool: try cloudVMResizePool(from: limits)
+            ),
+            planID
+        )
+    }
+
+    /// Validates plan ceilings for callers that only have a target shape.
+    static func validateCloudVMResizePlan(
+        diskMb: Int?,
+        cpu: Int?,
+        memoryMb: Int?,
+        limits: [String: Any]
+    ) throws {
+        let (resizeLimits, planID) = try cloudVMResizeLimits(from: limits)
+        let target = CloudVMResizeShape(vcpus: cpu, memoryMb: memoryMb, diskMb: diskMb)
+        if let failure = CloudVMResizeAdmission.failure(
+            target: target,
+            current: nil,
+            usesResourcePool: false,
+            limits: resizeLimits
+        ) {
+            throw cloudVMResizeFailureError(failure, planID: planID)
         }
     }
 
+    /// Parses a strictly positive limit without trapping on oversized JSON numbers.
     private static func positiveCloudVMLimit(_ raw: Any?) -> Int? {
-        if let value = raw as? Int, value > 0 { return value }
-        if let number = raw as? NSNumber,
-           number.doubleValue.isFinite,
-           number.doubleValue == Double(number.intValue),
-           number.intValue > 0 { return number.intValue }
-        if let value = raw as? Double,
-           value.isFinite,
-           value > 0,
-           value == value.rounded() { return Int(value) }
-        return nil
+        guard let value = nonNegativeCloudVMLimit(raw), value > 0 else { return nil }
+        return value
+    }
+
+    /// Parses a nonnegative pool counter, accepting zero and rejecting malformed values.
+    private static func nonNegativeCloudVMLimit(_ raw: Any?) -> Int? {
+        let value: Int?
+        if let raw = raw as? Int {
+            value = raw
+        } else if let raw = raw as? Int64 {
+            value = Int(exactly: raw)
+        } else if let raw = raw as? NSNumber, raw.doubleValue.isFinite {
+            value = Int(exactly: raw.doubleValue)
+        } else if let raw = raw as? Double, raw.isFinite {
+            value = Int(exactly: raw)
+        } else {
+            value = nil
+        }
+        guard let value, value >= 0 else { return nil }
+        return value
+    }
+
+    /// Reads a pool only when all of its capacity and usage counters are valid.
+    /// A partially populated pool fails closed so a stale response cannot bypass the CLI gate.
+    private static func cloudVMResizePool(from limits: [String: Any]) throws -> CloudVMResourcePool? {
+        let rawPoolVcpus = limits["poolVcpus"]
+        let rawPoolMemoryMb = limits["poolMemoryMb"]
+        let hasPoolFields = [rawPoolVcpus, rawPoolMemoryMb].contains { raw in
+            guard let raw else { return false }
+            return !(raw is NSNull)
+        }
+        guard hasPoolFields else { return nil }
+        guard let poolVcpus = positiveCloudVMLimit(rawPoolVcpus),
+              let poolMemoryMb = positiveCloudVMLimit(rawPoolMemoryMb),
+              let usedVcpus = nonNegativeCloudVMLimit(limits["usedVcpus"]),
+              let usedMemoryMb = nonNegativeCloudVMLimit(limits["usedMemoryMb"]) else {
+            throw CLIError(message: String(
+                localized: "cli.vm.resize.preflightIncomplete",
+                defaultValue: "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."
+            ))
+        }
+        return CloudVMResourcePool(
+            poolVcpus: poolVcpus,
+            poolMemoryMb: poolMemoryMb,
+            usedVcpus: usedVcpus,
+            usedMemoryMb: usedMemoryMb
+        )
+    }
+
+    private static func cloudVMResizeFailureError(
+        _ failure: CloudVMResizeAdmissionFailure,
+        planID: String
+    ) -> CLIError {
+        switch failure {
+        case .planLimit(let resource, let requested, let maximum):
+            return cloudVMResizePlanError(planID: planID, resource: resource, requested: requested, maximum: maximum)
+        case .notLarger(let resource, let requested, let current):
+            let resourceName = cloudVMResizeResourceLabel(resource)
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.vm.resize.notLarger",
+                    defaultValue: "vm resize: %@ is already %@; choose a larger size."
+                ),
+                resourceName,
+                cloudVMResizeValue(resource, requested: current)
+            ))
+        case .missingCurrentShape:
+            return CLIError(message: String(
+                localized: "cli.vm.resize.preflightIncomplete",
+                defaultValue: "vm resize: the server returned incomplete machine capacity data; retry after refreshing your Cloud machines."
+            ))
+        case .poolLimit(let requestedVcpus, let requestedMemoryMb, let freeVcpus, let freeMemoryMb):
+            return cloudVMResizePoolError(
+                requestedCPUs: requestedVcpus,
+                requestedMemoryMb: requestedMemoryMb,
+                freeCPUs: freeVcpus,
+                freeMemoryMb: freeMemoryMb
+            )
+        }
+    }
+
+    private static func cloudVMResizeResourceLabel(_ resource: CloudVMResizeAdmissionFailure.Resource) -> String {
+        switch resource {
+        case .disk:
+            return String(localized: "cli.vm.resize.resource.disk", defaultValue: "disk")
+        case .vcpus:
+            return String(localized: "cli.vm.resize.resource.cpu", defaultValue: "CPU")
+        case .memory:
+            return String(localized: "cli.vm.resize.resource.memory", defaultValue: "memory")
+        }
+    }
+
+    private static func cloudVMResizeValue(
+        _ resource: CloudVMResizeAdmissionFailure.Resource,
+        requested: Int
+    ) -> String {
+        resource == .vcpus ? "\(requested) vCPUs" : "\(requested / 1024) GiB"
     }
 
     private static func cloudVMResizePlanError(
         planID: String,
-        resource: String,
+        resource: CloudVMResizeAdmissionFailure.Resource,
         requested: Int,
         maximum: Int
     ) -> CLIError {
-        let requestedText = resource == "CPU" ? "\(requested) vCPUs" : "\(requested / 1024) GiB"
-        let maximumText = resource == "CPU" ? "\(maximum) vCPUs" : "\(maximum / 1024) GiB"
+        let requestedText = cloudVMResizeValue(resource, requested: requested)
+        let maximumText = cloudVMResizeValue(resource, requested: maximum)
+        let resourceName = cloudVMResizeResourceLabel(resource)
         let planName: String
         switch planID.lowercased() {
         case "pro": planName = "cmux Pro"
@@ -126,9 +229,9 @@ extension CMUXCLI {
         if planID.lowercased() == "max" {
             upgrade = String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
         } else if planID.lowercased() == "go" &&
-                    ((resource == "memory" && requested <= 32 * 1_024) ||
-                     (resource == "CPU" && requested <= 16) ||
-                     (resource == "disk" && requested <= 128 * 1_024)) {
+                    ((resource == .memory && requested <= 32 * 1_024) ||
+                     (resource == .vcpus && requested <= 16) ||
+                     (resource == .disk && requested <= 128 * 1_024)) {
             upgrade = String(localized: "cli.vm.resize.upgradePro", defaultValue: "Upgrade to cmux Pro to use this size.")
         } else {
             upgrade = String(localized: "cli.vm.resize.upgradeMax", defaultValue: "Upgrade to cmux Max to use larger sizes.")
@@ -138,7 +241,7 @@ extension CMUXCLI {
                 localized: "cli.vm.resize.planLimit",
                 defaultValue: "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"
             ),
-            planName, resource, requestedText, maximumText, upgrade
+            planName, resourceName, requestedText, maximumText, upgrade
         )
         return CLIError(message: message)
     }
@@ -158,57 +261,6 @@ extension CMUXCLI {
             Int64(freeCPUs), Int64(freeMemoryMb / 1_024)
         )
         return CLIError(message: message)
-    }
-
-    /// Checks the complete target shape against the server-published shared
-    /// pool. Active VMs already contribute their reservation to `used*`; a
-    /// paused VM is treated as a new allocation because resize wakes it.
-    private static func validateCloudVMResizePool(
-        diskMb: Int?,
-        cpu: Int?,
-        memoryMb: Int?,
-        limits: [String: Any],
-        machine: [String: Any]?
-    ) throws {
-        guard let poolCPUs = positiveCloudVMLimit(limits["poolVcpus"]),
-              let poolMemoryMb = positiveCloudVMLimit(limits["poolMemoryMb"]) else { return }
-        let usedCPUs = positiveCloudVMLimit(limits["usedVcpus"]) ?? 0
-        let usedMemoryMb = positiveCloudVMLimit(limits["usedMemoryMb"]) ?? 0
-        let status = (machine?["status"] as? String)?.lowercased()
-        let active = status == "running" || status == "provisioning"
-        let resources = machine?["resources"] as? [String: Any]
-        let currentCPUs = positiveCloudVMLimit(resources?["vcpus"])
-            ?? positiveCloudVMLimit(machine?["cpus"])
-        let currentMemoryMb = positiveCloudVMLimit(resources?["memoryMb"])
-            ?? positiveCloudVMLimit(machine?["memory_total_mb"])
-            ?? positiveCloudVMLimit(machine?["memoryTotalMb"])
-
-        // A running disk-only resize does not wake or grow compute. Every
-        // other resize needs the complete target shape to be known.
-        if diskMb != nil && cpu == nil && memoryMb == nil && active { return }
-        guard let currentCPUs, let currentMemoryMb else {
-            throw cloudVMResizePoolError(
-                requestedCPUs: cpu ?? 0,
-                requestedMemoryMb: memoryMb ?? 0,
-                freeCPUs: 0,
-                freeMemoryMb: 0
-            )
-        }
-        let targetCPUs = cpu ?? currentCPUs
-        let targetMemoryMb = memoryMb ?? currentMemoryMb
-
-        let otherCPUs = active ? max(0, usedCPUs - currentCPUs) : usedCPUs
-        let otherMemoryMb = active ? max(0, usedMemoryMb - currentMemoryMb) : usedMemoryMb
-        let freeCPUs = max(0, poolCPUs - otherCPUs)
-        let freeMemoryMb = max(0, poolMemoryMb - otherMemoryMb)
-        guard targetCPUs <= freeCPUs, targetMemoryMb <= freeMemoryMb else {
-            throw cloudVMResizePoolError(
-                requestedCPUs: targetCPUs,
-                requestedMemoryMb: targetMemoryMb,
-                freeCPUs: freeCPUs,
-                freeMemoryMb: freeMemoryMb
-            )
-        }
     }
 
     private static func parseCloudVMGiB(_ raw: String) -> Int? {
@@ -257,25 +309,46 @@ extension CMUXCLI {
                 defaultValue: "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."
             ))
         }
-        let listResponse = try client.sendV2(method: "vm.list", responseTimeout: 60)
-        let limits = (listResponse["limits"] as? [String: Any]) ?? [:]
-        try Self.validateCloudVMResizePlan(
-            diskMb: diskMb,
-            cpu: cpu,
-            memoryMb: memoryMb,
-            limits: limits
-        )
+        let listResponse: [String: Any]
+        do {
+            listResponse = try client.sendV2(method: "vm.list", responseTimeout: 60)
+        } catch {
+            throw CLIError(message: String(
+                localized: "cli.vm.resize.listFailed",
+                defaultValue: "vm resize: could not refresh plan limits before resizing; no changes were made."
+            ))
+        }
+        guard let limits = listResponse["limits"] as? [String: Any] else {
+            throw CLIError(message: String(
+                localized: "cli.vm.resize.preflightIncomplete",
+                defaultValue: "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."
+            ))
+        }
         let machines = (listResponse["vms"] as? [[String: Any]])
             ?? (listResponse["machines"] as? [[String: Any]])
             ?? []
         let machine = machines.first { ($0["id"] as? String) == vmId }
-        try Self.validateCloudVMResizePool(
-            diskMb: diskMb,
-            cpu: cpu,
-            memoryMb: memoryMb,
-            limits: limits,
-            machine: machine
+        let (resizeLimits, planID) = try Self.cloudVMResizeLimits(from: limits)
+        let status = (machine?["status"] as? String)?.lowercased()
+        let resources = machine?["resources"] as? [String: Any]
+        let current = CloudVMResizeShape(
+            vcpus: Self.positiveCloudVMLimit(resources?["vcpus"]) ?? Self.positiveCloudVMLimit(machine?["cpus"]),
+            memoryMb: Self.positiveCloudVMLimit(resources?["memoryMb"])
+                ?? Self.positiveCloudVMLimit(machine?["memory_total_mb"])
+                ?? Self.positiveCloudVMLimit(machine?["memoryTotalMb"]),
+            diskMb: Self.positiveCloudVMLimit(resources?["diskMb"])
+                ?? Self.positiveCloudVMLimit(machine?["disk_total_mb"])
+                ?? Self.positiveCloudVMLimit(machine?["diskTotalMb"])
         )
+        let target = CloudVMResizeShape(vcpus: cpu, memoryMb: memoryMb, diskMb: diskMb)
+        if let failure = CloudVMResizeAdmission.failure(
+            target: target,
+            current: current,
+            usesResourcePool: status == "running" || status == "provisioning",
+            limits: resizeLimits
+        ) {
+            throw Self.cloudVMResizeFailureError(failure, planID: planID)
+        }
         var params: [String: Any] = ["id": vmId]
         if let diskMb { params["storage_mb"] = diskMb }
         if let cpu { params["cpu"] = cpu }

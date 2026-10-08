@@ -41,6 +41,66 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func resizeAdmissionSharesPlanAndPoolRules() {
+        let pool = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40 * 1024, usedVcpus: 16, usedMemoryMb: 32 * 1024)
+        let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024, resourcePool: pool)
+        let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024, diskMb: 64 * 1024)
+
+        #expect(CloudVMResizeAdmission.failure(
+            target: CloudVMResizeShape(vcpus: 16),
+            current: current,
+            usesResourcePool: true,
+            limits: limits
+        ) == nil)
+        #expect(CloudVMResizeAdmission.failure(
+            target: CloudVMResizeShape(vcpus: 32),
+            current: current,
+            usesResourcePool: true,
+            limits: limits
+        ) == .planLimit(resource: .vcpus, requested: 32, maximum: 16))
+    }
+
+    @Test
+    func resizeAdmissionRemovesActiveReservationButNotPausedReservation() {
+        let pool = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40 * 1024, usedVcpus: 16, usedMemoryMb: 32 * 1024)
+        let limits = CloudVMResizeLimits(maxVcpus: 32, maxMemoryMb: 64 * 1024, maxDiskMb: 256 * 1024, resourcePool: pool)
+        let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024)
+        let target = CloudVMResizeShape(vcpus: 16, memoryMb: 32 * 1024)
+
+        #expect(CloudVMResizeAdmission.failure(target: target, current: current, usesResourcePool: true, limits: limits) == nil)
+        #expect(CloudVMResizeAdmission.failure(target: target, current: current, usesResourcePool: false, limits: limits) == .poolLimit(
+            requestedVcpus: 16, requestedMemoryMb: 32 * 1024, freeVcpus: 4, freeMemoryMb: 8 * 1024
+        ))
+    }
+
+    @Test
+    func activeDiskOnlyResizeDoesNotNeedComputePoolCapacity() {
+        let pool = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40 * 1024, usedVcpus: 20, usedMemoryMb: 40 * 1024)
+        let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024, resourcePool: pool)
+        let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024, diskMb: 64 * 1024)
+
+        #expect(CloudVMResizeAdmission.failure(
+            target: CloudVMResizeShape(diskMb: 128 * 1024),
+            current: current,
+            usesResourcePool: true,
+            limits: limits
+        ) == nil)
+    }
+
+    @Test
+    func resizeAdmissionKeepsGrowOnlySemantics() {
+        let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024)
+        let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024, diskMb: 64 * 1024)
+
+        #expect(CloudVMResizeAdmission.failure(
+            target: CloudVMResizeShape(memoryMb: 16 * 1024),
+            current: current,
+            usesResourcePool: false,
+            limits: limits
+        ) == .notLarger(resource: .memory, requested: 16 * 1024, current: 16 * 1024))
+    }
+
+    @Test
     func memoryOverflowIsReportedBeforeVcpus() throws {
         let pool = try #require(CloudVMResourcePool(limits: Self.proLimits))
         #expect(pool.shortfall(vcpus: 4, memoryMb: 8192) == nil)
