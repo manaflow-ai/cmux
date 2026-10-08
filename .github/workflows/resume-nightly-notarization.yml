@@ -122,10 +122,15 @@ jobs:
               names = archive.getnames()
               if not any(name.endswith(".app") or ".app/" in name for name in names):
                   raise SystemExit("signed app archive contains no app bundle")
-              for name in names:
+              for member in archive.getmembers():
+                  name = member.name
                   path = pathlib.PurePosixPath(name)
                   if path.is_absolute() or ".." in path.parts:
                       raise SystemExit(f"unsafe signed app archive member: {name}")
+                  if member.issym() or member.islnk():
+                      target = pathlib.PurePosixPath(member.linkname)
+                      if target.is_absolute() or ".." in target.parts:
+                          raise SystemExit(f"unsafe signed app archive link: {name}")
           PY
           mkdir -p recovery/cmux-nightly-notarization-recovery-app
           tar -xzf "$app_archive" -C recovery/cmux-nightly-notarization-recovery-app
