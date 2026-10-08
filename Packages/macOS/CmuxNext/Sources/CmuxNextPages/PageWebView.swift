@@ -82,6 +82,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    let claimState = PageClaimState()
 
     public var pageID: String { descriptor.id }
 
@@ -380,6 +381,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // A new document: the old one's subscriptions and host calls end with it, and it has not
         // painted yet.
         router.reset()
+        _ = claimState.end()
         loaded = false
         paintedUptime = nil
         let bridge = bridge

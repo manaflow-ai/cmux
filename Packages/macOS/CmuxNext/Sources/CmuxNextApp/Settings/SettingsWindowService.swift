@@ -59,13 +59,21 @@ final class SettingsWindowService: InternalPageProvider {
             }
             return
         }
+        let route = Self.route(section: target, setting: setting)
+        // A user run in a window whose workspace has no pane to hold a tab (an empty workspace,
+        // or Home standing for the home workspace) shows Settings as the window's top page
+        // (nxdog70: Cmd-, on Home with an empty workspace showed nothing).
+        if focus, let window = services.windows?.active, !Self.holdsTab(window, services) {
+            waiting = nil
+            showTopPage(in: window, route: route)
+            return
+        }
         guard let windows = services.windows, let window = windows.active, Self.hasPane(window) else {
             waiting = (target, setting, focus)
             if let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
             return
         }
         waiting = nil
-        let route = Self.route(section: target, setting: setting)
         pendingRoute = route
         let view = services.pages.show(.settings, in: window, focus: focus)
         if let route, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
@@ -81,6 +89,23 @@ final class SettingsWindowService: InternalPageProvider {
 
     private static func hasPane(_ window: WindowController) -> Bool {
         window.workspaceContent.map { !$0.panes.isEmpty } ?? false
+    }
+
+    /// Whether a Settings tab in `window` would be seen: the window shows (or can leave its top
+    /// page for) a workspace with a pane, and Home does not stand for that workspace.
+    private static func holdsTab(_ window: WindowController, _ services: AppServices) -> Bool {
+        if window.shownTopPage == .page(.settings) { return false }
+        guard hasPane(window), let workspace = window.workspaceContent?.workspace else { return false }
+        return !(workspace.kind == "home" && SidebarBridge.hidesHome(services.sidebarLayout.document))
+    }
+
+    /// Settings as `window`'s top page (one view per window, shown again on a repeat), on `route`.
+    private func showTopPage(in window: WindowController, route: String?) {
+        let pageRoute = TopPageRoute.page(.settings)
+        if window.topPages.views[pageRoute] == nil { pendingRoute = route }
+        TopPages.show(pageRoute, services: services, in: window.state)
+        if let route, let page = (window.topPages.views[pageRoute] as? InternalPageView)?.content as? PageWebView,
+           page.route != route { page.open(route: route) }
     }
 
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other

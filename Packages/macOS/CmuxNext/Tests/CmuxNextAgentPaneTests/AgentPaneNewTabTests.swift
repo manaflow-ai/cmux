@@ -236,7 +236,10 @@ import Testing
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var actions: [String] = []
         model.onRunAction = { actions.append($0); return true }
+        // A connect flow needs the user's gesture (AgentPaneConnectActionGestureTests).
+        model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("remote.connect"))["ok"] as? Bool == true)
+        model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("newTab.page"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == false)
@@ -253,6 +256,7 @@ import Testing
             actions.append(id)
             return id != "newCloudMachine"
         }
+        model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
         #expect(actions == ["newCloudMachine", "palette.auth.signIn"])
     }

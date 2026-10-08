@@ -11,6 +11,7 @@ import { useT } from "../i18n";
 import { Close, Expand } from "../conversation/icons";
 import { callChipHost } from "./host";
 import { usePathInfo } from "./linkStore";
+import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
 const VIDEO = /\.(mp4|m4v|mov|webm)$/i;
@@ -25,24 +26,6 @@ export function mediaKind(src: string): "video" | "audio" | undefined {
 /// The host's answer per path, so a re-render or a second mention plays the same URL.
 const granted = new Map<string, string>();
 
-/// True once `element` comes within a screen of the viewport (at once where there is no observer).
-function useNear(element: HTMLElement | null): boolean {
-  const [near, setNear] = useState(false);
-  useEffect(() => {
-    if (near || !element) return;
-    if (typeof IntersectionObserver === "undefined") return setNear(true);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) setNear(true);
-      },
-      { rootMargin: "100% 0px" },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [element, near]);
-  return near;
-}
-
 /// `path` is a local file (absolute or from the session's folder); `fallback` is how it draws when
 /// the pane will not play it.
 export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
@@ -52,7 +35,7 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
   const place = info?.place;
   const loadable = answered && !isDeniedPath(path) && place !== "denied" && place !== "outside" && place !== "missing";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
-  const near = useNear(frame);
+  const near = useNearViewport(frame);
   const [src, setSrc] = useState(() => granted.get(path));
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);

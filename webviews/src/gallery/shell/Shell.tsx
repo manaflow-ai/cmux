@@ -19,6 +19,7 @@ import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type
 import { GalleryVariantPick } from "./GalleryVariantPick";
 import { CompareView } from "./CompareView";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
+import { Tunables } from "./Tunables";
 import { EXPERIMENTAL_AREA, sidebarGroups } from "./groups";
 import { experimentalLabel } from "./strings";
 
@@ -371,8 +372,17 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
         </fieldset>
         <Controls
           env={env}
-          onChange={(next) => go({ ...address, search: { ...next, view: search.view, compare: search.compare } }, true)}
+          onChange={(next) =>
+            go({ ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } }, true)
+          }
         />
+        {entry.tunables && entry.tunables.length > 0 && (
+          <Tunables
+            tunables={entry.tunables}
+            tune={search.tune}
+            onChange={(tune) => go({ ...address, search: { ...search, tune } }, true)}
+          />
+        )}
         <details className="gallery-covers">
           <summary>
             {entry.host} · covers {entry.covers.length}
@@ -387,6 +397,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             experiment={entry.experiment}
             variant={variant}
             env={env}
+            tune={search.tune}
             compare={search.compare}
             room={room}
             onCompare={(compare, replace) => go({ ...address, search: { ...search, compare } }, replace)}
@@ -396,7 +407,14 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             entry={entry}
             locale={env.locale}
             preview={(name) => (
-              <Stage entry={entry} state={name} env={env} available={{ width: 420, height: room.height }} thumbnail />
+              <Stage
+                entry={entry}
+                state={name}
+                env={env}
+                tune={search.tune}
+                available={{ width: 420, height: room.height }}
+                thumbnail
+              />
             )}
           />
         ) : (
@@ -406,6 +424,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               entry={entry}
               state={stage.variant}
               env={stage.env}
+              tune={search.tune}
               label={stage.label}
               available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
               thumbnail={search.view !== "variant"}

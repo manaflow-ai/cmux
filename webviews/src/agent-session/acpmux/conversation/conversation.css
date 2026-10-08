@@ -829,12 +829,13 @@ pre.cv-math-source {
   margin: 0 10px 8px 32.5px;
 }
 
-/* Copy under an answer; the row's height is reserved. */
+/* Copy under an answer; the row's height is reserved. A long failure note (a gateway 503) wraps
+ * and grows the row instead of overflowing a fixed 28px box, which cut its first and last lines. */
 .cv-turn-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 28px;
+  min-height: 28px;
   margin-left: -4.5px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
@@ -864,6 +865,18 @@ pre.cv-math-source {
 }
 .cv-turn-summary {
   margin-left: 4.5px;
+}
+.cv-turn-summary,
+.cv-turn-time {
+  flex: none;
+  white-space: nowrap;
+}
+.cv-turn-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-block: 5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
 }
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
@@ -1306,4 +1319,53 @@ pre.cv-math-source {
   color: var(--agent-text);
   font: inherit;
   cursor: pointer;
+}
+
+/* Charts in replies (DiagramBlock). */
+.cv-diagram {
+  margin: 8px 0;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  overflow: hidden;
+}
+.cv-diagram__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  font-size: 11px;
+  background: var(--cv-card-fill);
+}
+.cv-diagram__lang {
+  opacity: 0.7;
+}
+.cv-diagram__toggle {
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+}
+.cv-diagram__toggle:hover {
+  background: var(--cv-card-ring);
+}
+.cv-diagram__chart {
+  min-height: 120px;
+  padding: 12px;
+  overflow-x: auto;
+}
+.cv-diagram__chart svg {
+  max-width: 100%;
+  height: auto;
+}
+.cv-diagram__error {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--agent-danger);
+}
+.cv-diagram .cv-codeblock {
+  margin: 0;
+  border-radius: 0;
 }

@@ -1,3 +1,4 @@
+import CmuxNextPages
 import Foundation
 import UniformTypeIdentifiers
 import WebKit
@@ -10,12 +11,15 @@ import WebKit
 /// Only GET requests for files directly beside the page are answered; any
 /// other host, an escaping path or a missing file fails the request.
 /// Media the host granted the page (``AgentPaneMediaGrants``) is served from
-/// `__media/` in byte ranges.
+/// `__media/` in byte ranges, and the chart library from `__lib/vega.js`.
 final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     private let root: URL
+    /// The markdown viewer's bundled libraries (the chart library's files).
+    let libraries: URL?
 
-    init(root: URL) {
+    init(root: URL, libraries: URL? = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))) {
         self.root = root.standardizedFileURL.resolvingSymlinksInPath()
+        self.libraries = libraries
     }
 
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
@@ -24,6 +28,9 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, let media = Self.mediaFile(for: url) {
             return serveMedia(media, url: url, task: task)
+        }
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, Self.isLibrary(url) {
+            return serveLibrary(url: url, task: task)
         }
         guard task.request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = task.request.url,

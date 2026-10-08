@@ -27,6 +27,8 @@ public final class AgentPaneModel {
     /// The new tab page this pane shows until it has a session, nil for a
     /// plain chat. Cleared once the page reports a session.
     public private(set) var newTab: AgentPaneNewTab?
+    /// Receives the current opening’s focused-field acknowledgement.
+    @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).
     @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
     /// What the user typed after `!` so far (`tab.typeAhead`).
@@ -39,8 +41,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
     /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
     @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
-    /// Runs an app action requested by an empty-state or new-tab control,
-    /// returning whether it ran.
+    /// Runs an app action requested by an empty-state or new-tab control.
     @ObservationIgnored public var onRunAction: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
@@ -183,7 +184,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
         case .reply(let reply) where reply.isPassive: break
         default:
@@ -271,6 +272,10 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
+        case .newTabInputReady(let token):
+            guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }
+            onNewTabInputReady?(token)
+            return AgentPaneReply.success()
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)

@@ -51,6 +51,27 @@ import Testing
         #expect(loose.groupBandFrame == .zero || loose.isGroupBandHidden)
     }
 
+    @Test func aGroupIconLeadsInsideTheLabel() throws {
+        var plainSections = fixture()
+        plainSections[1].nodes[1] = .group(SidebarGroup(id: g1, name: "Work", color: .blue, workspaces: [w("g1")]))
+        let plain = MinimalChromeTests.Harness(sections: plainSections)
+        let plainHeader = try #require(plain.sidebar.list.rowViews[.group(g1)] as? GroupHeaderRowView)
+        plainHeader.layoutSubtreeIfNeeded()
+        #expect(plainHeader.glyph.isHidden, "no icon, no glyph")
+
+        var sections = fixture()
+        sections[1].nodes[1] = .group(SidebarGroup(id: g1, name: "Work", color: .blue, icon: .emoji("🚀"), workspaces: [w("g1")]))
+        let h = MinimalChromeTests.Harness(sections: sections)
+        let header = try #require(h.sidebar.list.rowViews[.group(g1)] as? GroupHeaderRowView)
+        header.layoutSubtreeIfNeeded()
+        #expect(!header.glyph.isHidden)
+        #expect(header.glyph.emojiText == "🚀")
+        #expect(header.labelFrame.contains(NSPoint(x: header.glyph.frame.midX, y: header.glyph.frame.midY)), "the icon is inside the label")
+        #expect(header.glyph.frame.maxX <= header.titleFrame.minX, "the icon leads the name")
+        #expect(header.labelFrame.width > plainHeader.labelFrame.width, "the label grows by the icon")
+        #expect(header.titleFrame.width >= header.titleIntrinsicWidth, "the name still draws whole")
+    }
+
     @Test func aNameThatFitsIsNeverCutShort() throws {
         var sections = fixture()
         sections[1].nodes[1] = .group(SidebarGroup(id: g1, name: "New Group", color: .blue, workspaces: [w("g1")]))
