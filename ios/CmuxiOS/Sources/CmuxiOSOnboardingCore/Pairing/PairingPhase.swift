@@ -19,6 +19,11 @@ public enum PairingPhase: Hashable, Sendable {
         case .pairing(let candidate):
             if let device = devices.first(where: { $0.id == candidate.id }), device.trust == .trusted {
                 self = .paired(name: device.name)
+            } else if !connection.isLive, connection != .connecting {
+                // A pending pair intent must not hide a dropped registry path.
+                // Show the retryable offline state until the owner is reachable
+                // again; a later snapshot still confirms the same intent.
+                self = .offline
             } else {
                 self = .pairing(candidate)
             }

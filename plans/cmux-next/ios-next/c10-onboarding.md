@@ -71,6 +71,9 @@ Pure model in `CmuxiOSOnboardingCore` (Foundation + FeatureKit):
   stored progress and closes from the header.
 - `PairingPhase` is a pure projection of the `DeviceRegistry` snapshot plus the local pairing intent:
   `searching`, `found([candidate])`, `pairing(id)`, `paired(name)`, `failed(message)`, `offline`.
+  When an in-flight pairing loses its registry connection, the projection prefers `offline` over
+  `pairing`; this keeps the retry action visible instead of leaving a spinner over a dead path. The
+  same pairing intent is retained and can be confirmed by a later trusted-device snapshot.
 
 Push permission moves out of sign-in: `PushRegistration.start(for:requestPermission:)` asks the system
 only when the app passes `true`, which it does when onboarding will not prime. Otherwise the

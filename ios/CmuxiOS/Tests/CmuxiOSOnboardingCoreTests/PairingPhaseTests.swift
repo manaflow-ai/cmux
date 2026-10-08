@@ -37,6 +37,24 @@ struct PairingPhaseTests {
         #expect(PairingPhase(devices: [], connection: live, intent: .paired(name: "Studio")) == .paired(name: "Studio"))
     }
 
+    @Test("An in-flight pair exposes an offline owner instead of spinning")
+    func pairingDropsToOffline() {
+        let candidate = PairingCandidate(id: "laptop", name: "MacBook Pro")
+        #expect(
+            PairingPhase(
+                devices: [phone, laptop],
+                connection: .offline(reason: "Control plane unavailable"),
+                intent: .pairing(candidate)
+            ) == .offline
+        )
+        // A connecting owner still shows the in-flight state while the first
+        // snapshot is being established.
+        #expect(
+            PairingPhase(devices: [phone, laptop], connection: .connecting, intent: .pairing(candidate))
+                == .pairing(candidate)
+        )
+    }
+
     @Test("The help hint fires after the delay on the injected clock, and cancel stops it")
     func hintTimer() async {
         let clock = ImmediateClock()
