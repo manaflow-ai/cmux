@@ -65,7 +65,13 @@ for _ in $(seq 1 50); do
   if [ -n "$token" ] && curl -fsS --max-time 1 "$ROOT/$token/api/theme" >/dev/null 2>&1; then ok=true; break; fi
   sleep 0.1
 done
-$ok || { echo "the agent chat server did not accept the token in $token_file" >&2; exit 1; }
+if ! $ok; then
+  source="$token_file"
+  [ -z "${CMUX_AGENT_CHAT_TOKEN:-}" ] || source="CMUX_AGENT_CHAT_TOKEN"
+  echo "the agent chat server on :$PORT did not accept the token from $source" >&2
+  echo "(a server started before tokens became mandatory must be restarted)" >&2
+  exit 1
+fi
 BASE="$ROOT/$token"
 
 url="$BASE/"

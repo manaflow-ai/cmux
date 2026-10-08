@@ -23,30 +23,35 @@ async function waitForFile(path: string): Promise<string> {
 
 async function startServer(token?: string): Promise<Server> {
   const dir = await mkdtemp(join(tmpdir(), "agent-chat-auth-"));
+  // A minimal PATH: the server's startup probes agent CLIs on PATH, and the
+  // test must neither start them nor depend on them.
   const env: Record<string, string> = {
-    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    PATH: "/usr/bin:/bin",
     HOME: dir,
     CMUX_AGENT_CHAT_PORT: "0",
     CMUX_AGENT_CHAT_STATE_FILE: join(dir, "state.json"),
     CMUX_AGENT_CHAT_TOKEN_FILE: join(dir, "token"),
   };
   if (token) env.CMUX_AGENT_CHAT_TOKEN = token;
+  const log = Bun.file(join(dir, "server.log"));
   const proc = Bun.spawn([process.execPath, "server.ts"], {
-    cwd: join(import.meta.dir, ".."), env, stdout: "ignore", stderr: "ignore",
+    cwd: join(import.meta.dir, ".."), env, stdout: log, stderr: log,
   });
-  const state = JSON.parse(await waitForFile(env.CMUX_AGENT_CHAT_STATE_FILE));
+  const state = JSON.parse(await waitForFile(env.CMUX_AGENT_CHAT_STATE_FILE).catch(async (error) => {
+    throw new Error(`${error}; server log:\n${await log.text().catch(() => "")}`);
+  }));
   return { proc, port: state.port, dir };
 }
 
 /** One raw request; returns the status code. */
-function request(port: number, path: string, headers: Record<string, string>, method = "GET"): Promise<number> {
+function request(port: number, path: string, headers: Record<string, string>, method = "GET", body = ""): Promise<number> {
   return new Promise((resolve, reject) => {
     const socket = connect(port, "127.0.0.1");
     let data = "";
     socket.setEncoding("latin1");
     socket.on("connect", () => {
       const lines = [`${method} ${path} HTTP/1.1`, ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`), "Connection: close", "", ""];
-      socket.write(lines.join("\r\n"));
+      socket.write(lines.join("\r\n") + body);
     });
     socket.on("data", (chunk) => {
       data += chunk;
@@ -75,6 +80,35 @@ afterAll(async () => {
 test("a server started without a token generates one and keeps it owner-only", async () => {
   expect(token.length).toBeGreaterThanOrEqual(32);
   expect((await stat(join(generated.dir, "token"))).mode & 0o777).toBe(0o600);
+});
+
+test("path tricks never reach a route without the token", async () => {
+  const host = { Host: `127.0.0.1:${generated.port}` };
+  for (const path of [`/${token}/../api/theme`, `//${token}/api/theme`, `/healthz/../api/theme`, `/api/theme?token=${token}`]) {
+    expect({ path, status: await request(generated.port, path, host) }).toEqual({ path, status: 404 });
+  }
+});
+
+test("the page's own WebSocket upgrades, a foreign one does not", async () => {
+  const host = { Host: `127.0.0.1:${generated.port}` };
+  expect(await request(generated.port, `/${token}/ws`, { ...host, ...upgrade, Origin: `http://127.0.0.1:${generated.port}` })).toBe(101);
+  expect(await request(generated.port, `/${token}/ws`, { ...host, ...upgrade })).toBe(101);
+  expect(await request(generated.port, `/${token}/ws`, { ...host, ...upgrade, Origin: "https://evil.example" })).toBe(403);
+});
+
+test("Host edge cases are refused", async () => {
+  for (const name of [`user@127.0.0.1:${generated.port}`, `localhost.:${generated.port}`, "127.0.0.1", `127.1:${generated.port}`, `127.0.0.1:${generated.port}/x`]) {
+    // Bun's parser may answer a malformed Host with 400 before the handler.
+    const status = await request(generated.port, `/${token}/api/theme`, { Host: name });
+    expect({ name, refused: status === 400 || status === 403 }).toEqual({ name, refused: true });
+  }
+  expect([400, 403]).toContain(await request(generated.port, `/${token}/api/theme`, {}));
+  expect(await request(generated.port, `/${token}/api/theme`, { Host: `LOCALHOST:${generated.port}` })).toBe(200);
+});
+
+test("a cross-site POST cannot create a session, also with the token", async () => {
+  const headers = { Host: `127.0.0.1:${generated.port}`, Origin: "https://evil.example", "Content-Type": "text/plain", "Content-Length": "2" };
+  expect(await request(generated.port, `/${token}/api/sessions`, headers, "POST", "{}")).toBe(403);
 });
 
 test("every route but /healthz needs the token", async () => {

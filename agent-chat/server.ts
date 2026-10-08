@@ -25,7 +25,7 @@ import type { HarnessRecommendation } from "./harness-contract";
 import { harnessCatalogs } from "./harness-messages";
 import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
 import { readFileSync, statSync, watch, type FSWatcher } from "node:fs";
-import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { basename as pathBasename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -107,6 +107,8 @@ async function writeTokenFile(port: number) {
   const dir = dirname(path);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `${pathBasename(path)}.${process.pid}.tmp`);
+  // A tmp file left by a crashed server with the same pid would make `wx` fail.
+  await rm(tmp, { force: true });
   await writeFile(tmp, AUTH_TOKEN + "\n", { encoding: "utf8", mode: 0o600, flag: "wx" });
   await rename(tmp, path);
 }
@@ -2101,10 +2103,11 @@ function startServer() {
     port: PORT,
     hostname: "127.0.0.1",
     async fetch(req, srv) {
-    const originalUrl = new URL(req.url);
+    // Host and Origin first: a malformed Host can make req.url unparsable.
     if (!hasTrustedHost(req, srv.port) || !hasTrustedOrigin(req, srv.port)) {
       return new Response("forbidden", { status: 403 });
     }
+    const originalUrl = new URL(req.url);
     if (originalUrl.pathname === "/healthz") return new Response("ok");
     const url = stripAuthPrefix(originalUrl);
     if (!url) return new Response("not found", { status: 404 });
