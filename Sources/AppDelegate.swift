@@ -18493,15 +18493,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) else {
                 return
             }
-            // A relaunch of this same bundle is meant to replace us (its
-            // enforceSingleInstance asks us to quit gracefully); let it live.
+            // Leave same-bundle launches to the incoming process. It yields to
+            // this instance by default and can replace it only with the
+            // explicit reload override.
             if let launchedBundleURL = app.bundleURL,
-               SingleInstanceConflictPolicy(environment: [:]).action(
-                   currentBundleURL: launchedBundleURL,
-                   existingBundleURL: Bundle.main.bundleURL
-               ) == .replaceExisting {
+               SingleInstanceConflictPolicy.isSameBundle(launchedBundleURL, Bundle.main.bundleURL) {
                 StartupBreadcrumbLog.append(
-                    "singleInstance.observe.sameBundleRelaunch",
+                    "singleInstance.observe.sameBundleLaunch",
                     fields: ["duplicatePid": String(app.processIdentifier)]
                 )
                 return
