@@ -1461,3 +1461,6 @@ mod lifecycle_fixes;
 
 #[path = "hub_integration/quit_spawn.rs"]
 mod quit_spawn;
+
+#[path = "hub_integration/claude_failover.rs"]
+mod claude_failover;

@@ -228,7 +228,8 @@ extension QuitPolicyTests {
         #expect(lines[0].contains("m1"))
         #expect(lines[1].contains("build") && lines[1].contains("m2"))
         #expect(lines[2].contains("m3"))
-        #expect(lines[3].contains("terminal-reap-v1"))
+        // The capability id is never shown: the older daemon is updated by a restart.
+        #expect(lines[3] == RefusalStrings.restartToUpdateDaemon)
         #expect(lines[4] == QuitStrings.failedKeepRunning)
     }
 }
