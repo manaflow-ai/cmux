@@ -14,18 +14,18 @@ impl Mux {
         source: &Surface,
         mutation: &'static str,
         program_status_change: Option<Value>,
-    ) -> anyhow::Result<()> {
-        let Some(id) = source.terminal_public_id() else { return Ok(()) };
+    ) -> anyhow::Result<bool> {
+        let Some(id) = source.terminal_public_id() else { return Ok(false) };
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
-        let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(()) };
+        let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(false) };
         if current.terminal_runtime_id() != source.terminal_runtime_id() {
-            return Ok(());
+            return Ok(false);
         }
-        let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(()) };
-        let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(()) };
+        let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(false) };
+        let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(false) };
         if durable.lifecycle != TerminalLifecycle::Running {
-            return Ok(());
+            return Ok(false);
         }
         let topology = registry.resource_topology_snapshot()?;
         let content_id = ContentPublicId::Terminal(id.clone());
@@ -59,6 +59,6 @@ impl Mux {
         drop(state);
         drop(registry);
         self.publish_resource_event();
-        Ok(())
+        Ok(true)
     }
 }

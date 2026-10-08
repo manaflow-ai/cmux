@@ -178,11 +178,20 @@ impl ProgramStatusRecords {
         (!records.is_empty()).then_some(Value::Array(records))
     }
 
-    /// True once per visible change, marking it published.
-    pub(crate) fn take_change(&mut self) -> bool {
-        let changed = self.revision != self.published;
-        self.published = self.revision;
-        changed
+    /// The latest visible change that still needs a public resource commit.
+    pub(crate) fn pending_change(&self) -> Option<(u64, Value)> {
+        (self.revision != self.published)
+            .then(|| self.last_change_json().map(|change| (self.revision, change)))
+            .flatten()
+    }
+
+    /// Mark the current visible change as published after its resource commit
+    /// succeeds. Keeping this separate from [`Self::pending_change`] avoids
+    /// losing a report that arrived before the terminal resource was running.
+    pub(crate) fn mark_change_published(&mut self, revision: u64) {
+        if self.revision == revision {
+            self.published = revision;
+        }
     }
 
     /// The additive journal-hook payload for the last visible change. The

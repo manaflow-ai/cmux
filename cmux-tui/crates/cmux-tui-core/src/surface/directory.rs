@@ -44,19 +44,29 @@ impl Surface {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
             (metadata.take_progress_change().is_some(), metadata.program_status())
         };
-        let status_change = {
-            let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            records.take_change().then(|| records.last_change_json())
-        }
-        .flatten();
+        let (status_revision, status_change) = {
+            let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            records.pending_change().map_or((None, None), |(revision, change)| {
+                (Some(revision), Some(change))
+            })
+        };
         let status_changed = status_change.is_some();
         if !progress_changed && !status_changed {
             return;
         }
         let Some(mux) = pty.mux.upgrade() else { return };
         let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
-        if let Err(error) = mux.publish_terminal_progress(self, mutation, status_change) {
-            eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        match mux.publish_terminal_progress(self, mutation, status_change) {
+            Ok(true) if status_changed => {
+                if let Some(revision) = status_revision {
+                    records
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .mark_change_published(revision);
+                }
+            }
+            Ok(_) => {}
+            Err(error) => eprintln!("cmux-tui: terminal {mutation} publication failed: {error}"),
         }
     }
 

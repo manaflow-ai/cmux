@@ -154,16 +154,19 @@ fn shown_text_drops_invisible_formatting_and_caps_length() {
 }
 
 #[test]
-fn each_visible_change_is_taken_once() {
+fn each_visible_change_stays_pending_until_published() {
     let mut records = ProgramStatusRecords::default();
-    assert!(!records.take_change());
+    assert!(records.pending_change().is_none());
     records.apply(report("", ProgramStatusState::Working), 0);
-    assert!(records.take_change());
-    assert!(!records.take_change());
+    let revision = records.pending_change().unwrap().0;
+    assert!(records.pending_change().is_some(), "a failed resource commit must be retryable");
+    records.mark_change_published(revision);
+    assert!(records.pending_change().is_none());
     // Nothing to end and nothing to clear: no change.
     records.apply(report("missing", ProgramStatusState::Clear), 0);
     records.apply(report("", ProgramStatusState::Done), 0);
-    records.take_change();
+    let revision = records.pending_change().unwrap().0;
+    records.mark_change_published(revision);
     records.apply(ProgramStatusEvent::PromptStart, 0);
-    assert!(!records.take_change());
+    assert!(records.pending_change().is_none());
 }
