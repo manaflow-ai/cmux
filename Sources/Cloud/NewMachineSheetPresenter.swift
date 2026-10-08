@@ -106,6 +106,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         var cancellation: CloudVMActionLauncher.CancellationHandle?
         let didStart = MachineRowActions.openNewMachine(
             arguments: arguments,
+            operationID: MachineCreateCoordinator.shared.launchingOperationID,
             onOutput: progress,
             onCompletion: { result in completion(result) },
             onCancellationReady: { cancellation = $0 }

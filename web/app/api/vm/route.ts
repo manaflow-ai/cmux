@@ -47,9 +47,11 @@ import {
 } from "../../../services/vms/entitlements";
 import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
 import {
+  findVmImageManifestEntry,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
+import { createAttachBlock } from "../../../services/vms/attachContract";
 import {
   reportVmImageConfigError,
   isVmImageKind,
@@ -391,6 +393,10 @@ export async function POST(request: Request): Promise<Response> {
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
+      const attach = createAttachBlock({
+        entry: created,
+        manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
+      });
       return jsonResponse({
         id: created.providerVmId,
         provider: created.provider,
@@ -413,6 +419,7 @@ export async function POST(request: Request): Promise<Response> {
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
         agentUpdates: created.agentUpdates,
+        ...(attach ? { attach } : {}),
       });
     },
   );

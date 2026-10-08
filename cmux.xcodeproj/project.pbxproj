@@ -2329,6 +2329,8 @@
 		7A0CE1000000000000000048 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000022 /* InfoPlist.xcstrings */; };
 		DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		C0DE71450000000000000003 /* InMemoryWorkspaceCreateIdempotencyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71450000000000000004 /* InMemoryWorkspaceCreateIdempotencyStore.swift */; };
+		3B218B12A95FB36889AEE9E4 /* InProcessMachineCreateLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5284AD113D5D3BC29608D4F4 /* InProcessMachineCreateLauncher.swift */; };
+		B318796F231BCD8F0D7239C9 /* InProcessMachineCreateLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4853DC3ED4AF05112E10395 /* InProcessMachineCreateLauncherTests.swift */; };
 		3EF3468DD8D24C4BAC075F30 /* InternalFlagOverrideChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC1C82D1669046C7A23B6056 /* InternalFlagOverrideChoice.swift */; };
 		A8B8C4CA75764DD78650CDB9 /* InternalFlagRowSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0CDE8653A04CE5AB541279 /* InternalFlagRowSnapshot.swift */; };
 		C0DEA7720000000000000001 /* InternalFlagsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7720000000000000002 /* InternalFlagsWindow.swift */; };
@@ -6794,6 +6796,8 @@
 		7A0CE1000000000000000022 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		C0DE71450000000000000004 /* InMemoryWorkspaceCreateIdempotencyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InMemoryWorkspaceCreateIdempotencyStore.swift; sourceTree = "<group>"; };
+		5284AD113D5D3BC29608D4F4 /* InProcessMachineCreateLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InProcessMachineCreateLauncher.swift; sourceTree = "<group>"; };
+		B4853DC3ED4AF05112E10395 /* InProcessMachineCreateLauncherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InProcessMachineCreateLauncherTests.swift"; sourceTree = "<group>"; };
 		DC1C82D1669046C7A23B6056 /* InternalFlagOverrideChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InternalFlagOverrideChoice.swift; sourceTree = "<group>"; };
 		BA0CDE8653A04CE5AB541279 /* InternalFlagRowSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InternalFlagRowSnapshot.swift; sourceTree = "<group>"; };
 		C0DEA7720000000000000002 /* InternalFlagsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InternalFlagsWindow.swift; sourceTree = "<group>"; };
@@ -9799,6 +9803,7 @@
 				BD9ECC7CA728BADD0DEA6F18 /* CoderouterCLIAccountReader.swift */,
 				2BAEE91D3454ED56377518FE /* CoderouterProvider.swift */,
 				673E5C029E4E33D55D173734 /* CoderouterGuideView.swift */,
+				5284AD113D5D3BC29608D4F4 /* InProcessMachineCreateLauncher.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -13579,6 +13584,7 @@
 				BF200D0B55542AF6F9E69DEF /* AccountMacDirectoryClientTests.swift */,
 				096DD2C3867F78B177AC4720 /* AccountMacDirectoryTests.swift */,
 				74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */,
+				B4853DC3ED4AF05112E10395 /* InProcessMachineCreateLauncherTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15545,6 +15551,7 @@
 				C13049000000000000000502 /* HostSettingsActions+ComputerUse.swift in Sources */,
 				B7F100010000000000000001 /* HostSettingsActions+NotificationSounds.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
+				3B218B12A95FB36889AEE9E4 /* InProcessMachineCreateLauncher.swift in Sources */,
 				3EF3468DD8D24C4BAC075F30 /* InternalFlagOverrideChoice.swift in Sources */,
 				A8B8C4CA75764DD78650CDB9 /* InternalFlagRowSnapshot.swift in Sources */,
 				C0DEA7720000000000000001 /* InternalFlagsWindow.swift in Sources */,
@@ -18114,6 +18121,7 @@
 				809100000000000000000001 /* HostSettingsShortcutNotificationTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				C0DE71450000000000000003 /* InMemoryWorkspaceCreateIdempotencyStore.swift in Sources */,
+				B318796F231BCD8F0D7239C9 /* InProcessMachineCreateLauncherTests.swift in Sources */,
 				875900000000000000000001 /* Issue8759FreezeRegressionTests.swift in Sources */,
 				760F50073314FF73A5034B3B /* KernelPortProcessTableTests.swift in Sources */,
 				C34670050000000000000001 /* KeyboardShortcutContextSwiftTests.swift in Sources */,

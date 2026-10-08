@@ -309,7 +309,8 @@ public struct VMSummary: Sendable {
         addressIPv6: String? = nil,
         cmuxTuiContract: String? = nil,
         createdBy: VMCreator? = nil,
-        agentUpdates: CloudAgentUpdates? = nil
+        agentUpdates: CloudAgentUpdates? = nil,
+        createAttach: VMCmuxRemoteEndpoint? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -327,6 +328,7 @@ public struct VMSummary: Sendable {
         self.cmuxTuiContract = cmuxTuiContract
         self.createdBy = createdBy
         self.agentUpdates = agentUpdates
+        self.createAttach = createAttach
     }
 
     public func withStatus(_ status: String) -> VMSummary {
@@ -346,7 +348,8 @@ public struct VMSummary: Sendable {
             addressIPv6: addressIPv6,
             cmuxTuiContract: cmuxTuiContract,
             createdBy: createdBy,
-            agentUpdates: agentUpdates
+            agentUpdates: agentUpdates,
+            createAttach: createAttach
         )
     }
 
@@ -382,6 +385,8 @@ public struct VMSummary: Sendable {
     public var cmuxTuiContract: String?
     /// Whether the machine keeps its image's coding agents or updates them on attach.
     public var agentUpdates: CloudAgentUpdates?
+    /// A create-only dial receipt from snapshot-v2. List and status responses leave this nil.
+    public var createAttach: VMCmuxRemoteEndpoint?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -1490,6 +1495,52 @@ public actor VMClient {
         return VMMachineKind(rawValue: raw.lowercased())
     }
 
+    /// Decodes the optional snapshot-v2 dial receipt carried by `POST /api/vm`.
+    /// Older control planes omit it and continue through the existing attach path.
+    static func decodeCreateAttach(_ raw: Any?) -> VMCmuxRemoteEndpoint? {
+        guard let object = raw as? [String: Any],
+              object["transport"] as? String == "cmux-remote",
+              let route = object["route"] as? String,
+              !route.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              IPNetworkPrefix.routeHost(route) != nil,
+              let session = object["session"] as? String,
+              !session.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        let buildObject = object["daemonBuild"] as? [String: Any]
+            ?? object["daemon_build"] as? [String: Any]
+        let build = buildObject.map {
+            VMCmuxRemoteEndpoint.DaemonBuild(
+                commit: $0["commit"] as? String,
+                remoteProtocol: ($0["remoteProtocol"] as? Int)
+                    ?? ($0["remote_protocol"] as? Int)
+                    ?? ($0["remoteProtocol"] as? Double).map(Int.init)
+                    ?? ($0["remote_protocol"] as? Double).map(Int.init),
+                version: $0["version"] as? String
+            )
+        }
+        let addresses = (object["networkAddresses"] ?? object["network_addresses"]) as? [String: Any]
+        let networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
+        if let addresses, addresses["ipv4"] is String || addresses["ipv6"] is String {
+            networkAddresses = .init(ipv4: addresses["ipv4"] as? String, ipv6: addresses["ipv6"] as? String)
+        } else {
+            networkAddresses = nil
+        }
+        let expiresAtUnix = (object["expiresAtUnix"] as? Int64)
+            ?? (object["expires_at_unix"] as? Int64)
+            ?? Int64((object["expiresAtUnix"] as? Double) ?? (object["expires_at_unix"] as? Double) ?? 0)
+        return VMCmuxRemoteEndpoint(
+            route: route,
+            token: object["token"] as? String ?? "",
+            expiresAtUnix: expiresAtUnix,
+            session: session,
+            trustedCarrier: (object["trustedCarrier"] as? Bool)
+                ?? (object["trusted_carrier"] as? Bool)
+                ?? false,
+            networkAddresses: networkAddresses,
+            daemonBuild: build
+        )
+    }
+
     /// `limits.imageKinds: [{kind, image}]`; malformed entries are skipped.
     static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
         guard let items = raw as? [[String: Any]] else { return [] }
@@ -1610,6 +1661,14 @@ public actor VMClient {
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
+            summary.createAttach = Self.decodeCreateAttach(obj["attach"])
+                ?? (summary.cmuxTuiContract == "snapshot-v2" ? Self.decodeCreateAttach([
+                    "transport": "cmux-remote",
+                    "route": summary.addressIPv4.map { "ws://\($0):1337/v1/link" }
+                        ?? summary.addressIPv6.map { "ws://[\($0)]:1337/v1/link" } ?? "",
+                    "session": "cloud",
+                    "trustedCarrier": true,
+                ]) : nil)
             machineCache.record(hasAnyMachine: true)
             return summary
         }

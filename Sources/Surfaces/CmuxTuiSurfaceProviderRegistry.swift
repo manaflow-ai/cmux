@@ -146,36 +146,40 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// provider directly, exactly as discovery would. New Machine then links
     /// without first re-reading the whole fleet list (`GET /api/vm`, ~0.3 s).
     /// Receipts from older backends without an address keep the old path.
-    func recordCreatedMachine(_ summary: VMSummary, scope: UUID?) async {
+    func recordCreatedMachine(_ summary: VMSummary, attach: VMCmuxRemoteEndpoint? = nil, scope: UUID?) async {
         guard let scope, scope == creationScope, let catalog else { return }
+        var receipt = summary
+        if receipt.addressIPv4 == nil { receipt.addressIPv4 = attach?.networkAddresses?.ipv4 }
+        if receipt.addressIPv6 == nil { receipt.addressIPv6 = attach?.networkAddresses?.ipv6 }
+        if receipt.cmuxTuiContract == nil, attach?.trustedCarrier == true { receipt.cmuxTuiContract = Self.trustedCarrierContract }
         // A replay cannot overwrite names or status already accepted by discovery.
-        guard catalog.machines[.cloud(summary.id)] == nil, providers[summary.id] == nil else { return }
-        pendingMachineCreationIDs.insert(summary.id)
+        guard catalog.machines[.cloud(receipt.id)] == nil, providers[receipt.id] == nil else { return }
+        pendingMachineCreationIDs.insert(receipt.id)
         catalog.admitMachineCreationReceipt(CmuxTuiSurfaceProvider.info(
-            from: summary, linkState: .connecting, linkError: nil, stats: nil
+            from: receipt, linkState: .connecting, linkError: nil, stats: nil
         ))
-        let addresses = [summary.addressIPv4, summary.addressIPv6].compactMap { $0 }
-        guard !addresses.isEmpty, machineTeardowns[registeredMachineID(matching: summary.id)] == nil else { return }
+        let addresses = [receipt.addressIPv4, receipt.addressIPv6].compactMap { $0 }
+        guard !addresses.isEmpty, machineTeardowns[registeredMachineID(matching: receipt.id)] == nil else { return }
         let generation = refreshGeneration
         let ownerTeamID = activeTeamID()
-        await links.setPrivateAddresses(addresses, for: summary.id)
-        await links.setOwnerTeam(ownerTeamID, for: summary.id)
-        if summary.cmuxTuiContract == Self.trustedCarrierContract {
-            await links.markTrustedCarrier(machineID: summary.id)
+        await links.setPrivateAddresses(addresses, for: receipt.id)
+        await links.setOwnerTeam(ownerTeamID, for: receipt.id)
+        if receipt.cmuxTuiContract == Self.trustedCarrierContract {
+            await links.markTrustedCarrier(machineID: receipt.id)
         }
         // Same fences as discovery: a delete or account change during the
         // await must not receive a provider.
         guard !isRetired, generation == refreshGeneration, scope == creationScope,
-              providers[summary.id] == nil else { return }
+              providers[receipt.id] == nil else { return }
         let provider = CmuxTuiSurfaceProvider(
-            summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
+            summary: receipt, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
             ownerTeamID: ownerTeamID, links: links, catalog: catalog,
             portForwards: portForwards, portAccessStore: portAccess
         )
-        providers[summary.id] = provider
+        providers[receipt.id] = provider
         catalog.register(provider)
-        if summary.cmuxTuiContract == Self.trustedCarrierContract {
-            createdTrustedCarrierIDs.insert(summary.id)
+        if receipt.cmuxTuiContract == Self.trustedCarrierContract {
+            createdTrustedCarrierIDs.insert(receipt.id)
         }
         // Start the first link and graph read now, while the caller is still
         // creating its workspace. The open's `ensure_linked` catalog read joins

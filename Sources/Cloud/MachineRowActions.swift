@@ -166,10 +166,20 @@ struct MachineRowActions {
     /// so the sheet can show them inline instead of a detached alert.
     static func openNewMachine(
         arguments: [String] = ["vm", "new"],
+        operationID: UUID? = nil,
         onOutput: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil
     ) -> Bool {
+        if let operationID, InProcessMachineCreateLauncher.parse(arguments: arguments) != nil {
+            return InProcessMachineCreateLauncher.start(
+                arguments: arguments,
+                operationID: operationID,
+                onOutput: onOutput,
+                onCompletion: onCompletion,
+                onCancellationReady: onCancellationReady
+            )
+        }
         // `vm new` mints a fresh machine with an ephemeral home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(

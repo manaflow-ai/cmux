@@ -31,7 +31,7 @@ describe("create attach contract", () => {
     expect(createAttachBlock({ entry: entry(), manifestEntry })).toEqual({
       transport: "cmux-remote",
       route: "ws://10.0.0.42:1337/v1/link",
-      session: "cmux",
+      session: "cloud",
       trustedCarrier: true,
       daemonBuild: { commit: "daemon-commit", remoteProtocol: null, version: null },
       guestToolsBaked: true,
