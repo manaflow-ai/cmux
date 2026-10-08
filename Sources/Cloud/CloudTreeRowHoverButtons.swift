@@ -237,6 +237,7 @@ private struct CoderouterAddMenuButton: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
+        .fixedSize()
         .onHover { isHovered = $0 }
         .help(String(localized: "coderouter.addAccount", defaultValue: "Add account"))
         .accessibilityLabel(String(localized: "coderouter.addAccount", defaultValue: "Add account"))
