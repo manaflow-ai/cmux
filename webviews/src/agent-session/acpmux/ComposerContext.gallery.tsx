@@ -29,18 +29,18 @@ const sessions: AcpmuxSnapshot["sessions"] = [
     sessionId: "gallery-cloud",
     displayTitle: "Investigate the build cache",
     cwd: "/home/you/src/cmux",
-    host: "big-red",
+    host: "Cloud machine",
     hostKind: "cloud",
-    peer: "big-red",
+    peer: "Cloud machine",
     updatedAt: 0,
   },
 ];
 
 const baseProps = {
   sessions,
-  peers: ["big-red"],
+  peers: ["Cloud machine"],
   projectChoices: projects,
-  localName: "Lawrence Mini",
+  localName: "This Mac",
   onProject: () => undefined,
   onBrowseProject: () => undefined,
   onConnect: () => undefined,
