@@ -11,6 +11,7 @@ import { statusApplied } from "./cloud-do-core.ts"
 import { CloudIdle } from "./cloud-do-idle.ts"
 import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
+import type { HostAccess } from "./domains/team-servers.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -24,6 +25,26 @@ const STATE_CHECK_EVERY_MS = 30_000
  * alarm runs it again, and the guarded driver finds the VM by its deterministic name.
  */
 export class CloudDO extends CloudIdle {
+  /** Admission for a VM-owned HostDO socket; ordinary team hosts stay in TeamDO. */
+  async cloudHostAccess(entity: string, host: string, principal: Principal, role: "host" | "device"): Promise<HostAccess | null> {
+    if (!this.isBound(entity) || principal.agent !== undefined || !principal.user) return null
+    const machine = this.bind(entity).rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }).find((r) => r.row.host === host)?.row
+    if (!machine || !machine.host || machine.status === "deleting" || machine.status === "failed") return null
+    const summary = {
+      id: machine.host,
+      name: machine.name ?? machine.host,
+      platform: "linux",
+      owner_user: machine.creator,
+      enrolled_by: machine.vm_install ?? ""
+    }
+    if (role === "host") {
+      if (principal.team !== entity || principal.kind !== "install" || principal.install_kind !== "vm" || !principal.install || principal.bound_machine !== machine.id || machine.vm_install !== principal.install) return null
+      return { role, host: summary }
+    }
+    if (principal.kind !== "session" && principal.kind !== "install") return null
+    return { role, host: summary }
+  }
+
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
     // G8 (cx-wb5.65): the person's own session reads the exact Cloud request it is asked to approve.

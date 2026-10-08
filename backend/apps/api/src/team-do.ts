@@ -14,7 +14,7 @@ import { ssoExternal } from "./team-sso-external.ts"
 import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
-import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
+import { hostAccessFor, mayEnrollServer, serverPlacementActive, type HostAccess, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
@@ -367,6 +367,29 @@ export class TeamDO extends OwnerDO<TeamState> {
     const connection = ssoSessionConnection(this.ctx.storage.sql, refreshTokenId, stackUser, Date.now(), ssoMaxAgeMs(state))
     // A disabled or deleted connection ends its sessions' standing.
     return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
+  }
+
+  /** RPC from the Worker before a HostDO control socket (b1-control-do.md 2). */
+  async hostAccess(entity: string, host: string, principal: Principal): Promise<HostAccess | null> {
+    if (!this.isBound(entity)) return null
+    const state = this.bind(entity).currentState
+
+    // Cloud VM hosts are owned by CloudDO rather than TeamDO's ordinary host rows.
+    if (principal.install_kind === "vm") {
+      if (principal.agent !== undefined) return null
+      const cloud = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(entity)) as unknown as {
+        cloudHostAccess(e: string, h: string, p: Principal, role: "host" | "device"): Promise<HostAccess | null>
+      }
+      return cloud.cloudHostAccess(entity, host, principal, "host").catch(() => null)
+    }
+
+    const ordinary = hostAccessFor(state, this.rows, host, principal)
+    if (ordinary) return ordinary
+    if (!principal.user || principal.agent !== undefined || !memberOf(state, this.rows, principal.user)) return null
+    const cloud = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(entity)) as unknown as {
+      cloudHostAccess(e: string, h: string, p: Principal, role: "host" | "device"): Promise<HostAccess | null>
+    }
+    return cloud.cloudHostAccess(entity, host, principal, "device").catch(() => null)
   }
 
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending

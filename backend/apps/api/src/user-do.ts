@@ -16,6 +16,7 @@ import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } 
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
+import { notifyTargetsOf, type NotifyTargets } from "./domains/user-notify.ts"
 import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
@@ -430,10 +431,13 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** For FeedDO and Home push: the user's push targets whose install is still active (feed.md 7.3). */
   async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> {
+    return (await this.notifyTargets(entity)).push
+  }
+
+  /** For FeedDO and notification delivery: the user's active APNs and Live Activity targets. */
+  async notifyTargets(entity: string): Promise<NotifyTargets> {
     const engine = this.existing()
-    if (!engine || engine.stream !== `user:${entity}`) return []
-    const state = engine.currentState
-    return Object.values(state.push_targets ?? {}).filter((t) => state.installs[t.install]?.revoked_at === null)
+    return notifyTargetsOf(engine && engine.stream === `user:${entity}` ? engine.currentState : undefined, Date.now())
   }
 
   /** For FeedDO and Home push: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
