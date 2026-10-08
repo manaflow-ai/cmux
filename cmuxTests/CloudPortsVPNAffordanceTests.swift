@@ -256,8 +256,8 @@ struct CloudPortsVPNAffordanceTests {
         }
     }
 
-    @Test("Every visible machine row requests port discovery once, open Ports tab or not")
-    func openedPortsDemand() throws {
+    @Test("Expanded visible machines discover ports while collapsed and hidden machines stay lazy")
+    func visiblePortsDemandRespectsMachineVisibility() throws {
         let suite = "ports-demand-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -271,21 +271,46 @@ struct CloudPortsVPNAffordanceTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = container
         defer { window.contentView = nil }
-        let opened = machineNode(id: "opened")
-        let closed = machineNode(id: "closed")
+        let visible = machineNode(id: "visible")
         let collapsed = machineNode(id: "collapsed")
-        // Ports is a tab on the machine's tab row: open it on two machines,
-        // one of which is collapsed so its rows are not on screen.
-        coordinator.machineDetailLayout.toggle(.ports, machine: .cloud("opened"))
-        coordinator.machineDetailLayout.toggle(.ports, machine: .cloud("collapsed"))
+        let hidden = machineNode(id: "hidden")
         store.setExpanded(false, node: collapsed)
-        coordinator.apply(nodes: [opened, closed, collapsed])
+        let hiddenSection = CloudTreeNode(
+            id: "cloud-machines-section",
+            kind: .cloudMachinesSection(canCreateMachine: false),
+            children: [hidden]
+        )
+        store.setExpanded(false, node: hiddenSection)
+        coordinator.apply(nodes: [visible, collapsed, hiddenSection])
         coordinator.portsDemand.reconcile(coordinator: coordinator)
         coordinator.portsDemand.reconcile(coordinator: coordinator)
-        // The machine row is the visibility boundary (#17074): a cached scan per
-        // visible machine keeps port counts current before Ports is opened. A
-        // second reconcile must not scan again.
-        #expect(requested == [.cloud("opened"), .cloud("closed"), .cloud("collapsed")])
+        #expect(requested == [.cloud("visible")])
+    }
+
+    @Test("A visible machine is eligible for discovery again after a refresh")
+    func visiblePortsDemandRetriesAfterRefresh() throws {
+        let suite = "ports-demand-refresh-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudTreeExpansionStore(defaults: defaults)
+        var requested: [SurfaceMachineID] = []
+        var actions = nodeActions()
+        actions.discoverPorts = { requested.append($0) }
+        let coordinator = CloudTreeOutlineView.Coordinator(machineActions: machineActions(), nodeActions: actions,
+            expansionStore: store, tabDragTransferRegistry: { nil })
+        let machine = machineNode(id: "refreshable")
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil }
+        coordinator.apply(nodes: [machine])
+        coordinator.portsDemand.reconcile(coordinator: coordinator)
+        #expect(requested == [.cloud("refreshable")])
+
+        coordinator.apply(nodes: [machineNode(id: "refreshable", discovery: .available)])
+        coordinator.apply(nodes: [machineNode(id: "refreshable")])
+        coordinator.portsDemand.reconcile(coordinator: coordinator)
+        #expect(requested == [.cloud("refreshable"), .cloud("refreshable")])
     }
 
     @Test("A failed Displays discovery is retried until it succeeds, at most three times",
@@ -407,13 +432,17 @@ struct CloudPortsVPNAffordanceTests {
         #expect(terminals.isEmpty)
     }
 
-    private func machineNode(id: String, expired: Bool = false) -> CloudTreeNode {
+    private func machineNode(
+        id: String,
+        expired: Bool = false,
+        discovery: CloudPortDiscoveryState = .notRequested
+    ) -> CloudTreeNode {
         let machine = SurfaceMachineID.cloud(id)
         var snapshot = MachineSnapshot(id: id, provider: "freestyle", image: "base", isDesktop: false, activity: .ready, createdAt: nil, label: nil)
         snapshot.freeAccess = expired ? .expired : .unrestricted
         let info = SurfaceMachineInfo(id: machine, name: id, status: "running", image: nil, hasDesktop: false,
             memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil,
-            diskUsedMb: nil, privateAddress: "10.0.0.7")
+            diskUsedMb: nil, privateAddress: "10.0.0.7", portDiscoveryState: discovery)
         return CloudTreeNode(id: "machine:\(id)", kind: .machine(snapshot, info), children: [
             CloudTreeNode(id: "machine:\(id)/ports", kind: .portsGroup(machine: machine),
                 children: [CloudMachineSurfacePresentation.emptyPorts(info: info)])
