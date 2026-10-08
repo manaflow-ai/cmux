@@ -172,6 +172,14 @@ workspace reopened with a key that already has a row keeps that row. Older
 workspaces that have no row still follow every placement. Clients without the
 capability ignore `top_index` and show every group after the loose
 workspaces.
+`workspace_group.delete` (and the raw `delete-personal-group`) keeps every
+workspace open and stores the group as one closed-history item with no member
+(`kind: "workspace"`, `member_count: 0`) and `ClosedItemSnapshot.group`
+naming it. `closed.reopen` of that item (also after a restart) forms the group
+again with its id, name, color, icon, pin, collapse, room and place, and puts back each
+member whose personal row still exists and that is still ungrouped; a group
+that exists again is left as it is. Its result names the session's active
+workspace.
 `workspace-group-icon-v1` gives a personal group an icon:
 `workspace_group.update {icon}` sets it to the shared icon string (one emoji
 or an SF Symbol name, the rule every icon field uses) and `icon: null` clears

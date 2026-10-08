@@ -6200,6 +6200,56 @@
             }
           },
           "description": "Every closed object of the group in restore order. The top-level fields mirror the first member."
+        },
+        "group": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ClosedWorkspaceGroupRecord"
+          },
+          "description": "Present when the item is a deleted personal workspace group (Ungroup, Delete Group). Its workspaces stayed open, so it has no member; `closed.reopen` forms the group again with its id, place and open members."
+        }
+      },
+      "extra": false
+    },
+    "ClosedWorkspaceGroupRecord": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          },
+          "description": "The deleted group's id; reopen restores this id."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the deleted group's icon (the shared icon string), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false

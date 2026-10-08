@@ -28,6 +28,8 @@ pub(crate) mod ephemeral_moves;
 mod ephemeral_moves_tests;
 pub(crate) mod frontend_browser_keys;
 #[cfg(test)]
+mod group_delete_tests;
+#[cfg(test)]
 mod group_icon_tests;
 #[cfg(test)]
 mod group_pin_tests;

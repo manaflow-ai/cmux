@@ -194,6 +194,9 @@ fn pins_groups_and_room_deletion() {
     );
     let removed = run(&mux, json!({"cmd":"delete-personal-group","group":"grp_b"})).unwrap();
     assert_eq!(removed["group"], "grp_b");
+    // The raw delete is the same recoverable delete as workspace_group.delete.
+    let closed = mux.read_registry_state(crate::state::closed_history_store::closed_items).unwrap();
+    assert_eq!(closed[0]["group"]["id"], "grp_b", "the raw delete is recorded: {closed:?}");
 }
 
 #[test]
