@@ -14,7 +14,7 @@ use serde_json::{Map, Value, json};
 use super::mirror::Origin;
 use super::supervisor::OpRouter;
 use crate::mux::Mux;
-use crate::{MuxEvent, resource_router};
+use crate::{Actor, MuxEvent, resource_router};
 
 const CATALOG_JSON: &str = include_str!("../../../../spec/resource-operations-v2.json");
 
@@ -103,7 +103,7 @@ pub(super) fn answer(op: &str, response: Value) -> Result<Value, Value> {
 impl OpRouter for MuxRouter {
     fn route(
         &self,
-        _app: &str,
+        app: &str,
         op: &str,
         params: Value,
         idempotency_key: Option<String>,
@@ -118,8 +118,11 @@ impl OpRouter for MuxRouter {
         crate::request_origin::require_origin(op, crate::request_origin::RequestOrigin::App)
             .map_err(|e| json!({ "code": e.code, "message": e.message, "details": e.details, "retryable": e.retryable }))?;
         let message = request(op, params, idempotency_key)?;
-        let parsed = resource_router::parse_resource_request(&message)
-            .map_err(|e| answer(op, json!({ "ok": false, "error": e })).unwrap_err())?;
+        let parsed = resource_router::parse_resource_request_as(
+            &message,
+            Actor::App { id: app.to_string() },
+        )
+        .map_err(|e| answer(op, json!({ "ok": false, "error": e })).unwrap_err())?;
         if resource_router::requires_connection_context(parsed.envelope.operation) {
             return Err(error(
                 "operation.unsupported",

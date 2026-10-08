@@ -132,268 +132,6 @@
         }
       }
     },
-    "confirm.closeTab.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يزال قيد التشغيل: %@. يؤدي الإغلاق إلى إنهاء هذه العمليات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Još radi: %@. Zatvaranje završava ove procese."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kører stadig: %@. Lukning afslutter disse processer."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Läuft noch: %@. Schließen beendet diese Prozesse."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Still running: %@. Closing ends these processes."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aún en ejecución: %@. Al cerrar, estos procesos terminan."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toujours en cours : %@. La fermeture met fin à ces processus."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ancora in esecuzione: %@. La chiusura termina questi processi."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行中: %@。閉じるとこれらのプロセスは終了します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "នៅតែដំណើរការ៖ %@។ ការបិទនឹងបញ្ចប់ដំណើរការទាំងនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아직 실행 중: %@. 닫으면 이 프로세스가 종료됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kjører fortsatt: %@. Lukking avslutter disse prosessene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nadal działa: %@. Zamknięcie zakończy te procesy."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ainda em execução: %@. Fechar encerra esses processos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ещё работает: %@. Закрытие завершит эти процессы."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังทำงานอยู่: %@ การปิดจะสิ้นสุดโปรเซสเหล่านี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hâlâ çalışıyor: %@. Kapatmak bu işlemleri sonlandırır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ще працює: %@. Закриття завершить ці процеси."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vẫn đang chạy: %@. Đóng sẽ kết thúc các tiến trình này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在运行：%@。关闭会结束这些进程。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在執行：%@。關閉會結束這些程序。"
-          }
-        }
-      }
-    },
-    "confirm.closeTab.agentBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يزال %@ يعمل. يؤدي إغلاق علامة التبويب إلى إيقافه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ još radi. Zatvaranje kartice ga zaustavlja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ arbejder stadig. Lukning af fanen stopper den."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ arbeitet noch. Schließen des Tabs stoppt ihn."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ is still working. Closing the tab stops it."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ sigue trabajando. Cerrar la pestaña lo detiene."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ travaille encore. Fermer l’onglet l’arrête."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ sta ancora lavorando. Chiudere la scheda lo interrompe."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ はまだ作業中です。タブを閉じると停止します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ នៅតែកំពុងធ្វើការ។ ការបិទផ្ទាំងនឹងបញ្ឈប់វា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@이(가) 아직 작업 중입니다. 탭을 닫으면 중지됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ arbeider fortsatt. Å lukke fanen stopper den."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ nadal pracuje. Zamknięcie karty go zatrzyma."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ainda está trabalhando. Fechar a aba o interrompe."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ещё работает. Закрытие вкладки остановит его."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ยังทำงานอยู่ การปิดแท็บจะหยุดการทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ hâlâ çalışıyor. Sekmeyi kapatmak onu durdurur."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ще працює. Закриття вкладки зупинить його."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ vẫn đang làm việc. Đóng tab sẽ dừng nó."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 仍在工作。关闭标签页会停止它。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 仍在工作。關閉分頁會停止它。"
-          }
-        }
-      }
-    },
     "confirm.agent.unnamed": {
       "extractionState": "manual",
       "localizations": {
@@ -1442,137 +1180,6 @@
         }
       }
     },
-    "confirm.closeWorkspace.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Still running: %@. Closing the workspace ends these processes."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行中: %@。ワークスペースを閉じるとこれらのプロセスは終了します。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يزال قيد التشغيل: %@. يؤدي إغلاق مساحة العمل إلى إنهاء هذه العمليات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Još se izvršava: %@. Zatvaranjem radnog prostora ovi procesi se završavaju."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kører stadig: %@. Lukning af arbejdsområdet afslutter disse processer."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Läuft noch: %@. Beim Schließen des Arbeitsbereichs werden diese Prozesse beendet."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aún en ejecución: %@. Al cerrar el espacio de trabajo se terminarán estos procesos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Toujours en cours : %@. Fermer l’espace de travail met fin à ces processus."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ancora in esecuzione: %@. La chiusura dell’area di lavoro termina questi processi."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នៅកំពុងដំណើរការ៖ %@។ ការបិទកន្លែងធ្វើការនឹងបញ្ចប់ដំណើរការទាំងនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "실행 중: %@. 작업 공간을 닫으면 이 프로세스가 종료됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kjører fortsatt: %@. Når arbeidsområdet lukkes, avsluttes disse prosessene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nadal działa: %@. Zamknięcie przestrzeni roboczej zakończy te procesy."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ainda em execução: %@. Fechar a área de trabalho encerra esses processos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Еще работают: %@. Закрытие рабочего пространства завершит эти процессы."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังทำงานอยู่: %@ การปิดเวิร์กสเปซจะยุติโปรเซสเหล่านี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hâlâ çalışıyor: %@. Çalışma alanını kapatmak bu işlemleri sonlandırır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ще виконуються: %@. Закриття робочої області завершить ці процеси."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vẫn đang chạy: %@. Đóng không gian làm việc sẽ kết thúc các tiến trình này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "仍在运行：%@。关闭工作区会结束这些进程。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "仍在執行：%@。關閉工作區會結束這些程序。"
-          }
-        }
-      }
-    },
     "confirm.closeGroupWorkspaces.title": {
       "extractionState": "manual",
       "localizations": {
@@ -2486,137 +2093,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "要結束並關閉無痕式視窗嗎？"
-          }
-        }
-      }
-    },
-    "confirm.incognito.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Still running: %@. Closing ends these processes and deletes the incognito browser data."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يزال قيد التشغيل: %@. يؤدي الإغلاق إلى إنهاء هذه العمليات وحذف بيانات التصفح المتخفي."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Još se izvršava: %@. Zatvaranje završava ove procese i briše anonimne podatke preglednika."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kører stadig: %@. Lukning afslutter disse processer og sletter inkognitobrowserdata."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Läuft noch: %@. Schließen beendet diese Prozesse und löscht die Inkognito-Browserdaten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aún en ejecución: %@. Al cerrar se terminan estos procesos y se eliminan los datos de navegación de incógnito."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Toujours en cours : %@. La fermeture arrête ces processus et supprime les données de navigation privée."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ancora in esecuzione: %@. La chiusura termina questi processi ed elimina i dati di navigazione in incognito."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "実行中: %@。閉じるとこれらのプロセスは終了し、シークレットのブラウザデータは削除されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នៅតែដំណើរការ: %@។ ការបិទនឹងបញ្ចប់ដំណើរការទាំងនេះ ហើយលុបទិន្នន័យកម្មវិធីរុករកអនាមិក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "아직 실행 중: %@. 닫으면 이 프로세스가 종료되고 시크릿 브라우저 데이터가 삭제됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kjører fortsatt: %@. Lukking avslutter disse prosessene og sletter inkognitonettleserdataene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nadal działa: %@. Zamknięcie kończy te procesy i usuwa dane przeglądania incognito."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ainda em execução: %@. Fechar encerra esses processos e exclui os dados de navegação anônima."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ещё работает: %@. Закрытие завершит эти процессы и удалит данные браузера в режиме инкогнито."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังทำงานอยู่: %@ การปิดจะหยุดกระบวนการเหล่านี้และลบข้อมูลเบราว์เซอร์แบบไม่ระบุตัวตน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hâlâ çalışıyor: %@. Kapatmak bu işlemleri sonlandırır ve gizli tarayıcı verilerini siler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ще працює: %@. Закриття завершить ці процеси й видалить дані анонімного перегляду."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vẫn đang chạy: %@. Đóng sẽ kết thúc các tiến trình này và xóa dữ liệu duyệt ẩn danh."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "仍在运行：%@。关闭会结束这些进程并删除无痕浏览数据。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "仍在執行：%@。關閉會結束這些程序並刪除無痕瀏覽資料。"
           }
         }
       }
@@ -4193,6 +3669,268 @@
         }
       }
     },
+    "confirm.stillRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال قيد التشغيل: %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još radi: %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kører stadig: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft noch: %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still running: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún en ejecución: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours en cours : %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora in esecuzione: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中: %@。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែដំណើរការ៖ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 실행 중: %@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjører fortsatt: %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal działa: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda em execução: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё работает: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังทำงานอยู่: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hâlâ çalışıyor: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ще працює: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang chạy: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在运行：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在執行：%@。"
+          }
+        }
+      }
+    },
+    "confirm.agentWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال %@ يعمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ još radi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ arbejder stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ arbeitet noch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is still working."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sigue trabajando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ travaille encore."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sta ancora lavorando."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はまだ作業中です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ នៅតែកំពុងធ្វើការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 아직 작업 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ arbeider fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nadal pracuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ainda está trabalhando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ещё работает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ยังทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hâlâ çalışıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ще працює."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ vẫn đang làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 仍在工作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 仍在工作。"
+          }
+        }
+      }
+    },
     "pins.pinTab": {
       "extractionState": "manual",
       "localizations": {
@@ -4713,6 +4451,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "取消固定工作區"
+          }
+        }
+      }
+    },
+    "whatsNew.page.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What's New"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ما الجديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šta je novo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuigkeiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novedades"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveautés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新機能"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្វីដែលថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로운 기능"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyheter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co nowego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novidades"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что нового"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีอะไรใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yenilikler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Що нового"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có gì mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新功能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新功能"
+          }
+        }
+      }
+    },
+    "workspaceGroup.ungroupedToast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungrouped “%@”"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم فك تجميع “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupa „%@“ je raspuštena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppen “%@” er opløst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppe „%@“ aufgelöst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupo «%@» deshecho"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Groupe « %@ » dissous"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppo “%@” sciolto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」のグループを解除しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបំបែកក្រុម “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” 그룹 해제됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppen «%@» er oppløst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozgrupowano „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupo “%@” desfeito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группа «%@» расформирована"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยกเลิกกลุ่ม “%@” แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” grubu dağıtıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групу «%@» розформовано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã bỏ nhóm “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已取消分组“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已取消群組「%@」"
+          }
+        }
+      }
+    },
+    "workspaceGroup.deletedToast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group “%@” deleted"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم حذف المجموعة “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupa „%@“ je izbrisana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppen “%@” er slettet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppe „%@“ gelöscht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupo «%@» eliminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Groupe « %@ » supprimé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppo “%@” eliminato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループ「%@」を削除しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានលុបក្រុម “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” 그룹 삭제됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppen «%@» er slettet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunięto grupę „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupo “%@” excluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группа «%@» удалена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบกลุ่ม “%@” แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” grubu silindi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групу «%@» видалено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã xóa nhóm “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已删除分组“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已刪除群組「%@」"
+          }
+        }
+      }
+    },
+    "workspaceGroup.closedHistoryTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ「%@」"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المجموعة “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupa „%@“"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppen “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppe „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupo «%@»"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Groupe « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppo “%@”"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុម “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” 그룹"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppen «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupa „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupo “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группа «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่ม “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” grubu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Група «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分组“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組「%@」"
           }
         }
       }
@@ -6158,395 +6420,657 @@
         }
       }
     },
-    "whatsNew.page.title": {
+    "tabIcon.undo.remove": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What's New"
-          }
-        },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ما الجديد"
+            "state": "needs_review",
+            "value": "تمت إزالة أيقونة علامة التبويب"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Šta je novo"
+            "state": "needs_review",
+            "value": "Ikona kartice uklonjena"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nyheder"
+            "state": "needs_review",
+            "value": "Faneikon fjernet"
           }
         },
         "de": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab-Symbol entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "Neuigkeiten"
+            "value": "Tab Icon Removed"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Novedades"
+            "state": "needs_review",
+            "value": "Icono de la pestaña quitado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nouveautés"
+            "state": "needs_review",
+            "value": "Icône de l’onglet supprimée"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Novità"
+            "state": "needs_review",
+            "value": "Icona della scheda rimossa"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新機能"
+            "value": "タブのアイコンを削除しました"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "អ្វីដែលថ្មី"
+            "state": "needs_review",
+            "value": "បានដករូបតំណាងផ្ទាំងចេញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "새로운 기능"
+            "state": "needs_review",
+            "value": "탭 아이콘 제거됨"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nyheter"
+            "state": "needs_review",
+            "value": "Faneikon fjernet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Co nowego"
+            "state": "needs_review",
+            "value": "Usunięto ikonę karty"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Novidades"
+            "state": "needs_review",
+            "value": "Ícone da aba removido"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Что нового"
+            "state": "needs_review",
+            "value": "Значок вкладки удалён"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "มีอะไรใหม่"
+            "state": "needs_review",
+            "value": "ลบไอคอนแท็บแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Yenilikler"
+            "state": "needs_review",
+            "value": "Sekme simgesi kaldırıldı"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Що нового"
+            "state": "needs_review",
+            "value": "Піктограму вкладки вилучено"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Có gì mới"
+            "state": "needs_review",
+            "value": "Đã xóa biểu tượng thẻ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "新功能"
+            "state": "needs_review",
+            "value": "已移除标签页图标"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "新功能"
+            "state": "needs_review",
+            "value": "已移除分頁圖示"
           }
         }
       }
     },
-    "workspaceGroup.ungroupedToast": {
+    "tabIcon.undo.set": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ungrouped “%@”"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تم فك تجميع “%@”"
+            "value": "تم تعيين أيقونة علامة التبويب"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Grupa „%@“ je raspuštena"
+            "value": "Ikona kartice postavljena"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gruppen “%@” er opløst"
+            "value": "Faneikon angivet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gruppe „%@“ aufgelöst"
+            "value": "Tab-Symbol festgelegt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Icon Set"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Grupo «%@» deshecho"
+            "value": "Icono de la pestaña definido"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Groupe « %@ » dissous"
+            "value": "Icône de l’onglet définie"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gruppo “%@” sciolto"
+            "value": "Icona della scheda impostata"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "「%@」のグループを解除しました"
+            "state": "translated",
+            "value": "タブのアイコンを設定しました"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានបំបែកក្រុម “%@”"
+            "value": "បានកំណត់រូបតំណាងផ្ទាំង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” 그룹 해제됨"
+            "value": "탭 아이콘 설정됨"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gruppen «%@» er oppløst"
+            "value": "Faneikon angitt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rozgrupowano „%@”"
+            "value": "Ustawiono ikonę karty"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Grupo “%@” desfeito"
+            "value": "Ícone da aba definido"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Группа «%@» расформирована"
+            "value": "Значок вкладки задан"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยกเลิกกลุ่ม “%@” แล้ว"
+            "value": "ตั้งไอคอนแท็บแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” grubu dağıtıldı"
+            "value": "Sekme simgesi ayarlandı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Групу «%@» розформовано"
+            "value": "Піктограму вкладки задано"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã bỏ nhóm “%@”"
+            "value": "Đã đặt biểu tượng thẻ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已取消分组“%@”"
+            "value": "已设置标签页图标"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已取消群組「%@」"
+            "value": "已設定分頁圖示"
           }
         }
       }
     },
-    "workspaceGroup.deletedToast": {
+    "icon.undo.set": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Group “%@” deleted"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تم حذف المجموعة “%@”"
+            "value": "تم تعيين الأيقونة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Grupa „%@“ je izbrisana"
+            "value": "Ikona postavljena"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gruppen “%@” er slettet"
+            "value": "Ikon angivet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gruppe „%@“ gelöscht"
+            "value": "Symbol festgelegt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon Set"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Grupo «%@» eliminado"
+            "value": "Icono establecido"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Groupe « %@ » supprimé"
+            "value": "Icône définie"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gruppo “%@” eliminato"
+            "value": "Icona impostata"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "グループ「%@」を削除しました"
+            "state": "translated",
+            "value": "アイコンを設定しました"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានលុបក្រុម “%@”"
+            "value": "បានកំណត់រូបតំណាង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” 그룹 삭제됨"
+            "value": "아이콘 설정됨"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gruppen «%@» er slettet"
+            "value": "Ikon angitt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usunięto grupę „%@”"
+            "value": "Ustawiono ikonę"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Grupo “%@” excluído"
+            "value": "Ícone definido"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Группа «%@» удалена"
+            "value": "Значок задан"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลบกลุ่ม “%@” แล้ว"
+            "value": "ตั้งไอคอนแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” grubu silindi"
+            "value": "Simge ayarlandı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Групу «%@» видалено"
+            "value": "Піктограму задано"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã xóa nhóm “%@”"
+            "value": "Đã đặt biểu tượng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已删除分组“%@”"
+            "value": "已设置图标"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已刪除群組「%@」"
+            "value": "已設定圖示"
+          }
+        }
+      }
+    },
+    "icon.undo.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت إزالة الأيقونة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona uklonjena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikon fjernet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbol entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon Removed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icono quitado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icône supprimée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icona rimossa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンを削除しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានដករូបតំណាងចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아이콘 제거됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikon fjernet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunięto ikonę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ícone removido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок удалён"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบไอคอนแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simge kaldırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Піктограму видалено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã xóa biểu tượng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已移除图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已移除圖示"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noOtherPanes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد أجزاء أخرى لإغلاقها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nema drugih okana za zatvaranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der er ingen andre ruder at lukke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "es gibt keine anderen Bereiche zum Schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "there are no other panes to close"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "no hay otros paneles que cerrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il n’y a pas d’autres sous-fenêtres à fermer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "non ci sono altri riquadri da chiudere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じるほかのペインはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានផ្ទាំងផ្សេងទៀតដើម្បីបិទទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "닫을 다른 패널이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "det er ingen andre ruter å lukke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nie ma innych paneli do zamknięcia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "não há outros painéis para fechar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "нет других панелей для закрытия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีบานหน้าต่างอื่นให้ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kapatılacak başka bölme yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "немає інших панелей для закриття"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không có ngăn nào khác để đóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有其他可关闭的窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有其他可關閉的窗格"
           }
         }
       }

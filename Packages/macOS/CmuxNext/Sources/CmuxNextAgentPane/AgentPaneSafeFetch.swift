@@ -7,7 +7,7 @@ import Synchronization
 /// resolves to must be public (``AgentPaneNetworkRules``), checked again on each redirect (at
 /// most ``maximumRedirects``); the address the connection really used must be public too, or
 /// the body is dropped (a DNS rebinding between the check and the connect); at most
-/// ``maximumBytes`` and ``timeout``; an ephemeral session with no cookies, no cache, no
+/// ``maximumBytes`` and ``timeout`` (``media``: ``maximumMediaBytes`` and ``mediaTimeout``); an ephemeral session with no cookies, no cache, no
 /// credentials, no proxy and no referrer.
 protocol AgentPaneImageFetching: Sendable {
     func fetch(_ url: URL) async -> Result<Data, AgentPaneReplyError>
@@ -17,6 +17,13 @@ nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
     static let maximumBytes = 10 << 20
     static let maximumRedirects = 3
     static let timeout: TimeInterval = 10
+    /// The cap and timeout of a web video or audio file (``media``).
+    static let maximumMediaBytes = 200 << 20
+    static let mediaTimeout: TimeInterval = 120
+
+    /// The most bytes this fetch takes, and what it asks for.
+    var limit = AgentPaneSafeFetch.maximumBytes
+    var accept = "image/*"
 
     /// Whether a host may be reached; tests replace it.
     var hostCheck: @Sendable (String) async -> Bool = { await AgentPaneNetworkRules.resolvesPublicly($0) }
@@ -28,7 +35,16 @@ nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
     /// The session configuration; tests add a stub protocol.
     var makeConfiguration: @Sendable () -> URLSessionConfiguration = { AgentPaneSafeFetch.configuration() }
 
-    static func configuration() -> URLSessionConfiguration {
+    /// The fetch for a reply's web video or audio: the same rules, a larger cap, a longer timeout.
+    static var media: AgentPaneSafeFetch {
+        var fetch = AgentPaneSafeFetch()
+        fetch.limit = maximumMediaBytes
+        fetch.accept = "video/*, audio/*"
+        fetch.makeConfiguration = { AgentPaneSafeFetch.configuration(timeout: mediaTimeout) }
+        return fetch
+    }
+
+    static func configuration(timeout: TimeInterval = timeout) -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieAcceptPolicy = .never
         configuration.httpShouldSetCookies = false
@@ -58,7 +74,7 @@ nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url)
         request.httpShouldHandleCookies = false
-        request.setValue("image/*", forHTTPHeaderField: "Accept")
+        request.setValue(accept, forHTTPHeaderField: "Accept")
         return await withTaskCancellationHandler {
             await load.run(request, session: session)
         } onCancel: {
@@ -151,7 +167,7 @@ private nonisolated final class AgentPaneSafeLoad: NSObject, URLSessionDataDeleg
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status), response.expectedContentLength <= Int64(AgentPaneSafeFetch.maximumBytes) else {
+        guard (200..<300).contains(status), response.expectedContentLength <= Int64(fetch.limit) else {
             state.withLock { if $0.refusal == nil { $0.refusal = .imageFailed } }
             return completionHandler(.cancel)
         }
@@ -159,9 +175,10 @@ private nonisolated final class AgentPaneSafeLoad: NSObject, URLSessionDataDeleg
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let limit = fetch.limit
         let over = state.withLock { state -> Bool in
             state.data.append(data)
-            return state.data.count > AgentPaneSafeFetch.maximumBytes
+            return state.data.count > limit
         }
         if over { refuse(dataTask, .imageTooLarge) }
     }

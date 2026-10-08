@@ -108,4 +108,4 @@ rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	3320	166
 swift-type	CmuxNextApp/WindowManager	1129	0
 swift-type	CmuxNextDaemon/DaemonConnection	1446	0
 swift-type	CmuxNextTabs/TabStripView	2066	0
-swift-type	CmuxNextTerminal/TerminalSurfaceView	1043	0
+swift-type	CmuxNextTerminal/TerminalSurfaceView	1032	0

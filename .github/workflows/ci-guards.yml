@@ -550,6 +550,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh
 
+      - name: Validate password-import reader binary guard
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: bash tests/test_ci_password_import_readers_guard.sh
+
       - name: Validate Ghostty Zig workflow pinning
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_check_ghostty_zig_workflows.py
@@ -1012,6 +1016,14 @@ jobs:
       - name: Validate the nightly-next guard
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
+
+      - name: Validate the nightly-next arm64-only track
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_arm64_only.py
+
+      - name: Validate the nightly web bundles build before Rust
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_web_bundles_order.py
 
       - name: Validate the nightly-next release notes fetch (published span only)
         if: ${{ matrix.group == 'release-notary' }}

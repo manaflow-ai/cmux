@@ -59,8 +59,8 @@ if [ "${1:-}" = "notarytool" ]; then
 fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
   if [ "${CMUX_TEST_NOTARY_TIMEOUT:-0}" = 1 ]; then
-    # notarytool --wait --timeout: the submission is still In Progress when the wait ends.
-    printf '{"id":"fixture-id","status":"In Progress","message":"Timeout of 25m reached"}\n'
+    # notarytool writes timeout diagnostics, including the id, on stderr.
+    printf '{"message":"Timeout of 25m reached before processing completed.","id":"fixture-id"}\n' >&2
     exit 1
   fi
   printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
@@ -112,8 +112,9 @@ chmod +x "$FAKE_BIN"/*
 FIXTURE_P8_BASE64="$(printf 'fixture-p8' | base64)"
 
 run_helper() {
+  local app="${1:-$APP}" dmg="${2:-$DMG}" immutable="${3:-$IMMUTABLE}"
   CMUX_TEST_CALL_LOG="$LOG" \
-  CMUX_TEST_SOURCE_APP="$APP" \
+  CMUX_TEST_SOURCE_APP="$app" \
   CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried" \
   CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-nightly-mount" \
   CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
@@ -126,12 +127,14 @@ run_helper() {
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
   CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
   CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$HELPER_STATE" \
+  CMUX_NOTARY_SUBMIT_ONLY="${TEST_NOTARY_SUBMIT_ONLY:-false}" \
+  GITHUB_OUTPUT="${GITHUB_OUTPUT:-}" \
   CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
   ASC_API_KEY_ID="${TEST_ASC_API_KEY_ID-FIXTUREKEY}" \
   ASC_API_ISSUER_ID="${TEST_ASC_API_ISSUER_ID-fixture-issuer}" \
   ASC_API_KEY_P8_BASE64="${TEST_ASC_API_KEY_P8_BASE64-$FIXTURE_P8_BASE64}" \
   APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
-  "$SCRIPT" "$APP" "$DMG" "$IMMUTABLE"
+  "$SCRIPT" "$app" "$dmg" "$immutable"
 }
 
 run_helper
@@ -266,6 +269,33 @@ if grep -Fq 'xcrun stapler staple' "$LOG"; then
   exit 1
 fi
 
+# Published nightly-next submits without waiting on Apple's queue. The exact
+# state and output sidecars are the handoff; no ticket, staple, or immutable
+# publication artifact is allowed before a later Accepted result.
+: > "$LOG"
+ASYNC_STATE="$TMP_DIR/cmux-nightly-async.state"
+ASYNC_OUTPUT="$TMP_DIR/cmux-nightly-async.log"
+ASYNC_GITHUB_OUTPUT="$TMP_DIR/async.github-output"
+rm -f "$ASYNC_STATE" "$ASYNC_OUTPUT" "$ASYNC_GITHUB_OUTPUT" "$IMMUTABLE"
+if ! TEST_NOTARY_SUBMIT_ONLY=true \
+  CMUX_NOTARY_SUBMISSION_FILE="$ASYNC_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$ASYNC_OUTPUT" \
+  GITHUB_OUTPUT="$ASYNC_GITHUB_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/async.err"; then
+  echo "FAIL: submit-only notarization failed before handing off the published path" >&2
+  exit 1
+fi
+if ! grep -Fxq "submission_id=fixture-id" "$ASYNC_STATE" \
+  || ! grep -Fxq "submission_pending=true" "$ASYNC_GITHUB_OUTPUT" \
+  || ! grep -q '^xcrun notarytool submit .*--output-format json$' "$LOG" \
+  || grep -q '^xcrun notarytool submit .*--wait' "$LOG" \
+  || grep -Fq 'xcrun stapler staple' "$LOG" \
+  || [ -e "$IMMUTABLE" ]; then
+  echo "FAIL: submit-only notarization did not preserve a pending ticket without stapling" >&2
+  cat "$LOG" "$ASYNC_STATE" >&2
+  exit 1
+fi
+
 echo "PASS: single DMG submission validates app ticket and delivered artifact"
 
 # The bounded notary wait only helps if the step and the job outlive it: the
@@ -287,6 +317,9 @@ step_timeout = int(step_timeout.group(1))
 wait = re.search(r"^          CMUX_NOTARY_WAIT_TIMEOUT: (\d+)m$", step, re.M)
 assert wait, "the notarize step must set CMUX_NOTARY_WAIT_TIMEOUT"
 wait = int(wait.group(1))
+# Run 37648507383: Apple had not finished any of the 3 DMGs after 25m, so
+# nothing published. A healthy submission returns in minutes; wait 40m.
+assert wait >= 40, f"the {wait}m notary wait gives up before Apple usually finishes a stalled DMG"
 assert step_timeout >= wait + 10, f"step {step_timeout}m must cover the {wait}m wait plus 10m of DMG work and verification"
 assert job_timeout >= step_timeout + 20, f"job {job_timeout}m must cover the {step_timeout}m notarize step plus 20m of other steps"
 PY

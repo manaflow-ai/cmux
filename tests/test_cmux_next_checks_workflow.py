@@ -409,36 +409,20 @@ class PathRoutingStructure(unittest.TestCase):
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
 
-    def test_autofix_token_asks_only_for_what_the_app_grants(self):
-        """The App installation refuses pull-requests: write ("The permissions requested are not
-        granted to this installation", run 37590228478), so the token asks for contents only, which
-        the push needs (an App push starts CI). The comment uses the job's own GITHUB_TOKEN."""
+    def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
+        """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix
+        token" failed on every stale PR; it is removed, not widened. A stale generated file
+        fails generated-files with the commands that regenerate it."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        autofix = jobs["generated-autofix"]
-        mint = next(step for step in autofix["steps"] if step.get("id") == "app-token")
-        requested = sorted(key for key in mint["with"] if key.startswith("permission-"))
-        self.assertEqual(requested, ["permission-contents"])
-        self.assertEqual(mint["with"]["permission-contents"], "write")
-        self.assertEqual(autofix["permissions"], {"contents": "read", "pull-requests": "write"})
-        commit = autofix["steps"][-1]
-        self.assertEqual(commit["env"]["GH_TOKEN"], "${{ github.token }}")
-        self.assertNotIn('GH_TOKEN="$APP_TOKEN"', commit["run"])
-
-    def test_autofix_pushes_only_generated_paths_of_same_repository_prs(self):
-        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        autofix = jobs["generated-autofix"]
-        self.assertIn("head.repo.full_name == github.repository", autofix["if"])
-        self.assertNotIn("vars.", str(autofix["runs-on"]))
-        run = autofix["steps"][-1]["run"]
-        self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;", run)
-        self.assertIn('"$current" != "$HEAD_SHA"', run)
-        self.assertNotIn("--force", run)
-        # Never a bot push to a protected branch.
-        self.assertIn("github.event.pull_request.head.ref != 'main'", autofix["if"])
-        # The regenerated files are copied onto the head, not patched against
-        # the merge commit, whose context the head may not have.
-        self.assertNotIn("git apply \"$patch\"", run)
-        self.assertIn("git add", run)
+        self.assertNotIn("generated-autofix", jobs)
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("Mint the autofix token", text)
+        fail = next(step for step in jobs["generated-files"]["steps"]
+                    if step.get("name") == "Fail on stale generated files")
+        self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
+        self.assertIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
+        self.assertIn("exit 1", fail["run"])
+        self.assertNotIn("autofix", fail["run"])
 
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -484,9 +468,13 @@ class PathRoutingStructure(unittest.TestCase):
         time window; nightly.yml's own concurrency group coalesces them: the running build
         finishes and only the newest pending one runs next."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        run = jobs["request-nightly-next"]["steps"][0]["run"]
-        self.assertIn("-f promote_nightly_next_sha=", run)
-        self.assertNotIn("promote_nightly_next_debounce=true", run)
+        run = "\n".join(step.get("run", "") for step in jobs["request-nightly-next"]["steps"])
+        self.assertIn("scripts/cmux-next/request-nightly-next.sh", run)
+        # Behavior (requests only a green commit with a published tree) is covered by
+        # scripts/cmux-next/tests/request-nightly-next.test.sh.
+        script = (WORKFLOW.parents[2] / "scripts/cmux-next/request-nightly-next.sh").read_text(encoding="utf-8")
+        self.assertIn("-f promote_nightly_next_sha=", script)
+        self.assertNotIn("promote_nightly_next_debounce=true", script)
         nightly = yaml.safe_load((WORKFLOW.parent / "nightly.yml").read_text(encoding="utf-8"))
         group = nightly["concurrency"]["group"]
         self.assertIn("github.ref_name == 'main' && 'nightly-shared' || github.ref_name", group)
@@ -688,7 +676,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "swift-test"])
+                                           "request-nightly-next", "swift-test"])
 
 
 

@@ -29,6 +29,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case ungroup(GroupID)
     /// Pin (save) or unpin a group.
     case setGroupPinned(GroupID, Bool)
+    /// Set a group's icon to the shared icon string (one emoji or an SF
+    /// Symbol name); nil removes it.
+    case setGroupIcon(GroupID, String?)
     /// Close every workspace in the group. A pinned group stays as an empty,
     /// collapsed saved group; an unpinned one disappears.
     case closeGroup(GroupID)
@@ -61,6 +64,10 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setAutomaticUpdates(Bool)
     /// A link in the update card's popover (a pull request, the release notes).
     case openUpdateLink(URL)
+    /// The tip card's "Try It": run the tip's feature.
+    case tryTip(String)
+    /// The tip card's x: never show this tip again.
+    case dismissTip(String)
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top

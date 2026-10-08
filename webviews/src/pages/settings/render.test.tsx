@@ -14,7 +14,8 @@ const surface = "var(--cmux-surface-background, transparent)";
 // The bootstrap rule native injects at document start (WebTheme.bootstrapScript).
 const bootstrapRule =
   "html{background:var(--cmux-surface-background) !important}body{background:transparent !important}";
-const allowedFills = new Set(["transparent", "none", "var(--accent-soft)", "var(--input-bg)"]);
+// --accent marks an on control (a switch, a default button), never a surface (layout.css).
+const allowedFills = new Set(["transparent", "none", "var(--accent-soft)", "var(--input-bg)", "var(--accent)"]);
 const containerTags = new Set([
   "HTML",
   "BODY",
@@ -132,5 +133,15 @@ test("the rendered page: html carries only the surface background, body and cont
     page.unmount();
     bootstrap.remove();
     document.documentElement.style.removeProperty("--cmux-surface-background");
+  }
+});
+
+test("on controls use the neutral accent: no theme hue (no blue) on switches, links or the current section", () => {
+  const root = new Map<string, string>();
+  for (const { selector, property, value } of declarations(stylesheet)) if (selector === ":root") root.set(property, value);
+  for (const name of ["--accent", "--accent-text"]) {
+    expect(root.get(name)).toBeDefined();
+    expect(root.get(name)).not.toContain("--cmux-app-accent");
+    expect(root.get(name)).not.toContain("--cmux-accent");
   }
 });

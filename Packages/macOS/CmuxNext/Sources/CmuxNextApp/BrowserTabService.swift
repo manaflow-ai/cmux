@@ -71,12 +71,16 @@ final class BrowserTabService {
 
     init(daemon: DaemonService, cef: CEFEngine) {
         create = { [weak daemon] pane, url, engine, profile, activate, after in
-            guard let connection = daemon?.connection else { throw DaemonError.notConnected }
+            guard let daemon else { throw DaemonError.notConnected }
             // An older daemon without the capability would ignore the field: send it only when served.
-            let background = !activate && daemon?.supports(DaemonCapabilities.shared.frontendBrowserActivate) == true
-            let slot = daemon?.supports(DaemonCapabilities.shared.frontendBrowserInsertAfter) == true ? after : nil
-            return try await connection.newFrontendBrowserTab(url: url, engine: engine, in: pane, profileID: profile,
-                                                              activate: background ? false : nil, after: slot).surface
+            let background = !activate && daemon.supports(DaemonCapabilities.shared.frontendBrowserActivate)
+            let slot = daemon.supports(DaemonCapabilities.shared.frontendBrowserInsertAfter) ? after : nil
+            // Through the funnel: the action scope waits for the tab's echo
+            // before it maps `created` to public ids.
+            return try await daemon.perform(NewFrontendBrowserTabRequest.command) { connection in
+                try await connection.newFrontendBrowserTab(url: url, engine: engine, in: pane, profileID: profile,
+                                                           activate: background ? false : nil, after: slot).surface
+            }
         }
         settled = { [weak daemon] in
             guard let daemon, let connection = daemon.connection else { return }

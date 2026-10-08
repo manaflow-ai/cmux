@@ -70,6 +70,8 @@ export type AcpmuxActivity = {
     endedAt?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
+    /// Images the call returned (ACP `image` content blocks), as data URLs.
+    images?: string[];
   };
 };
 
@@ -192,6 +194,10 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  /** The outside chat this pane adopts is still open in another process (acpmux refused with
+   * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
+   * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
+  liveChat?: { canFork: boolean; command?: string };
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };

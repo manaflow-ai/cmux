@@ -16,8 +16,10 @@
  *   socket-activated. The daily apt, man-db and motd timers are disabled.
  * - L2: every program into /opt/cmux/store/<sha256>/ (download sha256 + size
  *   checked), profile generation 1, /opt/cmux/current/bin on PATH.
- * - The daemon still runs under today's cmux-devbox-boot supervisor (the
- *   bind agent replaces it later), whose binary path is linked into the store.
+ * - One boot unit, `cmux host run` (host-agent.ts): the bind agent, the session
+ *   host supervisor and the Cloud agent role (bind, status reports, events) in
+ *   the Rust binary from the store. /etc/cmux/host.json selects the Freestyle
+ *   edge carrier; it holds no secret.
  * - Model-plane env and the coderouter CLI point at the VM edge alias; no
  *   login and no token in the image.
  * - SBOM (syft, pinned) and a file-hash manifest are downloaded next to the
@@ -52,7 +54,16 @@ import {
 } from "../devbox-image-common";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, StepLog, type Vm } from "./guest";
-import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
+import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
+import {
+  METADATA_GUARD_FILE,
+  METADATA_GUARD_UNIT,
+  metadataGuardEnableCommand,
+  metadataGuardProblems,
+  metadataGuardRules,
+  metadataGuardUnit,
+} from "../../services/vms/images/metadataGuard";
+import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
 import {
   aptClosureProblems,
   bakedPrograms,
@@ -84,7 +95,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const GUEST_DIR = path.resolve(HERE, "../../../images/cmux-vm/guest");
 const DPKG_LIST = "dpkg-query -W -f='${Package}\\t${Version}\\t${Architecture}\\n' | LC_ALL=C sort";
 const PGDG_KEY = "/usr/share/keyrings/cmux-pgdg.asc";
-const DAEMON_UNIT = "cmux-tui-daemon.service";
+const DAEMON_UNIT = HOST_UNIT;
 const DISABLED_TIMERS = ["apt-daily.timer", "apt-daily-upgrade.timer", "man-db.timer", "motd-news.timer"];
 /** Temp files left in the image; the provider's exec agent keeps its own per-exec scratch (.freestyle-exec-*). */
 export const TMP_LEFTOVERS = "find /tmp /var/tmp -mindepth 1 -maxdepth 1 ! -name '.freestyle-exec-*'";
@@ -160,30 +171,9 @@ function coderouterProfileScript(): string {
   return `# cmux: the coderouter CLI uses the VM edge alias; no login and no token on disk. Managed, do not edit.\nexport CODEROUTER_API_URL=${sq(`https://${vmEdgeAliasDomain()}`)}\n`;
 }
 
-/** The daemon's unit; `extraEnv` (agent tools) reaches every terminal it creates. */
+/** The boot unit (`cmux host run`); `extraEnv` (agent tools) reaches every terminal it creates. */
 export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}): string {
-  return [
-    "[Unit]",
-    "Description=cmux-tui session daemon supervisor",
-    "After=network.target",
-    "",
-    "[Service]",
-    "Type=simple",
-    "User=root",
-    "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
-    // Each terminal host gets its own transient scope (cmux-tui host_scope.rs),
-    // so a stop or restart of this unit keeps every terminal for re-adoption.
-    "Environment=CMUX_TUI_HOST_SCOPES=systemd",
-    `Environment=PATH=${STORE_PATH}`,
-    ...daemonEnvLines(extraEnv),
-    "ExecStart=/usr/local/bin/cmux-devbox-boot",
-    "Restart=always",
-    "RestartSec=2",
-    "",
-    "[Install]",
-    "WantedBy=multi-user.target",
-    "",
-  ].join("\n");
+  return hostUnit(daemonEnvLines(extraEnv), STORE_PATH);
 }
 
 /** Park the daemon for the snapshot. No template terminal in this image: every per-machine file goes. */
@@ -212,7 +202,6 @@ function parkCommand(): string {
 function warmBindPathCommand(): string {
   const files = [
     `"$(readlink -f ${CURRENT_BIN}/cmux-tui)"`,
-    "/usr/local/bin/cmux-devbox-boot",
     "$(command -v sh) $(readlink -f $(command -v sh))",
     "$(command -v bash) $(command -v curl) $(command -v setpriv) $(command -v perl) $(command -v ssh-keygen) $(command -v arping) $(command -v sudo)",
     "$(ldd $(command -v curl) $(command -v bash) $(command -v sudo) $(command -v ssh-keygen) $(command -v perl) 2>/dev/null | awk '/=> \\//{print $3} /^\\t\\//{print $1}' | sort -u)",
@@ -330,12 +319,23 @@ async function configureSystem(ctx: Ctx): Promise<void> {
   await L.step(vm, "snapshot-resume-quiet", "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
+/** The metadata service for root only (metadata-guard.ts), loaded now so the parked snapshot carries it. */
+async function installMetadataGuard(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  await writeGuestFile(vm, METADATA_GUARD_FILE, metadataGuardRules(), 0o644);
+  await writeGuestFile(vm, `/etc/systemd/system/${METADATA_GUARD_UNIT}`, metadataGuardUnit(), 0o644);
+  const out = await L.step(vm, "metadata-guard", metadataGuardEnableCommand(DEVBOX_WORK_USER));
+  const problems = metadataGuardProblems(out);
+  if (problems.length > 0) throw new Error(`metadata guard:\n${problems.join("\n")}`);
+  ctx.result.metadataGuard = out.trim();
+}
+
 /** Loopback sshd that trusts only the CA bind writes (cloud-automation.md 5, D-A4). No key material is baked. */
 async function configureSshd(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await writeGuestFile(vm, SSHD_DROP_IN, sshdDropIn(DEVBOX_WORK_USER), 0o644);
-  const { effective, ss } = splitSshdBakeOutput(await L.step(vm, "sshd-ca-trust", sshdBakeCommand(DEVBOX_WORK_USER)));
-  const problems = [...sshdPolicyProblems(effective, DEVBOX_WORK_USER), ...sshdListenProblems(ss)];
+  const { effective, ss, pam } = splitSshdBakeOutput(await L.step(vm, "sshd-ca-trust", sshdBakeCommand(DEVBOX_WORK_USER)));
+  const problems = [...sshdPolicyProblems(effective, DEVBOX_WORK_USER), ...sshdListenProblems(ss), ...sshdPamProblems(pam)];
   if (problems.length > 0) throw new Error(`sshd policy:\n${problems.join("\n")}`);
 }
 
@@ -353,85 +353,19 @@ async function configureRoles(ctx: Ctx): Promise<void> {
   ].join(" && "));
 }
 
-export const VM_AGENT_PATH = "/opt/cmux/guest/vm-agent.ts";
-
-/** systemd units for the VM agent: started by bind.json (path unit) or at boot when bound; never at bake. */
-export function vmAgentUnits(): { path: string; service: string; resumeTimer: string; resumeService: string } {
-  return {
-    // A VM resume sets the realtime clock; OnClockChange turns that into one event (no polling).
-    resumeTimer: [
-      "[Unit]",
-      "Description=cmux VM agent: report after a resume (realtime clock change)",
-      "",
-      "[Timer]",
-      "OnClockChange=yes",
-      "Unit=cmux-vm-agent-resume.service",
-      "",
-      "[Install]",
-      "WantedBy=timers.target",
-      "",
-    ].join("\n"),
-    resumeService: [
-      "[Unit]",
-      "Description=cmux VM agent: resume notice",
-      "ConditionPathExists=/var/lib/cmux/bound.json",
-      "",
-      "[Service]",
-      "Type=oneshot",
-      `ExecStart=/usr/local/bin/bun ${VM_AGENT_PATH} --notify-resume`,
-      "",
-    ].join("\n"),
-    path: [
-      "[Unit]",
-      "Description=cmux VM agent trigger (the driver wrote bind.json)",
-      "",
-      "[Path]",
-      "PathExists=/var/lib/cmux/bind.json",
-      "Unit=cmux-vm-agent.service",
-      "",
-      "[Install]",
-      "WantedBy=paths.target",
-      "",
-    ].join("\n"),
-    service: [
-      "[Unit]",
-      "Description=cmux VM agent (bind, status report, events)",
-      "After=network-online.target",
-      "Wants=network-online.target",
-      "ConditionPathExists=|/var/lib/cmux/bind.json",
-      "ConditionPathExists=|/var/lib/cmux/bound.json",
-      "",
-      "[Service]",
-      "Type=simple",
-      `ExecStart=/usr/local/bin/bun ${VM_AGENT_PATH}`,
-      "Restart=on-failure",
-      "RestartSec=5",
-      "",
-      "[Install]",
-      "WantedBy=multi-user.target",
-      "",
-    ].join("\n"),
-  };
-}
-
-async function installVmAgent(ctx: Ctx): Promise<void> {
+/** The Cloud agent's state dir and the host config (`cmux host run` reads it at each session host start). */
+async function installHostConfig(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
-  const units = vmAgentUnits();
-  await L.step(vm, "vm-agent-dirs", "install -d -m 0755 /opt/cmux/guest && install -d -m 0700 /var/lib/cmux");
-  await writeGuestFile(vm, VM_AGENT_PATH, readFileSync(path.join(GUEST_DIR, "vm-agent.ts")), 0o644);
-  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.path", units.path, 0o644);
-  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.service", units.service, 0o644);
-  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent-resume.timer", units.resumeTimer, 0o644);
-  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent-resume.service", units.resumeService, 0o644);
-  ctx.result.vmAgent = await L.step(vm, "vm-agent-enable", [
-    `d="$(mktemp -d)" && /usr/local/bin/bun build --target=bun --outdir "$d" ${VM_AGENT_PATH} >/dev/null && rm -rf "$d"`,
-    "systemctl daemon-reload",
-    "systemctl enable --quiet cmux-vm-agent.path cmux-vm-agent.service cmux-vm-agent-resume.timer",
-    "systemctl start cmux-vm-agent.path cmux-vm-agent-resume.timer",
+  await L.step(vm, "host-dirs", "install -d -m 0700 /var/lib/cmux && install -d -m 0755 /etc/cmux");
+  await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfig(), 0o644);
+  ctx.result.hostConfig = (await L.step(vm, "host-config", [
+    `chown root:root ${HOST_CONFIG_PATH}`,
+    `python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert c == {"remoteWs": {"bind": "[::]:1337", "carrier": "freestyle-edge"}}, c' ${HOST_CONFIG_PATH}`,
+    `test "$(stat -c '%U %a' ${HOST_CONFIG_PATH})" = "root 644"`,
     "test ! -e /var/lib/cmux/bind.json && test ! -e /var/lib/cmux/bound.json",
-    "test \"$(systemctl is-active cmux-vm-agent.service)\" != active",
-    "echo vm-agent-armed",
-  ].join(" && "));
+    `${HOST_CLI} --help >/dev/null`,
+    "echo host-config-ok",
+  ].join(" && "))).trim();
 }
 
 /**
@@ -445,7 +379,7 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
     `sock="$(ss -Hxlp | awk '/"cmux-tui"/ {for (i = 1; i <= NF; i++) if ($i ~ /\\/cloud\\.sock$/) print $i}' | head -1)"`,
     'test -n "$sock"',
     "printf '%s\\n' \"$sock\" > /etc/cmux/daemon-socket",
-    `/usr/local/bin/bun ${VM_AGENT_PATH} --print-daemon-info > /etc/cmux/daemon.json.tmp`,
+    `${HOST_CLI} cloud daemon-info > /etc/cmux/daemon.json.tmp`,
     "mv /etc/cmux/daemon.json.tmp /etc/cmux/daemon.json && chmod 0644 /etc/cmux/daemon.json /etc/cmux/daemon-socket",
     "cat /etc/cmux/daemon-socket /etc/cmux/daemon.json",
   ].join(" && "));
@@ -458,7 +392,7 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
   ctx.result.daemonInfo = info;
   // Coordinator condition for the activity pin: the daemon serves vm-activity-v1 and the agent's
   // own activity stream connects to it. A bake without both fails.
-  const probe = await L.step(vm, "daemon-activity-probe", `/usr/local/bin/bun ${VM_AGENT_PATH} --probe-activity`);
+  const probe = await L.step(vm, "daemon-activity-probe", `${HOST_CLI} cloud probe-activity`);
   ctx.result.activityProbe = probe.trim().split("\n").at(-1) ?? "";
 }
 
@@ -472,9 +406,8 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
 
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
-  await writeGuestFile(vm, "/usr/local/bin/cmux-devbox-boot", devboxFileBytes("cmux-devbox-boot"), 0o755);
   await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}), 0o644);
-  await L.step(vm, "daemon-unit", `sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
+  await L.step(vm, "daemon-unit", `systemd-analyze verify /etc/systemd/system/${DAEMON_UNIT} && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
   await L.step(vm, "daemon-ready", devboxWaitForDaemonCommand(120));
   await L.step(vm, "daemon-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
   await recordDaemonInfo(ctx);
@@ -554,10 +487,11 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await installStore(ctx);
     await wireCmuxTui(ctx);
     await configureSystem(ctx);
+    await installMetadataGuard(ctx);
     await configureSshd(ctx);
     await configureRoles(ctx);
     if (options.agentTools) await installAgentTools(ctx);
-    await installVmAgent(ctx);
+    await installHostConfig(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);
     await finalizeAndCollect(ctx);

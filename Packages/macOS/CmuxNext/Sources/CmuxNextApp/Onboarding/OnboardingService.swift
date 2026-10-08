@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -19,6 +18,8 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     private(set) var controller: OnboardingWindowController?
+    /// The cookie import card on browser pages (cx-367y).
+    private(set) lazy var cookiePrompt = CookieImportPromptService(services: services)
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
@@ -27,9 +28,8 @@ final class OnboardingService {
     /// Shows onboarding on the first launch even in a no-activate test launch.
     static let forceKey = "CMUX_NEXT_ONBOARDING"
 
-    /// The cmux-cua socket the computer use step reads (CMUX_NEXT_CUA_SOCKET,
-    /// else cmux-cua's default). Tests point it at their own socket.
-    var computerUseConfiguration = AgentActivitySocketSource.Configuration.standard(machineName: "")
+    /// Computer Use Setup: the helper's grants for the palette action, Settings and this step.
+    private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
     /// Whether an open window can show `step`: it already has that step (or
     /// no step was asked for). Otherwise the window is rebuilt for the step.
@@ -135,11 +135,15 @@ final class OnboardingService {
     }
 
     /// Opens onboarding at `step` (or brings the open one to that step).
-    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil) {
+    /// `importKinds` checks only those kinds on the import step (the cookie
+    /// import card opens it on cookies).
+    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil,
+              importKinds: Set<ImportDataKind>? = nil) {
         var interrupted: OnboardingModel.Step?
         if let controller {
             if resume == nil, Self.reusesWindow(showing: controller.model.steps, for: step) {
                 if let step { controller.model.go(to: step) }
+                if let importKinds { controller.model.importer.preset(kinds: importKinds) }
                 controller.present()
                 return
             }
@@ -152,6 +156,7 @@ final class OnboardingService {
             self.controller = nil
         }
         let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step, resumingFirstRunAt: resume)
+        if let importKinds { model.importer.preset(kinds: importKinds) }
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self] in
             self?.controller = nil

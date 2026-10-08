@@ -203,9 +203,17 @@ defaults:DefaultColors
 cell_width_px:u16
 cell_height_px:u16
 kitty_limits:{image_bytes:u64,inflight_bytes:u64,images:u64,placements:u64}
+seed:optional blob
 ```
 
-`argc` is from 1 through 256. `envc` is at most 1,024.
+`argc` is from 1 through 256. `envc` is at most 1,024. The fields before
+`seed` are limited to 1 MiB. `seed` is present only when bytes follow
+`kitty_limits`; it is a blob of at most 8 MiB of VT replay that the host applies
+to its own parser before it reads the PTY and never writes to the PTY, as for
+`LaunchAdopt`. An owner sends it when it respawns a terminal whose shell was lost
+with its host (cx-6so.49 L2): the new shell starts below the previous screen.
+A host that predates the field rejects a seeded `Launch`; owners only seed
+hosts they start from their own binary.
 
 `LaunchAdopt` replaces `Launch` for a host started with `--adopt-pty-fd N`.
 The fields before `seed` are limited to 1 MiB and `seed` is a blob of at most
@@ -571,8 +579,9 @@ sockets are mode `0600`.
 
 A daemon started with `CMUX_TUI_HOST_SCOPES=systemd` on a systemd machine
 moves each terminal host it starts into its own transient scope
-`cmux-terminal-host-<pid>.scope` in `cmux-terminal-hosts.slice`, before the
-host receives `Launch` or `LaunchAdopt`, so the host's child inherits the
+`cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`, before the
+host receives `Launch` or `LaunchAdopt`: the daemon waits (at most 2 s)
+until the host's own cgroup names the scope, so the host's child inherits the
 scope and a stop or restart of the daemon's unit leaves the host running for
 adoption. The move is `org.freedesktop.systemd1.Manager.StartTransientUnit`
 with the host PID, run as `busctl` with a fixed argument vector (through

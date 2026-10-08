@@ -54,12 +54,13 @@ public final class SidebarView: NSView {
     let cardStack = SidebarCardStackView()
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
+    /// The pointer over the sidebar now (cx-3wu5).
+    private(set) var chromeHover: PointerHover?
     /// Bands minimal mode hides right now (the fade's target, R54).
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    /// The staged update card above the footer (`SidebarModel.updateCard`).
-    let updateCardView = SidebarUpdateCardView()
+    let updateCardView = SidebarUpdateCardView(), tipCardView = SidebarTipCardView() // SidebarBottomCards
     /// Back, in the footer band's spot while a destination is open (`SidebarView+Footer`).
     let backButton = SidebarBackButton()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
@@ -76,6 +77,8 @@ public final class SidebarView: NSView {
         buildHierarchy()
         list.reload(animated: false)
         observe()
+        // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
+        chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
@@ -202,11 +205,12 @@ public final class SidebarView: NSView {
         addSubview(footer)
         installBackButton()
         footer.addSubview(profileBar)
-        installUpdateCard()
+        cardSlot.install(in: self)
     }
 
     @objc private func clipBoundsChanged(_ note: Notification) {
         list.realizeVisibleRows()
+        PointerHover.refresh(in: window)
     }
 
     @objc private func clipFrameChanged(_ note: Notification) {
@@ -253,13 +257,13 @@ public final class SidebarView: NSView {
         // its own unless the band is empty.
         updateBands()
         let footerHeight: CGFloat = spacesPosition == .bottom && dotsShareBandRow ? 0 : SidebarStyle.footerHeight
-        let cardsHeight = attachFooterCards(), updateHeight = updateCardSlotHeight
+        let cardsHeight = attachFooterCards(), updateHeight = cardSlot.height
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
-        placeUpdateCard(above: footer.frame.minY, slotHeight: updateHeight)
+        cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
         layoutBack()
@@ -267,6 +271,8 @@ public final class SidebarView: NSView {
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListSize()
+        // Everything above may have moved under a still pointer (cx-3wu5).
+        PointerHover.refresh(in: window)
     }
 
     // MARK: Titlebar row
@@ -283,14 +289,7 @@ public final class SidebarView: NSView {
 
     // MARK: Hover reveal
 
-    override public func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override public func mouseEntered(with event: NSEvent) { setChromeRevealed(true) }
-    override public func mouseExited(with event: NSEvent) { setChromeRevealed(false) }
+    // The pointer over the sidebar reveals its chrome: `chromeHover`, set up in init.
 
     // MARK: Observation
 
@@ -316,8 +315,8 @@ public final class SidebarView: NSView {
         var metrics: SidebarLayoutMetrics
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
-        var updateCard: SidebarUpdateCard?
         var showsBack: Bool
+        var cards: SidebarBottomCards
     }
 
     private func observe() {
@@ -342,8 +341,8 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    updateCard: model.updateCard,
-                    showsBack: model.showsBack
+                    showsBack: model.showsBack,
+                    cards: SidebarBottomCards(update: model.updateCard, tip: model.tipCard)
                 )
             }) {
                 self?.render(state)
@@ -365,6 +364,7 @@ public final class SidebarView: NSView {
             || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
             || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
             || lastState?.preferences.workspaceRow != state.preferences.workspaceRow
+            || lastState?.preferences.groupsByComputer != state.preferences.groupsByComputer
         let previous = lastState?.sections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
@@ -378,10 +378,7 @@ public final class SidebarView: NSView {
                 list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
             }
         }
-        if lastState?.updateCard != state.updateCard {
-            updateCardView.configure(state.updateCard)
-            needsLayout = true
-        }
+        if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged || lastState?.showsBack != state.showsBack { needsLayout = true }
         lastState = state
     }

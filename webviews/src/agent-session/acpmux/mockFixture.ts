@@ -32,6 +32,8 @@ export type MockSession = {
   };
   /// The agent's last reply, for sessions other than the worked one.
   reply?: string;
+  /// Images the last reply shows under its text (the image viewer's mock chat).
+  images?: { alt: string; svg: string }[];
   /// What a session needing input waits on: the tool call its permission card names.
   permission?: { title: string; kind: string };
   /// The call a running session is in the middle of, after its last text.
@@ -335,7 +337,7 @@ export const mockSessions: MockSession[] = [
   },
   {
     sessionId: "mock-light-theme",
-    title: "Add light theme screenshots",
+    title: "Make sample images for the docs",
     harness: "claude",
     model: "claude-sonnet-5-5",
     status: "idle",
@@ -343,7 +345,12 @@ export const mockSessions: MockSession[] = [
     ago: 2900,
     host: LOCAL_HOST,
     hostKind: "local",
-    reply: "Captured 12 light-theme screens next to their dark versions.",
+    reply: "Made three sample images for the docs: a chart, a gradient and a diagram.",
+    images: [
+      { alt: "Weekly builds", svg: sampleChart() },
+      { alt: "Dusk gradient", svg: sampleGradient() },
+      { alt: "Request flow", svg: sampleDiagram() },
+    ],
   },
   {
     sessionId: "mock-prorate",
@@ -632,6 +639,60 @@ function latencyChart(): string {
   );
 }
 
+/// A session's reply with its images after the text, as data URLs a reply can draw.
+function replyWithImages(session: MockSession): string {
+  const images = (session.images ?? []).map(({ alt, svg }) => `![${alt}](data:image/svg+xml;base64,${btoa(svg)})`);
+  return [session.reply ?? "Done.", ...images].join("\n\n");
+}
+
+/// Neutral sample images (no app UI): a bar chart, a photo-like gradient and a box diagram.
+export function sampleChart(): string {
+  const bars = [42, 58, 51, 73, 66, 88, 79]
+    .map(
+      (value, index) =>
+        `<rect x="${60 + index * 76}" y="${340 - value * 3}" width="48" height="${value * 3}" rx="4" fill="#3b82f6"/>`,
+    )
+    .join("");
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">` +
+    `<rect width="640" height="400" fill="#f8fafc"/>` +
+    `<path d="M48 340h560M48 240h560M48 140h560" stroke="#cbd5e1" stroke-width="1"/>` +
+    bars +
+    `</svg>`
+  );
+}
+
+export function sampleGradient(): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">` +
+    `<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">` +
+    `<stop offset="0" stop-color="#1e3a8a"/><stop offset="0.55" stop-color="#c2410c"/><stop offset="1" stop-color="#fbbf24"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="640" height="400" fill="url(#sky)"/>` +
+    `<circle cx="420" cy="300" r="46" fill="#fde68a" opacity="0.9"/>` +
+    `<path d="M0 330 Q160 280 320 320 T640 300 V400 H0Z" fill="#1f2937"/>` +
+    `</svg>`
+  );
+}
+
+export function sampleDiagram(): string {
+  const box = (x: number, label: string) =>
+    `<rect x="${x}" y="160" width="140" height="72" rx="10" fill="#ffffff" stroke="#64748b" stroke-width="2"/>` +
+    `<text x="${x + 70}" y="202" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" fill="#0f172a">${label}</text>`;
+  const arrow = (x: number) =>
+    `<path d="M${x} 196h44" stroke="#64748b" stroke-width="2"/><path d="M${x + 44} 196l-10-6v12z" fill="#64748b"/>`;
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">` +
+    `<rect width="640" height="400" fill="#f1f5f9"/>` +
+    box(28, "Client") +
+    arrow(176) +
+    box(250, "Queue") +
+    arrow(398) +
+    box(472, "Worker") +
+    `</svg>`
+  );
+}
+
 /// A short exchange for every other session, so any row the reader opens has a transcript. A
 /// running session's turn is still open; a session needing input waits on a permission card.
 export function sessionHistory(session: MockSession): SeedStep[] {
@@ -652,7 +713,7 @@ export function sessionHistory(session: MockSession): SeedStep[] {
         rawInput: session.render,
       },
     });
-  steps.push({ ago: at + 30_000, update: text(session.reply ?? "Done.") });
+  steps.push({ ago: at + 30_000, update: text(replyWithImages(session)) });
   if (session.permission) {
     const toolCallId = `${session.sessionId}-tool`;
     steps.push(

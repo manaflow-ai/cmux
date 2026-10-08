@@ -41,6 +41,8 @@ extension WebKitTab: WKNavigationDelegate {
             }
             return
         }
+        // A local Markdown file shows in cmux's markdown page, not as text (LocalFileHandoff).
+        if navigationAction.targetFrame?.isMainFrame ?? true, url.isHandedOff(by: .webkit) { emit(.openLocalFile(url)); return decisionHandler(.cancel, preferences) }
         applySiteSettings(to: preferences, for: navigationAction)
         guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
         navigationSourceSite = pageSite
