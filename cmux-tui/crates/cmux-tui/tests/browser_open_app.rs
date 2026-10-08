@@ -99,7 +99,11 @@ fn a_named_pane_wins_over_the_callers_terminal() {
         Some(CALLER_TERMINAL),
     );
     assert!(run.output.status.success(), "{}", run.stderr());
+    // An explicit pane is a script or agent target, often in a workspace the
+    // window does not show: the tab opens there and the view stays (no
+    // tab.focus; only the implicit default-pane fallback reveals).
     let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["params"]["action"], "openBrowser", "{call}");
     assert_eq!(call["params"]["target"], format!("tab:{SHOWN_TAB}"), "{call}");
     let lookup = run
         .daemon
@@ -121,7 +125,26 @@ fn a_named_screen_opens_in_its_shown_pane() {
     );
     assert!(run.output.status.success(), "{}", run.stderr());
     let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["params"]["action"], "openBrowser", "{call}");
     assert_eq!(call["params"]["target"], format!("tab:{SHOWN_TAB}"), "{call}");
+}
+
+#[test]
+fn an_explicit_pane_in_a_background_workspace_keeps_the_selected_workspace() {
+    // Home mode: the window shows a page, so the implicit fallback would
+    // reveal. An explicit --pane is a script or agent target: the tab opens
+    // there and the user's selected workspace stays.
+    let run = Run::app(AppMode::Home)
+        .cli(&["--json", "tab", "create", "browser", "--url", URL, "--pane", PANE], None);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let actions: Vec<_> = run.app.iter().map(|c| c["params"]["action"].clone()).collect();
+    assert_eq!(
+        actions,
+        vec![json!("openBrowser")],
+        "no tab.focus or workspace select: {actions:?}"
+    );
+    assert_eq!(run.app[0]["params"]["target"], format!("tab:{SHOWN_TAB}"));
+    assert_eq!(selected_workspace(&[]), selected_workspace(&run.app), "{:?}", run.app);
 }
 
 #[test]
@@ -408,6 +431,17 @@ fn daemon_result(request: &Value) -> Result<Value, String> {
             "revision": "3", "replayed": false})),
         other => Err(format!("unexpected {other} {params}")),
     }
+}
+
+/// The workspace the fake app's window selects after `calls`: it starts on
+/// a background one and moves to the tab's workspace on any call that
+/// focuses, selects or shows something.
+fn selected_workspace(calls: &[Value]) -> &'static str {
+    let moves = |call: &Value| {
+        let action = call["params"]["action"].as_str().unwrap_or_default();
+        ["focus", "select", "show", "reveal"].iter().any(|verb| action.contains(verb))
+    };
+    if calls.iter().any(moves) { WORKSPACE } else { "ws_00000000000000000000000000000000" }
 }
 
 /// The fake app's answer to one `action.run`.
