@@ -203,9 +203,17 @@ defaults:DefaultColors
 cell_width_px:u16
 cell_height_px:u16
 kitty_limits:{image_bytes:u64,inflight_bytes:u64,images:u64,placements:u64}
+seed:optional blob
 ```
 
-`argc` is from 1 through 256. `envc` is at most 1,024.
+`argc` is from 1 through 256. `envc` is at most 1,024. The fields before
+`seed` are limited to 1 MiB. `seed` is present only when bytes follow
+`kitty_limits`; it is a blob of at most 8 MiB of VT replay that the host applies
+to its own parser before it reads the PTY and never writes to the PTY, as for
+`LaunchAdopt`. An owner sends it when it respawns a terminal whose shell was lost
+with its host (cx-6so.49 L2): the new shell starts below the previous screen.
+A host that predates the field rejects a seeded `Launch`; owners only seed
+hosts they start from their own binary.
 
 `LaunchAdopt` replaces `Launch` for a host started with `--adopt-pty-fd N`.
 The fields before `seed` are limited to 1 MiB and `seed` is a blob of at most
@@ -231,7 +239,14 @@ seed:blob
 `child_pid` and `session_id` are nonzero; `incarnation` is a canonical
 UUIDv4. `seed` is VT replay of the terminal's screen; the host applies it to
 its own parser before it reads the PTY and never writes it to the PTY. It may
-be empty. There is no command, cwd, or environment: no child is spawned.
+be empty. There is no command, cwd, or environment: no child is spawned. The
+replay carries the title (OSC 2) and working directory (OSC 7); an owner
+appends the last OSC 9;4 progress (`ESC ] 9 ; <progress> ESC \`) after it, and
+the host also feeds the seed to its terminal-metadata parser, discarding any
+notifications and shell marks, so its snapshots report that progress. Known gap:
+the seed is applied with plain VT writes, so Kitty graphics placements and
+image-number aliases from before the replacement are not restored; programs
+redraw their images on the next update.
 
 `LaunchFailed` starts with little-endian `version:u16=1, kind:u16`, followed
 by 1 through 4,096 bytes of UTF-8 diagnostic text. Kind 1 means PTY capacity
@@ -425,7 +440,25 @@ example because the old host is stopped rather than dead, returns
 `LaunchFailed` and exits without a record, sidecar, `Ready`, or PTY byte. The
 kernel releases the lock only when the holder process is gone. Exit sidecar
 acknowledgement and stale-record removal delete the file only while holding
-the lock themselves.
+the lock themselves; an owner at startup and a session reset also delete every
+such file whose lock is free.
+
+The cmux-tui daemon takes custody of every connected host whose record
+advertises `supports_pty_custody` (after launch, adoption, and each reconnect)
+and keeps it with that connection, so it is released when the terminal ends,
+is closed, or its host is replaced. When its reconnect loop proves a host dead
+and there is no `.exit` sidecar for the incarnation, the daemon starts a
+replacement host on its copy, if it still holds one, it is not shutting down,
+the registry still names the incarnation running (neither exited nor
+tombstoned), and the shell still leads its session and is not a zombie. The
+seed is the daemon's replay of the terminal. On success the reconnect loop
+attaches to the replacement like any reconnect; the terminal keeps its id,
+incarnation, surface, and tab and records no end, and the daemon appends an
+`"event":"host_replaced"` line (old and new host PID, recorded signals) to
+`terminal-losses.jsonl` and removes the dead host's `.signals`. When a
+published replacement is live but not yet attached, the loop attaches to it.
+Otherwise the dead host is a host loss as before. A host that died while no
+daemon ran has no custody holder and stays a host loss.
 
 ## Viewer-size arbitration
 
@@ -546,8 +579,9 @@ sockets are mode `0600`.
 
 A daemon started with `CMUX_TUI_HOST_SCOPES=systemd` on a systemd machine
 moves each terminal host it starts into its own transient scope
-`cmux-terminal-host-<pid>.scope` in `cmux-terminal-hosts.slice`, before the
-host receives `Launch` or `LaunchAdopt`, so the host's child inherits the
+`cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`, before the
+host receives `Launch` or `LaunchAdopt`: the daemon waits (at most 2 s)
+until the host's own cgroup names the scope, so the host's child inherits the
 scope and a stop or restart of the daemon's unit leaves the host running for
 adoption. The move is `org.freedesktop.systemd1.Manager.StartTransientUnit`
 with the host PID, run as `busctl` with a fixed argument vector (through

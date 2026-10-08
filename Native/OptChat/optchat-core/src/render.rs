@@ -95,6 +95,46 @@ pub fn cache_pieces(text: &str) -> Vec<&str> {
     pieces
 }
 
+/// Lines per cache block (spec 3.3, gist 3c190e0): the view goes in blocks
+/// of 4 lines; one cache mark sits on the last whole block and one on the
+/// request's end. Anthropic stores entries only at marks and looks back up to
+/// 20 blocks from a mark for an earlier one, so the next call finds this
+/// mark and pays only for the lines after it.
+pub const BLOCK_LINES: usize = 4;
+
+/// Byte offsets in `text` (a rendered view: `<chat>`, one line per part,
+/// `</chat>`) just after every `BLOCK_LINES` lines of the view: after the
+/// header line and lines 4, 8, 12, ... A cut depends only on the bytes
+/// before it, so an unchanged prefix keeps its cuts from call to call.
+pub fn block_cuts(text: &str) -> Vec<usize> {
+    let mut cuts = Vec::new();
+    let mut lines = 0usize;
+    for (byte, ch) in text.char_indices() {
+        if ch == '\n' {
+            // The first newline ends the `<chat>` header.
+            if lines > 0 && lines.is_multiple_of(BLOCK_LINES) && byte + 1 < text.len() {
+                cuts.push(byte + 1);
+            }
+            lines += 1;
+        }
+    }
+    cuts
+}
+
+/// `text` cut at its `block_cuts`: every piece but the last is a whole
+/// block (the first with the header), the last holds the rest and the
+/// closing tag. The mark goes on the second to last piece, when there is one.
+pub fn block_pieces(text: &str) -> Vec<&str> {
+    let mut pieces = Vec::new();
+    let mut start = 0;
+    for cut in block_cuts(text) {
+        pieces.push(&text[start..cut]);
+        start = cut;
+    }
+    pieces.push(&text[start..]);
+    pieces
+}
+
 /// Why `zoom` refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ZoomError {

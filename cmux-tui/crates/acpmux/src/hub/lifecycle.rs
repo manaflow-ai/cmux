@@ -220,6 +220,7 @@ impl Hub {
             ),
             crate::config::HarnessKind::Terminal => {}
         }
+        ids.extend(super::models_view::curated_ids(&self.catalog, profile, p));
         ids.dedup();
         ids
     }
@@ -284,9 +285,25 @@ impl Hub {
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
-        let existing_sid = session.meta().agent_session_id.clone();
+        let mut existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
+        // A Claude conversation that never finished a turn may not exist in
+        // Claude's store: start a fresh one rather than fail on `--resume`.
+        if is_claude
+            && fork_from.is_none()
+            && session.meta().claude_unstored
+            && let Some(sid) = existing_sid.take()
+        {
+            tracing::info!(session = %session.id, agent_session = %sid, "starting a fresh Claude conversation: the one to resume never finished a turn");
+            self.append(
+                session,
+                "mux",
+                "resume_failed",
+                json!({"error": format!("Claude conversation {sid} never finished a turn, so a fresh one starts")}),
+            );
+            session.meta.lock().unwrap().agent_session_id = None;
+        }
         let child = if is_claude {
             // Claude carries its own session in the process: resume by id, or
             // fork from a parent id into a fresh session.
@@ -461,6 +478,7 @@ impl Hub {
                     "new"
                 };
                 m.agent_session_id = sid.clone();
+                m.claude_unstored = level == "new";
                 drop(m);
                 self.write_mode_state(
                     session,
@@ -742,54 +760,6 @@ impl Hub {
         child.kill().await;
         drain.abort();
         result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
-    }
-
-    /// Every configured harness with the models known for it.
-    pub async fn models_catalog(&self) -> Value {
-        let cfg = self.config.read().await;
-        let known = self.known_models.lock().unwrap().clone();
-        let mut out = Vec::new();
-        for (name, profile) in &cfg.harnesses {
-            // A terminal harness has no models and no ACP session.
-            if profile.kind == crate::config::HarnessKind::Terminal {
-                continue;
-            }
-            let mut models: Vec<Value> = profile
-                .models
-                .iter()
-                .map(|m| declared_model_json(m, cfg.profile_meta.get(name)))
-                .collect();
-            let reported: Vec<Value> = match profile.kind {
-                crate::config::HarnessKind::ClaudeStdio => crate::claude_stdio::models()
-                    .iter()
-                    .map(|(v, n)| json!({"id": v, "name": n}))
-                    .collect(),
-                crate::config::HarnessKind::Acp => known
-                    .get(name)
-                    .map(|l| l.iter().map(|(v, n)| json!({"id": v, "name": n})).collect())
-                    .unwrap_or_default(),
-                crate::config::HarnessKind::Terminal => Vec::new(),
-            };
-            for r in reported {
-                if !models.iter().any(|m| m["id"] == r["id"]) {
-                    models.push(r);
-                }
-            }
-            if models.is_empty() {
-                models.push(json!({"id": "default", "name": "default (agent's choice)"}));
-            }
-            super::model_availability::mark_unavailable(
-                &mut models,
-                name,
-                &self.refused_models.lock().unwrap(),
-            );
-            let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
-            if let Some(reason) = self.probe_errors.lock().unwrap().get(name) {
-                entry["probeError"] = json!(reason);
-            }
-            out.push(entry);
-        }
-        json!({"harnesses": out})
     }
 
     pub(super) fn absorb_session_response(&self, session: &Session, v: &Value) {

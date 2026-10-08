@@ -28,7 +28,8 @@ enum BrowserChordTable {
             Shortcut("["), Shortcut("]"), Shortcut(left), Shortcut(right),
             // Reload, hard reload, stop.
             Shortcut("r"), Shortcut("r", modifiers: [.command, .shift]), Shortcut("."),
-            // Address bar, new tab, reopen tab, close tab/window, new window, incognito.
+            // Address bar, new tab, reopen tab, close tab/window, new window, incognito
+            // (cmux binds Shift-Cmd-N to New Window, so the registry takes it first).
             Shortcut("l"), Shortcut("t"), Shortcut("t", modifiers: [.command, .shift]), Shortcut("w"),
             Shortcut("w", modifiers: [.command, .shift]), Shortcut("n"), Shortcut("n", modifiers: [.command, .shift]),
             // Find, find next/previous, use selection for find.

@@ -6,6 +6,9 @@
 # rd-host: clippy and tests of cmux-tui/crates/cmux-rd-host (its own workspace, so the
 # modes above never build it) on macOS, including its VideoToolbox path, without x264
 # (no libx264 on the fleet) and with the bench feature (OpenH264 from source).
+# rb-testhost: fmt, clippy and tests of cmux-tui/crates/cmux-remote-browser-testhost
+# (its own workspace), then its release binary at .build/artifacts/cmux-remote-browser-testhost
+# (macOS arm64; fetch it with --artifact) for the remote tab's GUI proofs.
 # The fleet may run cargo through cmux-ci (coordinator, 2026-10-04); a developer
 # Mac never runs it (the laptop and the minis by hand stay off limits), so
 # outside a step (CMUX_CI_STEP_KEY) it refuses. The target dir is the step's
@@ -21,7 +24,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|rd-host) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|rb-testhost [TEST_FILTER]" >&2; exit 2 ;; esac
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
@@ -78,6 +81,18 @@ if [[ "$mode" == rd-host ]]; then
   cargo fmt --check
   cargo clippy --locked --all-targets --no-default-features --features bench -- -D warnings
   cargo test --locked --no-default-features --features bench ${filter:+"$filter"}
+  exit 0
+fi
+if [[ "$mode" == rb-testhost ]]; then
+  export CARGO_TARGET_DIR="$root/.build/cmux-rb-testhost-target"
+  cd "$root/cmux-tui/crates/cmux-remote-browser-testhost"
+  cargo fmt --check
+  cargo clippy --locked --all-targets -- -D warnings
+  cargo test --locked ${filter:+"$filter"}
+  cargo build --locked --release
+  mkdir -p "$root/.build/artifacts"
+  cp "$CARGO_TARGET_DIR/release/cmux-remote-browser-testhost" "$root/.build/artifacts/cmux-remote-browser-testhost"
+  ls -l "$root/.build/artifacts/cmux-remote-browser-testhost"
   exit 0
 fi
 if [[ "$mode" == fmt || "$mode" == all ]]; then

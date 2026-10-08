@@ -10,13 +10,13 @@ use std::sync::{Arc, RwLock};
 
 use cmux_link::dial::{CloudEventRequest, MAX_LINE_BYTES, ReloadRequest, parse_line};
 use cmux_link::owner_session::OwnerSession;
-use cmux_link::pairing::Pairings;
+use cmux_link::pairing::{PairingRecord, Pairings};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
 use super::cloud::{CloudResolver, ConnectInfoSource, apply_cloud_event};
 use super::dial::{Overlay, serve_dial_line};
-use super::inbound::{InboundRefused, serve_inbound_watched};
+use super::inbound::{InboundRefused, OpenOwnerSessions, Revocations, serve_inbound_watched};
 use super::lines::read_line;
 
 /// The paired peers, re-read from their file on `link.reload`.
@@ -25,31 +25,50 @@ pub(super) struct Peers {
     current: RwLock<Arc<Pairings>>,
     /// Every new view, for open owner sessions (revocation closes them).
     changes: tokio::sync::watch::Sender<Arc<Pairings>>,
+    /// Open owner sessions, which a reload closes before it removes a peer.
+    open_owner: Arc<OpenOwnerSessions>,
 }
+
+/// How long a reload waits for revoked owner sessions to close before it
+/// removes their WireGuard peers anyway.
+const REVOKE_CLOSE_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
 
 impl Peers {
     pub(super) fn load(path: PathBuf) -> io::Result<Self> {
         let loaded = Arc::new(Pairings::load(&path)?);
         let (changes, _) = tokio::sync::watch::channel(loaded.clone());
-        Ok(Self { path, current: RwLock::new(loaded), changes })
+        Ok(Self { path, current: RwLock::new(loaded), changes, open_owner: Arc::default() })
     }
 
-    /// A receiver of every new pairing view.
-    pub(super) fn watch(&self) -> tokio::sync::watch::Receiver<Arc<Pairings>> {
-        self.changes.subscribe()
+    /// What an owner session served now watches for revocation.
+    pub(super) fn revocations(&self) -> Revocations {
+        Revocations { view: self.changes.subscribe(), open: self.open_owner.clone() }
     }
 
     pub(super) fn snapshot(&self) -> Arc<Pairings> {
         self.current.read().unwrap().clone()
     }
 
-    /// Re-read the file and apply it to the overlay; the new view takes
-    /// effect only after the overlay accepted it.
-    async fn reload<O: Overlay>(&self, overlay: &O) -> io::Result<()> {
+    /// Re-read the file and apply it. Open owner sessions see the new view
+    /// first, and those of removed keys close while their WireGuard peers
+    /// still exist (bounded), so their close reaches the dialing side; then
+    /// the overlay drops the peers and the view becomes current.
+    pub(super) async fn reload<O: Overlay>(&self, overlay: &O) -> io::Result<()> {
         let fresh = Arc::new(Pairings::load(&self.path)?);
+        let removed: Vec<[u8; 32]> = self
+            .snapshot()
+            .peers
+            .iter()
+            .filter_map(PairingRecord::key)
+            .filter(|key| fresh.by_key(key).is_none())
+            .collect();
+        self.changes.send_replace(fresh.clone());
+        if !removed.is_empty() {
+            let _ =
+                tokio::time::timeout(REVOKE_CLOSE_BUDGET, self.open_owner.closed(&removed)).await;
+        }
         overlay.sync_peers(&fresh).await?;
-        *self.current.write().unwrap() = fresh.clone();
-        self.changes.send_replace(fresh);
+        *self.current.write().unwrap() = fresh;
         Ok(())
     }
 }
@@ -133,7 +152,7 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
         let Some(session_socket) = session_socket.clone() else { continue };
         let pairings = peers.snapshot();
         let owner = owner.clone();
-        let revocations = peers.watch();
+        let revocations = peers.revocations();
         tokio::spawn(async move {
             let served = serve_inbound_watched(
                 stream,

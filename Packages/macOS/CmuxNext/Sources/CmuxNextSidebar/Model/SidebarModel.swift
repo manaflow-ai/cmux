@@ -48,12 +48,25 @@ public final class SidebarModel {
         transientTopItems.isEmpty ? nil : LayoutSection(id: LayoutSectionID(LayoutItemID.transientPrefix + "top"), showsTitle: false,
                                                         region: .top, look: .builtIn, items: transientTopItems.map(\.item))
     }
+    /// The current profile's avatar: the account item draws it as the
+    /// profile control (`resolvedItemInfo`; SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
+    public var profileAvatar: SidebarAvatar?
     /// Apps whose sections and items draw nothing (installed but hidden or
     /// disabled, D55); the App fills it from its one presence rule
     /// (`AppsService.presence`). The layout keeps their places.
     public var suppressedApps: Set<String> = []
     /// Collapsed titled sections: client view state, saved with the window.
-    public var collapsedLayoutSections: Set<LayoutSectionID> = []
+    public var collapsedLayoutSections: Set<LayoutSectionID> = [] {
+        didSet { if collapsedLayoutSections != oldValue { onCollapsedLayoutSectionsChange?(collapsedLayoutSections) } }
+    }
+    /// Told the new set when a layout section collapses or expands (the App saves it).
+    @ObservationIgnored public var onCollapsedLayoutSectionsChange: ((Set<LayoutSectionID>) -> Void)?
+    /// Collapsed top-level sections (Pinned, a machine): client view state,
+    /// never sent to a daemon. `setSections` and the section toggle keep
+    /// each section's `isCollapsed` equal to it, so the live remap of the
+    /// daemon's rows does not expand a section the user collapsed; the
+    /// window's sidebar snapshot saves it for the next launch.
+    public var collapsedSections: Set<SectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
     /// The card stack above the bottom band (R114): update, announcements.
@@ -61,6 +74,14 @@ public final class SidebarModel {
     /// The staged update card above the footer (UPDATE-CARD): set by the App
     /// only while an update is staged or installing; nil shows nothing.
     public var updateCard: SidebarUpdateCard?
+    /// The window shows a full-page destination: the footer band shows Back
+    /// (`onBack`) in its place.
+    public var showsBack = false
+    /// Back in the footer: return to where the window was.
+    @ObservationIgnored public var onBack: (() -> Void)?
+    /// The "Did you know" card (BOTTOM-LEFT-CARDS K1), shown only while
+    /// ``updateCard`` is nil.
+    public var tipCard: SidebarTipCard?
     /// A card's click, button or dismiss.
     @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
@@ -101,6 +122,7 @@ public final class SidebarModel {
 
     public init(sections: [SidebarSection] = [], activeWorkspaceID: WorkspaceID? = nil) {
         self.sections = sections
+        collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id))
         self.activeWorkspaceID = activeWorkspaceID
         if let activeWorkspaceID { selection = [activeWorkspaceID] }
     }
@@ -165,12 +187,16 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink:
+        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .dropOnLayoutSection, .tryTip, .dismissTip:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
         case let .toggleLayoutSection(id):
             if collapsedLayoutSections.remove(id) == nil { collapsedLayoutSections.insert(id) }
+        case let .toggleCollapse(.section(id)):
+            let collapse = !(section(id)?.isCollapsed ?? collapsedSections.contains(id))
+            if collapse { collapsedSections.insert(id) } else { collapsedSections.remove(id) }
+            setSections(sections)
         case let .reorderProfile(id, index):
             guard let from = profiles.firstIndex(where: { $0.id == id }),
                   let to = ProfileBarLogic.finalIndex(from: from, insertion: index, count: profiles.count) else { return }
@@ -182,6 +208,17 @@ public final class SidebarModel {
         default:
             SidebarEdits.apply(intent, to: &sections)
         }
+    }
+
+    /// Shows `new` (the App's mapping of daemon state) with this window's
+    /// collapsed sections applied; assigns only when something changed.
+    public func setSections(_ new: [SidebarSection]) {
+        var shown = new
+        for index in shown.indices {
+            let collapsed = collapsedSections.contains(shown[index].id)
+            if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
+        }
+        if sections != shown { sections = shown }
     }
 
     /// Clears closed workspaces from the selection and picks a new active one.

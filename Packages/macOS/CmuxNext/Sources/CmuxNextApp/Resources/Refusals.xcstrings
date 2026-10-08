@@ -3276,268 +3276,6 @@
         }
       }
     },
-    "handlers.refusal.markUnreadUnsupported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs daemon capability %@ (only marking read is supported)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デーモン機能 %@ が必要です(既読にする操作のみ対応しています)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب قدرة الخدمة %@ (التعليم كمقروء فقط مدعوم)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potrebna je mogućnost daemona %@ (podržano je samo označavanje kao pročitano)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver dæmonfunktionen %@ (kun markering som læst understøttes)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert die Daemon-Fähigkeit %@ (nur „als gelesen markieren“ wird unterstützt)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere la capacidad del daemon %@ (solo se admite marcar como leída)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite la capacité daemon %@ (seul le marquage comme lu est pris en charge)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede la funzionalità del daemon %@ (è supportato solo segnare come letto)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការសមត្ថភាព daemon %@ (គាំទ្រតែការសម្គាល់ថាបានអានប៉ុណ្ណោះ)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "데몬 기능 %@이(가) 필요함(읽음으로 표시만 지원됨)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever daemonfunksjonen %@ (bare merking som lest støttes)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga funkcji demona %@ (obsługiwane jest tylko oznaczanie jako przeczytane)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer a capacidade do daemon %@ (só é possível marcar como lida)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна возможность демона %@ (поддерживается только отметка о прочтении)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้ความสามารถ daemon %@ (รองรับเฉพาะการทำเครื่องหมายว่าอ่านแล้ว)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "arka plan hizmeti yeteneği gerekiyor: %@ (yalnızca okundu işaretleme destekleniyor)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна можливість демона %@ (підтримується лише позначення прочитаним)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần khả năng daemon %@ (chỉ hỗ trợ đánh dấu đã đọc)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要守护进程能力 %@（仅支持标记为已读）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要背景程式功能 %@（僅支援標記為已讀）"
-          }
-        }
-      }
-    },
-    "handlers.refusal.moveColumnUnsupported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs daemon capability %1$@ (the column has %2$lld panes; swap-pane moves one)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デーモン機能 %1$@ が必要です(この列には %2$lld 個のペインがあります。swap-pane は 1 つだけ移動します)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب قدرة الخدمة %1$@ (يحتوي العمود على أجزاء عددها %2$lld؛ ينقل swap-pane جزءًا واحدًا)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potrebna je mogućnost daemona %1$@ (broj panela u koloni: %2$lld; swap-pane premješta jedan)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver dæmonfunktionen %1$@ (kolonnen har %2$lld ruder; swap-pane flytter én)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert die Daemon-Fähigkeit %1$@ (die Spalte hat %2$lld Teilfenster; swap-pane bewegt eines)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere la capacidad del daemon %1$@ (la columna tiene %2$lld paneles; swap-pane mueve uno)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite la capacité daemon %1$@ (la colonne a %2$lld volets ; swap-pane en déplace un)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede la funzionalità del daemon %1$@ (la colonna ha %2$lld pannelli; swap-pane ne sposta uno)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការសមត្ថភាព daemon %1$@ (ជួរឈរមានផ្ទាំង %2$lld; swap-pane ផ្លាស់ម្ដងមួយ)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "데몬 기능 %1$@이(가) 필요함(이 열에는 분할 창이 %2$lld개 있으며, swap-pane은 하나만 이동함)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever daemonfunksjonen %1$@ (kolonnen har %2$lld ruter; swap-pane flytter én)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga funkcji demona %1$@ (kolumna zawiera paneli: %2$lld; swap-pane przenosi jeden)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer a capacidade do daemon %1$@ (a coluna tem %2$lld painéis; swap-pane move um)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна возможность демона %1$@ (панелей в столбце: %2$lld; swap-pane перемещает одну)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้ความสามารถ daemon %1$@ (คอลัมน์มีบานหน้าต่าง %2$lld บาน แต่ swap-pane ย้ายได้ทีละบาน)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "arka plan hizmeti yeteneği gerekiyor: %1$@ (sütunda %2$lld bölme var; swap-pane birini taşır)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна можливість демона %1$@ (у стовпці панелей: %2$lld; swap-pane переміщує одну)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần khả năng daemon %1$@ (cột có %2$lld khung; swap-pane chỉ di chuyển một)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要守护进程能力 %1$@（该列有 %2$lld 个窗格；swap-pane 只移动一个）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要背景程式功能 %1$@（此欄有 %2$lld 個窗格；swap-pane 只會移動一個）"
-          }
-        }
-      }
-    },
     "handlers.refusal.nameArgumentRequired": {
       "extractionState": "manual",
       "localizations": {
@@ -3665,268 +3403,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "需要 name 引數"
-          }
-        }
-      }
-    },
-    "handlers.refusal.needsAppCapability": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs app capability %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アプリ機能 %@ が必要です"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب قدرة التطبيق %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potrebna je mogućnost aplikacije %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver appfunktionen %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert die App-Fähigkeit %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere la capacidad de la app %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite la capacité app %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede la funzionalità dell’app %@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការសមត្ថភាពកម្មវិធី %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "앱 기능 %@이(가) 필요함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever appfunksjonen %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga funkcji aplikacji %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer a capacidade do app %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна возможность приложения %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้ความสามารถแอป %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "uygulama yeteneği gerekiyor: %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна можливість програми %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần khả năng ứng dụng %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要应用能力 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 App 功能 %@"
-          }
-        }
-      }
-    },
-    "handlers.refusal.needsDaemonCapability": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs daemon capability %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デーモン機能 %@ が必要です"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب قدرة الخدمة %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potrebna je mogućnost daemona %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver dæmonfunktionen %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert die Daemon-Fähigkeit %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere la capacidad del daemon %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite la capacité daemon %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede la funzionalità del daemon %@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការសមត្ថភាព daemon %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "데몬 기능 %@이(가) 필요함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever daemonfunksjonen %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga funkcji demona %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer a capacidade do daemon %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна возможность демона %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้ความสามารถ daemon %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "arka plan hizmeti yeteneği gerekiyor: %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна можливість демона %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần khả năng daemon %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要守护进程能力 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要背景程式功能 %@"
           }
         }
       }
@@ -11787,137 +11263,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此分頁不是網頁。"
-          }
-        }
-      }
-    },
-    "handlers.refusal.updateCloudMachine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "update this Cloud machine to use this (its cmux-tui lacks %@)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "حدّث جهاز Cloud هذا لاستخدام هذه الميزة (يفتقر cmux-tui فيه إلى %@)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ažurirajte ovu Cloud mašinu da biste ovo koristili (njenom cmux-tui nedostaje %@)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "opdater denne Cloud-maskine for at bruge dette (dens cmux-tui mangler %@)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "aktualisiere diese Cloud-Maschine, um das zu nutzen (ihrem cmux-tui fehlt %@)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "actualiza esta máquina de Cloud para usar esto (a su cmux-tui le falta %@)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "mettez à jour cette machine Cloud pour utiliser ceci (son cmux-tui n'a pas %@)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "aggiorna questa macchina Cloud per usarlo (al suo cmux-tui manca %@)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "これを使うにはこの Cloud マシンをアップデートしてください (cmux-tui に %@ がありません)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន Cloud នេះ ដើម្បីប្រើមុខងារនេះ (cmux-tui របស់វាខ្វះ %@)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 기능을 쓰려면 이 Cloud 머신을 업데이트하세요 (cmux-tui에 %@이(가) 없음)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "oppdater denne Cloud-maskinen for å bruke dette (dens cmux-tui mangler %@)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "zaktualizuj tę maszynę Cloud, aby tego użyć (jej cmux-tui nie ma %@)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "atualize esta máquina do Cloud para usar isto (falta %@ no cmux-tui dela)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "обновите эту машину Cloud, чтобы использовать это (в её cmux-tui нет %@)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อัปเดตเครื่อง Cloud นี้เพื่อใช้ฟีเจอร์นี้ (cmux-tui ของเครื่องไม่มี %@)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "bunu kullanmak için bu Cloud makinesini güncelleyin (cmux-tui'sinde %@ yok)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "оновіть цю машину Cloud, щоб скористатися цим (у її cmux-tui немає %@)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "hãy cập nhật máy Cloud này để dùng tính năng này (cmux-tui của máy thiếu %@)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "请更新此 Cloud 机器以使用此功能（其 cmux-tui 缺少 %@）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "請更新此 Cloud 機器以使用此功能（其 cmux-tui 缺少 %@）"
           }
         }
       }
@@ -21353,6 +20698,1316 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法關閉首頁。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.personOnlyFromPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only you can start this, with a click or key in the page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作は、ページ内でのクリックまたはキー操作によってのみ開始できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكنك وحدك بدء هذا، بنقرة أو بضغطة مفتاح في الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo vi ovo možete pokrenuti, klikom ili tipkom na stranici."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun du kan starte dette med et klik eller en tast på siden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur Sie können dies starten, mit einem Klick oder einer Taste auf der Seite."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tú puedes iniciar esto, con un clic o una tecla en la página."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vous seul pouvez lancer cette action, par un clic ou une touche dans la page."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tu puoi avviarlo, con un clic o un tasto nella pagina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែអ្នកប៉ុណ្ណោះដែលអាចចាប់ផ្ដើមវា ដោយចុច ឬប្រើគ្រាប់ចុចនៅក្នុងទំព័រ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지에서 클릭하거나 키를 눌러야만 시작할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare du kan starte dette, med et klikk eller en tast på siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko Ty możesz to uruchomić, klikając lub naciskając klawisz na stronie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só você pode iniciar isso, com um clique ou uma tecla na página."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустить это можете только вы — щелчком или нажатием клавиши на странице."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงคุณเท่านั้นที่เริ่มสิ่งนี้ได้ ด้วยการคลิกหรือกดแป้นในหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunu yalnızca siz, sayfada bir tıklama veya tuşla başlatabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустити це можете лише ви — клацанням або натисканням клавіші на сторінці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ bạn mới có thể bắt đầu việc này, bằng một cú nhấp hoặc phím trong trang."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你能通过在页面中点击或按键来开始此操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你能透過在頁面中點按或按鍵來開始此操作。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.proxiedTabStaysInChromium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab shows a cloud machine's localhost through its proxy, so it stays in Chromium."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض علامة التبويب هذه localhost لجهاز سحابي عبر الوكيل الخاص به، لذا تبقى في Chromium."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj tab prikazuje localhost cloud mašine preko njenog proxyja, pa ostaje u Chromiumu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fane viser en cloudmaskines localhost via dens proxy, så den bliver i Chromium."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Tab zeigt den localhost einer Cloud-Maschine über deren Proxy und bleibt deshalb in Chromium."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pestaña muestra el localhost de una máquina en la nube a través de su proxy, así que se queda en Chromium."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet affiche le localhost d’une machine cloud via son proxy, il reste donc dans Chromium."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa scheda mostra il localhost di una macchina cloud tramite il suo proxy, quindi resta in Chromium."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはクラウドマシンの localhost をプロキシ経由で表示しているため、Chromium のままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថេបនេះបង្ហាញ localhost របស់ម៉ាស៊ីនក្លោដតាមរយៈ proxy របស់វា ដូច្នេះវានៅក្នុង Chromium។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭은 프록시를 통해 클라우드 머신의 localhost를 표시하므로 Chromium에 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanen viser localhost på en skymaskin via proxyen, så den blir i Chromium."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta karta pokazuje localhost maszyny w chmurze przez jej proxy, więc pozostaje w Chromium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta aba mostra o localhost de uma máquina na nuvem pelo proxy dela, então ela continua no Chromium."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта вкладка показывает localhost облачной машины через её прокси, поэтому остаётся в Chromium."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บนี้แสดง localhost ของเครื่องคลาวด์ผ่านพร็อกซีของเครื่องนั้น จึงอยู่ใน Chromium ต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekme bir bulut makinesinin localhost'unu proxy'si üzerinden gösterir, bu yüzden Chromium'da kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця вкладка показує localhost хмарної машини через її проксі, тому залишається в Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab này hiển thị localhost của máy đám mây qua proxy của máy đó, nên nó vẫn ở trong Chromium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此标签页通过代理显示云机器的 localhost，因此保留在 Chromium 中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分頁透過代理伺服器顯示雲端機器的 localhost，因此保留在 Chromium 中。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.restartToUpdateDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’s background service is out of date. Quit and reopen cmux to update it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خدمة cmux في الخلفية قديمة. أغلق cmux وافتحه من جديد لتحديثها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadinski servis za cmux je zastario. Zatvorite i ponovo otvorite cmux da ga ažurirate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux’ baggrundstjeneste er forældet. Afslut og åbn cmux igen for at opdatere den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Hintergrunddienst von cmux ist veraltet. Beende cmux und öffne es erneut, um ihn zu aktualisieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El servicio en segundo plano de cmux está desactualizado. Cierra y vuelve a abrir cmux para actualizarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le service d’arrière-plan de cmux est obsolète. Quittez puis rouvrez cmux pour le mettre à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il servizio in background di cmux non è aggiornato. Esci e riapri cmux per aggiornarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のバックグラウンドサービスが古くなっています。cmux を終了して再度開くと更新されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សេវាផ្ទៃខាងក្រោយរបស់ cmux ហួសសម័យ។ បិទ ហើយបើក cmux ម្តងទៀត ដើម្បីធ្វើបច្ចុប្បន្នភាពវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 백그라운드 서비스가 오래되었습니다. cmux를 종료한 후 다시 열면 업데이트됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunnstjenesten til cmux er utdatert. Avslutt og åpne cmux på nytt for å oppdatere den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usługa w tle cmux jest nieaktualna. Zamknij i ponownie otwórz cmux, aby ją zaktualizować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O serviço em segundo plano do cmux está desatualizado. Feche e abra o cmux novamente para atualizá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фоновая служба cmux устарела. Закройте и снова откройте cmux, чтобы обновить её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บริการเบื้องหลังของ cmux ล้าสมัย ปิดแล้วเปิด cmux ใหม่เพื่ออัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux arka plan hizmeti güncel değil. Güncellemek için cmux’tan çıkıp yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фонова служба cmux застаріла. Закрийте й знову відкрийте cmux, щоб оновити її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dịch vụ nền của cmux đã cũ. Hãy thoát và mở lại cmux để cập nhật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的后台服务已过时。退出并重新打开 cmux 即可更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的背景服務已過時。結束並重新開啟 cmux 即可更新。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.notInThisVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not available in this version of cmux yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير متاح في هذا الإصدار من cmux بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još nije dostupno u ovoj verziji cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endnu ikke tilgængelig i denne version af cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In dieser Version von cmux noch nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no está disponible en esta versión de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pas encore disponible dans cette version de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non ancora disponibile in questa versione di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux のバージョンではまだ利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់មាននៅក្នុងកំណែ cmux នេះនៅឡើយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 버전의 cmux에서는 아직 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilgjengelig i denne versjonen av cmux ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeszcze niedostępne w tej wersji cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não disponível nesta versão do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока недоступно в этой версии cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่พร้อมใช้งานใน cmux เวอร์ชันนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux’un bu sürümünde henüz kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки недоступно в цій версії cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa có trong phiên bản cmux này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 尚不支持。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 尚不支援。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.daemonConnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is still starting its background service. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال cmux يبدأ خدمته في الخلفية. حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux još pokreće svoj pozadinski servis. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux starter stadig sin baggrundstjeneste. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux startet noch seinen Hintergrunddienst. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux todavía está iniciando su servicio en segundo plano. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux démarre encore son service d’arrière-plan. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux sta ancora avviando il servizio in background. Riprova tra un momento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はバックグラウンドサービスを起動中です。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux កំពុងចាប់ផ្តើមសេវាផ្ទៃខាងក្រោយរបស់វា។ សូមព្យាយាមម្តងទៀតក្នុងពេលបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 아직 백그라운드 서비스를 시작하는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux starter fortsatt bakgrunnstjenesten. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux wciąż uruchamia usługę w tle. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux ainda está iniciando o serviço em segundo plano. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ещё запускает фоновую службу. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux กำลังเริ่มบริการเบื้องหลัง โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux arka plan hizmetini hâlâ başlatıyor. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ще запускає фонову службу. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux vẫn đang khởi động dịch vụ nền. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 仍在启动后台服务。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 仍在啟動背景服務。請稍後再試。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.personalStateLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spaces and workspace groups are still loading. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تزال المساحات ومجموعات مساحات العمل قيد التحميل. حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prostori i grupe radnih prostora se još učitavaju. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rum og arbejdsområdegrupper indlæses stadig. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spaces und Arbeitsbereichsgruppen werden noch geladen. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los espacios y grupos de espacios de trabajo aún se están cargando. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les espaces et groupes d’espaces de travail se chargent encore. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spazi e gruppi di aree di lavoro sono ancora in caricamento. Riprova tra un momento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スペースとワークスペースグループを読み込み中です。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លំហ និងក្រុមកន្លែងធ្វើការកំពុងផ្ទុកនៅឡើយ។ សូមព្យាយាមម្តងទៀតក្នុងពេលបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스페이스와 워크스페이스 그룹을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rom og arbeidsområdegrupper lastes fortsatt inn. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przestrzenie i grupy obszarów roboczych wciąż się wczytują. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaços e grupos de espaços de trabalho ainda estão carregando. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пространства и группы рабочих областей ещё загружаются. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังโหลดพื้นที่และกลุ่มพื้นที่ทำงาน โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alanlar ve çalışma alanı grupları hâlâ yükleniyor. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Простори й групи робочих областей ще завантажуються. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian và nhóm không gian làm việc vẫn đang tải. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "空间和工作区分组仍在加载。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "空間和工作區群組仍在載入。請稍後再試。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.updateCloudMachineCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on this Cloud machine to use this."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّث cmux على جهاز Cloud هذا لاستخدام هذه الميزة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažurirajte cmux na ovoj Cloud mašini da biste ovo koristili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdater cmux på denne Cloud-maskine for at bruge dette."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualisiere cmux auf dieser Cloud-Maschine, um dies zu nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actualiza cmux en esta máquina Cloud para usar esto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettez à jour cmux sur cette machine Cloud pour utiliser cette fonction."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiorna cmux su questa macchina Cloud per usare questa funzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この機能を使うには、この Cloud マシンの cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux នៅលើម៉ាស៊ីន Cloud នេះ ដើម្បីប្រើមុខងារនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 기능을 사용하려면 이 Cloud 머신의 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdater cmux på denne Cloud-maskinen for å bruke dette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaktualizuj cmux na tej maszynie Cloud, aby z tego korzystać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atualize o cmux nesta máquina Cloud para usar isto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновите cmux на этой машине Cloud, чтобы использовать это."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดต cmux บนเครื่อง Cloud นี้เพื่อใช้ฟีเจอร์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunu kullanmak için bu Cloud makinesindeki cmux’u güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновіть cmux на цій машині Cloud, щоб користуватися цим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy cập nhật cmux trên máy Cloud này để dùng tính năng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请更新此 Cloud 机器上的 cmux 以使用此功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請更新此 Cloud 機器上的 cmux 以使用此功能。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.markUnreadNotAvailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marking as unread is not available yet. Only marking as read is."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التعليم كغير مقروء غير متاح بعد. يتوفر التعليم كمقروء فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Označavanje kao nepročitano još nije dostupno. Dostupno je samo označavanje kao pročitano."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markering som ulæst er endnu ikke tilgængelig. Kun markering som læst er."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Als ungelesen markieren ist noch nicht verfügbar. Nur als gelesen markieren geht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marcar como no leído aún no está disponible. Solo se puede marcar como leído."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marquer comme non lu n’est pas encore disponible. Seul marquer comme lu l’est."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Segnare come non letto non è ancora disponibile. Si può solo segnare come letto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読にする操作はまだ利用できません。既読にする操作のみ利用できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសម្គាល់ថាមិនទាន់អានមិនទាន់មាននៅឡើយ។ មានតែការសម្គាល់ថាបានអានប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "읽지 않음으로 표시는 아직 사용할 수 없습니다. 읽음으로 표시만 가능합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Merking som ulest er ikke tilgjengelig ennå. Bare merking som lest er det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznaczanie jako nieprzeczytane nie jest jeszcze dostępne. Można tylko oznaczyć jako przeczytane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marcar como não lido ainda não está disponível. Só é possível marcar como lido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пометка как непрочитанного пока недоступна. Доступна только пометка как прочитанного."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังทำเครื่องหมายว่ายังไม่อ่านไม่ได้ ทำได้เฉพาะทำเครื่องหมายว่าอ่านแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okunmadı olarak işaretleme henüz kullanılamıyor. Yalnızca okundu olarak işaretleme var."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позначення як непрочитаного поки недоступне. Доступне лише позначення як прочитаного."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa thể đánh dấu là chưa đọc. Chỉ có thể đánh dấu là đã đọc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂不支持标记为未读，只能标记为已读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫不支援標示為未讀，只能標示為已讀。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.moveColumnNotAvailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moving a whole column is not available yet. This column has %lld panes; move them one at a time."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل عمود كامل غير متاح بعد. يحتوي هذا العمود على %lld من الأجزاء؛ انقلها واحدًا تلو الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premještanje cijele kolone još nije dostupno. Ova kolona ima %lld okna; premjestite ih jedno po jedno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytning af en hel kolonne er endnu ikke tilgængelig. Denne kolonne har %lld ruder; flyt dem én ad gangen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine ganze Spalte zu verschieben ist noch nicht verfügbar. Diese Spalte hat %lld Bereiche; verschiebe sie einzeln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover una columna entera aún no está disponible. Esta columna tiene %lld paneles; muévelos de uno en uno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacer une colonne entière n’est pas encore disponible. Cette colonne a %lld volets ; déplacez-les un par un."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spostare un’intera colonna non è ancora disponibile. Questa colonna ha %lld riquadri; spostali uno alla volta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列全体の移動はまだ利用できません。この列には %lld 個のペインがあります。1 つずつ移動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការផ្លាស់ទីជួរឈរទាំងមូលមិនទាន់មាននៅឡើយ។ ជួរឈរនេះមានផ្ទាំង %lld សូមផ្លាស់ទីម្តងមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "열 전체 이동은 아직 사용할 수 없습니다. 이 열에는 패널이 %lld개 있으니 하나씩 옮기세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytting av en hel kolonne er ikke tilgjengelig ennå. Denne kolonnen har %lld ruter; flytt dem én om gangen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenoszenie całej kolumny nie jest jeszcze dostępne. Ta kolumna ma %lld paneli; przenoś je po jednym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover uma coluna inteira ainda não está disponível. Esta coluna tem %lld painéis; mova-os um de cada vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемещение целого столбца пока недоступно. В этом столбце панелей: %lld; перемещайте их по одной."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังย้ายทั้งคอลัมน์ไม่ได้ คอลัมน์นี้มี %lld บานหน้าต่าง ให้ย้ายทีละบาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bütün bir sütunu taşımak henüz kullanılamıyor. Bu sütunda %lld bölme var; bunları tek tek taşıyın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переміщення цілого стовпця поки недоступне. У цьому стовпці панелей: %lld; переміщуйте їх по одній."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa thể di chuyển cả cột. Cột này có %lld ngăn; hãy di chuyển từng ngăn một."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂不支持移动整列。此列有 %lld 个窗格，请逐个移动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫不支援移動整欄。此欄有 %lld 個窗格，請逐一移動。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.daemonUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start its background service. Quit and reopen cmux to try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux بدء خدمته في الخلفية. أغلق cmux وافتحه من جديد للمحاولة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao pokrenuti svoj pozadinski servis. Zatvorite i ponovo otvorite cmux da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke starte sin baggrundstjeneste. Afslut og åbn cmux igen for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte seinen Hintergrunddienst nicht starten. Beende cmux und öffne es erneut, um es noch einmal zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo iniciar su servicio en segundo plano. Cierra y vuelve a abrir cmux para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’a pas pu démarrer son service d’arrière-plan. Quittez puis rouvrez cmux pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito ad avviare il servizio in background. Esci e riapri cmux per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はバックグラウンドサービスを起動できませんでした。cmux を終了して再度開き、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចចាប់ផ្តើមសេវាផ្ទៃខាងក្រោយរបស់វាបានទេ។ បិទ ហើយបើក cmux ម្តងទៀត ដើម្បីព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 백그라운드 서비스를 시작하지 못했습니다. cmux를 종료한 후 다시 열어 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke starte bakgrunnstjenesten. Avslutt og åpne cmux på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł uruchomić usługi w tle. Zamknij i ponownie otwórz cmux, aby spróbować jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu iniciar o serviço em segundo plano. Feche e abra o cmux novamente para tentar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не удалось запустить фоновую службу. Закройте и снова откройте cmux, чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เริ่มบริการเบื้องหลังไม่ได้ ปิดแล้วเปิด cmux ใหม่เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux arka plan hizmetini başlatamadı. Yeniden denemek için cmux’tan çıkıp yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не вдалося запустити фонову службу. Закрийте й знову відкрийте cmux, щоб спробувати ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể khởi động dịch vụ nền. Hãy thoát và mở lại cmux để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法启动后台服务。请退出并重新打开 cmux 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法啟動背景服務。請結束並重新開啟 cmux 後再試。"
           }
         }
       }

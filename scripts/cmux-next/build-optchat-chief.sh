@@ -113,7 +113,9 @@ for target in "${targets[@]}"; do
     target_dir="$(fleet_rust_target_dir chief "$target" "$repo_root/cmux-tui")"
     mkdir -p "$target_dir"
   fi
-  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" CARGO_TARGET_DIR="$target_dir" \
+  # An app build never ships the inspector's placeholder page: build.rs fails
+  # when the page was not built (build-web-bundles.sh runs before this).
+  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$target_dir" \
     cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
   slice="$target_dir/$target/release/optchat-chief"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }

@@ -663,6 +663,9 @@ mod unix {
         extra_env: Vec<(String, String)>,
         default_colors: DefaultColors,
         kitty_graphics_limits: KittyGraphicsLimits,
+        /// VT replay applied to the host's parser before the child's first
+        /// byte (cx-6so.49 L2 respawn); an optional trailing blob.
+        seed: Vec<u8>,
     }
 
     impl HostLaunch {
@@ -704,6 +707,9 @@ mod unix {
             if output.len() > MAX_LAUNCH_PAYLOAD {
                 anyhow::bail!("terminal-host launch payload is too large");
             }
+            if !self.seed.is_empty() {
+                put_blob(&mut output, &self.seed)?;
+            }
             Ok(output)
         }
 
@@ -735,6 +741,8 @@ mod unix {
             let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
             pty_size(cols, rows, cell_pixels)?;
             let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
+            anyhow::ensure!(decoder.offset <= MAX_LAUNCH_PAYLOAD, "launch is too large");
+            let seed = if decoder.has_remaining() { decoder.blob()?.to_vec() } else { Vec::new() };
             decoder.finish()?;
             Ok(Self {
                 endpoint,
@@ -749,6 +757,7 @@ mod unix {
                 extra_env,
                 default_colors,
                 kitty_graphics_limits,
+                seed,
             })
         }
     }
@@ -862,6 +871,7 @@ mod unix {
     mod clipboard_read;
     mod control_responses;
     mod exited_drain;
+    mod host_accept;
     mod host_parser;
     mod host_scope;
     mod host_signals;
@@ -880,8 +890,12 @@ mod unix {
     use host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use host_start::HostChild;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
+    pub(crate) use pty_custody::{live_successor_record, record_owner_token};
+    pub(crate) use pty_lock::sweep_released_pty_locks;
     use renderer_grant::ControlRequestUnanswered;
-    pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
+    pub(crate) use standby::{
+        StandbyTerminalHost, launch_terminal_host_from, launch_terminal_host_seeded,
+    };
 
     pub(crate) struct InputAckReceipt {
         request_id: u64,
@@ -964,6 +978,8 @@ mod unix {
         /// launch barrier. A launcher releases it after committing topology;
         /// an adopter releases an abandoned barrier after validating the host.
         launch_activation_pending: bool,
+        /// The owner's copy of this host's PTY master (`pty_custody.rs`).
+        pty_custody: Option<PtyCustody>,
     }
 
     impl std::fmt::Debug for HostAttachment {
@@ -2642,6 +2658,7 @@ mod unix {
             viewer_size: Mutex::new(Some(snapshot_size)),
             launch_process: None,
             launch_activation_pending,
+            pty_custody: None,
         };
         attachment.release_viewer_size()?;
         Ok(attachment)
@@ -4855,6 +4872,7 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
+        let mut backoff = host_accept::AcceptBackoff::new();
         loop {
             let now = Instant::now();
             if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -4875,18 +4893,10 @@ mod unix {
                 break;
             }
             match listener.accept() {
-                Ok((stream, _)) => {
-                    // Accepted sockets inherit O_NONBLOCK from the listener
-                    // on macOS. Client protocol threads use blocking framed
-                    // reads, so normalize the accepted descriptor here.
-                    stream.set_nonblocking(false)?;
-                    let host = shared.clone();
-                    thread::Builder::new().name("terminal-host-client".into()).spawn(
-                        move || {
-                            let _ = serve_client(host, stream);
-                        },
-                    )?;
-                }
+                Ok((stream, _)) => match host_accept::serve_accepted(&shared, stream) {
+                    Ok(()) => backoff.reset(),
+                    Err(error) => backoff.after_error(&shared, &error),
+                },
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     // Block until an attachment arrives or the accept waker
                     // reports a lifecycle change (terminal exit, last client
@@ -4913,15 +4923,24 @@ mod unix {
                     if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
                         let error = std::io::Error::last_os_error();
                         if error.kind() != std::io::ErrorKind::Interrupted {
-                            return Err(error.into());
+                            backoff.after_error(&shared, &error);
                         }
+                    } else {
+                        // The listener drained without error: a later error
+                        // starts a new streak.
+                        backoff.reset();
                     }
                     if fds[1].revents != 0 {
                         shared.accept_waker.drain();
                     }
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(error.into()),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
+                    ) => {}
+                // EMFILE, ENFILE, ENOBUFS, ENOMEM: never end the shell.
+                Err(error) => backoff.after_error(&shared, &error),
             }
         }
         thread::sleep(Duration::from_millis(20));
@@ -4964,7 +4983,7 @@ mod unix {
         crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
         let child = HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader));
-        host_start::start_host_runtime(launch, bootstrapped, master, child, &[])
+        host_start::start_host_runtime(launch, bootstrapped, master, child, &launch.seed)
     }
 
     fn send_snapshot_resync(host: &HostShared, stream: &mut UnixStream, smart_renderer: bool) {
@@ -6383,6 +6402,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             (attachment, host)
         }
@@ -6453,6 +6473,7 @@ mod unix {
                     images: 10,
                     placements: 20,
                 },
+                seed: b"seeded".to_vec(),
             };
 
             let decoded = HostLaunch::decode(&launch.encode().unwrap()).unwrap();
@@ -6460,7 +6481,7 @@ mod unix {
             assert_eq!(decoded.cell_pixels, (9, 18));
             assert_eq!(decoded.kitty_graphics_limits, launch.kitty_graphics_limits);
             assert_eq!(decoded.command, launch.command);
-            assert_eq!(decoded.extra_env, launch.extra_env);
+            assert_eq!((decoded.extra_env, decoded.seed), (launch.extra_env, launch.seed));
             assert_eq!(
                 decode_default_colors_payload(&encode_default_colors_payload(default_colors))
                     .unwrap(),
@@ -6507,6 +6528,7 @@ mod unix {
                 extra_env: Vec::new(),
                 default_colors: DefaultColors::default(),
                 kitty_graphics_limits: KittyGraphicsLimits::default(),
+                seed: Vec::new(),
             };
             let mut input = Vec::new();
             write_frame(&mut input, &bootstrap.into_frame(1)).unwrap();
@@ -6873,6 +6895,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -6928,6 +6951,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
 
             let error = match attachment.begin_input_confirmed(b"must-not-send") {
@@ -7196,6 +7220,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -7246,6 +7271,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let peer = thread::spawn(move || {
                 let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];
@@ -7738,6 +7764,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let (release_ack_tx, release_ack_rx) = std::sync::mpsc::channel();
             let resolver = {
@@ -7855,6 +7882,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let (output_queued, output_seen) = sync_channel(1);
             let (release_ack, ack_release) = sync_channel(1);
@@ -8016,6 +8044,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -9721,8 +9750,9 @@ pub use unix::unadoptable::*;
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
     StandbyTerminalHost, acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version, launch_terminal_host_from,
-    load_terminal_host_records_for_reset,
+    decode_host_resize_payload_for_version, launch_terminal_host_from, launch_terminal_host_seeded,
+    live_successor_record, load_terminal_host_records_for_reset, record_owner_token,
+    sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{

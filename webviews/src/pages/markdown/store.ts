@@ -435,7 +435,15 @@ export class MarkdownStore {
     this.recovered = null;
     const readOnly = file.readOnly === true;
     this.set({
-      config: { ...config, path: file.path, text: file.text, hash: file.hash, readOnly, assetBase: file.assetBase },
+      config: {
+        ...config,
+        path: file.path,
+        text: file.text,
+        hash: file.hash,
+        githubRepository: file.githubRepository,
+        readOnly,
+        assetBase: file.assetBase,
+      },
       readOnly,
       source: file.text,
       status: "saved",
