@@ -34,7 +34,8 @@ extension TabDragSession {
     /// The tab the ghost previews: the workspace's selected tab in its
     /// window's first pane.
     private func previewTab(of workspaceID: String?, in window: WindowController) -> String? {
-        guard let workspaceID, let pane = services.workspace(id: workspaceID)?.screens.first?.panes.first else { return nil }
+        guard let workspaceID,
+              let pane = ChatDockRules.workspaceDropPane(services.workspace(id: workspaceID)?.screens.first, services: services) else { return nil }
         return window.state.selection.selection(in: pane.id) ?? pane.tabs.first?.id
     }
 

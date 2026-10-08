@@ -44,3 +44,21 @@ enum ChatDockRules {
         return true
     }
 }
+
+extension ChatDockRules {
+    /// The split decision of a drop on `pane`'s edge. A drag's preview has
+    /// already measured the room (`roomDecided`); otherwise `measure` does.
+    static func dropSplit(roomDecided: Bool, intoChatDock: Bool,
+                          measure: () -> SplitRoomDecision) -> SplitRoomDecision {
+        roomDecided ? .split : measure()
+    }
+
+    /// The pane a drop on a workspace (the sidebar) lands in: its first screen's first pane.
+    static func workspaceDropPane<Pane>(_ panes: [Pane], isChatDock: (Pane) -> Bool) -> Pane? {
+        panes.first
+    }
+
+    @MainActor static func workspaceDropPane(_ screen: ScreenModel?, services: AppServices) -> PaneModel? {
+        workspaceDropPane(screen?.panes ?? []) { isChatDock($0, services: services) }
+    }
+}

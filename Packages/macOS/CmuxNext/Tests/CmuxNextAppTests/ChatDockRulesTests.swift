@@ -40,4 +40,27 @@ import Testing
         #expect(!ChatDockRules.refusesTab(isChat: false, into: LayoutPaneID("term"), columns: columns))
         #expect(!ChatDockRules.refusesTab(isChat: false, into: LayoutPaneID("notes"), columns: columns))
     }
+
+    /// Cursor review (#18290): a drop on a pane's edge commits the split the
+    /// drag preview measured, without asking `splitRoom` again; the chat
+    /// dock still refuses it.
+    @Test func anEdgeDropDoesNotSplitTheChatDock() {
+        let decision = ChatDockRules.dropSplit(roomDecided: true, intoChatDock: true) { .split }
+        guard case .refused = decision else {
+            Issue.record("an edge drop split the chat dock: \(decision)")
+            return
+        }
+        guard case .split = ChatDockRules.dropSplit(roomDecided: true, intoChatDock: false, measure: { .refused("") }) else {
+            Issue.record("a measured drop elsewhere must split")
+            return
+        }
+    }
+
+    /// Cursor review (#18290): a tab or group dropped on a workspace in the
+    /// sidebar lands in its first pane outside the chat dock, not in the
+    /// dock (which would refuse it).
+    @Test func aWorkspaceDropSkipsTheChatDock() {
+        #expect(ChatDockRules.workspaceDropPane(["chat", "term"]) { $0 == "chat" } == "term")
+        #expect(ChatDockRules.workspaceDropPane(["term"]) { $0 == "chat" } == "term")
+    }
 }

@@ -71,7 +71,10 @@ enum TabMoves {
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         // With a respawn the source pane stays (it gets the new tab).
-        switch roomDecided ? SplitRoomDecision.split : services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil) {
+        let decision = ChatDockRules.dropSplit(roomDecided: roomDecided, intoChatDock: ChatDockRules.isChatDock(pane, services: services)) {
+            services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil)
+        }
+        switch decision {
         case .split:
             break
         case .newColumn(let afterColumn, _):

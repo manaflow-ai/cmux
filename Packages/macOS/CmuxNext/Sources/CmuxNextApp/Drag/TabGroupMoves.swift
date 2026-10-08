@@ -25,7 +25,10 @@ enum TabGroupMoves {
                            transaction: ClientTransactionID, completion: @escaping Completion) {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
-        switch roomDecided ? SplitRoomDecision.split : services.splitRoom(for: pane, edge: edge) {
+        let decision = ChatDockRules.dropSplit(roomDecided: roomDecided, intoChatDock: ChatDockRules.isChatDock(pane, services: services)) {
+            services.splitRoom(for: pane, edge: edge)
+        }
+        switch decision {
         case .split:
             break
         case .newColumn(let afterColumn, _):
