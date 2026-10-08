@@ -60,6 +60,20 @@ import Testing
         #expect(mismatches == [])
     }
 
+    /// The no-blue rule: the accent (on toggles, selection, focus ring) is a neutral from the
+    /// theme's foreground, never the palette's blue ANSI 4, in a dark and a light theme.
+    @Test(arguments: [(0x282C34, 0xFFFFFF), (0xFFFFFF, 0x1D1F21)])
+    func theDefaultPaletteGivesANeutralAccent(_ colors: (background: UInt32, foreground: UInt32)) {
+        let app = AppTheme.derive(background: ThemeRGB(hex: colors.background),
+                                  foreground: ThemeRGB(hex: colors.foreground), palette: [ThemeRGB?]())
+        for token in [AppTheme.Token.accent, .focusRing, .accentText] {
+            let color = app[token]
+            let spread = max(color.red, color.green, color.blue) - min(color.red, color.green, color.blue)
+            #expect(spread < 0.03, "\(token) is \(AppTheme.hex(color)), not neutral")
+        }
+        #expect(app.failures.isEmpty)
+    }
+
     @Test func everyBundledThemeMeetsEveryContractPair() throws {
         let folder = Self.repoRoot.appending(path: "Resources/ghostty/themes")
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasPrefix(".") }

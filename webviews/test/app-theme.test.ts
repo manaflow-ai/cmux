@@ -45,6 +45,19 @@ describe("app theme", () => {
         expect({ name, checked: checked.has(name as never) }).toEqual({ name, checked: true });
   });
 
+  test("the default Ghostty palette gives a neutral accent, never the blue ANSI 4 (dark and light)", () => {
+    for (const [background, foreground] of [
+      ["#282c34", "#ffffff"],
+      ["#ffffff", "#1d1f21"],
+    ]) {
+      const app = deriveAppTheme({ background, foreground, palette: [] });
+      for (const token of ["accent", "focusRing", "accentText"] as const) {
+        expect({ token, chroma: toOklch(parseHex(app.tokens[token])!).c < 0.02 }).toEqual({ token, chroma: true });
+      }
+      expect(contrastReport(app).filter((result) => !result.pass)).toEqual([]);
+    }
+  });
+
   test("the accent hue comes from the theme's palette, never a fixed hue", () => {
     const wrong: string[] = [];
     for (const theme of themes) {
