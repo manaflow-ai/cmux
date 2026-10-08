@@ -158,13 +158,17 @@ final class MachinesPanelViewModel: ObservableObject {
     /// explicit max* fields. The accepted memory ladder is the best fallback
     /// because it already reflects Go, Pro, Team, and Max.
     var resizeFallbackMaxMemoryMb: Int {
-        if let ladderMax = memoryOptionsMb.max(), ladderMax > 0 { return ladderMax }
+        let productCeiling: Int
         switch lastLimits?.planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "max": return 64 * 1_024
-        case "go": return 4 * 1_024
-        case "free": return 8 * 1_024
-        default: return 16 * 1_024
+        case "max": productCeiling = 64 * 1_024
+        case "go": productCeiling = 4 * 1_024
+        case "free": productCeiling = 8 * 1_024
+        default: productCeiling = 16 * 1_024
         }
+        // A pre-ceiling server may still send the complete ladder. Keep the
+        // fallback bounded by the product tier so Pro never exposes Max-only
+        // 12/16-vCPU targets while maxMemoryMb is absent.
+        return min(memoryOptionsMb.max() ?? productCeiling, productCeiling)
     }
     var resizeFallbackMaxDiskGiB: Int {
         switch lastLimits?.planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
