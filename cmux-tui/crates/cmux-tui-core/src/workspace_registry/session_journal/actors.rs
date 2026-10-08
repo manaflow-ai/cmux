@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
-/// The actor the mutation ledger stored for `idempotency_key`, if any. The
-/// mutation row comes first; a close writes both rows with the receipt's actor.
+/// The actor stored for the effect `idempotency_key`, if any. Its receipt
+/// comes first: the receipt is keyed by exactly this key, and a close writes
+/// its mutation row with the receipt's actor.
 pub(crate) fn ledger_actor(
     transaction: &Transaction<'_>,
     idempotency_key: &str,
@@ -17,9 +18,9 @@ pub(crate) fn ledger_actor(
     let actor = transaction
         .query_row(
             "SELECT actor FROM (
-               SELECT 0 AS rank, actor FROM resource_mutations WHERE idempotency_key = ?1
+               SELECT 0 AS rank, actor FROM resource_effect_receipts WHERE idempotency_key = ?1
                UNION ALL
-               SELECT 1, actor FROM resource_effect_receipts WHERE idempotency_key = ?1
+               SELECT 1, actor FROM resource_mutations WHERE idempotency_key = ?1
              ) ORDER BY rank LIMIT 1",
             [idempotency_key],
             |row| row.get::<_, String>(0),
@@ -28,19 +29,46 @@ pub(crate) fn ledger_actor(
     Ok(actor)
 }
 
-/// The actor of a resource journal record for `idempotency_key`. A migrated
-/// legacy revision (`fresh` false) has none, and its ledgers may predate the
-/// column; a fresh record is its ledger row's, else the daemon's own.
+/// The origin of the commits an effect receipt drives (`effect_store`).
+const RESOURCE_EFFECT_ORIGIN: &str = "resource-api";
+
+/// The actor of a resource journal record for `idempotency_key` of `origin`.
+/// A migrated legacy revision (`fresh` false) has none, and its ledgers may
+/// predate the column. A fresh record is the actor of the row its own commit
+/// wrote, matched by (`origin`, `idempotency_key`) so another origin's row
+/// with the same key never lends its actor (P8 landing 3b): its
+/// `resource_mutations` row; else, for a terminal or workspace registry
+/// commit, its `terminal_mutations` or `mutations` row (NULL there reads
+/// `legacy`); else, for an effect commit, its receipt; with no row at all,
+/// the daemon's own.
 pub(crate) fn resource_record_actor(
     transaction: &Transaction<'_>,
+    origin: &str,
     idempotency_key: &str,
     fresh: bool,
 ) -> anyhow::Result<Option<String>> {
     if !fresh {
         return Ok(None);
     }
-    let actor = ledger_actor(transaction, idempotency_key)?;
-    Ok(Some(actor.unwrap_or_else(|| crate::Actor::Daemon.wire())))
+    let legacy = crate::Actor::Legacy.wire();
+    for sql in [
+        "SELECT COALESCE(actor, ?3) FROM resource_mutations WHERE idempotency_key = ?2 AND origin = ?1",
+        "SELECT COALESCE(actor, ?3) FROM terminal_mutations WHERE origin = ?1 AND mutation_id = ?2",
+        "SELECT COALESCE(actor, ?3) FROM mutations WHERE origin = ?1 AND mutation_id = ?2",
+    ] {
+        let actor = transaction
+            .query_row(sql, params![origin, idempotency_key, legacy], |row| row.get::<_, String>(0))
+            .optional()?;
+        if actor.is_some() {
+            return Ok(actor);
+        }
+    }
+    if origin == RESOURCE_EFFECT_ORIGIN
+        && let Some(actor) = ledger_actor(transaction, idempotency_key)?
+    {
+        return Ok(Some(actor));
+    }
+    Ok(Some(crate::Actor::Daemon.wire()))
 }
 
 /// The actor of record `sequence`, from its live row or from the segment

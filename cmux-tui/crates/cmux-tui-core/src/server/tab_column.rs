@@ -61,13 +61,22 @@ pub(super) fn move_tab_to_column(
     validate_client_transaction(transaction.as_deref())?;
     get_surface(mux, surface)?;
     let anchor = column_anchor(mux, pane, screen)?;
+    let actor = origin_gate::connection_actor(mux, client);
     let outcome = match respawn {
-        None => mux.move_tab_to_column(surface, anchor, after_column, width, dock, transaction)?,
+        None => mux.move_tab_to_column_as(
+            &actor,
+            surface,
+            anchor,
+            after_column,
+            width,
+            dock,
+            transaction,
+        )?,
         Some(respawn) => {
             let respawn = respawn.into_respawn(frontend_shell(mux, client))?;
             let destination = crate::mux::ColumnMove { pane: anchor, after_column, width, dock };
             mux.move_tab_to_column_respawning_as(
-                &origin_gate::connection_actor(mux, client),
+                &actor,
                 surface,
                 destination,
                 respawn,

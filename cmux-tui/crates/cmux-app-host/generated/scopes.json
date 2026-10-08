@@ -1329,6 +1329,10 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "team_vm.accounts": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
     "team_vm.ensure_awake": {
       "scope": "team_vm:write",
       "class": "mutation"

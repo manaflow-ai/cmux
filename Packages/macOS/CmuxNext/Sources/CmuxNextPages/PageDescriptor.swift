@@ -94,7 +94,9 @@ public nonisolated struct PageNativeOp {
     /// The refusal of a person-only action (``ActionDescriptor/isPersonOnly``) that a page asked
     /// for without a real click or key in the page view.
     public static let userOnlyCode = "cmux.app.user_only"
-    /// Writes text to the pasteboard: `{text}`.
+    /// Writes text to the pasteboard: `{text}`. Only within a moment of a real key, click or native
+    /// context menu choice in the page view (`PageCallContext.userGesture`); otherwise refused with
+    /// ``userOnlyCode``.
     public static let clipboardWrite = "cmux.app.clipboard.write"
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
     /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.
@@ -126,10 +128,10 @@ public extension PageDescriptor {
 
     /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
     /// preview and sound ops share the namespace; the page may run only its own actions and the
-    /// sections' buttons.
+    /// sections' buttons, and writes the pasteboard for a row's Copy Setting Key.
     static let settings = PageDescriptor(
         id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
-        nativeOps: [PageNativeOp.actionRun],
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
                   "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration",

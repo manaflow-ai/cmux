@@ -124,6 +124,9 @@ describe("TeamVmDO binds its VM through the provider exec", { timeout: 60_000 },
     expect(decodeJwt(t.token!)).toMatchObject({ team: o.team, inst: install })
     const ca = await post("/v1/read", t.token!, { op: "team_vm.ssh_ca", params: {} })
     expect(ca.body, JSON.stringify(ca)).toMatchObject({ op: "team_vm.ssh_ca", value: { team: o.team, krl_version: 0 } })
+    // The account reconciler's read (team-vm-plan S4): no member has an account before a certificate.
+    const accounts = await post("/v1/read", t.token!, { op: "team_vm.accounts", params: {} })
+    expect(accounts.body, JSON.stringify(accounts)).toMatchObject({ op: "team_vm.accounts", value: { team: o.team, users: [] } })
     // The bound install is the journal writer; the grant never reaches execute (no SSH certificates).
     expect((await post("/v1/read", t.token!, { op: "team_vm.journal.high_water", params: { stream: "tasks" } })).body).toMatchObject({ value: { stream: "tasks" } })
     const cert = await op(t.token!, "team_vm.ssh_cert", { public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOvKqkQ2yW6t8mTq3xH2b9cT0v5e3dPpYk1uZzQwYk1u x", class: "agent" })
