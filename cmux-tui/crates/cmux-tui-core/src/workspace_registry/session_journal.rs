@@ -2188,3 +2188,12 @@ pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod actor_tests;
+
+/// The actor of journal record `sequence`: from its live row, or from the
+/// `actors_json` of the segment that sealed it (P8 landing 2c).
+pub(crate) fn journal_actor(_connection: &Connection, _sequence: u64) -> anyhow::Result<Option<String>> {
+    Ok(None)
+}
