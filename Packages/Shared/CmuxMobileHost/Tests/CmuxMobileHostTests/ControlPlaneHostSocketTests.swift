@@ -5,13 +5,13 @@ import Testing
 
 private actor ScriptedControlPlaneConnection: ControlPlaneConnection {
     private let continuation: AsyncStream<String>.Continuation
-    private var iterator: AsyncStream<String>.Iterator
+    private let stream: AsyncStream<String>
     private(set) var closeCode: Int?
 
     init() {
         let (stream, continuation) = AsyncStream<String>.makeStream()
+        self.stream = stream
         self.continuation = continuation
-        iterator = stream.makeAsyncIterator()
     }
 
     func push(_ text: String) {
@@ -21,9 +21,8 @@ private actor ScriptedControlPlaneConnection: ControlPlaneConnection {
     func send(_ text: String) async throws {}
 
     func receive() async throws -> String {
-        var iterator = iterator
+        var iterator = stream.makeAsyncIterator()
         let text = await iterator.next()
-        self.iterator = iterator
         guard let text else { throw CancellationError() }
         return text
     }
