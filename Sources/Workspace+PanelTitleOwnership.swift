@@ -61,7 +61,9 @@ extension Workspace {
                 guard !accepted,
                       let self,
                       self.remoteTmuxRenameGenerationByPanelID[panelId] == requestGeneration,
-                      self.panelCustomTitles[panelId] == trimmed else { return }
+                let current = self.panelCustomTitles[panelId]
+                guard (self.panelTitles[panelId] ?? authoritativeTitle) == authoritativeTitle,
+                      (trimmed.isEmpty ? current == nil : current == trimmed) else { return }
                 self.updateRemoteTmuxPaneTitle(panelId: panelId, title: authoritativeTitle)
             }) else {
                 return false
