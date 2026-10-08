@@ -16,6 +16,21 @@ actor KeyRecordingFeedSource: FeedSource {
     }
 }
 
+actor RefusingSeenFeedSource: FeedSource {
+    let hub = MockSnapshotHub<[FeedItem]>(MockFixtures.feedItems())
+    private(set) var seenCalls = 0
+
+    func updates() async -> AsyncStream<SourceSnapshot<[FeedItem]>> { await hub.stream() }
+
+    func perform(_ intent: FeedIntent, key: IntentKey) async throws -> IntentReceipt {
+        if case .seen = intent {
+            seenCalls += 1
+            return .refused(key: key, reason: "feed.item_gone")
+        }
+        return .committed(key: key, revision: await hub.current.revision)
+    }
+}
+
 @MainActor
 @Suite struct FeedStoreTests {
     @Test func answerCommitsAndReportsTheOutcome() async {
@@ -97,5 +112,20 @@ actor KeyRecordingFeedSource: FeedSource {
         #expect(await source.hub.current.revision == start + 1)
         #expect(Set(items.filter { $0.seenAt != nil }.map(\.id)) == ["feed1", "feed2", "feed3"])
         #expect(outcomes == 0)
+    }
+
+    @Test func refusedSeenReportsStaySuppressed() async {
+        let source = RefusingSeenFeedSource()
+        let store = FeedStore(source: source)
+        store.receive(await source.hub.current)
+
+        store.reportSeen(["feed1"])
+        for _ in 0..<20 where await source.seenCalls == 0 { await Task.yield() }
+        #expect(await source.seenCalls == 1)
+
+        // A later visibility pass must not resend a permanently refused batch.
+        store.reportSeen(["feed1"])
+        for _ in 0..<20 { await Task.yield() }
+        #expect(await source.seenCalls == 1)
     }
 }
