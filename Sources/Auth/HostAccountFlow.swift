@@ -11,13 +11,14 @@ import Observation
 /// the `AccountSection` can drive sign-in / sign-out / team selection without
 /// depending on the auth packages.
 ///
-/// A projection over the coordinator and browser flow used by the macOS
-/// Settings account surface.
+/// A projection over the coordinator and browser flow. Upgrade entrypoints
+/// remain available independently of remote rollout configuration.
 @MainActor
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
+    var isProUpgradeAvailable: Bool { true }
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { billingPlanState.isPro }
     var canManageBilling: Bool { billingPlanState.canManageBilling }

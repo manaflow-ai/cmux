@@ -122,7 +122,9 @@ public struct RemotePasteFileTransferPolicy: Equatable, Sendable {
             return "false"
         }
         let path = "\"$HOME/" + relativeDirectoryPath + "/" + String(fileName) + "\""
-        return "chmod 600 -- \(path) && test -f \(path)"
+        // BSD chmod treats `--` after the mode as a filename. The generated
+        // path is rooted at $HOME, so it cannot be mistaken for an option.
+        return "chmod 600 \(path) && test -f \(path)"
     }
 
     /// Returns a shell script that removes only files owned by this policy.

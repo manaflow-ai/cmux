@@ -814,6 +814,69 @@ class WorkflowPresenceRegression(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(merged)
 
+    def macos_routing_checks(self):
+        return [
+            {'id': 1, 'name': 'ci-status', 'status': 'completed', 'conclusion': 'success',
+             'app': {'slug': 'github-actions'}, 'check_suite': {'id': 100}},
+            {'id': 2, 'name': 'macos', 'status': 'completed', 'conclusion': 'skipped',
+             'app': {'slug': 'github-actions'}, 'check_suite': {'id': 100}},
+        ]
+
+    def run_ios_routing_case(self, checks):
+        return self.run_case(workflow=True, app_workflow=True,
+                             files=['Packages/iOS/CmuxMobileShellUI/Sources/MobileDisplaySettings.swift'],
+                             checks=checks)
+
+    def test_ios_only_diff_accepts_explicit_macos_skip_from_successful_ci_suite(self):
+        result, merged, _ = self.run_ios_routing_case(self.macos_routing_checks())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+
+    def test_macos_skip_requires_current_successful_github_actions_suite(self):
+        invalid_skips = [
+            {'status': 'in_progress', 'conclusion': None},
+            {'conclusion': 'failure'},
+            {'conclusion': 'success'},
+            {'conclusion': 'neutral'},
+            {'check_suite': {'id': 99}},
+            {'check_suite': {}},
+            {'app': {'slug': 'other-app'}},
+        ]
+        for invalid_skip in invalid_skips:
+            with self.subTest(invalid_skip=invalid_skip):
+                checks = self.macos_routing_checks()
+                checks[-1].update(invalid_skip)
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('macOS compile admission', result.stderr)
+        for replacement in ({'name': 'unrelated'}, {'conclusion': 'skipped'},
+                            {'app': {'slug': 'other-app'}}, {'check_suite': {}}):
+            with self.subTest(ci_status=replacement):
+                checks = self.macos_routing_checks()
+                checks[0].update(replacement)
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+
+    def test_macos_skip_does_not_hide_newer_route_or_scheduled_compile(self):
+        for conclusion in ('failure', 'success'):
+            with self.subTest(newer_route=conclusion):
+                checks = self.macos_routing_checks()
+                checks.append({**checks[-1], 'id': 3, 'conclusion': conclusion})
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+        for status, conclusion in (('in_progress', None), ('completed', 'failure')):
+            with self.subTest(compile=(status, conclusion)):
+                checks = self.macos_routing_checks()
+                checks.append({'id': 3, 'name': 'macos / macOS compile admission',
+                               'status': status, 'conclusion': conclusion})
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('macOS compile admission', result.stderr)
+
 
 class HelperCheckoutUpdateRegression(unittest.TestCase):
     """The symlinked helper refreshes only a clean main checkout."""

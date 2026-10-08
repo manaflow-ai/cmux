@@ -29,13 +29,6 @@ enum ProUpgradePresenter {
     @MainActor
     static func prefetch(source: ProUpgradeSource) {
         guard BrowserAvailabilitySettings.isEnabled() else { return }
-        // Do not prewarm an unauthenticated page while the native session is
-        // still being restored. `present` performs the credential handoff and
-        // will create a request-backed webview once restoration completes.
-        if let coordinator = AppDelegate.shared?.auth?.coordinator,
-           coordinator.isAuthenticated || coordinator.isRestoringSession {
-            return
-        }
         // When an upgrade workspace already exists, present() refocuses it and
         // navigates its existing panel, so a prewarmed webview would go unused.
         if let workspaceId = workspaceReuseState.workspaceId,
@@ -56,34 +49,6 @@ enum ProUpgradePresenter {
             NSWorkspace.shared.open(url)
             return
         }
-        // `authenticatedSessionSnapshot()` waits for launch restoration, so a
-        // click during the short signed-out-looking startup window still gets
-        // the native session instead of opening an anonymous pricing page.
-        Task { @MainActor in
-            await presentAuthenticatedPricing(url: url)
-        }
-    }
-
-    @MainActor
-    private static func presentAuthenticatedPricing(url: URL) async {
-        guard let auth = AppDelegate.shared?.auth else {
-            presentAppPricingWebWithoutSession(url: url)
-            return
-        }
-
-        var outcome = await auth.browserAppSession.request(destinationURL: url)
-        if outcome.shouldRetry {
-            outcome = await auth.browserAppSession.request(destinationURL: url)
-        }
-        if case let .navigation(navigation) = outcome,
-           presentBrowserSplit(navigation: navigation) {
-            return
-        }
-        presentAppPricingWebWithoutSession(url: url)
-    }
-
-    @MainActor
-    private static func presentAppPricingWebWithoutSession(url: URL) {
         if presentDedicatedPricingWorkspace(url: url) {
             return
         }
@@ -166,25 +131,6 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    private static func presentBrowserSplit(navigation: BrowserAppSessionNavigation) -> Bool {
-        guard let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace,
-              let sourcePanelId = workspace.focusedPanelId else {
-            return false
-        }
-        return workspace.newBrowserSplit(
-            from: sourcePanelId,
-            orientation: .horizontal,
-            initialRequest: navigation.request,
-            focus: true,
-            allowsExternalBrowserFallback: false,
-            chromeVisibility: .hidden,
-            transparentBackground: true,
-            initialDividerPosition: 0.58,
-            websiteDataStore: navigation.websiteDataStore
-        ) != nil
-    }
-
-    @MainActor
     static func appPricingURLForCurrentAppearance(source: ProUpgradeSource) -> URL {
         CheckoutAttribution.applying(to: decoratedAppWebURL(AuthEnvironment.appPricingURL), source: source)
     }
@@ -244,7 +190,7 @@ private final class NativePricingWindowController: NSWindowController {
     }
 }
 
-private enum NativePricingPlanID: String, Decodable {
+private enum NativePricingPlanID: String, Decodable, Sendable {
     case free
     case go
     case pro
@@ -276,7 +222,7 @@ private struct NativeBillingPlanResponse: Decodable {
     }
 }
 
-private struct NativePricingSnapshot: Equatable {
+private struct NativePricingSnapshot: Equatable, Sendable {
     var authenticated = false
     var billingAvailable = true
     var planId: NativePricingPlanID = .free
@@ -287,16 +233,21 @@ private struct NativePricingSnapshot: Equatable {
     var isGo: Bool { planId == .go }
 }
 
+private struct NativeBillingTokens: Sendable {
+    let accessToken: String
+    let refreshToken: String
+}
+
+private enum NativePricingPlanLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case loaded(NativePricingSnapshot)
+    case failed(String)
+}
+
 @MainActor
 private final class NativePricingPlanStore: ObservableObject {
-    enum LoadState: Equatable {
-        case idle
-        case loading
-        case loaded(NativePricingSnapshot)
-        case failed(String)
-    }
-
-    @Published private(set) var state: LoadState = .idle
+    @Published private(set) var state: NativePricingPlanLoadState = .idle
 
     private var refreshTask: Task<Void, Never>?
     private var activeRequestID: UUID?
@@ -331,26 +282,37 @@ private final class NativePricingPlanStore: ObservableObject {
     }
 
     static func refreshForProWelcomeChecklist() async {
-        // Skip the authenticated /api/billing/plan fetch when the checklist
-        // has already been shown.
+        // Skip the authenticated /api/billing/plan fetch when the checklist can't be shown
+        // because the checklist has already been seen.
         guard ProWelcomeChecklistPresenter.canPresentAutomatically() else { return }
         let loadedState = await loadPlanState()
         presentWelcomeChecklistIfPro(loadedState)
     }
 
-    private static func presentWelcomeChecklistIfPro(_ state: LoadState) {
+    private static func presentWelcomeChecklistIfPro(_ state: NativePricingPlanLoadState) {
         guard case let .loaded(snapshot) = state else { return }
         ProWelcomeChecklistPresenter.presentIfNewlyPro(isPro: snapshot.isPro)
     }
 
-    private static func loadPlanState() async -> LoadState {
+    private static func loadPlanState() async -> NativePricingPlanLoadState {
+        let tokens = try? await AppDelegate.shared?.auth?.coordinator.currentTokens()
+        let billingTokens = tokens.map {
+            NativeBillingTokens(accessToken: $0.accessToken, refreshToken: $0.refreshToken)
+        }
+        return await loadPlanStateOffMain(billingTokens: billingTokens)
+    }
+
+    /// Performs the billing request and response decoding away from the main actor.
+    private nonisolated static func loadPlanStateOffMain(
+        billingTokens: NativeBillingTokens?
+    ) async -> NativePricingPlanLoadState {
         var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        if let tokens = try? await AppDelegate.shared?.auth?.coordinator.currentTokens() {
-            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
-            request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        if let billingTokens {
+            request.setValue("Bearer \(billingTokens.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(billingTokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         }
 
         do {

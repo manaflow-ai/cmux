@@ -253,7 +253,7 @@ struct ProBadgeLabel: View {
 
 /// The Pro badge: renders the active ``ProBadgeStyle`` and opens the shared
 /// pricing destination. On hover the capsule widens to reveal a dismiss X
-/// inside it.
+/// inside it. The local dismissal preference controls visibility.
 struct ProBadgeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.sidebarReadabilityBackdrop) private var readabilityBackdrop

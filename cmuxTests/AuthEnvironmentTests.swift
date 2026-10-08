@@ -620,6 +620,10 @@ struct AuthEnvironmentTests {
             defaults: defaults
         ))
         #expect(!defaults.bool(forKey: ProWelcomeChecklistPresenter.seenDefaultsKey))
+
+        #expect(ProWelcomeChecklistPresenter.canPresentAutomatically(defaults: defaults))
+        #expect(ProWelcomeChecklistPresenter.consumeAutomaticPresentation(isPro: true, defaults: defaults))
+        #expect(!ProWelcomeChecklistPresenter.canPresentAutomatically(defaults: defaults))
     }
 
     @MainActor
