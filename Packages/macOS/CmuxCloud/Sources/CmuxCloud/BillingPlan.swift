@@ -89,6 +89,12 @@ public struct BillingPlanClient: Sendable {
             throw URLError(.badServerResponse)
         }
         let decoded = try JSONDecoder().decode(Response.self, from: data)
+        // A missing token receives a successful Free response from the endpoint
+        // for compatibility. Never accept that anonymous response as the
+        // signed-in account's entitlement.
+        guard decoded.authenticated == true else {
+            throw URLError(.userAuthenticationRequired)
+        }
         // The default endpoint returns both personal and active-team plans.
         // A paid team grants Cloud access even when the personal subscription
         // is free, which is the normal path for team-owned machines.
@@ -104,6 +110,7 @@ public struct BillingPlanClient: Sendable {
     private let session: URLSession
 
     private struct Response: Decodable {
+        let authenticated: Bool?
         let isPro: Bool?
         let planId: String?
         let billingManagement: String?
