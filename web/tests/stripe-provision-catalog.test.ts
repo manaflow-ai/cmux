@@ -146,6 +146,22 @@ describe("Stripe catalog provisioning", () => {
     expect(portalArgs).toContain("business_profile[headline]=cmux");
   });
 
+  test("provisions the plan-switch portal without copied profile fields", async () => {
+    const result = await runProvision("test", "empty-profile");
+
+    expect(result.exitCode).toBe(0);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    expect(portalCreate).toBeDefined();
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).not.toContain("business_profile[headline]");
+    expect(portalArgs).not.toContain("business_profile[privacy_policy_url]");
+    expect(portalArgs).not.toContain("business_profile[terms_of_service_url]");
+  });
+
   test("updates an existing plan switch portal configuration instead of creating a second", async () => {
     const result = await runProvision("test", "portal-switch-exists");
 
@@ -532,7 +548,9 @@ if (url.endsWith("/prices") && !isPost) {
       data: [{
         id: "bpc_default",
         is_default: true,
-        business_profile: { headline: "cmux", privacy_policy_url: "https://cmux.com/privacy" },
+        business_profile: scenario === "empty-profile"
+          ? {}
+          : { headline: "cmux", privacy_policy_url: "https://cmux.com/privacy" },
       }],
       has_more: false,
     });
