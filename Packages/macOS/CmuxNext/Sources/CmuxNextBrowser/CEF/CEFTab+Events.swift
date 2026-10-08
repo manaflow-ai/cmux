@@ -99,7 +99,8 @@ extension CEFTab {
 
     private func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()
-        guard let url else {
+        // A machine store's loopback icon is the machine's: never fetched from this Mac.
+        guard let url, url.isAppFetchableFavicon(remoteStore: machineStore != nil) else {
             favicon = nil
             return
         }

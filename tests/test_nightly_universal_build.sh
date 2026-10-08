@@ -387,8 +387,9 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must always build the universal download alongside the thin update tracks"
+# nightly-next ships arm64 only (tests/test_nightly_next_arm64_only.py); main's nightly keeps all three.
+if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: main's nightly must always build the universal download alongside the thin update tracks"
   exit 1
 fi
 
@@ -667,13 +668,14 @@ if ! awk '
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
   in_publish && /publish-release-assets\.py/ { saw_publisher=1 }
-  in_publish && /--immutable .*arm64-.*NIGHTLY_BUILD/ { saw_immutable_arm=1 }
-  in_publish && /--immutable .*x86_64-.*NIGHTLY_BUILD/ { saw_immutable_intel=1 }
-  in_publish && /--immutable .*universal-.*NIGHTLY_BUILD/ { saw_immutable_universal=1 }
-  in_publish && /--alias .*CHANNEL_DMG_PREFIX.*\.dmg/ { alias_count++ }
-  in_publish && /--feed nightly-out\/appcast/ { feed_count++ }
-  END { exit !(saw_publish_if && saw_publisher && saw_immutable_arm && saw_immutable_intel && saw_immutable_universal && alias_count == 4 && feed_count == 4) }
-' "$WORKFLOW_FILE"; then
+  # Main publishes every variant, four aliases and the four feeds decide lists;
+  # nightly-next publishes arm64 only (tests/test_nightly_next_arm64_only.py).
+  in_publish && /variants=\(arm64 x86_64 universal\)/ { saw_all_variants=1 }
+  in_publish && /--immutable .*CHANNEL_DMG_PREFIX.*-\$\{variant\}-\$\{NIGHTLY_BUILD\}\.dmg/ { saw_immutable_variants=1 }
+  in_publish && /aliases=\(.*-arm64\.dmg.*-x86_64\.dmg.*-universal\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg"\)/ { saw_four_aliases=1 }
+  in_publish && /for feed in \$NIGHTLY_FEEDS/ { saw_feeds=1 }
+  END { exit !(saw_publish_if && saw_publisher && saw_all_variants && saw_immutable_variants && saw_four_aliases && saw_feeds) }
+' "$WORKFLOW_FILE" || ! grep -Fq ": ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];" "$WORKFLOW_FILE"; then
   echo "FAIL: nightly publication must verify every architecture and publish all aliases before the four feeds"
   exit 1
 fi
@@ -756,11 +758,18 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Main NIGHTLY and nightly-next use the same app identity and Sparkle build
-# ordering. Their full publish runs must share a concurrency group so an older
-# next run cannot finish after a newer main run and fail the cross-feed floor.
-if ! grep -Fq "(github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
-  echo "FAIL: main and nightly-next publishing runs must share one concurrency group"
+# nightly-next keeps its own concurrency group. A group shared with main let
+# every main push replace the pending nightly-next run (run 37579667979 was
+# cancelled before any job by main push run 37580645859), so the lower-frequency
+# track starved. The cross-feed build floor (nightly_version.py check-build)
+# still refuses a nightly-next build that is not above main's feed; that race
+# needs a main run to publish inside one nightly-next build and fails loudly.
+if grep -Fq "github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly-next must not share main's concurrency group (main pushes replace its pending run)"
+  exit 1
+fi
+if ! grep -Fq 'python3 scripts/ci/nightly_version.py check-build --build "$build" "${feeds[@]}"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly-next must keep the cross-feed build floor check"
   exit 1
 fi
 

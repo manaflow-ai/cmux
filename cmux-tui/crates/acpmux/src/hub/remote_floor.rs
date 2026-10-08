@@ -28,13 +28,34 @@
 
 use super::*;
 
+/// The remote floor's marks on a session.
+#[derive(Default)]
+pub(crate) struct FloorState {
+    /// The last turn was a Web turn: an agent request between turns is
+    /// held to the floor.
+    pub(super) last_turn_web: AtomicBool,
+    /// The Web turn the floor cancelled: every later request in it is
+    /// cancelled, also after a local restore of an asking mode.
+    pub(super) floor_cancelled_turn: StdMutex<Option<String>>,
+    /// A mode the harness reported while it declared no modes; the asking
+    /// check reads it. Cleared when the agent exits.
+    pub(super) undeclared_mode: StdMutex<Option<String>>,
+    /// The agent process holds a lasting grant a client gave it ("allow
+    /// always"): Web control ends until the agent exits (`web_control.rs`).
+    pub(super) harness_grant: AtomicBool,
+    /// A remote chain's agent host was adopted with no record that it runs
+    /// in the sandbox (it started before the sandbox existed): Web control
+    /// ends until the agent exits (`remote_sandbox.rs`).
+    pub(super) unsandboxed: AtomicBool,
+}
+
 impl Hub {
     /// Whether `session`'s current turn was started or steered by a remote
     /// device. A turn adopted after a restart keeps its recorded control.
     pub(super) fn web_turn(session: &Session) -> bool {
         match session.turn() {
             Some(t) => t.control == Control::Web,
-            None => session.last_turn_web.load(Ordering::SeqCst),
+            None => session.floor.last_turn_web.load(Ordering::SeqCst),
         }
     }
 
@@ -44,9 +65,12 @@ impl Hub {
     pub(super) fn remote_floor_breach(&self, session: &Session) -> Option<&'static str> {
         let turn = session.turn().map(|t| t.turn_id);
         if turn.is_some()
-            && *session.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == turn
+            && *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == turn
         {
             return Some("remote.turn_cancelled");
+        }
+        if session.floor.unsandboxed.load(Ordering::SeqCst) {
+            return Some("remote.unsandboxed_agent");
         }
         if session.web_control_ended.load(Ordering::SeqCst) {
             return Some("remote.mode_left_asking_table");
@@ -65,7 +89,7 @@ impl Hub {
         if crate::web_modes::mode_of(meta).is_some() {
             return true;
         }
-        match session.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
+        match session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
             Some(mode) => table.modes(&crate::web_modes::family_of(meta)).iter().any(|m| m == mode),
             None => true,
         }
@@ -79,7 +103,7 @@ impl Hub {
         let Some(turn) = session.turn() else { return };
         {
             let mut cancelled =
-                session.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner());
+                session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner());
             if cancelled.as_deref() == Some(turn.turn_id.as_str()) {
                 return;
             }

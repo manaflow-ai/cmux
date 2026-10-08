@@ -17,7 +17,7 @@ const REPLAY_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
 #[derive(Debug, Default)]
-struct OpenWork {
+pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
@@ -40,6 +40,9 @@ struct OpenWork {
     floor_cancelled: Option<String>,
     last_control: Option<Control>,
     harness_grant: bool,
+    /// A remote chain's Claude Code session whose current host has no
+    /// passed sandbox canary just before it started (`remote_sandbox.rs`).
+    unsandboxed: bool,
 }
 
 impl Hub {
@@ -290,7 +293,7 @@ impl Hub {
     /// Scan the log for the work in flight under host `incarnation`. Agent
     /// requests, answers and permission records count only within this
     /// incarnation: every harness restarts its own request ids.
-    fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
+    pub(super) fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
         let mut work = OpenWork::default();
         let mut current = false;
         let mut requests: Vec<(Value, String, Option<Value>, Option<u64>)> = Vec::new();
@@ -309,6 +312,12 @@ impl Hub {
                 .filter_map(|o| o.get("optionId").and_then(Value::as_str).map(str::to_owned))
                 .collect()
         };
+        // The canary passes, then the host starts: that host is sandboxed.
+        // Only the adopted incarnation's own start counts, with the canary of
+        // the current profile right before it; missing: unsandboxed.
+        let remote_claude = self.remote_claude(session);
+        work.unsandboxed = remote_claude;
+        let mut canary_passed = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
             if e.dir == "mux" {
                 let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
@@ -316,6 +325,16 @@ impl Hub {
                     "host_started" => {
                         lasting.clear();
                         work.harness_grant = false;
+                        if text("incarnation").as_deref() == Some(incarnation) {
+                            work.unsandboxed = remote_claude && !canary_passed;
+                        }
+                        canary_passed = false;
+                    }
+                    "remote_sandbox" => {
+                        canary_passed = e.msg.get("canary").and_then(Value::as_str)
+                            == Some("passed")
+                            && text("profile").as_deref()
+                                == Some(super::remote_sandbox::profile_id().as_str());
                     }
                     "permission_request" => {
                         if let Some(pid) = text("permissionId") {
@@ -445,13 +464,17 @@ impl Hub {
     }
 
     /// The remote floor's marks of an adopted host (`open_work`).
-    fn recover_floor(session: &Session, work: &OpenWork) {
-        session.harness_grant.store(work.harness_grant, Ordering::SeqCst);
-        session.last_turn_web.store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+    pub(super) fn recover_floor(session: &Session, work: &OpenWork) {
+        session.floor.harness_grant.store(work.harness_grant, Ordering::SeqCst);
+        session.floor.unsandboxed.store(work.unsandboxed, Ordering::SeqCst);
+        session
+            .floor
+            .last_turn_web
+            .store(work.last_control == Some(Control::Web), Ordering::SeqCst);
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
         {
-            *session.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) =
+            *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(turn_id.clone());
         }
     }
@@ -484,7 +507,12 @@ impl Hub {
                         // older record without it counts as Web.
                         control,
                     });
-                    session.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+                    session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+                    // A Web turn in flight in an agent the sandbox did not
+                    // start does not go on (tools that do not ask).
+                    if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
+                        self.remote_floor_cancel(session, "remote.unsandboxed_agent");
+                    }
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
@@ -514,11 +542,20 @@ impl Hub {
         }
         let epoch = session.permission_epoch.load(Ordering::SeqCst);
         let turn_id = session.turn().map(|t| t.turn_id);
+        // The remote floor cancelled the recovered turn (in the log, or just
+        // now for an unsandboxed agent): its permissions are cancelled too,
+        // never answered from the log or shown again.
+        let floored = Self::web_turn(session) && self.remote_floor_breach(session).is_some();
         for (id, m, params, _) in work.requests {
             if m == method::SESSION_REQUEST_PERMISSION
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()
             {
+                if floored {
+                    let cancelled = json!({"outcome": {"outcome": "cancelled"}});
+                    let _ = child.respond(id, Ok(cancelled)).await;
+                    continue;
+                }
                 match decided {
                     // Decided but the answer never reached the agent: send it.
                     Some(outcome) => {
@@ -546,8 +583,11 @@ impl Hub {
         child: &Arc<ChildAgent>,
         agent_request_id: Value,
         permission_id: String,
-        request: Value,
+        mut request: Value,
     ) {
+        // A record from a daemon without question normalization gets it here,
+        // so its answers are checked like a new ask's.
+        super::questions::normalize(&mut request);
         let (tx, rx) = oneshot::channel();
         session
             .permissions

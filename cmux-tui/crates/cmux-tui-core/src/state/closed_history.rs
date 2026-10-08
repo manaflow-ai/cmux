@@ -116,19 +116,25 @@ fn commit_reopen(
     // A deleted space (SPACE-DELETE-CLOSES-ITS-WORKSPACES) comes back first,
     // so its reopened workspaces get their pins and groups back.
     let room = record.get("room").filter(|room| room.is_object()).cloned();
+    // A deleted personal workspace group (Ungroup, Delete Group) has no
+    // member: its reopen forms the group again around its open workspaces.
+    let group = record.get("group").filter(|group| group.is_object()).cloned();
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
         state_delete("closed", closed_id)
     } else {
         state_upsert("closed", closed_id, keep_members(transaction, closed_id, record, keep)?)
     };
-    // A deleted space that had no workspace reopens no workspace: the
-    // result names the session's active one, which stays shown.
+    // A deleted space that had no workspace, or a deleted group, reopens
+    // no workspace: the result names the session's active one, which stays
+    // shown.
     let workspace = reopened
         .workspaces
         .first()
         .cloned()
-        .or_else(|| room.as_ref().and(active_workspace.map(str::to_string)))
+        .or_else(|| {
+            active_workspace.filter(|_| room.is_some() || group.is_some()).map(str::to_string)
+        })
         .context("reopened item has no workspace")?;
     let mut changes = vec![change];
     let room_restored = match &room {
@@ -145,6 +151,22 @@ fn commit_reopen(
     };
     for (closed_key, reopened_key) in &reopened.placements {
         changes.extend(restore_placement(transaction, closed_key, reopened_key)?);
+    }
+    let group_restored = match &group {
+        Some(group) => {
+            let local = crate::state::values::local_registry_id(transaction)?;
+            crate::workspace_registry::personal_mutations::group_archive::restore_group(
+                transaction,
+                group,
+                &local,
+                &reopened.placements,
+            )?
+        }
+        None => false,
+    };
+    if group_restored && !room_restored {
+        changes.extend(crate::state::personal::all_groups(transaction)?);
+        changes.extend(crate::state::personal::all_placements(transaction)?);
     }
     if room_restored {
         changes.extend(crate::state::personal::all_rooms(transaction)?);
@@ -336,7 +358,8 @@ impl Mux {
                 }) {
                     Some(surface) => surface,
                     None => {
-                        self.new_tab(Some(pane), tab["cwd"].as_str().map(str::to_string), None)?.id
+                        let (cwd, env) = crate::workspace_registry::relaunch_store::replay(tab);
+                        self.new_tab_with_env(Some(pane), cwd, env, None)?.id
                     }
                 }
             }

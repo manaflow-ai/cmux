@@ -10,6 +10,11 @@ import Observation
 public final class RegistryControlBridge: ControlActionExecutor {
     public let registry: ActionRegistry
     private var router: ControlRouter?
+    /// The current observation chain (state-audit R1): each attach starts a
+    /// new epoch and detach ends it. A chain armed under an older epoch fires
+    /// once more at most and then stops, so detach then attach never leaves
+    /// two chains republishing every change.
+    private var epoch = 0
     private var isObserving = false
 
     public init(registry: ActionRegistry) {
@@ -22,17 +27,19 @@ public final class RegistryControlBridge: ControlActionExecutor {
         router.updateCatalog(Self.catalog(from: registry))
         guard !isObserving else { return }
         isObserving = true
-        observeCatalog()
-        observeContext()
+        epoch += 1
+        observeCatalog(epoch: epoch)
+        observeContext(epoch: epoch)
     }
 
     public func detach() {
         router = nil
         isObserving = false
+        epoch += 1
     }
 
-    private func observeCatalog() {
-        guard isObserving else { return }
+    private func observeCatalog(epoch: Int) {
+        guard isObserving, epoch == self.epoch else { return }
         withObservationTracking {
             _ = registry.descriptors
             _ = registry.actions
@@ -44,25 +51,25 @@ public final class RegistryControlBridge: ControlActionExecutor {
             for action in registry.actions { _ = action.unavailableReason?() }
         } onChange: { [weak self] in
             // onChange runs before the new value is stored; publish after.
-            // task-owner: observation re-arm; ends when isObserving is false (reattach epoch: plans/cmux-next/state-audit.md)
+            // task-owner: observation re-arm; ends when its epoch is not current (state-audit R1)
             Task { @MainActor in
-                guard let self, self.isObserving else { return }
+                guard let self, self.isObserving, epoch == self.epoch else { return }
                 self.router?.updateCatalog(Self.catalog(from: self.registry))
-                self.observeCatalog()
+                self.observeCatalog(epoch: epoch)
             }
         }
     }
 
-    private func observeContext() {
-        guard isObserving else { return }
+    private func observeContext(epoch: Int) {
+        guard isObserving, epoch == self.epoch else { return }
         withObservationTracking {
             _ = registry.context
         } onChange: { [weak self] in
-            // task-owner: observation re-arm; ends when isObserving is false
+            // task-owner: observation re-arm; ends when its epoch is not current (state-audit R1)
             Task { @MainActor in
-                guard let self, self.isObserving else { return }
+                guard let self, self.isObserving, epoch == self.epoch else { return }
                 self.router?.updateContextMask(self.registry.context.rawValue)
-                self.observeContext()
+                self.observeContext(epoch: epoch)
             }
         }
     }

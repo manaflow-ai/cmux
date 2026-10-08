@@ -29,6 +29,7 @@ public nonisolated enum BookmarkStrings {
     public static var addBookmark: String { t("verb.addBookmark", "Add Bookmark…") }
     public static var addFolder: String { t("verb.addFolder", "Add Folder…") }
     public static var importHTML: String { t("verb.import", "Import Bookmarks…") }
+    public static var importFromBrowser: String { t("verb.importBrowser", "Import from Browser…") }
     public static var exportHTML: String { t("verb.export", "Export Bookmarks…") }
     public static var open: String { t("verb.open", "Open") }
     public static var openInNewTab: String { t("verb.openInNewTab", "Open in New Tab") }

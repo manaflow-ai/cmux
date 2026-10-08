@@ -110,8 +110,11 @@ impl Hub {
                         // A harness that declared no modes reports one: kept
                         // apart (clients read `modes`), for the asking check.
                         None => {
-                            *session.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) =
-                                v.as_str().map(str::to_owned);
+                            *session
+                                .floor
+                                .undeclared_mode
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner()) = v.as_str().map(str::to_owned);
                         }
                     },
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
@@ -169,7 +172,7 @@ impl Hub {
             t.turn_id.clone()
         });
         if let Some(turn_id) = raised {
-            session.last_turn_web.store(true, Ordering::SeqCst);
+            session.floor.last_turn_web.store(true, Ordering::SeqCst);
             // Read back when a host is adopted (`hosts.rs`).
             self.append(
                 session,
@@ -252,9 +255,18 @@ impl Hub {
                 "family": crate::web_modes::family_of(meta),
             })));
         }
+        // A remote chain's agent adopted with no record that it runs in the
+        // sandbox (it started before the sandbox existed).
+        if session.floor.unsandboxed.load(Ordering::SeqCst) {
+            return Err(RpcError::new(
+                -32000,
+                "This chat's agent started before the remote sandbox. Restart this chat to control it remotely.",
+            )
+            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})));
+        }
         // A grant this harness process holds ("allow always", given by a
         // local client) runs its tool without a request in any later turn.
-        if session.harness_grant.load(Ordering::SeqCst) {
+        if session.floor.harness_grant.load(Ordering::SeqCst) {
             return Err(RpcError::new(
                 -32000,
                 "this session's agent holds a lasting grant (allow always) from the local user; a paired device cannot prompt it or answer its permissions until the agent restarts",

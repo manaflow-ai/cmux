@@ -89,6 +89,7 @@ extension DaemonStore {
         case .disconnected(let reason):
             connectionEpoch += 1
             connectionState = .disconnected(reason)
+            onDisconnected?()
             // Nothing newer will arrive for commands sent on this connection.
             drainAppliedWaiters = true
             flushAppliedWaiters()
@@ -96,6 +97,7 @@ extension DaemonStore {
         case .daemonShutdown:
             connectionEpoch += 1
             connectionState = .disconnected("daemon shut down")
+            onDisconnected?()
             return .none
 
         case .workspaceAdded(let delta):

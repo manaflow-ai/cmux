@@ -3,6 +3,7 @@
  * interface). Imported only from src/upstream/, src/proofs/ and src/index.ts.
  */
 import { Effect, Layer, Redacted, Schema } from "effect";
+import type { Environment } from "../policy.ts";
 import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
@@ -58,5 +59,5 @@ export function makeUpstreamTerminals(config: UpstreamConfig): UpstreamTerminals
   };
 }
 
-export const upstreamTerminalsLayer = (config: { readonly baseUrl: string; readonly apiKey: string }): Layer.Layer<UpstreamTerminals> =>
-  Layer.succeed(UpstreamTerminals, makeUpstreamTerminals({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey) }));
+export const upstreamTerminalsLayer = (config: { readonly baseUrl: string; readonly apiKey: string; readonly environment: Environment }): Layer.Layer<UpstreamTerminals> =>
+  Layer.succeed(UpstreamTerminals, makeUpstreamTerminals({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey), environment: config.environment }));

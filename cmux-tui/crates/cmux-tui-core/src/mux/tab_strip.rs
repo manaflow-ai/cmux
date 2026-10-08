@@ -34,7 +34,7 @@ impl StripRequest {
     /// A raw command: a fresh local mutation that never replays.
     pub(crate) fn local(operation: &str) -> Self {
         Self {
-            mutation: WorkspaceMutation::local("cmux-tui-tab-groups"),
+            mutation: WorkspaceMutation::daemon_local("cmux-tui-tab-groups"),
             operation: operation.to_string(),
             fingerprint: serde_json::json!({
                 "operation": operation,

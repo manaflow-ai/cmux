@@ -25,7 +25,7 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
     let revision = registry.snapshot().unwrap().revision;
     registry
         .commit(
-            &WorkspaceMutation::new(format!("create-{key}"), "test").unwrap(),
+            &WorkspaceMutation::daemon(format!("create-{key}"), "test").unwrap(),
             &json!({"op":"create","key":key}),
             None,
             Some(revision),
@@ -129,7 +129,8 @@ fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publicati
         };
         registry
             .commit_for_resource_effect(
-                &WorkspaceMutation::new("interrupted-public-id-workspace", "resource-api").unwrap(),
+                &WorkspaceMutation::daemon("interrupted-public-id-workspace", "resource-api")
+                    .unwrap(),
                 &json!({"operation":"workspace.create","workspace_key":key}),
                 None,
                 None,
@@ -618,9 +619,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
-        supports_terminal_metadata: false,
-        supports_clipboard_read: false,
-        supports_viewer_size_priority: false,
+        ..Default::default()
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -715,9 +714,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_clear_history: false,
         supports_terminate_ack: false,
         supports_input_ack: false,
-        supports_terminal_metadata: false,
-        supports_clipboard_read: false,
-        supports_viewer_size_priority: false,
+        ..Default::default()
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -825,9 +822,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
-        supports_terminal_metadata: false,
-        supports_clipboard_read: false,
-        supports_viewer_size_priority: false,
+        ..Default::default()
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -1626,7 +1621,7 @@ fn commit_terminal_topology(
 ) -> ResourcePatchCommit {
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new(mutation_id, "test").unwrap(),
+            &WorkspaceMutation::daemon(mutation_id, "test").unwrap(),
             "workspace.create",
             &json!({"operation":"workspace.create","name":"One"}),
             None,
@@ -1651,7 +1646,7 @@ fn commit_browser_topology(
     let split = split_id(1);
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new(mutation_id, "test").unwrap(),
+            &WorkspaceMutation::daemon(mutation_id, "test").unwrap(),
             "tab.create_browser",
             &json!({"operation":"tab.create_browser"}),
             None,
@@ -1766,7 +1761,7 @@ fn resource_tab_detach_preserves_exited_terminal_identity_and_outcome() {
     terminal.incarnation = Some(INCARNATION_ONE.into());
     registry
         .commit_terminal(
-            &WorkspaceMutation::new("terminal-ready", "test").unwrap(),
+            &WorkspaceMutation::daemon("terminal-ready", "test").unwrap(),
             &json!({"operation":"terminal-ready"}),
             None,
             Some(0),
@@ -1784,7 +1779,7 @@ fn resource_tab_detach_preserves_exited_terminal_identity_and_outcome() {
     terminal.exit = Some(exit.clone());
     registry
         .commit_terminal(
-            &WorkspaceMutation::new("terminal-exited", "test").unwrap(),
+            &WorkspaceMutation::daemon("terminal-exited", "test").unwrap(),
             &json!({"operation":"terminal-exited"}),
             None,
             Some(1),
@@ -1797,7 +1792,7 @@ fn resource_tab_detach_preserves_exited_terminal_identity_and_outcome() {
 
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("detach-exited-tab", "cmux-tui-runtime").unwrap(),
+            &WorkspaceMutation::daemon("detach-exited-tab", "cmux-tui-runtime").unwrap(),
             "terminal.exit.detach",
             &json!({"terminal":terminal_public_id}),
             None,
@@ -1840,7 +1835,7 @@ fn resource_tab_detach_rejects_live_terminal_content() {
 
     let error = registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("detach-live-tab", "cmux-tui-runtime").unwrap(),
+            &WorkspaceMutation::daemon("detach-live-tab", "cmux-tui-runtime").unwrap(),
             "terminal.exit.detach",
             &json!({"terminal":terminal_resource(TERMINAL_ONE)}),
             None,
@@ -1878,7 +1873,7 @@ fn resource_tab_detach_rejects_browser_content() {
 
     let error = registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("detach-browser-tab", "cmux-tui-runtime").unwrap(),
+            &WorkspaceMutation::daemon("detach-browser-tab", "cmux-tui-runtime").unwrap(),
             "tab.detach",
             &json!({"browser":browser.public_id}),
             None,
@@ -1915,7 +1910,7 @@ fn resource_tab_close_preserves_terminal_content_without_an_explicit_terminal_ch
 
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("close-terminal-tab", "cmux-tui-runtime").unwrap(),
+            &WorkspaceMutation::daemon("close-terminal-tab", "cmux-tui-runtime").unwrap(),
             "tab.close",
             &json!({"tab":tab_id(1)}),
             None,
@@ -1954,7 +1949,7 @@ fn resource_patch_replay_precedes_revision_and_rejects_changed_input() {
     let first = commit_terminal_topology(&mut registry, "same-key");
     let retry = registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("same-key", "reconnected-client").unwrap(),
+            &WorkspaceMutation::daemon("same-key", "reconnected-client").unwrap(),
             "workspace.create",
             &json!({"operation":"workspace.create","name":"One"}),
             None,
@@ -1968,7 +1963,7 @@ fn resource_patch_replay_precedes_revision_and_rejects_changed_input() {
     assert!(retry.replayed);
     let error = registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("same-key", "another-client").unwrap(),
+            &WorkspaceMutation::daemon("same-key", "another-client").unwrap(),
             "workspace.create",
             &json!({"operation":"workspace.create","name":"Different"}),
             None,
@@ -1992,7 +1987,7 @@ fn resource_patch_replays_across_registry_reopen_and_origin_change() {
     let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
     let replay = registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("reconnect-key", "new-connection").unwrap(),
+            &WorkspaceMutation::daemon("reconnect-key", "new-connection").unwrap(),
             "workspace.create",
             &json!({"operation":"workspace.create","name":"One"}),
             None,
@@ -2183,7 +2178,7 @@ fn completed_creation_counts_in_the_boundary_replay_window() {
     registry
         .commit_resource_creation_patch(
             "boundary-correlation",
-            &WorkspaceMutation::new("boundary-attempt", "test").unwrap(),
+            &WorkspaceMutation::daemon("boundary-attempt", "test").unwrap(),
             "test.create.boundary",
             &fingerprint,
             &ResourcePatch { changes: Vec::new() },
@@ -2290,7 +2285,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
         registry
             .commit_resource_creation_patch(
                 "created-correlation",
-                &WorkspaceMutation::new("created-attempt", "test").unwrap(),
+                &WorkspaceMutation::daemon("created-attempt", "test").unwrap(),
                 "test.create.completed",
                 &created_fingerprint,
                 &ResourcePatch { changes: Vec::new() },
@@ -2460,7 +2455,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
     assert!(
         reopened
             .replay_resource_patch(
-                &WorkspaceMutation::new("created-attempt", "retry").unwrap(),
+                &WorkspaceMutation::daemon("created-attempt", "retry").unwrap(),
                 "test.create.completed",
                 &created_fingerprint,
             )
@@ -2474,7 +2469,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
     let newest_fingerprint = json!({"sequence":newest_index});
     let replay = reopened
         .replay_resource_patch(
-            &WorkspaceMutation::new(&newest_key, "retry").unwrap(),
+            &WorkspaceMutation::daemon(&newest_key, "retry").unwrap(),
             "test.pure",
             &newest_fingerprint,
         )
@@ -2484,7 +2479,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
     assert_eq!(replay.result, json!({"sequence":newest_index}));
     let conflict = reopened
         .replay_resource_patch(
-            &WorkspaceMutation::new(&newest_key, "retry").unwrap(),
+            &WorkspaceMutation::daemon(&newest_key, "retry").unwrap(),
             "test.pure",
             &json!({"sequence":"changed"}),
         )
@@ -2508,7 +2503,7 @@ fn resource_patch_failure_rolls_back_every_projection_and_log() {
     registry.set_resource_patch_failure(true).unwrap();
     let error = registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("forced-failure", "test").unwrap(),
+            &WorkspaceMutation::daemon("forced-failure", "test").unwrap(),
             "workspace.create",
             &json!({"operation":"workspace.create"}),
             None,
@@ -2549,7 +2544,7 @@ fn targeted_resource_patch_does_not_rewrite_unrelated_rows() {
     let tab = tab_id(1);
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("rename-pane", "test").unwrap(),
+            &WorkspaceMutation::daemon("rename-pane", "test").unwrap(),
             "pane.rename",
             &json!({"operation":"pane.rename","pane_id":pane,"name":"Build"}),
             None,
@@ -2590,7 +2585,7 @@ fn resource_tombstones_prevent_public_id_and_workspace_key_reuse() {
     let workspace = workspace(1, "one", "One");
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("close", "test").unwrap(),
+            &WorkspaceMutation::daemon("close", "test").unwrap(),
             "workspace.close",
             &json!({"operation":"workspace.close","workspace_id":workspace.public_id}),
             None,
@@ -2612,7 +2607,7 @@ fn resource_tombstones_prevent_public_id_and_workspace_key_reuse() {
     assert_eq!(registry.terminal_snapshot().unwrap().terminals.len(), 1);
     let error = registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("recreate", "test").unwrap(),
+            &WorkspaceMutation::daemon("recreate", "test").unwrap(),
             "workspace.create",
             &json!({"operation":"workspace.create"}),
             None,
@@ -2642,7 +2637,7 @@ fn resource_order_is_exact_and_positions_are_contiguous() {
     let two = workspace(2, "two", "Two");
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("create-two", "test").unwrap(),
+            &WorkspaceMutation::daemon("create-two", "test").unwrap(),
             "workspace.create",
             &json!({"operation":"workspace.create"}),
             None,
@@ -2673,7 +2668,7 @@ fn resource_order_is_exact_and_positions_are_contiguous() {
         .unwrap();
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("move", "test").unwrap(),
+            &WorkspaceMutation::daemon("move", "test").unwrap(),
             "workspace.move",
             &json!({"operation":"workspace.move"}),
             None,
@@ -2737,7 +2732,7 @@ fn cloud_rename_authority_persists_across_registry_restart() {
         tab.name_revision = 2;
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("name", "test").unwrap(),
+                &WorkspaceMutation::daemon("name", "test").unwrap(),
                 "tab.rename",
                 &json!({"name":chosen}),
                 None,
@@ -2875,7 +2870,7 @@ fn commit_browser_topology_unchecked(
     let second_tab = tab_id(2);
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("invalid-browser", "test").unwrap(),
+            &WorkspaceMutation::daemon("invalid-browser", "test").unwrap(),
             "tab.create_browser",
             &json!({"operation":"tab.create_browser"}),
             None,
@@ -2971,7 +2966,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
     let browser = browser_id(1);
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("split", "test").unwrap(),
+            &WorkspaceMutation::daemon("split", "test").unwrap(),
             "pane.split",
             &json!({"operation":"pane.split"}),
             None,
@@ -3046,7 +3041,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
 
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("unsplit", "test").unwrap(),
+            &WorkspaceMutation::daemon("unsplit", "test").unwrap(),
             "pane.close",
             &json!({"operation":"pane.close"}),
             None,
@@ -3177,7 +3172,7 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
     });
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("seed-1000", "perf-test").unwrap(),
+            &WorkspaceMutation::daemon("seed-1000", "perf-test").unwrap(),
             "workspace.create",
             &json!({"count":1000}),
             None,
@@ -3195,7 +3190,7 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
     let started = std::time::Instant::now();
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("rename-one-of-1000", "perf-test").unwrap(),
+            &WorkspaceMutation::daemon("rename-one-of-1000", "perf-test").unwrap(),
             "workspace.rename",
             &json!({"workspace_id":target.public_id,"name":"Renamed"}),
             None,
@@ -3272,7 +3267,7 @@ fn durable_commit_recovers_and_changes_generation() {
     let first = {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         let before = registry.snapshot().unwrap();
-        let mutation = WorkspaceMutation::new(new_uuid_v4(), "browser").unwrap();
+        let mutation = WorkspaceMutation::daemon(new_uuid_v4(), "browser").unwrap();
         let result = json!({"key":"one"});
         let commit = registry
             .commit(
@@ -3307,7 +3302,7 @@ fn durable_commit_recovers_and_changes_generation() {
 #[test]
 fn retry_precedes_revision_check_and_payload_mismatch_is_rejected() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
-    let mutation = WorkspaceMutation::new("mutation", "browser").unwrap();
+    let mutation = WorkspaceMutation::daemon("mutation", "browser").unwrap();
     let fingerprint = json!({"op":"create","key":"one"});
     let result = json!({"key":"one"});
     let workspaces = [RegistryWorkspace {
@@ -3375,7 +3370,7 @@ fn tombstones_prevent_workspace_key_reuse() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     registry
         .commit(
-            &WorkspaceMutation::new("create", "browser").unwrap(),
+            &WorkspaceMutation::daemon("create", "browser").unwrap(),
             &json!({"op":"create"}),
             None,
             Some(0),
@@ -3388,7 +3383,7 @@ fn tombstones_prevent_workspace_key_reuse() {
     assert_eq!(registry.snapshot().unwrap().next_numeric_id, 2);
     registry
         .commit(
-            &WorkspaceMutation::new("close", "browser").unwrap(),
+            &WorkspaceMutation::daemon("close", "browser").unwrap(),
             &json!({"op":"close"}),
             None,
             Some(1),
@@ -3401,7 +3396,7 @@ fn tombstones_prevent_workspace_key_reuse() {
     assert_eq!(registry.snapshot().unwrap().next_numeric_id, 2);
     let error = registry
         .commit(
-            &WorkspaceMutation::new("recreate", "browser").unwrap(),
+            &WorkspaceMutation::daemon("recreate", "browser").unwrap(),
             &json!({"op":"create"}),
             None,
             Some(2),
@@ -3417,7 +3412,7 @@ fn tombstones_prevent_workspace_key_reuse() {
 #[test]
 fn frontend_projection_is_durable_cas_and_exactly_once() {
     let root = temp_root("projection");
-    let mutation = WorkspaceMutation::new("layout-1", "browser-profile").unwrap();
+    let mutation = WorkspaceMutation::daemon("layout-1", "browser-profile").unwrap();
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         let first = registry
@@ -3449,7 +3444,7 @@ fn frontend_projection_is_durable_cas_and_exactly_once() {
         assert!(
             registry
                 .put_frontend_projection(
-                    &WorkspaceMutation::new("layout-2", "browser-profile").unwrap(),
+                    &WorkspaceMutation::daemon("layout-2", "browser-profile").unwrap(),
                     "cmux-browser",
                     "window-group",
                     "group-a",
@@ -3479,7 +3474,7 @@ fn personal_and_shared_frontend_projections_coexist_and_restore_independently() 
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         registry
             .put_frontend_projection(
-                &WorkspaceMutation::new("personal-layout", "cmux-tui").unwrap(),
+                &WorkspaceMutation::daemon("personal-layout", "cmux-tui").unwrap(),
                 "cmux-tui",
                 "personal",
                 "profile-lawrence",
@@ -3490,7 +3485,7 @@ fn personal_and_shared_frontend_projections_coexist_and_restore_independently() 
             .unwrap();
         registry
             .put_frontend_projection(
-                &WorkspaceMutation::new("shared-layout", "cmux-tui").unwrap(),
+                &WorkspaceMutation::daemon("shared-layout", "cmux-tui").unwrap(),
                 "cmux-tui",
                 "shared",
                 "pairing-room",
@@ -3526,7 +3521,7 @@ fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
     assert_eq!(registry.terminal_snapshot().unwrap().revision, 0);
 
     let terminal = terminal(TERMINAL_ONE, "one");
-    let reserve = WorkspaceMutation::new("reserve-1", "browser").unwrap();
+    let reserve = WorkspaceMutation::daemon("reserve-1", "browser").unwrap();
     let fingerprint = json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE});
     let result = json!({"terminal_id":TERMINAL_ONE,"state":"launching"});
     let first = registry
@@ -3561,7 +3556,7 @@ fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
     adopting.incarnation = Some(INCARNATION_ONE.into());
     registry
         .commit_terminal(
-            &WorkspaceMutation::new("adopt-1", "daemon").unwrap(),
+            &WorkspaceMutation::daemon("adopt-1", "daemon").unwrap(),
             &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
             None,
             Some(1),
@@ -3574,7 +3569,7 @@ fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
     running.lifecycle = TerminalLifecycle::Running;
     registry
         .commit_terminal(
-            &WorkspaceMutation::new("ready-1", "daemon").unwrap(),
+            &WorkspaceMutation::daemon("ready-1", "daemon").unwrap(),
             &json!({"op":"terminal-ready","terminal_id":TERMINAL_ONE}),
             None,
             Some(2),
@@ -3598,7 +3593,7 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
     let launching = terminal(TERMINAL_ONE, "one");
     registry
         .commit_terminal(
-            &WorkspaceMutation::new("reserve", "browser").unwrap(),
+            &WorkspaceMutation::daemon("reserve", "browser").unwrap(),
             &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
             None,
             Some(0),
@@ -3613,7 +3608,7 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
     malformed_exit.exit = Some(json!({"reason":"legacy-writer"}));
     let error = registry
         .commit_terminal(
-            &WorkspaceMutation::new("malformed-exit", "daemon").unwrap(),
+            &WorkspaceMutation::daemon("malformed-exit", "daemon").unwrap(),
             &json!({"op":"terminal-exited","terminal_id":TERMINAL_ONE}),
             None,
             Some(1),
@@ -3633,7 +3628,7 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
     }));
     let first = registry
         .commit_terminal(
-            &WorkspaceMutation::new("exit-one", "daemon").unwrap(),
+            &WorkspaceMutation::daemon("exit-one", "daemon").unwrap(),
             &json!({"op":"terminal-exited","terminal_id":TERMINAL_ONE}),
             None,
             Some(1),
@@ -3652,7 +3647,7 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
     }));
     let duplicate = registry
         .commit_terminal(
-            &WorkspaceMutation::new("exit-two", "daemon").unwrap(),
+            &WorkspaceMutation::daemon("exit-two", "daemon").unwrap(),
             &json!({"op":"terminal-exited-again","terminal_id":TERMINAL_ONE}),
             None,
             Some(2),
@@ -3668,7 +3663,7 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
 
     let error = registry
         .commit_terminal(
-            &WorkspaceMutation::new("reuse-exited", "browser").unwrap(),
+            &WorkspaceMutation::daemon("reuse-exited", "browser").unwrap(),
             &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
             None,
             Some(2),
@@ -3692,7 +3687,7 @@ fn terminal_on_exit_policy_round_trips_and_is_fixed_at_reservation() {
     keep.on_exit = TerminalOnExit::Keep;
     registry
         .commit_terminal(
-            &WorkspaceMutation::new("reserve-keep", "browser").unwrap(),
+            &WorkspaceMutation::daemon("reserve-keep", "browser").unwrap(),
             &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
             None,
             Some(0),
@@ -3713,7 +3708,7 @@ fn terminal_on_exit_policy_round_trips_and_is_fixed_at_reservation() {
     repolicied.on_exit = TerminalOnExit::Close;
     let error = registry
         .commit_terminal(
-            &WorkspaceMutation::new("adopt-repolicied", "daemon").unwrap(),
+            &WorkspaceMutation::daemon("adopt-repolicied", "daemon").unwrap(),
             &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
             None,
             Some(1),
@@ -3729,7 +3724,7 @@ fn terminal_on_exit_policy_round_trips_and_is_fixed_at_reservation() {
     adopting.incarnation = Some(INCARNATION_ONE.into());
     registry
         .commit_terminal(
-            &WorkspaceMutation::new("adopt-keep", "daemon").unwrap(),
+            &WorkspaceMutation::daemon("adopt-keep", "daemon").unwrap(),
             &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
             None,
             Some(1),
@@ -3756,7 +3751,7 @@ fn registries_created_before_on_exit_gain_the_column_with_close_default() {
         keep.on_exit = TerminalOnExit::Keep;
         registry
             .commit_terminal(
-                &WorkspaceMutation::new("reserve-keep", "browser").unwrap(),
+                &WorkspaceMutation::daemon("reserve-keep", "browser").unwrap(),
                 &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
                 None,
                 Some(0),
@@ -3813,7 +3808,7 @@ fn registries_created_before_on_exit_gain_the_column_with_close_default() {
     keep.on_exit = TerminalOnExit::Keep;
     registry
         .commit_terminal(
-            &WorkspaceMutation::new("reserve-keep-two", "browser").unwrap(),
+            &WorkspaceMutation::daemon("reserve-keep-two", "browser").unwrap(),
             &json!({"op":"reserve-terminal","terminal_id":TERMINAL_TWO}),
             None,
             Some(1),
@@ -3869,7 +3864,7 @@ fn registries_created_before_workspace_pin_gain_the_column_unpinned() {
     let update = WorkspacePresentationUpdate { pinned: Some(true), ..Default::default() };
     registry
         .commit_workspace_presentation(
-            &WorkspaceMutation::new("pin-one", "test").unwrap(),
+            &WorkspaceMutation::daemon("pin-one", "test").unwrap(),
             &json!({"op":"set-workspace-metadata","key":"one","pinned":true}),
             None,
             None,
@@ -3926,7 +3921,7 @@ fn registries_created_before_marked_unread_gain_the_column_unmarked() {
     let update = WorkspacePresentationUpdate { marked_unread: Some(true), ..Default::default() };
     registry
         .commit_workspace_presentation(
-            &WorkspaceMutation::new("mark-one", "test").unwrap(),
+            &WorkspaceMutation::daemon("mark-one", "test").unwrap(),
             &json!({"op":"set-workspace-metadata","key":"one","marked_unread":true}),
             None,
             None,
@@ -4007,7 +4002,7 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
     for (revision, terminal_id) in [(0, TERMINAL_ONE), (1, TERMINAL_TWO)] {
         registry
             .commit_terminal(
-                &WorkspaceMutation::new(format!("reserve-{revision}"), "browser").unwrap(),
+                &WorkspaceMutation::daemon(format!("reserve-{revision}"), "browser").unwrap(),
                 &json!({"op":"reserve-terminal","terminal_id":terminal_id}),
                 None,
                 Some(revision),
@@ -4029,7 +4024,7 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
     let requests = vec![(TERMINAL_ONE.to_string(), None), (TERMINAL_TWO.to_string(), None)];
     let error = registry
         .close_terminals_atomically(
-            &WorkspaceMutation::new("close-pane-failed", "tui").unwrap(),
+            &WorkspaceMutation::daemon("close-pane-failed", "tui").unwrap(),
             &requests,
         )
         .unwrap_err();
@@ -4045,7 +4040,7 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
 
     let closed = registry
         .close_terminals_atomically(
-            &WorkspaceMutation::new("close-pane", "tui").unwrap(),
+            &WorkspaceMutation::daemon("close-pane", "tui").unwrap(),
             &requests,
         )
         .unwrap();
@@ -4065,7 +4060,8 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         commit_terminal_topology(&mut registry, "seed-terminal-close-dangling");
-        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        let mutation =
+            WorkspaceMutation::daemon("legacy-host-only-close", "legacy-client").unwrap();
         registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
         let topology = registry.resource_topology_snapshot().unwrap();
         assert_eq!(topology.revision, 1);
@@ -4151,7 +4147,7 @@ fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
         });
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("seed-two-tabs", "test").unwrap(),
+                &WorkspaceMutation::daemon("seed-two-tabs", "test").unwrap(),
                 "workspace.create",
                 &json!({"operation":"workspace.create","name":"One"}),
                 None,
@@ -4161,7 +4157,8 @@ fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
                 &json!([{"kind":"workspace.created"}]),
             )
             .unwrap();
-        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        let mutation =
+            WorkspaceMutation::daemon("legacy-host-only-close", "legacy-client").unwrap();
         registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
     }
 
@@ -4212,7 +4209,7 @@ fn terminal_close_tombstones_before_kill_and_retries_safely() {
     let terminal = terminal(TERMINAL_ONE, "one");
     registry
         .commit_terminal(
-            &WorkspaceMutation::new("reserve-1", "browser").unwrap(),
+            &WorkspaceMutation::daemon("reserve-1", "browser").unwrap(),
             &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
             None,
             Some(0),
@@ -4222,7 +4219,7 @@ fn terminal_close_tombstones_before_kill_and_retries_safely() {
         )
         .unwrap();
 
-    let close = WorkspaceMutation::new("close-1", "browser").unwrap();
+    let close = WorkspaceMutation::daemon("close-1", "browser").unwrap();
     let first = registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
     assert_eq!(first.revision, 2);
     assert_eq!(first.result["already_closed"], false);
@@ -4239,7 +4236,7 @@ fn terminal_close_tombstones_before_kill_and_retries_safely() {
 
     let second_close = registry
         .close_terminal(
-            &WorkspaceMutation::new("close-2", "tui").unwrap(),
+            &WorkspaceMutation::daemon("close-2", "tui").unwrap(),
             None,
             Some(2),
             TERMINAL_ONE,
@@ -4253,7 +4250,7 @@ fn terminal_close_tombstones_before_kill_and_retries_safely() {
     assert!(
         registry
             .commit_terminal(
-                &WorkspaceMutation::new("reuse", "browser").unwrap(),
+                &WorkspaceMutation::daemon("reuse", "browser").unwrap(),
                 &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
                 None,
                 Some(2),
@@ -4275,7 +4272,7 @@ fn closing_workspace_detaches_views_without_tombstoning_terminal_hosts() {
         let revision = u64::try_from(index).unwrap();
         registry
             .commit_terminal(
-                &WorkspaceMutation::new(format!("reserve-{}", index + 1), "browser").unwrap(),
+                &WorkspaceMutation::daemon(format!("reserve-{}", index + 1), "browser").unwrap(),
                 &json!({"op":"reserve-terminal","terminal_id":id}),
                 None,
                 Some(revision),
@@ -4287,7 +4284,7 @@ fn closing_workspace_detaches_views_without_tombstoning_terminal_hosts() {
     }
     registry
         .commit(
-            &WorkspaceMutation::new("close-workspace", "browser").unwrap(),
+            &WorkspaceMutation::daemon("close-workspace", "browser").unwrap(),
             &json!({"op":"close-workspace","workspace_key":"one"}),
             None,
             Some(1),
@@ -4317,7 +4314,7 @@ fn terminal_reserve_after_workspace_close_fails_referentially() {
     seed_workspace(&mut registry, "one");
     registry
         .commit(
-            &WorkspaceMutation::new("close", "browser").unwrap(),
+            &WorkspaceMutation::daemon("close", "browser").unwrap(),
             &json!({"op":"close-workspace"}),
             None,
             Some(1),
@@ -4329,7 +4326,7 @@ fn terminal_reserve_after_workspace_close_fails_referentially() {
         .unwrap();
     let error = registry
         .commit_terminal(
-            &WorkspaceMutation::new("late-reserve", "browser").unwrap(),
+            &WorkspaceMutation::daemon("late-reserve", "browser").unwrap(),
             &json!({"op":"create-terminal","terminal_id":TERMINAL_ONE}),
             None,
             Some(0),
@@ -4504,7 +4501,7 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
             });
             let commit = registry
                 .commit_agent_projection(
-                    &WorkspaceMutation::new(key, "migration-test").unwrap(),
+                    &WorkspaceMutation::daemon(key, "migration-test").unwrap(),
                     &fingerprint,
                     Some(expected_revision),
                     &terminal,
@@ -4561,7 +4558,7 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
 
     migrated
         .commit_resource_patch(
-            &WorkspaceMutation::new("agent-migration-tombstone", "migration-test").unwrap(),
+            &WorkspaceMutation::daemon("agent-migration-tombstone", "migration-test").unwrap(),
             "terminal.close",
             &json!({"terminal_id":terminal}),
             None,
@@ -4796,7 +4793,7 @@ fn current_schema_normalizes_legacy_single_view_resource_tabs() {
     let second_tab = tab_id(2);
     reopened
         .commit_resource_patch(
-            &WorkspaceMutation::new("current-schema-project", "test").unwrap(),
+            &WorkspaceMutation::daemon("current-schema-project", "test").unwrap(),
             "terminal.project",
             &json!({"operation":"terminal.project"}),
             None,
@@ -5255,7 +5252,7 @@ fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         registry
             .put_frontend_projection(
-                &WorkspaceMutation::new("legacy-projection", "resource-api").unwrap(),
+                &WorkspaceMutation::daemon("legacy-projection", "resource-api").unwrap(),
                 "resource-api",
                 "session",
                 projection_id.as_str(),
@@ -5295,7 +5292,7 @@ fn terminal_journal_subject_expands_to_every_live_view_path() {
     let second_tab = tab_id(2);
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("journal-multiview-second-view", "test").unwrap(),
+            &WorkspaceMutation::daemon("journal-multiview-second-view", "test").unwrap(),
             "terminal.project",
             &json!({"terminal_id":terminal_id,"pane_id":pane_id(1)}),
             None,
@@ -6179,7 +6176,7 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
 fn reserve_terminal(registry: &mut WorkspaceRegistry, terminal_id: &str, expected_revision: u64) {
     registry
         .commit_terminal(
-            &WorkspaceMutation::new(format!("reserve-{terminal_id}"), "test").unwrap(),
+            &WorkspaceMutation::daemon(format!("reserve-{terminal_id}"), "test").unwrap(),
             &json!({"op":"reserve-terminal","terminal_id":terminal_id}),
             None,
             Some(expected_revision),
@@ -6232,7 +6229,7 @@ fn terminal_idle_policy_rejects_invalid_and_closed_terminals() {
     assert!(unknown.to_string().contains("terminal_not_found"));
 
     registry.set_terminal_idle_policy(TERMINAL_ONE, Some(60)).unwrap();
-    let close = WorkspaceMutation::new("close-idle", "test").unwrap();
+    let close = WorkspaceMutation::daemon("close-idle", "test").unwrap();
     registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
     assert!(registry.live_terminal_idle_policies().unwrap().is_empty());
     assert_eq!(registry.prune_terminal_idle_policies().unwrap(), 1);
@@ -6316,4 +6313,5 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
     fs::remove_dir_all(root).unwrap();
 }
 
+mod exit_snapshot_generations;
 mod terminal_keep_tests;

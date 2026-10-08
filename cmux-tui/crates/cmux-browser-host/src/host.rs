@@ -123,6 +123,9 @@ pub struct Host {
     purge_pending: Mutex<Option<cookie_purge::Pending>>,
     /// Every private-data op of this host (crate::private_data_log).
     private_data: Arc<crate::private_data_log::PrivateDataLog>,
+    /// Which destinations this host's browsers may reach (a Cloud machine
+    /// is isolated, crate::egress_scope).
+    egress: crate::egress_scope::EgressScope,
 }
 
 impl Host {
@@ -140,7 +143,15 @@ impl Host {
             cookie_backups: None,
             purge_pending: Mutex::new(None),
             private_data: Arc::default(),
+            egress: crate::egress_scope::EgressScope::Machine,
         }
+    }
+
+    /// The egress scope every session's gate applies (give the engines the
+    /// same scope, so their browsers use its listener).
+    pub fn with_egress(mut self, egress: crate::egress_scope::EgressScope) -> Host {
+        self.egress = egress;
+        self
     }
 
     /// The cookie backups this host lists and purges (tests).
@@ -311,6 +322,7 @@ impl Host {
                     raw_cdp,
                     remote: caller.locality.refuses_private_ranges(),
                     signed_in_profile: profile != AGENT_PROFILE,
+                    isolated: self.egress.isolated().cloned(),
                 },
             )
             .with_tab_secrets(self.tab_secrets.clone())

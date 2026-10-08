@@ -29,7 +29,7 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_SMART_RENDERER,
+    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PTY_CUSTODY, FLAG_SMART_RENDERER,
     FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame,
     HostLaunchFailure, HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN,
     KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD,
@@ -123,7 +123,7 @@ pub fn validate_kitty_image_aliases(aliases: &[KittyImageAlias]) -> anyhow::Resu
     Ok(())
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TerminalHostRecord {
     pub record_version: u32,
     pub terminal_id: String,
@@ -173,6 +173,10 @@ pub struct TerminalHostRecord {
     /// that reject a ClientHello carrying `FLAG_VIEWER_SIZE_PRIORITY`.
     #[serde(default)]
     pub supports_viewer_size_priority: bool,
+    /// Additive handshake capability (cx-6so.49 L1). Missing/false records
+    /// belong to hosts that reject a ClientHello carrying `FLAG_PTY_CUSTODY`.
+    #[serde(default)]
+    pub supports_pty_custody: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -193,6 +197,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_terminal_metadata", &self.supports_terminal_metadata)
             .field("supports_clipboard_read", &self.supports_clipboard_read)
             .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
+            .field("supports_pty_custody", &self.supports_pty_custody)
             .finish()
     }
 }
@@ -658,6 +663,9 @@ mod unix {
         extra_env: Vec<(String, String)>,
         default_colors: DefaultColors,
         kitty_graphics_limits: KittyGraphicsLimits,
+        /// VT replay applied to the host's parser before the child's first
+        /// byte (cx-6so.49 L2 respawn); an optional trailing blob.
+        seed: Vec<u8>,
     }
 
     impl HostLaunch {
@@ -699,6 +707,9 @@ mod unix {
             if output.len() > MAX_LAUNCH_PAYLOAD {
                 anyhow::bail!("terminal-host launch payload is too large");
             }
+            if !self.seed.is_empty() {
+                put_blob(&mut output, &self.seed)?;
+            }
             Ok(output)
         }
 
@@ -730,6 +741,8 @@ mod unix {
             let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
             pty_size(cols, rows, cell_pixels)?;
             let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
+            anyhow::ensure!(decoder.offset <= MAX_LAUNCH_PAYLOAD, "launch is too large");
+            let seed = if decoder.has_remaining() { decoder.blob()?.to_vec() } else { Vec::new() };
             decoder.finish()?;
             Ok(Self {
                 endpoint,
@@ -744,6 +757,7 @@ mod unix {
                 extra_env,
                 default_colors,
                 kitty_graphics_limits,
+                seed,
             })
         }
     }
@@ -851,23 +865,37 @@ mod unix {
         Ok(colors)
     }
 
+    mod adopt_launch;
+    mod adopted_child;
     mod barrier_sync;
     mod clipboard_read;
     mod control_responses;
     mod exited_drain;
+    mod host_accept;
     mod host_parser;
+    mod host_scope;
     mod host_signals;
+    mod host_start;
     mod metric_commits;
+    mod pty_custody;
+    mod pty_lock;
     mod renderer_grant;
     mod standby;
+    pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
     pub(crate) use clipboard_read::ClipboardReadSignal;
     use clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
     use clipboard_read::{OwnerIntent, owner_rights_allowed, owner_rights_for};
     use control_responses::ControlResponseWaiter;
     pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
     use host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
+    use host_start::HostChild;
+    pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
+    pub(crate) use pty_custody::{live_successor_record, record_owner_token};
+    pub(crate) use pty_lock::sweep_released_pty_locks;
     use renderer_grant::ControlRequestUnanswered;
-    pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
+    pub(crate) use standby::{
+        StandbyTerminalHost, launch_terminal_host_from, launch_terminal_host_seeded,
+    };
 
     pub(crate) struct InputAckReceipt {
         request_id: u64,
@@ -950,6 +978,8 @@ mod unix {
         /// launch barrier. A launcher releases it after committing topology;
         /// an adopter releases an abandoned barrier after validating the host.
         launch_activation_pending: bool,
+        /// The owner's copy of this host's PTY master (`pty_custody.rs`).
+        pty_custody: Option<PtyCustody>,
     }
 
     impl std::fmt::Debug for HostAttachment {
@@ -1855,15 +1885,15 @@ mod unix {
     /// race-free and cannot affect the daemon's own open files. It then
     /// installs the host's signal guard (`host_signals`).
     pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
-        let mut last_error = None;
-        let mut inherited = None;
+        let (mut last_error, mut inherited) = (None, None);
+        let adopted_pty = adopt_launch::adopt_pty_fd_from_process_args();
         for directory in ["/proc/self/fd", "/dev/fd"] {
             match fs::read_dir(directory) {
                 Ok(entries) => {
                     let mut descriptors = entries
                         .filter_map(Result::ok)
                         .filter_map(|entry| entry.file_name().to_str()?.parse::<libc::c_int>().ok())
-                        .filter(|descriptor| *descriptor > libc::STDERR_FILENO)
+                        .filter(|fd| *fd > libc::STDERR_FILENO && Some(*fd) != adopted_pty)
                         .collect::<Vec<_>>();
                     descriptors.sort_unstable();
                     descriptors.dedup();
@@ -2024,6 +2054,7 @@ mod unix {
                 || record.supports_terminal_metadata
                 || record.supports_clipboard_read
                 || record.supports_viewer_size_priority
+                || record.supports_pty_custody
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
@@ -2042,8 +2073,10 @@ mod unix {
             if record.record_version < HOST_RECORD_VERSION && record.supports_input_ack {
                 anyhow::bail!("pre-v4 terminal-host record advertises input receipts");
             }
-            if record.record_version < HOST_RECORD_VERSION && record.supports_clipboard_read {
-                anyhow::bail!("pre-v4 terminal-host record advertises clipboard reads");
+            if record.record_version < HOST_RECORD_VERSION
+                && (record.supports_clipboard_read || record.supports_pty_custody)
+            {
+                anyhow::bail!("pre-v4 terminal-host record advertises clipboard reads or custody");
             }
             let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
                 &record.host_start_nonce,
@@ -2195,6 +2228,7 @@ mod unix {
         fs::remove_file(record_path)?;
         let _ = fs::remove_file(proof);
         crate::terminal_loss_log::remove_signals(record_path);
+        pty_lock::remove_released(record_path, &current.terminal_id, &current.incarnation);
         if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| metadata.file_type().is_socket()) {
             let _ = fs::remove_file(endpoint);
         }
@@ -2377,6 +2411,7 @@ mod unix {
         // The terminal ended with a recorded exit: its signal breadcrumbs
         // (`<id>.signals`, same stem as `<id>.exit`) are no longer evidence.
         crate::terminal_loss_log::remove_signals(record_path);
+        pty_lock::remove_released(record_path, &current.terminal_id, &current.incarnation);
         if let Some(parent) = record_path.parent() {
             File::open(parent)?.sync_all()?;
         }
@@ -2623,6 +2658,7 @@ mod unix {
             viewer_size: Mutex::new(Some(snapshot_size)),
             launch_process: None,
             launch_activation_pending,
+            pty_custody: None,
         };
         attachment.release_viewer_size()?;
         Ok(attachment)
@@ -3359,6 +3395,8 @@ mod unix {
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
         group_escalation_complete: AtomicBool,
+        /// Session of an adopted, non-child process (`adopted_child.rs`).
+        adopted_session: Option<libc::pid_t>,
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool,
     }
@@ -4198,7 +4236,8 @@ mod unix {
             // original PID/PGID is still kernel-reserved and cannot have been
             // reused between validation and killpg.
             let _signal = self.child_signal_lock.lock().unwrap();
-            let child_reserved = !self.child_reaped.load(Ordering::Acquire);
+            let child_reserved =
+                !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
             if child_reserved
                 && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
             {
@@ -4481,31 +4520,6 @@ mod unix {
         Ok(())
     }
 
-    fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
-        loop {
-            let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
-            // SAFETY: status points to writable siginfo storage. WNOWAIT
-            // observes this owned child becoming waitable without releasing
-            // its PID/PGID for reuse; the portable Child handle reaps it after
-            // acquiring child_signal_lock.
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    status.as_mut_ptr(),
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            };
-            if result == 0 {
-                return Ok(());
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                return Err(error);
-            }
-        }
-    }
-
     struct HostLivenessLease {
         file: File,
         path: PathBuf,
@@ -4689,7 +4703,10 @@ mod unix {
     impl Drop for UnpublishedHostGuard {
         fn drop(&mut self) {
             if self.armed {
-                self.shared.terminate_and_wait();
+                // An adopted session is not this host's to end: its owner keeps it.
+                if self.shared.adopted_session.is_none() {
+                    self.shared.terminate_and_wait();
+                }
                 let _ = fs::remove_file(&self.endpoint);
             }
         }
@@ -4742,22 +4759,17 @@ mod unix {
         reader: &mut impl Read,
         writer: &mut impl Write,
     ) -> anyhow::Result<()> {
-        if args.iter().map(String::as_str).ne(["--bootstrap-stdio"]) {
-            anyhow::bail!("hidden mode requires --bootstrap-stdio");
-        }
-        let bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
-        let Some(launch_frame) = read_frame(reader, MAX_LAUNCH_PAYLOAD)? else {
+        let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
+        let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
+        let Some(launch_frame) = read_frame(reader, adopt_launch::max_payload(adopt_fd))? else {
             // Keep the one-frame bootstrap probe useful for compatibility and
             // packaging diagnostics. Production launchers always follow it
             // with Launch on the same private pipe.
             return Ok(());
         };
-        if launch_frame.kind != MessageKind::Launch {
-            anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
-        }
-        let launch = HostLaunch::decode(&launch_frame.payload)?;
+        let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
         crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
-        let shared = match spawn_host_runtime(&launch, &bootstrapped) {
+        let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {
             Ok(shared) => shared,
             Err(error) => {
                 let failure = host_launch_failure(&error);
@@ -4803,6 +4815,7 @@ mod unix {
             supports_terminal_metadata: true,
             supports_clipboard_read: true,
             supports_viewer_size_priority: true,
+            supports_pty_custody: true,
         };
         let record_root = Path::new(&launch.record_path)
             .parent()
@@ -4859,6 +4872,7 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
+        let mut backoff = host_accept::AcceptBackoff::new();
         loop {
             let now = Instant::now();
             if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -4879,18 +4893,10 @@ mod unix {
                 break;
             }
             match listener.accept() {
-                Ok((stream, _)) => {
-                    // Accepted sockets inherit O_NONBLOCK from the listener
-                    // on macOS. Client protocol threads use blocking framed
-                    // reads, so normalize the accepted descriptor here.
-                    stream.set_nonblocking(false)?;
-                    let host = shared.clone();
-                    thread::Builder::new().name("terminal-host-client".into()).spawn(
-                        move || {
-                            let _ = serve_client(host, stream);
-                        },
-                    )?;
-                }
+                Ok((stream, _)) => match host_accept::serve_accepted(&shared, stream) {
+                    Ok(()) => backoff.reset(),
+                    Err(error) => backoff.after_error(&shared, &error),
+                },
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     // Block until an attachment arrives or the accept waker
                     // reports a lifecycle change (terminal exit, last client
@@ -4917,15 +4923,24 @@ mod unix {
                     if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
                         let error = std::io::Error::last_os_error();
                         if error.kind() != std::io::ErrorKind::Interrupted {
-                            return Err(error.into());
+                            backoff.after_error(&shared, &error);
                         }
+                    } else {
+                        // The listener drained without error: a later error
+                        // starts a new streak.
+                        backoff.reset();
                     }
                     if fds[1].revents != 0 {
                         shared.accept_waker.drain();
                     }
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(error.into()),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
+                    ) => {}
+                // EMFILE, ENFILE, ENOBUFS, ENOMEM: never end the shell.
+                Err(error) => backoff.after_error(&shared, &error),
             }
         }
         thread::sleep(Duration::from_millis(20));
@@ -4967,185 +4982,8 @@ mod unix {
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
         crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
-        let mut child = SpawnedPtyChild::new(child, process_group_leader);
-        let pid = child.child().process_id();
-        let killer = child.child().clone_killer();
-        let pty_poll_fd = master.as_raw_fd().context("open terminal-host PTY poll fd")?;
-        let mut pty_reader = master.try_clone_reader()?;
-        let pty_writer = master.take_writer()?;
-        let (pty_drain_waker, pty_drain_waiter) = UnixStream::pair()?;
-
-        let clipboard = ClipboardReads::new(Arc::new(SystemClock));
-        let signals = ParserSignals::new();
-        let callbacks = signals.callbacks(&clipboard);
-        let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
-        term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
-        term.set_kitty_graphics_limits(launch.kitty_graphics_limits)?;
-        term.replace_default_colors(
-            launch.default_colors.fg,
-            launch.default_colors.bg,
-            launch.default_colors.cursor,
-        );
-        term.set_default_palette(&launch.default_colors.palette);
-        replace_ghostty_cursor_defaults(&mut term, launch.default_colors);
-        let initial_colors = term.color_overrides();
-        let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
-        let (parser_commands, parser_command_receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
-        let shared = Arc::new(HostShared {
-            terminal_id: bootstrapped.terminal_id,
-            incarnation: bootstrapped.incarnation,
-            owner_token: bootstrapped.owner_token(),
-            capabilities: CapabilityStore::new(64),
-            term: Mutex::new(term),
-            terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
-            default_colors: Mutex::new(launch.default_colors),
-            stream_progress: TerminalStreamProgress::default(),
-            writer: Mutex::new(pty_writer),
-            master: Mutex::new(master),
-            killer: Mutex::new(killer),
-            pid,
-            command: launch.command.clone(),
-            cwd: launch.cwd.clone(),
-            size: Mutex::new((launch.cols, launch.rows)),
-            cell_pixels: Mutex::new(cell_pixels),
-            viewer_sizes: Mutex::new(ViewerSizes::default()),
-            taps: Mutex::new(HashMap::new()),
-            broadcast_lock: Mutex::new(()),
-            sequence: AtomicU64::new(0),
-            smart: SmartStreamState::new(),
-            source_order_lock: Mutex::new(()),
-            parser_commands,
-            parser_budget: ParserBudget::new(MAX_HOST_PARSER_QUEUED_BYTES),
-            clipboard,
-            parser_progress: (Mutex::new(0), Condvar::new()),
-            next_client: AtomicU64::new(1),
-            dead: AtomicBool::new(false),
-            launch_owner_claimed: AtomicBool::new(false),
-            launch_owner_stream_ready: AtomicBool::new(false),
-            launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
-            active_client_streams: AtomicUsize::new(0),
-            accept_waker: AcceptWaker::new()?,
-            child_exit: (Mutex::new(None), Condvar::new()),
-            child_waitable: AtomicBool::new(false),
-            pty_drained: AtomicBool::new(false),
-            exit_published: AtomicBool::new(false),
-            exit_record_path: Path::new(&launch.record_path).with_extension("exit"),
-            exit_publish_requests,
-            force_pty_drain: AtomicBool::new(false),
-            pty_drain_waker: Mutex::new(pty_drain_waker),
-            termination_started: AtomicBool::new(false),
-            child_signal_lock: Mutex::new(()),
-            child_reaped: AtomicBool::new(false),
-            group_escalation_complete: AtomicBool::new(false),
-            #[cfg(test)]
-            fail_next_resize_publication: AtomicBool::new(false),
-        });
-        HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
-        shared.clipboard.start_timer(&shared)?;
-
-        let parser_host = shared.clone();
-        thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
-            let guarded = parser_host.clone();
-            let parse = move || {
-                run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
-            };
-            run_guarded_host_parser(&guarded, parse, || {
-                // crash-allow: the exit is published (or its bound passed); end the host.
-                std::process::exit(host_parser::PARSER_FAILURE_EXIT_CODE)
-            });
-        })?;
-
-        let reader_host = shared.clone();
-        thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
-            reader_host.wait_for_launch_owner_stream_ready();
-            let mut buffer = [0u8; 64 * 1024];
-            let mut forced_at = None;
-            let mut pty_drain_waiter = pty_drain_waiter;
-            while let Ok(true) = wait_for_pty_readable_or_forced_drain(
-                pty_poll_fd,
-                &mut pty_drain_waiter,
-                &reader_host.force_pty_drain,
-                &mut forced_at,
-            ) {
-                let count = match pty_reader.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(count) => count,
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
-                        ) =>
-                    {
-                        continue;
-                    }
-                    Err(_) => break,
-                };
-                let bytes = buffer[..count].to_vec();
-                let _source_order = reader_host.source_order_lock.lock().unwrap();
-                reader_host.parser_budget.reserve(count);
-                // Publication deliberately precedes parser enqueue. The
-                // bounded queue limits memory while letting a fast renderer
-                // consume source bytes independently of parser throughput.
-                let source_cursor =
-                    reader_host.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
-                if !enqueue_parser_output(
-                    &reader_host.parser_commands,
-                    &reader_host.parser_budget,
-                    &reader_host.smart,
-                    bytes,
-                    source_cursor,
-                    count,
-                ) {
-                    break;
-                }
-            }
-            // Drain is ordered after the final source byte. The parser worker,
-            // rather than the reader, publishes the drained rendezvous.
-            let _source_order = reader_host.source_order_lock.lock().unwrap();
-            let _ = reader_host.parser_commands.send(ParserCommand::Drain);
-        })?;
-        let child_host = shared.clone();
-        thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
-            let observed_without_reaping = child_host
-                .pid
-                .and_then(|pid| libc::pid_t::try_from(pid).ok())
-                .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
-            if observed_without_reaping {
-                child_host.mark_child_waitable();
-                let mut drain = exited_drain::ExitedDrain::start();
-                loop {
-                    let signal = child_host.child_signal_lock.lock().unwrap();
-                    let escalation_complete =
-                        child_host.group_escalation_complete.load(Ordering::Acquire);
-                    let termination_started =
-                        child_host.termination_started.load(Ordering::Acquire);
-                    let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                    if escalation_complete || (!termination_started && pty_drained) {
-                        let exit = child.wait_and_disarm();
-                        child_host.child_reaped.store(true, Ordering::Release);
-                        drop(signal);
-                        *child_host.child_exit.0.lock().unwrap() = Some(exit);
-                        break;
-                    }
-                    drop(signal);
-                    let state = child_host.child_exit.0.lock().unwrap();
-                    drain.wait(&child_host, state);
-                }
-                child_host.child_exit.1.notify_all();
-                child_host.publish_exit_if_drained();
-            } else {
-                // Native Unix PTYs always expose a PID and support waitid;
-                // retain a conservative fallback for alternate backends.
-                let exit = child.wait_and_disarm();
-                child_host.child_reaped.store(true, Ordering::Release);
-                child_host.mark_child_waitable();
-                let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = Some(exit);
-                child_host.child_exit.1.notify_all();
-                child_host.publish_exit_if_drained();
-            }
-        })?;
-        Ok(shared)
+        let child = HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader));
+        host_start::start_host_runtime(launch, bootstrapped, master, child, &launch.seed)
     }
 
     fn send_snapshot_resync(host: &HostShared, stream: &mut UnixStream, smart_renderer: bool) {
@@ -5178,7 +5016,8 @@ mod unix {
                 & !(FLAG_VIEWER_SIZE_ACKS
                     | FLAG_SMART_RENDERER
                     | FLAG_TERMINAL_METADATA
-                    | FLAG_VIEWER_SIZE_PRIORITY)
+                    | FLAG_VIEWER_SIZE_PRIORITY
+                    | FLAG_PTY_CUSTODY)
                 != 0
             || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
                 && hello_frame.version != PROTOCOL_VERSION)
@@ -5187,6 +5026,9 @@ mod unix {
         }
         let hello = ClientHello::decode(&hello_frame.payload)?;
         let response = authenticate_client(&host, &hello)?;
+        if hello_frame.flags & FLAG_PTY_CUSTODY != 0 {
+            return pty_custody::serve(&host, stream, &hello_frame, &hello, &response);
+        }
         if hello_frame.version != response.selected_version
             || !response.granted_rights.contains(CapabilityRights::READ)
         {
@@ -6436,6 +6278,7 @@ mod unix {
                 child_signal_lock: Mutex::new(()),
                 child_reaped: AtomicBool::new(true),
                 group_escalation_complete: AtomicBool::new(false),
+                adopted_session: None,
                 fail_next_resize_publication: AtomicBool::new(false),
             });
             HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
@@ -6495,6 +6338,7 @@ mod unix {
                 supports_terminal_metadata: true,
                 supports_clipboard_read: false,
                 supports_viewer_size_priority: true,
+                supports_pty_custody: false,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -6523,6 +6367,7 @@ mod unix {
                 supports_terminal_metadata: false,
                 supports_clipboard_read: false,
                 supports_viewer_size_priority: false,
+                supports_pty_custody: false,
             };
             let record_path = std::env::temp_dir().join(format!(
                 "cmux-input-ack-surface-{}-{}.json",
@@ -6557,6 +6402,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             (attachment, host)
         }
@@ -6627,6 +6473,7 @@ mod unix {
                     images: 10,
                     placements: 20,
                 },
+                seed: b"seeded".to_vec(),
             };
 
             let decoded = HostLaunch::decode(&launch.encode().unwrap()).unwrap();
@@ -6634,7 +6481,7 @@ mod unix {
             assert_eq!(decoded.cell_pixels, (9, 18));
             assert_eq!(decoded.kitty_graphics_limits, launch.kitty_graphics_limits);
             assert_eq!(decoded.command, launch.command);
-            assert_eq!(decoded.extra_env, launch.extra_env);
+            assert_eq!((decoded.extra_env, decoded.seed), (launch.extra_env, launch.seed));
             assert_eq!(
                 decode_default_colors_payload(&encode_default_colors_payload(default_colors))
                     .unwrap(),
@@ -6681,6 +6528,7 @@ mod unix {
                 extra_env: Vec::new(),
                 default_colors: DefaultColors::default(),
                 kitty_graphics_limits: KittyGraphicsLimits::default(),
+                seed: Vec::new(),
             };
             let mut input = Vec::new();
             write_frame(&mut input, &bootstrap.into_frame(1)).unwrap();
@@ -7047,6 +6895,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -7102,6 +6951,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
 
             let error = match attachment.begin_input_confirmed(b"must-not-send") {
@@ -7370,6 +7220,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -7420,6 +7271,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let peer = thread::spawn(move || {
                 let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];
@@ -7912,6 +7764,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let (release_ack_tx, release_ack_rx) = std::sync::mpsc::channel();
             let resolver = {
@@ -8029,6 +7882,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let (output_queued, output_seen) = sync_channel(1);
             let (release_ack, ack_release) = sync_channel(1);
@@ -8190,6 +8044,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -9895,17 +9750,20 @@ pub use unix::unadoptable::*;
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
     StandbyTerminalHost, acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version, launch_terminal_host_from,
-    load_terminal_host_records_for_reset,
+    decode_host_resize_payload_for_version, launch_terminal_host_from, launch_terminal_host_seeded,
+    live_successor_record, load_terminal_host_records_for_reset, record_owner_token,
+    sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{
-    HostAttachment, acknowledge_terminal_host_exit_record, adopt_terminal_host,
-    decode_host_snapshot_payload, encode_host_snapshot_payload, isolate_terminal_host_process_fds,
-    launch_terminal_host, launch_terminal_host_with_identity, load_terminal_host_exit_records,
-    load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
-    terminal_host_exit_record, terminal_host_record_liveness, terminal_host_root,
-    validate_terminal_host_exit_record, validate_terminal_host_record,
+    HostAttachment, PtyCustody, TerminalHostAdoption, acknowledge_terminal_host_exit_record,
+    adopt_terminal_host, decode_host_snapshot_payload, encode_host_snapshot_payload,
+    isolate_terminal_host_process_fds, launch_terminal_host, launch_terminal_host_adopting,
+    launch_terminal_host_with_identity, load_terminal_host_exit_records,
+    load_terminal_host_records, remove_stale_terminal_host_record,
+    request_terminal_host_pty_custody, serve_terminal_host_stdio, terminal_host_exit_record,
+    terminal_host_record_liveness, terminal_host_root, validate_terminal_host_exit_record,
+    validate_terminal_host_record,
 };
 #[cfg(all(unix, test))]
 pub(crate) use unix::{

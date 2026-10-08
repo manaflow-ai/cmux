@@ -1,0 +1,832 @@
+[
+ {
+  "name": "known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "cwd": "/a",
+    "mcpServers": [],
+    "_meta": {
+     "acpmux": {
+      "harness": "codex",
+      "adopt": {},
+      "peer": "p"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "unknown top param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "cwd": "/a",
+    "x": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "no params passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new"
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "params not an object",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": [
+    1
+   ]
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "unknown method with params",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.foo",
+   "params": {
+    "a": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "unknown method empty params",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.foo",
+   "params": {}
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "meta not an object",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "_meta": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "meta other key",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "_meta": {
+     "other": 1
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "acpmux not an object",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "_meta": {
+     "acpmux": []
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "acpmux unknown key",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "_meta": {
+     "acpmux": {
+      "promptId": "p",
+      "harness": "x"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "acpmux known key",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "mode field at top denied",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "cwd": "/a"
+   }
+  },
+  "mode_fields": [
+   "cwd"
+  ],
+  "breaks": true
+ },
+ {
+  "name": "mode field in acpmux denied",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "_meta": {
+     "acpmux": {
+      "harness": "x"
+     }
+    }
+   }
+  },
+  "mode_fields": [
+   "harness"
+  ],
+  "breaks": true
+ },
+ {
+  "name": "mode field allowed on set_mode",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m"
+   }
+  },
+  "mode_fields": [
+   "modeId"
+  ],
+  "breaks": false
+ },
+ {
+  "name": "set_mode ticket only",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m",
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "set_mode ticket and more",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m",
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "set_config_option ticket only",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_config_option",
+   "params": {
+    "sessionId": "s",
+    "configId": "c",
+    "value": 1,
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "a held prompt may carry its ticket (AcpmuxPaneMethods breaksParamsRule, 190a5c96c1e)",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "set_mode acpmux key",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "_meta": {
+     "acpmux": {
+      "x": 1
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "trust set known",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": "/a",
+    "level": "trusted"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "initialize known",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "initialize",
+   "params": {
+    "protocolVersion": 1,
+    "clientInfo": {},
+    "clientCapabilities": {}
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "initialize every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "initialize",
+   "params": {
+    "protocolVersion": 1,
+    "clientInfo": 1,
+    "clientCapabilities": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "session/new every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "cwd": 1,
+    "mcpServers": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "session/prompt every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": 1,
+    "prompt": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "session/set_model every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_model",
+   "params": {
+    "sessionId": 1,
+    "modelId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "session/cancel every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/cancel",
+   "params": {
+    "sessionId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/watch every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/watch",
+   "params": {
+    "enabled": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/events every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/events",
+   "params": {
+    "sessionId": 1,
+    "afterSeq": 1,
+    "beforeSeq": 1,
+    "limit": 1,
+    "kinds": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/attach every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/attach",
+   "params": {
+    "sessionId": 1,
+    "limit": 1,
+    "kinds": 1,
+    "eventStream": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/detach every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/detach",
+   "params": {
+    "sessionId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/warm every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/warm",
+   "params": {
+    "sessionIds": 1,
+    "limit": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/kill every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/kill",
+   "params": {
+    "sessionId": 1,
+    "purge": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/prewarm every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prewarm",
+   "params": {
+    "harness": 1,
+    "cwd": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/harnesses every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/harnesses",
+   "params": {}
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/models every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/models",
+   "params": {}
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/status every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/status",
+   "params": {}
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/permission_respond every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": 1,
+    "permissionId": 1,
+    "optionId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/handoff_prepare every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/handoff_prepare",
+   "params": {
+    "sessionId": 1,
+    "harness": 1,
+    "handoffKey": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/handoff_get every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/handoff_get",
+   "params": {
+    "sessionId": 1,
+    "handoffId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/handoff_draft every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/handoff_draft",
+   "params": {
+    "handoffId": 1,
+    "revision": 1,
+    "draftKey": 1,
+    "capsule": 1,
+    "checkpoint": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/handoff_start every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/handoff_start",
+   "params": {
+    "handoffId": 1,
+    "revision": 1,
+    "promptId": 1,
+    "capsule": 1,
+    "checkpoint": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/handoff_discard every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/handoff_discard",
+   "params": {
+    "handoffId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/permission_groups every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_groups",
+   "params": {
+    "sessionId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/permission_group_respond every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_group_respond",
+   "params": {
+    "sessionId": 1,
+    "groupId": 1,
+    "revision": 1,
+    "decisionKey": 1,
+    "decision": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/permission_chat_revoke every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_chat_revoke",
+   "params": {
+    "sessionId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "acp.session.fork every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.session.fork",
+   "params": {
+    "sessionId": 1,
+    "throughSeq": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "acp.trust.get every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.trust.get",
+   "params": {
+    "cwd": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "acp.trust.set every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": 1,
+    "level": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "session/set_mode every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": 1,
+    "modeId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "session/set_config_option every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_config_option",
+   "params": {
+    "sessionId": 1,
+    "configId": 1,
+    "value": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "a held prompt carries its ticket beside acpmux.promptId",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {
+      "promptId": "p1"
+     }
+    }
+   }
+  },
+  "breaks": false
+ },
+ {
+  "name": "a prompt's ticket beside another meta key breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "cmuxGesture": "t",
+     "x": 1
+    }
+   }
+  },
+  "breaks": true
+ },
+ {
+  "name": "a ticket on session/new (neither setting nor prompt) breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "cwd": "/x",
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/harnesses with the chat folder passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/harnesses",
+   "params": {
+    "cwd": "/x"
+   }
+  },
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/harness_enable with folder and id passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/harness_enable",
+   "params": {
+    "folder": "/x",
+    "id": "p1"
+   }
+  },
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/harness_enable may not carry sha256 (only the host adds it)",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/harness_enable",
+   "params": {
+    "folder": "/x",
+    "id": "p1",
+    "sha256": "ab"
+   }
+  },
+  "breaks": true
+ }
+]

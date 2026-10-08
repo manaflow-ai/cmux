@@ -8,6 +8,7 @@
  */
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
+import type { Environment } from "../policy.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamClient,
@@ -18,6 +19,7 @@ import {
   type UpstreamClientService,
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
+import { upstreamName } from "./naming.ts";
 
 const CreatedVm = Schema.Struct({ id: UpstreamId, ...UpstreamVm.fields });
 const CreatedSnapshot = Schema.Struct({ snapshotId: UpstreamId });
@@ -56,6 +58,8 @@ export const baseImageFor = (size: SizeRequest | undefined): string | null => {
 export interface UpstreamConfig {
   readonly baseUrl: string;
   readonly apiKey: Redacted.Redacted<string>;
+  /** Prefixes every upstream name (src/upstream/naming.ts). */
+  readonly environment: Environment;
   readonly fetch?: (request: Request) => Promise<Response>;
   readonly timeoutMs?: number;
 }
@@ -81,7 +85,12 @@ interface SendInit {
 }
 
 /** The provider's display name for a resource: who owns it and which public id it is. */
-const upstreamName = (tenantId: string, cmuxId: string) => `cmux ${tenantId} ${cmuxId}`;
+/** Logs which provider operation failed and its HTTP status (or "none"); never ids, bodies or the key. */
+const logUpstreamFailure = (error: UpstreamError) =>
+  Effect.logWarning("cmux-vm upstream call failed").pipe(
+    Effect.annotateLogs({ operation: error.operation, status: error.status === null ? "none" : String(error.status) }),
+  );
+
 
 export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientService {
   const base = new URL(config.baseUrl);
@@ -131,6 +140,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       Effect.flatMap((result) =>
         result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status })),
       ),
+      Effect.tapError(logUpstreamFailure),
     );
 
   const json = <A, I>(operation: string, schema: Schema.Schema<A, I>) => (response: Response): Effect.Effect<A, UpstreamError> =>
@@ -145,6 +155,9 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     }).pipe(
       Effect.flatMap(Schema.decodeUnknown(schema)),
       Effect.mapError((error) => (error instanceof UpstreamError ? error : new UpstreamError({ operation, status: response.status }))),
+      Effect.tapError(() =>
+        Effect.logWarning("cmux-vm upstream response unreadable").pipe(Effect.annotateLogs({ operation, status: String(response.status) })),
+      ),
     );
 
   const drain = (response: Response) => Effect.promise(async () => void (await response.body?.cancel()));
@@ -197,7 +210,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       // Stack team ids fit; the display name carries the tenant id regardless.
       if (tenantId.length <= METADATA_VALUE_MAX) metadata["cmux_tenant"] = tenantId;
       const body = {
-        displayName: upstreamName(tenantId, spec.cmuxId),
+        displayName: upstreamName(config.environment, tenantId, spec.cmuxId),
         idleTimeoutSeconds: spec.idleTimeoutSeconds,
         ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
         ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
@@ -240,7 +253,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     snapshotForFork: (caller, _vm, spec, { owns }) =>
       Effect.flatMap(idOf(owns), (id) => send("snapshotVm", vmPath(id, "/snapshot"), {
         method: "POST",
-        json: { displayName: upstreamName(caller.value.tenantId, spec.cmuxId), autoDeleteSeconds: FORK_SNAPSHOT_AUTO_DELETE_SECONDS },
+        json: { displayName: upstreamName(config.environment, caller.value.tenantId, spec.cmuxId), autoDeleteSeconds: FORK_SNAPSHOT_AUTO_DELETE_SECONDS },
         timeoutMs: SLOW_TIMEOUT_MS,
       }).pipe(
         Effect.flatMap(json("snapshotVm", CreatedSnapshot)),
@@ -312,5 +325,5 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
  * The live client from Worker configuration. The key is wrapped in Redacted at
  * once. Built eagerly, so a bad base URL throws here (src/index.ts answers 503).
  */
-export const upstreamLayer = (config: { readonly baseUrl: string; readonly apiKey: string }): Layer.Layer<UpstreamClient> =>
-  Layer.succeed(UpstreamClient, makeUpstreamClient({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey) }));
+export const upstreamLayer = (config: { readonly baseUrl: string; readonly apiKey: string; readonly environment: Environment }): Layer.Layer<UpstreamClient> =>
+  Layer.succeed(UpstreamClient, makeUpstreamClient({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey), environment: config.environment }));

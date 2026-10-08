@@ -132,22 +132,30 @@ final class FieldChrome: NSView {
     /// Messages fades only the field, not the "+" and emoji glass). Opacity on
     /// the glass view's layer, on its internal layers, or the glass view's own
     /// `alphaValue` shows nothing (A/B takes ffalpha/ffhide-*-take80): the
-    /// system draws the glass from its container. The field container's
-    /// `alphaValue` does fade it, so it is set on the main thread at each
-    /// display frame from the same closed form (value at the frame's display
-    /// time). `MLAB_FIELD_FADE=off` (A/B only) leaves the field at full alpha.
+    /// system draws the glass from its container. The field's own container
+    /// fades it: an opacity keyframe animation on the container's layer, on the
+    /// render server (no main-thread frame can delay it).
+    /// `MLAB_FIELD_FADE` (A/B only): `link` sets the container's `alphaValue`
+    /// on the main thread at each display frame instead (one frame late in
+    /// take 83 when the send's commit ran long), `off` leaves the field as is.
     func sendPulse(begin: CFTimeInterval) {
-        guard !FieldChrome.fadeOff else { return }
-        fadeBegin = begin
-        if fadeLink == nil {
-            let l = displayLink(target: self, selector: #selector(fadeFrame(_:)))
-            l.add(to: .main, forMode: .common)
-            fadeLink = l
+        switch FieldChrome.fadeMode {
+        case "off": return
+        case "link":
+            fadeBegin = begin
+            if fadeLink == nil {
+                let l = displayLink(target: self, selector: #selector(fadeFrame(_:)))
+                l.add(to: .main, forMode: .common)
+                fadeLink = l
+            }
+            fadeLink?.isPaused = false
+        default:
+            guard let l = fieldContainer.layer else { return }
+            Animate.sampledPulse(l, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
         }
-        fadeLink?.isPaused = false
     }
 
-    private static let fadeOff = ProcessInfo.processInfo.environment["MLAB_FIELD_FADE"] == "off"
+    private static let fadeMode = ProcessInfo.processInfo.environment["MLAB_FIELD_FADE"] ?? "layer"
     private var fadeBegin: CFTimeInterval = 0
     private var fadeLink: CADisplayLink?
 

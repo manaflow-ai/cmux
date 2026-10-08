@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
-      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "3c4f2b9cf262655b892e509bb3f8e632503a58da9c4ed8a86dbfe2ae54a094d7",
-      "size": 67778656,
+      "version": "d3fa8796dee7f44f861c74ad9c80b82b054f518e",
+      "url": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "6e1f396150d755ad555c29787d71c06c95ddd42893cee4b6fe9f3e205b3d0c56",
+      "size": 75473168,
       "format": "raw",
       "fileName": "cmux-tui",
-      "bin": { "cmux-tui": "cmux-tui" },
+      "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
+      "source": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/manifest.json (cmux-tui-artifacts run 37772102409, branch cmux-tui-pin-d3fa8796dee7; contains eb9cd709a8a8, the Cloud worker survives agent socket clients; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
-      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "f7ced093b9252c8d694ef9f845781ee012038f88db8702aee50365632dd8591c",
-      "size": 3567048,
+      "version": "d3fa8796dee7f44f861c74ad9c80b82b054f518e",
+      "url": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "dbdcda72ea23ccdcb080e086213cbfed485e05de846b2722fa3da090678f902a",
+      "size": 3625064,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
+      "source": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/manifest.json (cmux-tui-artifacts run 37772102409, branch cmux-tui-pin-d3fa8796dee7; contains eb9cd709a8a8, the Cloud worker survives agent socket clients; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
     },
     {
       "name": "coderouter",
