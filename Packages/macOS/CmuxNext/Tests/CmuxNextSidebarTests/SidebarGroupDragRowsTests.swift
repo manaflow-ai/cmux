@@ -96,6 +96,20 @@ import Testing
         #expect(h.list.drag == nil)
     }
 
+    /// Esc during a group drag: the block flies back and every row shows again.
+    @Test func aCancelledGroupDragPutsEveryRowBack() throws {
+        let h = Harness()
+        defer { h.window.close() }
+        let moved = ["a", "b", "G1", "G1.g1", "G1.g2", "G1.g3", "G2", "c"]
+        #expect(try h.drag(.group(g1)) { h.order() == moved })
+        #expect(["g1", "g2", "g3"].allSatisfy(h.drawnWorkspaces().contains), "drawn: \(h.drawnWorkspaces().sorted())")
+        h.list.cancelDrag()
+        #expect(shape(h.model.sections, local) == "a G1[g1,g2,g3] b G2[h1,h2] c")
+        #expect(h.shownMembers(g1) == ["g1", "g2", "g3"])
+        #expect(h.list.rowViews[.group(g1)]?.alphaValue == 1)
+        #expect(h.list.suppressed.isEmpty)
+    }
+
     @Test func aMemberDraggedInsideItsGroupKeepsEveryRow() throws {
         let h = Harness()
         defer { h.window.close() }
