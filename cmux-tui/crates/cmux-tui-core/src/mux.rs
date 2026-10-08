@@ -3574,6 +3574,7 @@ impl Mux {
                 &TerminalEnd::ProcessEnded(record.exit.clone()),
             )?;
             self.detach_exited_terminal_topology(&record.terminal_id)?;
+            self.record_terminal_end(&record.terminal_id); // a kept dead tab keeps its end (cx-ayt2)
             let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
                 &exit_path, &record,
             )?;
@@ -3641,6 +3642,7 @@ impl Mux {
             }
             if terminal.lifecycle == TerminalLifecycle::Exited {
                 self.detach_exited_terminal_topology(&terminal.terminal_id)?;
+                self.record_terminal_end(&terminal_id); // a kept dead tab keeps its end (cx-ayt2)
                 handled_terminals.insert(terminal_id.clone());
                 if !cleanup_terminal_host_record(&record, &record_path) {
                     self.schedule_terminal_adoption(options.clone(), record, record_path);

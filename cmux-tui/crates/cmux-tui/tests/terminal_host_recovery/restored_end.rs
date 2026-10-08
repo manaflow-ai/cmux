@@ -32,6 +32,8 @@ fn a_lost_host_keeps_its_typed_end_after_an_owner_restart() {
     let before = sender_tab(&harness);
     assert_eq!(before["end"]["kind"], "host_lost", "before the restart: {before}");
     let content = before["content_resource_id"].clone();
+    let cause = before["end"]["cause"].clone();
+    assert!(cause.is_object(), "the loss names its cause before the restart: {before}");
     assert!(content.is_string(), "{before}");
 
     // SIGTERM the owner (a clean stop), then start it again.
@@ -49,4 +51,5 @@ fn a_lost_host_keeps_its_typed_end_after_an_owner_restart() {
     assert_eq!(after["dead"], true, "{after}");
     assert_eq!(after["content_resource_id"], content, "the tab keeps its content id: {after}");
     assert_eq!(after["end"]["kind"], "host_lost", "the tab keeps its typed end: {after}");
+    assert_eq!(after["end"]["cause"], cause, "the restored end keeps the loss cause: {after}");
 }
