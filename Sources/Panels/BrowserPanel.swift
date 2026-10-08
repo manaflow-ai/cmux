@@ -2091,6 +2091,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var cloudBrowserProxyEndpoint: CloudBrowserProxyEndpoint?
     var cloudBrowserProxyAddress: String?
     var cloudLoopbackContentRuleList: WKContentRuleList?
+    var cloudLoopbackContentRuleListIdentifier: String?
     var cloudLoopbackRuntimeBridgeScript: WKUserScript?
     var cloudLoopbackProtectionGeneration = UUID()
     var cloudLoopbackScriptGeneration = 0
@@ -5156,6 +5157,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         BrowserReplTabAttachments.shared.panelDidClose(id)
+        removeManagedSSHLoopbackProtection()
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true

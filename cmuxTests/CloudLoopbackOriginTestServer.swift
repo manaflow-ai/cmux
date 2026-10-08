@@ -71,7 +71,7 @@ final class CloudLoopbackOriginTestServer {
             while data.range(of: separator) == nil {
                 let chunk = try await connection.receiveChunk(maximumLength: 16_384)
                 if let bytes = chunk.data { data.append(bytes) }
-                if chunk.isComplete { return }
+                if chunk.isComplete && data.range(of: separator) == nil { return }
                 guard data.count < 32_768 else { return }
             }
             guard let boundary = data.range(of: separator) else { return }
@@ -88,7 +88,7 @@ final class CloudLoopbackOriginTestServer {
             while body.count < bodyLength {
                 let chunk = try await connection.receiveChunk(maximumLength: bodyLength - body.count)
                 if let bytes = chunk.data { body.append(bytes) }
-                if chunk.isComplete { return }
+                if chunk.isComplete && body.count < bodyLength { return }
             }
             let request = Request(method: String(first[0]), target: String(first[1]),
                                   host: headers["host"] ?? "", body: String(decoding: body.prefix(bodyLength), as: UTF8.self))

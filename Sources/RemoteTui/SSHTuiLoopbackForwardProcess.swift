@@ -13,6 +13,10 @@ actor SSHTuiLoopbackForwardProcess {
 
     func start(client: URL, arguments: [String], environment: [String: String]?, listener: SSHTuiLoopbackListenerLease) async throws -> UInt16 {
         guard !stopped else { throw CancellationError() }
+        // Duplicate the descriptor before changing the listener's rejection
+        // state. A failed duplication must leave the existing 503 handler in
+        // place; otherwise this lease would silently stop rejecting requests.
+        let childInput = try listener.makeChildInput()
         let listenerGeneration = listener.prepareForChild()
         let child = Process()
         let output = Pipe()
@@ -22,7 +26,7 @@ actor SSHTuiLoopbackForwardProcess {
         child.executableURL = client
         child.arguments = arguments
         child.environment = CloudBrowserProxyProcess.sanitizedEnvironment(environment ?? ProcessInfo.processInfo.environment)
-        child.standardInput = try listener.makeChildInput()
+        child.standardInput = childInput
         child.standardOutput = output
         child.standardError = errors
         child.terminationHandler = { terminated in
@@ -66,10 +70,16 @@ actor SSHTuiLoopbackForwardProcess {
             }
             try Task.checkCancellation()
             guard !stopped, child.isRunning, let port else {
-                throw CloudMachineLink.LinkError.spawnFailed("The SSH port forward ended before it became ready.")
+                throw CloudMachineLink.LinkError.spawnFailed(String(
+                    localized: "ssh.tui.browserListener.forwardEnded",
+                    defaultValue: "The SSH port forward ended before it became ready."
+                ))
             }
             guard port == listener.port else {
-                throw CloudMachineLink.LinkError.spawnFailed("The SSH helper reported a different browser listener port.")
+                throw CloudMachineLink.LinkError.spawnFailed(String(
+                    localized: "ssh.tui.browserListener.portMismatch",
+                    defaultValue: "The SSH helper reported a different browser listener port."
+                ))
             }
             localPort = port
             return port

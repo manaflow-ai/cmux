@@ -138,7 +138,10 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
     }
 
     private static func socketError(_ operation: String) -> NSError {
-        NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "Could not \(operation) the managed SSH browser listener."])
+        let format = String(localized: "ssh.tui.browserListener.operationFailed",
+                            defaultValue: "Could not %@ the managed SSH browser listener.")
+        let message = String(format: format, operation)
+        return NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: message])
     }
 
     deinit {
@@ -155,8 +158,6 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
 /// Leases are intentionally retained until process exit because WebKit pages
 /// may keep issuing requests after a provider or access model is retired.
 actor SSHTuiLoopbackListenerLeaseRegistry {
-    static let shared = SSHTuiLoopbackListenerLeaseRegistry()
-
     private struct Key: Hashable {
         let machineID: String
         let host: String
@@ -170,7 +171,10 @@ actor SSHTuiLoopbackListenerLeaseRegistry {
         let key = Key(machineID: machineID, host: target.host.lowercased(), port: target.port)
         if let existing = leases[key] { return existing }
         guard leases.count < maximumLeases else {
-            throw CloudMachineLink.LinkError.spawnFailed("The app's managed SSH browser endpoint limit has been reached.")
+            throw CloudMachineLink.LinkError.spawnFailed(String(
+                localized: "ssh.tui.browserListener.endpointLimit",
+                defaultValue: "The app's managed SSH browser endpoint limit has been reached."
+            ))
         }
         let lease = try SSHTuiLoopbackListenerLease()
         leases[key] = lease

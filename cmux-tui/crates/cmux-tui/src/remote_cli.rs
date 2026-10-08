@@ -4,8 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::mem::size_of;
 use std::net::TcpListener as StdTcpListener;
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -496,10 +497,18 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             }
             "--listen-fd" => {
                 let descriptor: RawFd = value("--listen-fd")?.parse().map_err(|_| {
-                    anyhow!(catalog().remote_client.invalid_option_value("--listen-fd", "file descriptor"))
+                    anyhow!(
+                        catalog()
+                            .remote_client
+                            .invalid_option_value("--listen-fd", "file descriptor")
+                    )
                 })?;
                 if descriptor < 0 {
-                    return Err(anyhow!(catalog().remote_client.invalid_option_value("--listen-fd", "non-negative file descriptor")));
+                    return Err(anyhow!(
+                        catalog()
+                            .remote_client
+                            .invalid_option_value("--listen-fd", "non-negative file descriptor")
+                    ));
                 }
                 flags.forward_listen_fd = Some(descriptor);
             }
@@ -539,7 +548,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
         return Err(anyhow!(catalog().remote_client.wireguard_hub_conflict));
     }
     if flags.forward_listen_fd.is_some() && flags.forward_listen.is_some() {
-        return Err(anyhow!("--listen and --listen-fd cannot be used together"));
+        return Err(anyhow!(catalog().remote_client.options_conflict));
     }
     Ok(flags)
 }
@@ -1006,6 +1015,24 @@ fn reachable_unix_route(_: &Url) -> bool {
     false
 }
 
+#[cfg(unix)]
+fn inherited_listener_accepts_connections(listener: &StdTcpListener) -> io::Result<bool> {
+    let mut accepts: libc::c_int = 0;
+    let mut length = size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: `listener` owns a live descriptor and the output buffer is valid
+    // for the size passed to getsockopt.
+    let result = unsafe {
+        libc::getsockopt(
+            listener.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_ACCEPTCONN,
+            (&mut accepts as *mut libc::c_int).cast(),
+            &mut length,
+        )
+    };
+    if result == 0 { Ok(accepts != 0) } else { Err(io::Error::last_os_error()) }
+}
+
 fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let flags = parse_connect_flags(args)?;
     let workspace_root = flags
@@ -1018,11 +1045,31 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let listen = flags
         .forward_listen
         .unwrap_or_else(|| "127.0.0.1:0".parse().expect("loopback address is valid"));
-    let inherited_listener = flags.forward_listen_fd.map(|fd| {
-        // SAFETY: the caller passes an open listening socket descriptor that
-        // remains valid for the lifetime of this command.
-        unsafe { StdTcpListener::from_raw_fd(fd) }
-    });
+    let inherited_listener = if let Some(fd) = flags.forward_listen_fd {
+        // SAFETY: the caller passes an open descriptor that remains owned by
+        // this command after it is wrapped in `StdTcpListener`.
+        let listener = unsafe { StdTcpListener::from_raw_fd(fd) };
+        match inherited_listener_accepts_connections(&listener) {
+            Ok(true) => Some(listener),
+            Ok(false) => {
+                return Err(anyhow!(
+                    catalog()
+                        .remote_client
+                        .invalid_option_value("--listen-fd", "a listening TCP socket")
+                ));
+            }
+            Err(error) => {
+                return Err(anyhow!(
+                    catalog()
+                        .remote_client
+                        .invalid_option_value("--listen-fd", "a listening TCP socket")
+                )
+                .context(error));
+            }
+        }
+    } else {
+        None
+    };
     let scheme = flags.forward_scheme.clone();
     let connected = start_connected(flags)?;
     let runtime = tokio_runtime()?;
@@ -1046,7 +1093,12 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             _ => return Err(anyhow!("unexpected create-route response")),
         };
         let forward = if let Some(listener) = inherited_listener {
-            LocalPortForward::from_listener(connected.runtime.multiplexer().clone(), route, listener).await?
+            LocalPortForward::from_listener(
+                connected.runtime.multiplexer().clone(),
+                route,
+                listener,
+            )
+            .await?
         } else {
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?
         };
@@ -3608,17 +3660,30 @@ mod tests {
     #[test]
     fn parses_inherited_forward_listener_and_rejects_unsafe_descriptor_values() {
         let parsed = parse_connect_flags(&[
-            "ssh://haven".into(), "--workspace-root".into(), "/".into(),
-            "--port".into(), "3000".into(), "--listen-fd".into(), "0".into(),
+            "ssh://haven".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--port".into(),
+            "3000".into(),
+            "--listen-fd".into(),
+            "0".into(),
         ])
         .unwrap();
         assert_eq!(parsed.forward_listen_fd, Some(0));
-        assert!(parse_connect_flags(&["ssh://haven".into(), "--listen-fd".into(), "-1".into()]).is_err());
-        assert!(parse_connect_flags(&[
-            "ssh://haven".into(), "--listen".into(), "127.0.0.1:3000".into(),
-            "--listen-fd".into(), "0".into(),
-        ])
-        .is_err());
+        assert!(
+            parse_connect_flags(&["ssh://haven".into(), "--listen-fd".into(), "-1".into()])
+                .is_err()
+        );
+        assert!(
+            parse_connect_flags(&[
+                "ssh://haven".into(),
+                "--listen".into(),
+                "127.0.0.1:3000".into(),
+                "--listen-fd".into(),
+                "0".into(),
+            ])
+            .is_err()
+        );
     }
 
     #[test]

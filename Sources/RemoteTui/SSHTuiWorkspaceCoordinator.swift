@@ -13,13 +13,16 @@ final class SSHTuiWorkspaceCoordinator {
     private let catalog: SurfaceCatalog
     private let clientURL: () -> URL?
     private let paths: CloudTuiClientPaths
+    private let listenerRegistry: SSHTuiLoopbackListenerLeaseRegistry
     private var attempts: [UUID: Task<Void, Never>] = [:]
     private let agentStatus: SSHTuiAgentStatusProjector
 
-    init(catalog: SurfaceCatalog, clientURL: @escaping () -> URL?, paths: CloudTuiClientPaths) {
+    init(catalog: SurfaceCatalog, clientURL: @escaping () -> URL?, paths: CloudTuiClientPaths,
+         listenerRegistry: SSHTuiLoopbackListenerLeaseRegistry = SSHTuiLoopbackListenerLeaseRegistry()) {
         self.catalog = catalog
         self.clientURL = clientURL
         self.paths = paths
+        self.listenerRegistry = listenerRegistry
         agentStatus = SSHTuiAgentStatusProjector(catalog: catalog)
     }
 
@@ -65,6 +68,7 @@ final class SSHTuiWorkspaceCoordinator {
         if let existing = catalog.provider(for: machine) as? CmuxTuiSurfaceProvider { return existing }
         guard let clientURL = clientURL() else { throw CloudMachineLink.LinkError.clientMissing }
         let links = SSHTuiLinkManager(connection: connection, clientURL: clientURL, paths: paths,
+                                     listenerRegistry: listenerRegistry,
                                      isEnabled: { ManagedRemoteConnectionsPolicy.isEnabled },
                                      agentHookProviders: { SSHTuiConnection.agentHookProviders(defaults: .standard) })
         let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
