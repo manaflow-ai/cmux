@@ -638,7 +638,7 @@ export type Install = {
 /** One app, CLI or daemon install with its own keypair. */
 export type InstallId = string
 
-export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
+export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm" | "team-vm"
 
 export type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
 
