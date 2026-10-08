@@ -177,37 +177,34 @@ export function Stage({
         : requested,
     );
   }, [display.query, display.run, frameHeight, frameWidth, query, run, scale]);
-  const frameRef = useCallback(
-    (iframe: HTMLIFrameElement | null) => {
-      if (!iframe) return;
-      const receive = (event: MessageEvent) => {
-        const data = event.data as { type?: string; report?: PlayReport; status?: string } | null;
-        const query = iframe.dataset.galleryQuery;
-        const run = Number(iframe.dataset.galleryRun);
-        if (event.source !== iframe.contentWindow || !query || !Number.isFinite(run)) return;
-        if (data?.type === "cmux-gallery-play") setReport(data.report);
-        if (data?.type === "cmux-gallery-stage" && (data.status === "ready" || data.status === "error")) {
-          const pending = pendingRef.current;
-          if (!pending || pending.query !== query || pending.run !== run) return;
-          const token = ++promotion.current;
-          requestAnimationFrame(() => {
-            if (token !== promotion.current) return;
-            const current = pendingRef.current;
-            if (!current || current.query !== query || current.run !== run) return;
-            pendingRef.current = undefined;
-            setDisplay(current);
-            setPending(undefined);
-          });
-        }
-      };
-      addEventListener("message", receive);
-      return () => {
-        removeEventListener("message", receive);
-        promotion.current += 1;
-      };
-    },
-    [],
-  );
+  const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
+    if (!iframe) return;
+    const receive = (event: MessageEvent) => {
+      const data = event.data as { type?: string; report?: PlayReport; status?: string } | null;
+      const query = iframe.dataset.galleryQuery;
+      const run = Number(iframe.dataset.galleryRun);
+      if (event.source !== iframe.contentWindow || !query || !Number.isFinite(run)) return;
+      if (data?.type === "cmux-gallery-play") setReport(data.report);
+      if (data?.type === "cmux-gallery-stage" && (data.status === "ready" || data.status === "error")) {
+        const pending = pendingRef.current;
+        if (!pending || pending.query !== query || pending.run !== run) return;
+        const token = ++promotion.current;
+        requestAnimationFrame(() => {
+          if (token !== promotion.current) return;
+          const current = pendingRef.current;
+          if (!current || current.query !== query || current.run !== run) return;
+          pendingRef.current = undefined;
+          setDisplay(current);
+          setPending(undefined);
+        });
+      }
+    };
+    addEventListener("message", receive);
+    return () => {
+      removeEventListener("message", receive);
+      promotion.current += 1;
+    };
+  }, []);
   const shown = display;
   const next = pending;
   const iframe = (content: typeof shown, hidden: boolean) => (
