@@ -2426,6 +2426,15 @@ class LiveCapacity(unittest.TestCase):
                    mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, LIGHT)]
         self.assertEqual(pool.live_online(runners, (MINI, ROOT_MINI, LIGHT)), {MINI: 2, ROOT_MINI: 1, LIGHT: 1})
 
+    def test_aws_namespace_does_not_count_as_office_pool_capacity(self):
+        aws = mini_runner("aws-m4pro-9", 0, MINI, ROOT_MINI,
+                          "glaeda-aws-std-xcode-26.6", "glaeda-aws-root-std-xcode-26.6")
+        office = mini_runner("cmux7s", 0, MINI, ROOT_MINI)
+        self.assertEqual(pool.live_online([aws, office], (MINI, ROOT_MINI)),
+                         {MINI: 1, ROOT_MINI: 1})
+        self.assertEqual(pool.live_owned_free([aws, office], (MINI, ROOT_MINI)),
+                         {MINI: 1, ROOT_MINI: 1})
+
     def test_routing_labels_come_from_the_online_runners_and_the_variable_only_without_them(self):
         gui = pool.gui_label(MINI)
         runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI), mini_runner("mini-a", 1, gui),
