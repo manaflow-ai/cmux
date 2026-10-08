@@ -52,6 +52,7 @@ static TAKEN: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) struct Params {
     pub path: String,
     #[serde(default)]
