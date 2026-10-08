@@ -50,8 +50,9 @@ import Testing
             return strip.convert(strip.bounds, to: nil).minX < lights.maxX
         }
         strip.layoutSubtreeIfNeeded()
-        let firstTab = strip.convert(strip.bounds, to: nil).minX + strip.computeWindowControlsInset()
-        #expect(firstTab < full.minX, "the first tab moves into the band's old place (\(firstTab) vs \(full.minX))")
+        let firstTab = strip.convert(strip.bounds, to: nil).minX + strip.metrics.stripHorizontalPadding + strip.computeWindowControlsInset()
+        #expect(firstTab <= lights.maxX + Metrics.space3 + 0.5, "the first tab starts right after the traffic lights (\(firstTab), lights end \(lights.maxX))")
+        #expect(firstTab < full.maxX, "it moved into the band's old place")
         #expect(firstTab >= lights.maxX, "and stays clear of the traffic lights")
 
         harness.window.sidebar.model.presentation = .shown

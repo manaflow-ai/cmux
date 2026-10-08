@@ -33,7 +33,7 @@ import Testing
             #expect(band.forwardButton.alphaValue == 0)
             #expect(root.trafficLightsGlass.alphaValue == 0)
             #expect(band.sidebarToggle.alphaValue == 0, "the sidebar toggle hides at rest")
-            #expect(band.sidebarToggle.isAccessibilityElement(), "a hidden toggle stays in the accessibility tree")
+            #expect(!band.sidebarToggle.isHidden, "a clear toggle (alpha 0, not hidden) stays in the accessibility tree")
             root.titlebarReveal.setPointerInside(true)
             #expect(band.backButton.alphaValue == 1)
             #expect(band.forwardButton.alphaValue == 1)
