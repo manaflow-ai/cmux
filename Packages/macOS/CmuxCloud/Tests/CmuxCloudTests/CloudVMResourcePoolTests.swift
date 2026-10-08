@@ -132,6 +132,25 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func unchangedDimensionMayAccompanyGrowth() {
+        let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024)
+        let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024, diskMb: 64 * 1024)
+
+        #expect(CloudVMResizePlanValidator().violation(
+            target: CloudVMResizeShape(vcpus: 8, memoryMb: 24 * 1024),
+            current: current,
+            usesResourcePool: false,
+            limits: limits
+        ) == nil)
+    }
+
+    @Test
+    func booleanCapacityValuesAreRejected() {
+        #expect(CloudVMResizePlanValidator().positiveLimit(true) == nil)
+        #expect(CloudVMResizePlanValidator().positiveLimit(false) == nil)
+    }
+
+    @Test
     func memoryOverflowIsReportedBeforeVcpus() throws {
         let pool = try #require(CloudVMResourcePool(limits: Self.proLimits))
         #expect(pool.shortfall(vcpus: 4, memoryMb: 8192) == nil)

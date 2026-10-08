@@ -178,7 +178,7 @@ class VMResizeTests(unittest.TestCase):
         with ResizeSocket(limits=limits) as server:
             result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--cpu", "32"])
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("cmux Pro", result.stderr)
+            self.assertIn("Pro plan", result.stderr)
             self.assertEqual([request["method"] for request in server.requests], ["vm.list"])
 
     def test_pool_ceiling_rejects_compute_growth_before_resize_mutation(self) -> None:

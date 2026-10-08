@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// The resource shape requested by a grow-only Cloud VM resize.
@@ -142,29 +143,52 @@ public struct CloudVMResizePlanValidator: Sendable {
         usesResourcePool: Bool,
         limits: CloudVMResizeLimits
     ) -> CloudVMResizeViolation? {
+        var hasGrowth = false
+        var unchangedViolation: CloudVMResizeViolation?
         if let requested = target.vcpus {
             if requested > limits.maxVcpus {
                 return .planLimit(resource: .vcpus, requested: requested, maximum: limits.maxVcpus)
             }
-            if let current = current?.vcpus, requested <= current {
-                return .notLarger(resource: .vcpus, requested: requested, current: current)
+            if let current = current?.vcpus {
+                if requested < current {
+                    return .notLarger(resource: .vcpus, requested: requested, current: current)
+                } else if requested > current {
+                    hasGrowth = true
+                } else if unchangedViolation == nil {
+                    unchangedViolation = .notLarger(resource: .vcpus, requested: requested, current: current)
+                }
             }
         }
         if let requested = target.memoryMb {
             if requested > limits.maxMemoryMb {
                 return .planLimit(resource: .memory, requested: requested, maximum: limits.maxMemoryMb)
             }
-            if let current = current?.memoryMb, requested <= current {
-                return .notLarger(resource: .memory, requested: requested, current: current)
+            if let current = current?.memoryMb {
+                if requested < current {
+                    return .notLarger(resource: .memory, requested: requested, current: current)
+                } else if requested > current {
+                    hasGrowth = true
+                } else if unchangedViolation == nil {
+                    unchangedViolation = .notLarger(resource: .memory, requested: requested, current: current)
+                }
             }
         }
         if let requested = target.diskMb {
             if requested > limits.maxDiskMb {
                 return .planLimit(resource: .disk, requested: requested, maximum: limits.maxDiskMb)
             }
-            if let current = current?.diskMb, requested <= current {
-                return .notLarger(resource: .disk, requested: requested, current: current)
+            if let current = current?.diskMb {
+                if requested < current {
+                    return .notLarger(resource: .disk, requested: requested, current: current)
+                } else if requested > current {
+                    hasGrowth = true
+                } else if unchangedViolation == nil {
+                    unchangedViolation = .notLarger(resource: .disk, requested: requested, current: current)
+                }
             }
+        }
+        if !hasGrowth, let unchangedViolation {
+            return unchangedViolation
         }
 
         guard let pool = limits.resourcePool else { return nil }
@@ -221,7 +245,9 @@ public struct CloudVMResizePlanValidator: Sendable {
             value = raw
         } else if let raw = raw as? Int64 {
             value = Int(exactly: raw)
-        } else if let raw = raw as? NSNumber, raw.doubleValue.isFinite {
+        } else if let raw = raw as? NSNumber,
+                  CFGetTypeID(raw) != CFBooleanGetTypeID(),
+                  raw.doubleValue.isFinite {
             value = Int(exactly: raw.doubleValue)
         } else if let raw = raw as? Double, raw.isFinite {
             value = Int(exactly: raw)
