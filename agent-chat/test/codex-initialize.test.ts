@@ -5,6 +5,7 @@ import { codexAdapter } from "../adapters/codex";
 
 const directory = mkdtempSync(join(import.meta.dir, ".codex-initialize-"));
 const originalSpawn = Bun.spawn;
+const originalSetTimeout = globalThis.setTimeout;
 // Select a real disposable child by absolute path. Do not depend on PATH
 // lookup, which could resolve the installed Codex binary on a contributor Mac.
 Bun.spawn = ((command: string[], options: Bun.SpawnOptions.SpawnOptions<"pipe", "pipe", "pipe">) => {
@@ -47,7 +48,24 @@ try {
   }
 
   writeFileSync(join(directory, "mode"), "hang");
-  await assert.rejects(codexAdapter.listOptions(directory), /codex app-server did not initialize within 30s/);
+  const timers: { run: () => void; delay: number; timer: ReturnType<typeof setTimeout> }[] = [];
+  globalThis.setTimeout = ((callback: (...args: any[]) => void, delay: number, ...args: any[]) => {
+    const timer = originalSetTimeout(callback, delay, ...args);
+    timers.push({ run: () => callback(...args), delay, timer });
+    return timer;
+  }) as typeof setTimeout;
+  const timedOut = assert.rejects(codexAdapter.listOptions(directory), /codex app-server did not initialize within 30s/);
+  globalThis.setTimeout = originalSetTimeout;
+  // Wait for the real child to consume initialize before firing the watchdog.
+  // This exercises the same timeout/kill/reap path without spending 30 seconds
+  // asleep or imposing a short wall-clock deadline on subprocess startup.
+  const readyDeadline = Date.now() + 2_000;
+  while (!existsSync(join(directory, "initialize-ready")) && Date.now() < readyDeadline) await Bun.sleep(10);
+  assert.ok(existsSync(join(directory, "initialize-ready")), "fixture must consume initialize before timing out");
+  assert.deepEqual(timers.map(({ delay }) => delay), [30_000, 30_000], "startup watchdog and initialize RPC retain their 30s deadlines");
+  clearTimeout(timers[0]!.timer);
+  timers[0]!.run();
+  await timedOut;
   assert.equal(processes().length, 3);
   assert.ok(processes().every((child) => !alive(child.pid)), "timed-out initialization must reap its uncooperative child");
 
@@ -72,6 +90,7 @@ try {
     await Bun.sleep(10);
   }
   Bun.spawn = originalSpawn;
+  globalThis.setTimeout = originalSetTimeout;
   rmSync(directory, { recursive: true, force: true });
   assert.ok(children.every((child) => !alive(child.pid)), "the fixture must leave no child processes behind");
 }
