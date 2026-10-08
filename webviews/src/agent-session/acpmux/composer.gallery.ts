@@ -5,6 +5,9 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
+// A chat started without a project lives in cmux's agent home, one UUID folder per chat.
+const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
+
 const finished = [
   user("Add retries with backoff to the fetch helper", 10),
   assistant("Done: GETs retry, POSTs only with a policy.", 9),
@@ -76,6 +79,29 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    "agent-home": {
+      note: "A new chat with no project (cmux's agent home): the hero asks what to build, the folder reads Choose folder.",
+      ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
+      snapshot: noChat([], {
+        summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+    },
+    "agent-home-folders": {
+      note: "Play: open the folder menu; it lists real projects, never the agent home's UUID folders.",
+      ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
+      snapshot: noChat(
+        [
+          session({ sessionId: "home-chat", title: "A chat with no project", cwd: AGENT_HOME }),
+          session({ sessionId: "atlas", title: "Retry the fetch helper" }),
+          session({ sessionId: "cmux", title: "Fix the sidebar", cwd: "/Users/you/src/cmux" }),
+        ],
+        { summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" } },
+      ),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Folder"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
+      },
     },
     idle: {
       note: "After a turn: Send, the mode and model chips.",

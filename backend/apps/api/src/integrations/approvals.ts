@@ -117,9 +117,11 @@ export const endApproval = (sql: Sql, request: string, state: Exclude<ApprovalSt
 }
 
 /** pending -> running before the provider call (expiry never ends a running request); false if it was not pending. */
-export const startRun = (sql: Sql, request: string): boolean => {
+export const startRun = (sql: Sql, request: string, now: number = Date.now()): boolean => {
   const row = approvalByRequest(sql, request)
   if (!row || row.state !== "pending") return false
+  // Expired while the answer-time checks ran (approval-gate.ts deliverAnswers): final, never run.
+  if (now >= row.expires_at) return (endApproval(sql, request, "expired", now), false)
   sql.exec(`UPDATE integration_approvals SET state = 'running' WHERE request = ?`, request)
   return true
 }
@@ -152,6 +154,13 @@ export const nextApprovalAt = (sql: Sql): number | null => {
   const times = [r?.a, r?.b === null || r?.b === undefined ? null : Number(r.b) + APPROVAL_RETENTION_MS].filter((t): t is number => typeof t === "number")
   return times.length ? Math.min(...times) : null
 }
+
+/**
+ * A member left the team at `at` (cx-44j.47): their pending requests from before then end denied
+ * and lose their params (a late delivery after a re-join keeps newer ones); returns how many.
+ */
+export const endForMember = (sql: Sql, user: string, at: number, now: number): number =>
+  sql.exec(`UPDATE integration_approvals SET state = 'denied', ended_at = ?, params = '{}' WHERE user = ? AND state = 'pending' AND created_at <= ?`, now, user, at).rowsWritten
 
 /** Expires every pending request whose time passed (the alarm calls this). */
 export const expireDue = (sql: Sql, now: number) =>

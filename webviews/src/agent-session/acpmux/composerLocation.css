@@ -87,8 +87,13 @@
    Base UI's positioner places them (portaled to the body, which is why styles.css gives
    .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. */
 .acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: 13px; }
-/* The recent folders scroll; Choose folder… stays in view under them. */
-.acpmux-location-folders { max-height: min(260px, 45vh); overflow: auto; }
+/* The recent folders scroll; Choose folder… stays in view under them. The menu opens above the
+   card (ComposerContext.tsx useCardAnchor), so the list also fits the room the positioner reports
+   above the card, less Choose folder… and the menu's padding, but never under two rows. */
+.acpmux-location-folders {
+  max-height: max(88px, min(260px, 45vh, calc(var(--available-height, 100vh) - 60px)));
+  overflow: auto;
+}
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
