@@ -24,9 +24,13 @@ type InputDriver = (action: {
   text?: string;
 }) => Promise<void>;
 
+/** What the matrix runner installs to take one still per settled step (a filmstrip). */
+type StepStill = (step: { index: number; step: string }) => Promise<void>;
+
 declare global {
   interface Window {
     cmuxGalleryInput?: InputDriver;
+    cmuxGalleryStep?: StepStill;
     cmuxGalleryPlayReport?: PlayReport;
   }
 }
@@ -226,6 +230,11 @@ export async function runPlay(
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
+  // Each step is recorded once it has settled; the matrix runner then takes that step's still.
+  const record = async (step: StepReport) => {
+    steps.push(step);
+    await window.top?.cmuxGalleryStep?.({ index: steps.length - 1, step: step.step });
+  };
   const find = (target: PlayTarget) => {
     const element = resolveTarget(document, target);
     if (!element) throw new Error(`play: no element for ${describeTarget(target)}`);
@@ -237,7 +246,7 @@ export async function runPlay(
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
       else synthetic(element, kind);
-    }).then((step) => steps.push(step));
+    }).then(record);
   };
   const gesture = async (
     name: string,
@@ -258,7 +267,7 @@ export async function runPlay(
     hover: (target) => input("hover", target),
     focus: async (target) => {
       const element = find(target) as HTMLElement;
-      steps.push(
+      await record(
         await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () =>
           element.focus(),
         ),
@@ -290,7 +299,7 @@ export async function runPlay(
     },
     type: async (text, target) => {
       const element = target ? (find(target) as HTMLElement) : (document.activeElement as HTMLElement | null);
-      steps.push(
+      await record(
         await measured(`type ${JSON.stringify(text.slice(0, 20))}`, "type", element, anchors, checks, async () => {
           element?.focus();
           if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "type", text });
@@ -300,7 +309,7 @@ export async function runPlay(
       );
     },
     press: async (key) => {
-      steps.push(
+      await record(
         await measured(`press ${key}`, "key", document.activeElement, anchors, checks, async () => {
           if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "press", text: key });
           else syntheticKey(key);

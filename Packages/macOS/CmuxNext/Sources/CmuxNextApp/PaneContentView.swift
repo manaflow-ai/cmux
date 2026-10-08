@@ -51,6 +51,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     let paintHoldDeadline = DemandTimer(owner: "pane.paint-hold")
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
+    /// Runs once when the launch image goes (`clearLaunchImage`).
+    var onLaunchImageCleared: (() -> Void)?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
