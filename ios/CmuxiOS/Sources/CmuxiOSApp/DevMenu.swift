@@ -62,6 +62,11 @@ enum DevMenu {
         sheet.addAction(UIAlertAction(title: "Terminal renderer benchmark", style: .default) { [weak presenter] _ in
             presenter?.present(UINavigationController(rootViewController: DevTerminal.makeBench()), animated: true)
         })
+        // DEBUG-only: the split Mac/iOS link benchmark. Paste the descriptor
+        // printed by `cmux-link-bench serve` into the screen.
+        sheet.addAction(UIAlertAction(title: "Link benchmark (Mac split)", style: .default) { [weak presenter] _ in
+            presenter?.present(UINavigationController(rootViewController: DevLinkBenchViewController()), animated: true)
+        })
         // DEBUG-only: the text confirmation settings against the mock owner.
         sheet.addAction(UIAlertAction(title: "Text confirmation (mock owner)", style: .default) { [weak presenter] _ in
             presenter?.present(DevTextConfirm.make(), animated: true)

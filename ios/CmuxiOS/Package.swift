@@ -39,6 +39,9 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxMobileConnect"),
         .package(path: "../../Packages/Shared/CmuxLinkDirect"),
         .package(path: "../../Packages/Shared/CmuxLinkWebRTC"),
+        // DEBUG-only D2 split Mac/iOS benchmark client. The executable lives
+        // in the shared package and is never linked into the shipped app.
+        .package(path: "../../Packages/Shared/CmuxLinkBench"),
         .package(path: "../../Packages/Shared/CmuxMobileFiles"),
         .package(path: "../../Packages/Shared/CmuxMobileHost"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
@@ -108,6 +111,7 @@ let package = Package(
                 .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
                 .product(name: "CmuxLinkWebRTC", package: "CmuxLinkWebRTC"),
+                .product(name: "CmuxLinkBench", package: "CmuxLinkBench"),
                 .product(name: "CmuxLinkSignaling", package: "CmuxLink"),
                 .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
