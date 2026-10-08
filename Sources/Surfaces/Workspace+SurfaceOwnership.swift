@@ -34,9 +34,10 @@ extension Workspace {
         return .ssh(SSHTuiConnection(configuration: configuration).identityDigest)
     }
 
-    /// The SSH machine identity used by manual-mirror surfaces in this workspace.
-    var sshClipboardMachineIdentity: SurfaceMachineID? {
-        configuredSSHClipboardMachine ?? remoteTmuxSSHClipboardMachine
+    /// Whether a new pane created by this plain `ssh-tmux` mirror may emit OSC 52.
+    var allowsRemoteTmuxClipboardWrites: Bool {
+        guard let machine = remoteTmuxSSHClipboardMachine else { return false }
+        return sshClipboardWriteTrustStore.allowsRemoteClipboardWrites(for: machine)
     }
 
     var surfaceOwnershipPolicy: SurfaceOwnershipPolicy {
@@ -68,25 +69,47 @@ extension Workspace {
             return machine
         }
 
-        let mirrorContainerID = remoteTmuxWindowMirrors.first(where: { _, mirror in
-            mirror.panelsByPaneId.values.contains { $0.id == panelID }
-        })?.key
-        if let containerID = mirrorContainerID {
-            if let machine = ownership.machine(for: containerID) {
-                return machine
-            }
-            if let machine = sshClipboardMachineIdentity { return machine }
+        // Optimistic SSH cmux-tui panes are owned before their catalog
+        // projection/provider session exists. Preserve that exact reservation
+        // identity even when they are inserted into another remote workspace.
+        if let reservation = cloudPendingCreations[panelID] {
+            return reservation.machine
         }
 
-        guard let panel = panels[panelID] else { return nil }
-        if panel.surface.ioMode == .manualMirror {
-            return sshClipboardMachineIdentity
+        // A live cmux-tui session can briefly outlive its catalog projection
+        // while a restored or moved pane is being attached. Use the provider's
+        // machine identity only for that live session; an arbitrary manual
+        // mirror must not inherit the workspace's SSH configuration.
+        if let session = tuiMirrorSession(for: panelID) {
+            let machine = SurfaceMachineID(rawValue: session.machineID)
+            if machine.isSSH {
+                return machine
+            }
+        }
+
+        // A window container remains an owner even when its terminal panel
+        // has retired. Catalog ownership above takes precedence over its host.
+        if remoteTmuxWindowMirrors[panelID] != nil {
+            return remoteTmuxSSHClipboardMachine
+        }
+
+        guard let panel = panels[panelID] else {
+            // Inner panes are mirror-owned, not Workspace.panels entries. This
+            // lookup is needed for a single context-menu target, never per
+            // ordinary panel in a batch propagation pass.
+            guard let containerID = remoteTmuxWindowMirrors.first(where: { _, mirror in
+                mirror.panelsByPaneId.values.contains { $0.id == panelID }
+            })?.key else { return nil }
+            return ownership.machine(for: containerID) ?? remoteTmuxSSHClipboardMachine
+        }
+        if let terminal = panel as? TerminalPanel,
+           terminal.surface.ioMode == .manualMirror {
+            // An unprojected generic/device mirror cannot borrow the SSH
+            // identity of the workspace it happens to be displayed in.
+            return panel.transferredSurfaceMachine
         }
         if let resource = (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.cloudResource {
             return resource.machine
-        }
-        if let reservation = cloudPendingCreations[panelID] {
-            return reservation.machine
         }
         if activeRemoteTerminalSurfaceIds.contains(panelID),
            let machine = remoteConfiguration?.managedCloudVMID {
@@ -107,8 +130,10 @@ extension Workspace {
             panel.surface.setAllowsRemoteClipboardWrites(allowed)
         }
 
-        for (containerID, mirror) in remoteTmuxWindowMirrors
-        where sshClipboardMachine(for: containerID, ownership: ownership) == machine {
+        for mirror in remoteTmuxWindowMirrors.values
+        where mirror.panelsByPaneId.values.contains(where: {
+            sshClipboardMachine(for: $0.id, ownership: ownership) == machine
+        }) {
             for panel in mirror.panelsByPaneId.values {
                 panel.surface.setAllowsRemoteClipboardWrites(allowed)
             }

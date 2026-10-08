@@ -73,7 +73,12 @@ extension GhosttyNSView {
         let machine = terminalSurface?.owningWorkspace()?.sshClipboardMachine(
             for: surfaceID,
             ownership: ownership
-        ) ?? ownership.machine(for: surfaceID)
+        ) ?? ownership.machine(for: surfaceID) ?? DockSplitStore.liveStores.lazy.compactMap { dock in
+            guard let panelID = dock.panelID(forTerminalLinkSourceID: surfaceID) else {
+                return nil
+            }
+            return dock.machineOwningSurface(panelID)
+        }.first
         guard let machine, machine.isSSH else {
             return nil
         }

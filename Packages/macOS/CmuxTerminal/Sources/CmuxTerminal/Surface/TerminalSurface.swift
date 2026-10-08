@@ -912,6 +912,8 @@ extension TerminalSurface: TerminalSurfaceControlling {
     public var owningTabId: UUID { tabId }
     /// The live runtime surface pointer (callback seam).
     public var runtimeSurfacePointer: ghostty_surface_t? { surface }
+    /// Whether remote-origin clipboard reads require a native paste gesture.
+    public var requiresClipboardReadGesture: Bool { ioMode.usesManualIO || isRemoteTerminal }
 }
 
 // The engine's surface registry tracks surfaces behind the cross-domain

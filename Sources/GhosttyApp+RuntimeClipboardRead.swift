@@ -19,6 +19,13 @@ extension GhosttyApp {
         guard let callbackContext = Self.callbackContext(from: userdata) else {
             return false
         }
+        // Manual mirrors are write-only remote transports. A user-configured
+        // `clipboard-read = allow` must not turn an unsequenced OSC 52 read into
+        // a Mac clipboard read; explicit Cmd+V/Paste dispatch is marked in the
+        // callback context and remains allowed.
+        guard callbackContext.allowsRuntimeClipboardRead else {
+            return false
+        }
         let clipboardRequestID = UInt(bitPattern: state)
         let requestSurfaceView = callbackContext.surfaceView
         let operation = TerminalImageTransferOperation()
