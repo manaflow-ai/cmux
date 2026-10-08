@@ -2964,6 +2964,7 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let hasActiveProcess = plan.workspaces.contains(where: workspaceNeedsConfirmClose)
             || windowDockNeedsConfirmation
+        let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
         let showsBatchConfirmation: Bool
         var dontAskAgain: CloseWarningKinds
         if containsPinned {
@@ -2975,12 +2976,16 @@ class TabManager: ObservableObject {
             // policy. The tab warning must not suppress this prompt.
             showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
                 || hasActiveProcess
+                || alwaysConfirm
             dontAskAgain = .window
+            if alwaysConfirm { dontAskAgain.insert(.alwaysConfirmWorkspace) }
             if hasActiveProcess { dontAskAgain.insert(.safety) }
         } else {
             showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
                 || hasActiveProcess
+                || alwaysConfirm
             dontAskAgain = .workspace
+            if alwaysConfirm { dontAskAgain.insert(.alwaysConfirmWorkspace) }
             if hasActiveProcess { dontAskAgain.insert(.safety) }
         }
         if showsBatchConfirmation {
@@ -3271,13 +3276,16 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
             || windowDockNeedsConfirmation
+        let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
         let showsCloseConfirmation = requiresConfirmation
             && (needsCloseConfirmation
+                || alwaysConfirm
                 || shouldConfirmWorkspaceClose(
                     requiresConfirmation: needsCloseConfirmation,
                     source: source
                 ))
         var dontAskAgain: CloseWarningKinds = .workspace
+        if alwaysConfirm { dontAskAgain.insert(.alwaysConfirmWorkspace) }
         if needsCloseConfirmation { dontAskAgain.insert(.safety) }
         if showsCloseConfirmation,
            !confirmClose(

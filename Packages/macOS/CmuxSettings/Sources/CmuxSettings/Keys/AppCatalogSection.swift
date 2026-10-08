@@ -245,6 +245,30 @@ public struct AppCatalogSection: SettingCatalogSection {
         )
     )
 
+    /// Opt-in: ask before every workspace close, even when nothing in the
+    /// workspace is running. Overrides `warnBeforeClosingWorkspace` for the
+    /// workspace prompts, the way pinning does for a single workspace.
+    public let alwaysConfirmWorkspaceClose = DefaultsKey<Bool>(
+        id: "app.alwaysConfirmWorkspaceClose",
+        defaultValue: false,
+        userDefaultsKey: "alwaysConfirmWorkspaceClose",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.alwaysConfirmWorkspaceClose",
+                defaultValue: "Always Confirm Closing Workspaces"
+            ),
+            section: .app,
+            searchID: "always-confirm-workspace-close",
+            searchKeywords: ["always", "close", "workspace", "confirmation", "idle", "protect"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "alwaysConfirmWorkspaceClose",
+                    keywords: ["always", "confirm", "close", "workspace"]
+                )
+            ))
+        )
+    )
+
     /// Gates the "Close window?" prompts (the Close Window command, and closing
     /// every workspace in a window at once).
     public let warnBeforeClosingWindow = DefaultsKey<Bool>(

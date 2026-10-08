@@ -1835,6 +1835,84 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         )
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
+
+    private func setAlwaysConfirm(_ manager: TabManager, _ isEnabled: Bool) {
+        manager.closeTabWarningDefaults.set(isEnabled, forKey: AppCatalogSection().alwaysConfirmWorkspaceClose.userDefaultsKey)
+    }
+
+    func testIdleWorkspaceClosesWithoutPromptByDefault() {
+        let manager = makeManager(warnBeforeClosingWorkspace: nil)
+        let workspace = manager.tabs[1]
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(promptCount, 0)
+    }
+
+    func testAlwaysConfirmAsksBeforeClosingIdleWorkspaceEvenWithWarningDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        setAlwaysConfirm(manager, true)
+        let workspace = manager.tabs[1]
+
+        var prompts: [String] = []
+        manager.confirmCloseHandler = { title, _, _ in
+            prompts.append(title)
+            return false
+        }
+
+        XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(prompts, [closeWorkspaceTitle])
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
+    }
+
+    func testAlwaysConfirmAsksBeforeClosingSeveralIdleWorkspaces() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        setAlwaysConfirm(manager, true)
+        let targets = [manager.tabs[0].id, manager.tabs[1].id]
+        let originalIds = manager.tabs.map(\.id)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation(targets, allowPinned: true)
+
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(manager.tabs.map(\.id), originalIds)
+    }
+
+    func testDontAskAgainOnAlwaysConfirmPromptTurnsTheSettingOff() {
+        let manager = makeManager(warnBeforeClosingWorkspace: nil)
+        setAlwaysConfirm(manager, true)
+        let first = manager.tabs[0]
+        let second = manager.tabs[1]
+
+        var promptCount = 0
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return true
+        }
+
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(first))
+        XCTAssertEqual(offered, [[.workspace, .alwaysConfirmWorkspace]])
+        XCTAssertFalse(AppCatalogSection().alwaysConfirmWorkspaceClose.value(in: manager.closeTabWarningDefaults))
+
+        drainMainQueue()
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
+        XCTAssertEqual(promptCount, 1, "An idle workspace closes without asking once the setting is off")
+    }
 }
 
 @MainActor

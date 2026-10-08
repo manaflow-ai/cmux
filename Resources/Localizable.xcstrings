@@ -566890,6 +566890,71 @@
         }
       }
     },
+    "settings.app.alwaysConfirmWorkspaceClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always Confirm Closing Workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التأكيد دائمًا قبل إغلاق مساحات العمل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen von Arbeitsbereichen immer bestätigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmar siempre al cerrar espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours confirmer la fermeture des espaces de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じるときは常に確認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 닫을 때 항상 확인"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завжди підтверджувати закриття робочих областей"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭工作区时始终确认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉工作區時一律確認"
+          }
+        }
+      }
+    },
     "settings.app.warnBeforeClosingWorkspace.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
@@ -566955,6 +567020,71 @@
         }
       }
     },
+    "settings.app.alwaysConfirmWorkspaceClose.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle workspaces close without asking. Turn on to protect long-lived workspaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُغلق مساحات العمل الخاملة دون سؤال. فعّل هذا الخيار لحماية مساحات العمل طويلة الأمد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktive Arbeitsbereiche werden ohne Nachfrage geschlossen. Aktivieren, um langlebige Arbeitsbereiche zu schützen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo inactivos se cierran sin preguntar. Actívalo para proteger los espacios de trabajo de larga duración."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail inactifs se ferment sans demander. Activez cette option pour protéger les espaces de travail de longue durée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル状態のワークスペースは確認なしで閉じます。長く使うワークスペースを守るにはオンにします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 워크스페이스는 확인 없이 닫힙니다. 오래 사용하는 워크스페이스를 보호하려면 켜세요."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неактивні робочі області закриваються без запиту. Увімкніть, щоб захистити довготривалі робочі області."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲的工作区会直接关闭。开启后可保护长期使用的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置的工作區會直接關閉。開啟後可保護長期使用的工作區。"
+          }
+        }
+      }
+    },
     "settings.app.warnBeforeClosingWorkspace.subtitleOn": {
       "extractionState": "manual",
       "localizations": {
@@ -567016,6 +567146,71 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉有執行中程序的工作區，或一次關閉多個工作區前顯示確認。"
+          }
+        }
+      }
+    },
+    "settings.app.alwaysConfirmWorkspaceClose.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every workspace close asks first, even when nothing is running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب كل إغلاق لمساحة عمل التأكيد أولًا، حتى عندما لا يكون هناك شيء قيد التشغيل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedes Schließen eines Arbeitsbereichs fragt zuerst nach, auch wenn nichts läuft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada cierre de un espacio de trabajo pide confirmación, aunque no haya nada en ejecución."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque fermeture d’un espace de travail demande d’abord confirmation, même quand rien ne s’exécute."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何も実行されていなくても、ワークスペースを閉じる前に必ず確認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 것이 없어도 워크스페이스를 닫기 전에 항상 확인합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кожне закриття робочої області спершу запитує підтвердження, навіть якщо нічого не запущено."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次关闭工作区都会先确认，即使没有正在运行的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次關閉工作區都會先確認，即使沒有正在執行的內容。"
           }
         }
       }
@@ -567146,6 +567341,71 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 關閉工作區 確認 警告 執行中的程序"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.always-confirm-workspace-close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
           }
         }
       }
