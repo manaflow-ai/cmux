@@ -24,9 +24,23 @@ public final class BenchSplitFixture: BenchFixtureProtocol, Sendable {
             throw BenchSplitError.invalidDescriptor("direct endpoint")
         }
         let carrier = DirectCarrier(identity: deviceIdentity, resolver: DirectHintsResolver())
+        return try await connect(descriptor: descriptor, carriers: [carrier], configuration: configuration)
+    }
+
+    /// Connects a split fixture through one or more carriers assembled by the
+    /// caller. B5's V1/V2 signaling adapters use this path so the benchmark
+    /// service remains transport-agnostic and the same workloads can run on a
+    /// real control-plane channel or an in-memory test channel.
+    public static func connect(
+        descriptor: BenchServeDescriptor,
+        carriers: [any LinkCarrier],
+        configuration: LinkConfiguration = LinkConfiguration(handshakeTimeout: .seconds(10), maxConnectAttempts: 4, degradedRTT: nil)
+    ) async throws -> BenchSplitFixture {
+        try descriptor.validate()
+        guard !carriers.isEmpty else { throw BenchSplitError.invalidDescriptor("carriers") }
         let dialer = LinkSession(
             peer: descriptor.peer,
-            selector: PathSelector(carriers: [carrier], policy: PathPolicy(upgradeRetry: nil)),
+            selector: PathSelector(carriers: carriers, policy: PathPolicy(upgradeRetry: nil)),
             configuration: configuration
         )
         let states = await dialer.states()

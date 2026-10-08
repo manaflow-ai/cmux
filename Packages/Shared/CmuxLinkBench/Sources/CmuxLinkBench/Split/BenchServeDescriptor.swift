@@ -1,5 +1,7 @@
 import CmuxLink
 import CmuxLinkDirect
+import CmuxLinkWebRTC
+import CmuxLinkWG
 import Foundation
 
 /// A short-lived descriptor printed by `cmux-link-bench serve` and consumed by
@@ -13,6 +15,15 @@ public struct BenchServeDescriptor: Codable, Hashable, Sendable {
     public let address: String
     public let port: UInt16
     public let hostKey: String
+    /// Pinned P-256 key used by the V1 WebRTC carrier. It is optional so a
+    /// direct-only descriptor remains byte-for-byte compatible with the first
+    /// split descriptor format.
+    public let webrtcHostKey: String?
+    /// Pinned X25519 key used by the V2 WireGuard-over-WebRTC carrier.
+    public let wireGuardHostKey: String?
+    /// Host install id used as the signaling `to` endpoint. The host id is
+    /// the default when this is absent, matching B2's signal routing rule.
+    public let signalTarget: String?
     public let carriers: [String]
     public let workloads: [BenchWorkload]
     public let bulkRecordBytes: Int
@@ -22,6 +33,9 @@ public struct BenchServeDescriptor: Codable, Hashable, Sendable {
         address: String,
         port: UInt16,
         hostKey: DirectPublicKey,
+        webrtcHostKey: String? = nil,
+        wireGuardHostKey: String? = nil,
+        signalTarget: String? = nil,
         carriers: [CarrierKind] = [.direct],
         workloads: [BenchWorkload] = BenchWorkload.splitSupported,
         bulkRecordBytes: Int = 64 * 1024
@@ -31,6 +45,9 @@ public struct BenchServeDescriptor: Codable, Hashable, Sendable {
         self.address = address
         self.port = port
         self.hostKey = hostKey.base64
+        self.webrtcHostKey = webrtcHostKey
+        self.wireGuardHostKey = wireGuardHostKey
+        self.signalTarget = signalTarget
         self.carriers = carriers.map(\.rawValue).sorted()
         self.workloads = workloads.sorted { $0.rawValue < $1.rawValue }
         self.bulkRecordBytes = max(1, bulkRecordBytes)
@@ -38,11 +55,15 @@ public struct BenchServeDescriptor: Codable, Hashable, Sendable {
 
     /// The peer hints understood by `DirectHintsResolver`.
     public var peer: LinkPeer {
-        LinkPeer(hostID: hostID, hints: [
-            "direct.address": address,
-            "direct.port": String(port),
-            "direct.hostKey": hostKey,
-        ])
+        var hints = ["direct.hostKey": hostKey]
+        if !address.isEmpty, port != 0 {
+            hints["direct.address"] = address
+            hints["direct.port"] = String(port)
+        }
+        if let webrtcHostKey { hints["webrtc.hostKey"] = webrtcHostKey }
+        if let wireGuardHostKey { hints["wg.hostKey"] = wireGuardHostKey }
+        if let signalTarget { hints["webrtc.to"] = signalTarget }
+        return LinkPeer(hostID: hostID, hints: hints)
     }
 
     public var directEndpoint: DirectEndpoint? {
@@ -51,14 +72,32 @@ public struct BenchServeDescriptor: Codable, Hashable, Sendable {
 
     public func validate() throws {
         guard schema == Self.schema else { throw BenchSplitError.invalidDescriptor("schema") }
-        guard !hostID.isEmpty, DirectAddress(address) != nil, port != 0 else {
+        guard !hostID.isEmpty else {
             throw BenchSplitError.invalidDescriptor("host endpoint")
         }
         guard DirectPublicKey(base64: hostKey) != nil else {
             throw BenchSplitError.invalidDescriptor("host key")
         }
-        guard carriers.contains(CarrierKind.direct.rawValue) else {
-            throw BenchSplitError.invalidDescriptor("direct carrier missing")
+        let carrierKinds = Set(carriers)
+        guard !carrierKinds.isEmpty else { throw BenchSplitError.invalidDescriptor("carriers") }
+        guard carrierKinds.allSatisfy({
+            $0 == CarrierKind.direct.rawValue ||
+                $0 == CarrierKind.webrtc.rawValue ||
+                $0 == CarrierKind.webrtcWireGuard.rawValue
+        }) else {
+            throw BenchSplitError.invalidDescriptor("carrier")
+        }
+        if carrierKinds.contains(CarrierKind.direct.rawValue),
+           (DirectAddress(address) == nil || port == 0) {
+            throw BenchSplitError.invalidDescriptor("direct endpoint")
+        }
+        if carrierKinds.contains(CarrierKind.webrtc.rawValue),
+           (webrtcHostKey == nil || WebRTCPublicKey(base64: webrtcHostKey!) == nil) {
+            throw BenchSplitError.invalidDescriptor("webrtc host key")
+        }
+        if carrierKinds.contains(CarrierKind.webrtcWireGuard.rawValue),
+           (wireGuardHostKey == nil || WireGuardPublicKey(base64: wireGuardHostKey!) == nil) {
+            throw BenchSplitError.invalidDescriptor("wireguard host key")
         }
         guard !workloads.isEmpty, workloads.allSatisfy({ BenchWorkload.splitSupported.contains($0) }) else {
             throw BenchSplitError.invalidDescriptor("workloads")

@@ -108,6 +108,23 @@ signaling adapters before they can be exposed by `serve`. The CLI identity file 
 raw X25519 private key corresponding to the public key passed to `serve`; an iOS client keeps this
 material in its device key store and passes `DirectIdentity` directly to `BenchSplitClient`.
 
+### 2.1 V1/V2 split signaling adapter
+
+`BenchServeDescriptor` now carries optional `webrtcHostKey`, `wireGuardHostKey` and `signalTarget`
+fields alongside its existing direct key. A descriptor may advertise `webrtc`, `webrtc-wg`, or both;
+the direct endpoint is required only when `direct` is listed. The host keys are pairing material, not
+credentials, and are copied into `LinkPeer` hints before a carrier starts. A descriptor that lists a
+signaling carrier without its pinned host key is rejected before any socket or control-plane work.
+
+`BenchSignalingAdapters` is the small B5 bridge used by a split client. Production iOS passes the
+existing B1 `ControlPlaneSignaling` (and its TURN provider); tests pass an `InMemorySignalingHub`
+endpoint with `StaticICEServerProvider`. The adapter owns one `SignalRouter`, shared by V1 and V2,
+because a signaling channel has one reader. `carriers(for:selecting:)` creates a V1
+`WebRTCCarrier` or a V2 `WireGuardOverWebRTCCarrier` with the descriptor's pinned key, so each fresh
+benchmark fixture reuses the control-plane reader while getting a new carrier object. The V2 adapter
+requires the device WireGuard key and its non-empty install id. `BenchSplitClient` selects `.v1` or
+`.v2WebRTC` and otherwise keeps the existing direct-only API unchanged.
+
 ## 3. Results on loopback
 
 Machine: Apple M4 Pro (14 cores), macOS 27.0.1, release build, load average 23 to 60 during the runs

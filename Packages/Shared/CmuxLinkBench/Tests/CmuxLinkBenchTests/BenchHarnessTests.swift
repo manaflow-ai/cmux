@@ -1,7 +1,10 @@
 @testable import CmuxLinkBench
 import CmuxLink
 import CmuxLinkDirect
+import CmuxLinkSignaling
 import CmuxLinkTesting
+import CmuxLinkWebRTC
+import CmuxLinkWG
 import Foundation
 import Testing
 
@@ -150,6 +153,46 @@ struct BenchHarnessTests {
                 manifestURL: base.appendingPathComponent("same.json")
             )
         }
+    }
+
+    @Test("split signaling adapters pin V1 and V2 keys")
+    func splitSignalingAdapters() throws {
+        let directHost = DirectIdentity()
+        let webrtcHost = SoftwareWebRTCIdentity()
+        let wireGuardHost = WireGuardPrivateKey()
+        let descriptor = BenchServeDescriptor(
+            hostID: "signal-host", address: "", port: 0, hostKey: directHost.publicKey,
+            webrtcHostKey: webrtcHost.publicKey.base64,
+            wireGuardHostKey: wireGuardHost.publicKey.base64,
+            signalTarget: "inst_signal-host",
+            carriers: [.webrtc, .webrtcWireGuard]
+        )
+        try descriptor.validate()
+        #expect(descriptor.peer.hints[WebRTCHintsResolver.hostKeyHint] == webrtcHost.publicKey.base64)
+        #expect(descriptor.peer.hints[WireGuardHintsResolver.hostKeyHint] == wireGuardHost.publicKey.base64)
+        #expect(descriptor.peer.hints[WebRTCHintsResolver.signalTargetHint] == "inst_signal-host")
+
+        let hub = InMemorySignalingHub()
+        let adapters = try BenchSignalingAdapters(
+            channel: hub.endpoint(id: "in_bench"),
+            iceServers: StaticICEServerProvider(),
+            webrtcIdentity: SoftwareWebRTCIdentity(),
+            wireGuardIdentity: WireGuardPrivateKey(),
+            wireGuardInstallID: "in_bench"
+        )
+        let v1 = try adapters.carriers(for: descriptor, selecting: .v1)
+        let v2 = try adapters.carriers(for: descriptor, selecting: .v2WebRTC)
+        #expect(v1.map(\.kind) == [.webrtc])
+        #expect(v2.map(\.kind) == [.webrtcWireGuard])
+    }
+
+    @Test("signaling descriptor rejects a missing selected host key")
+    func signalingDescriptorRequiresPinnedKey() throws {
+        let descriptor = BenchServeDescriptor(
+            hostID: "signal-host", address: "", port: 0, hostKey: DirectIdentity().publicKey,
+            carriers: [.webrtc]
+        )
+        #expect(throws: BenchSplitError.self) { try descriptor.validate() }
     }
 
     @Test("split direct server serves the shared echo workload")

@@ -38,6 +38,10 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxLinkBenchTests", dependencies: [
             "CmuxLinkBench", .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
+            .product(name: "CmuxLink", package: "CmuxLink"),
+            .product(name: "CmuxLinkSignaling", package: "CmuxLink"),
+            .product(name: "CmuxLinkWebRTC", package: "CmuxLinkWebRTC"),
+            .product(name: "CmuxLinkWG", package: "CmuxLinkWG"),
         ]),
     ],
     swiftLanguageModes: [.v6]
