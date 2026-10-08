@@ -45,6 +45,8 @@ struct CLIRemoteShellStartupPerformanceTests {
         )
         let shellMarker = root.url.appendingPathComponent("remote-shell-started")
         let relayRPCGate = root.url.appendingPathComponent("relay-rpc-gate")
+        let relayReportDone = root.url.appendingPathComponent("relay-report-done")
+        let relayPortsDone = root.url.appendingPathComponent("relay-ports-done")
         let sshInvocationLog = root.url.appendingPathComponent("ssh-invocations.log")
 
         var environment = ProcessInfo.processInfo.environment
@@ -58,6 +60,8 @@ struct CLIRemoteShellStartupPerformanceTests {
         environment["CMUX_SURFACE_ID"] = "surface-cli-perf"
         environment["CMUX_FAKE_SHELL_MARKER"] = shellMarker.path
         environment["CMUX_FAKE_RELAY_RPC_GATE"] = relayRPCGate.path
+        environment["CMUX_FAKE_RELAY_REPORT_DONE"] = relayReportDone.path
+        environment["CMUX_FAKE_RELAY_PORTS_DONE"] = relayPortsDone.path
         environment["CMUX_FAKE_SSH_LOG"] = sshInvocationLog.path
         environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = root.bin.appendingPathComponent("cmux").path
 
@@ -75,6 +79,8 @@ struct CLIRemoteShellStartupPerformanceTests {
 
         let shellStartedBeforeRelayRPCCompleted = waitForFile(shellMarker, timeout: 3)
         try Data().write(to: relayRPCGate)
+        let relayRPCsCompleted = waitForFile(relayReportDone, timeout: 3)
+            && waitForFile(relayPortsDone, timeout: 3)
         let result = waitForProcess(running, timeout: 5)
         let sshInvocations =
             (try? String(contentsOf: sshInvocationLog, encoding: .utf8)) ?? "<no fake SSH invocation>"
@@ -87,6 +93,7 @@ struct CLIRemoteShellStartupPerformanceTests {
             Startup stderr:\n\(result.stderr)
             """
         )
+        #expect(relayRPCsCompleted, "background relay RPC helpers did not observe the test gate")
         #expect(!result.timedOut)
         #expect(result.status == 0)
     }
@@ -225,7 +232,17 @@ struct CLIRemoteShellStartupPerformanceTests {
         case "${1:-}:${2:-}" in
           rpc:surface.report_tty|rpc:surface.ports_kick)
             if [ -n "${CMUX_FAKE_RELAY_RPC_GATE:-}" ]; then
-              while [ ! -f "$CMUX_FAKE_RELAY_RPC_GATE" ]; do sleep 0.05; done
+              attempts=0
+              while [ ! -f "$CMUX_FAKE_RELAY_RPC_GATE" ] && [ "$attempts" -lt 100 ]; do
+                attempts=$((attempts + 1))
+                sleep 0.05
+              done
+              [ -f "$CMUX_FAKE_RELAY_RPC_GATE" ] || exit 75
+            fi
+            if [ "$2" = "surface.report_tty" ] && [ -n "${CMUX_FAKE_RELAY_REPORT_DONE:-}" ]; then
+              : > "$CMUX_FAKE_RELAY_REPORT_DONE"
+            elif [ "$2" = "surface.ports_kick" ] && [ -n "${CMUX_FAKE_RELAY_PORTS_DONE:-}" ]; then
+              : > "$CMUX_FAKE_RELAY_PORTS_DONE"
             fi
             ;;
         esac
