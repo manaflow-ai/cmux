@@ -10,9 +10,8 @@ extension ActionRegistry {
     func makeChoicesItem(for descriptor: ActionDescriptor, target: ActionTargetRef?, in context: ActionContext) -> NSMenuItem? {
         guard let title = title(for: descriptor.id), let action = action(for: descriptor.id),
               Self.isAvailable(descriptor, in: context), action.isEnabled(),
-              let (argument, cases) = descriptor.arguments.lazy.compactMap(Self.menuChoices).first
+              let (argument, cases, current) = ActionTargetChoices.resolve(descriptor, target: target, in: self), !cases.isEmpty
         else { return nil }
-        let current = choiceState?(descriptor.id, target)
         let submenu = NSMenu(title: title)
         let coordinator = ActionChoicesMenuCoordinator(registry: self, action: descriptor.id, argument: argument.name, target: target)
         // `NSMenu.delegate` is weak; the coordinator lives as long as the menu.

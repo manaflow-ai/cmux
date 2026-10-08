@@ -11,6 +11,7 @@ import WebKit
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
 final class PageWKWebView: WKWebView {
+    var onUserEvent: (() -> Void)?
     /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection).
     static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy"]
 
@@ -45,6 +46,7 @@ final class PageWKWebView: WKWebView {
     }
 
     func noteUserEvent(_ event: NSEvent) {
+        onUserEvent?()
         lastUserEventUptime = event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime
     }
 

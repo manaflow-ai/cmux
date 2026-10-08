@@ -71,5 +71,27 @@ enum DebugCrashes {
             abort()
         }
     }
+
+    /// `debug.crash.exception`: raises an NSException from a run-loop
+    /// callback AppKit dispatches (where AppKit catches and logs exceptions
+    /// unless NSApplicationCrashOnExceptions is on, cx-r3q). A DEV build
+    /// then crashes at this throw, and the report names
+    /// `DebugExceptionRaiser.raiseNow`.
+    static func raiseException() -> JSONValue {
+        DebugExceptionRaiser.shared.perform(#selector(DebugExceptionRaiser.raiseNow), with: nil, afterDelay: 0)
+        return .object(["scheduled": .bool(true),
+                        "crash_on_exceptions": .bool(UserDefaults.standard.bool(forKey: CrashOnExceptions.key))])
+    }
     #endif
 }
+
+#if DEBUG
+/// The target of `debug.crash.exception`'s run-loop perform.
+final class DebugExceptionRaiser: NSObject {
+    static let shared = DebugExceptionRaiser()
+
+    @objc func raiseNow() {
+        NSException(name: .internalInconsistencyException, reason: "debug.crash.exception (cx-r3q)", userInfo: nil).raise()
+    }
+}
+#endif

@@ -75,6 +75,11 @@ cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 echo "Building app..."
 rm -rf build/
 ./scripts/cmux-next/pin-cmux-tui.sh fetch --pin
+# cmux-next's web bundles are build output (cx-vn5): a release builds them from this
+# commit's sources, never from a stamp.
+if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
+  scripts/cmux-next/build-web-bundles.sh --force
+fi
 xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
 if [ ! -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then

@@ -49,6 +49,10 @@ mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_reap;
+#[cfg(unix)]
+mod terminal_rehost;
+mod terminal_relaunch;
+mod terminal_respawn;
 mod terminal_work;
 mod topology_result;
 
@@ -2717,6 +2721,7 @@ pub struct Mux {
     /// Detaches of live signal exits that wait out the session shutdown
     /// lead (`session-shutdown`, logout race).
     exit_settles: Arc<exit_settle::ExitSettleTimer>,
+    terminal_respawns: terminal_respawn::TerminalRespawns,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -2970,7 +2975,7 @@ impl Mux {
 
     pub(crate) fn from_workspace_registry(
         session: String,
-        mut surface_options: SurfaceOptions,
+        surface_options: SurfaceOptions,
         registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
@@ -3008,7 +3013,6 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
-        surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
             workspace_registry: SignaledMutex::new(registry),
@@ -3168,6 +3172,7 @@ impl Mux {
             shutting_down: AtomicBool::new(false),
             session_shutdown,
             exit_settles: Arc::default(),
+            terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             activity: Default::default(),
@@ -3522,6 +3527,9 @@ impl Mux {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_exit_records(root)?,
             None => Vec::new(),
         };
+        if let Some(root) = options.terminal_host_root.as_deref() {
+            crate::terminal_host_runtime::sweep_released_pty_locks(root);
+        }
         let records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_records(root)?,
             None => Vec::new(),
@@ -3953,6 +3961,9 @@ impl Mux {
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
         self.clear_pending_terminal(terminal_id);
+        if self.terminal_is_respawning(terminal_id) {
+            return Ok(());
+        }
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         let Some(terminal) = terminal else { return Ok(()) };
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
@@ -6679,6 +6690,8 @@ impl Mux {
         } else {
             format!("cmux-hook-sequence:{sequence}")
         };
+        let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
+        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended);
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
@@ -8212,6 +8225,9 @@ impl Mux {
             if reserve_replayed {
                 anyhow::bail!("terminal_create_replayed");
             }
+            let launched =
+                prelaunched.as_ref().map_or(&opts, |prelaunched| prelaunched.launch_opts());
+            self.record_terminal_relaunch(&terminal_hex, launched);
             let spawned = match prelaunched {
                 Some(prelaunched) => {
                     Surface::spawn_prelaunched(prelaunched.into_host(), Arc::downgrade(self))
@@ -8330,6 +8346,7 @@ impl Mux {
                 }
                 self.emit_terminal_registry_changed(&registry, commit.revision);
             }
+            self.record_terminal_relaunch(&terminal_hex, &opts);
             #[cfg(test)]
             if let Some(hook) =
                 self.terminal_create_after_terminal_reservation.lock().unwrap().clone()
@@ -12321,7 +12338,6 @@ impl Mux {
     pub fn update_surface_options(&self, update: impl FnOnce(&mut SurfaceOptions)) {
         let mut options = self.surface_options.lock().unwrap();
         update(&mut options);
-        options.browser_session_name = self.session.clone();
     }
 
     /// The latest machine-level model spend readout, or `None` when the

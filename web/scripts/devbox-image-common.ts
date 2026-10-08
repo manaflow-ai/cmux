@@ -1542,3 +1542,41 @@ export const DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS = 10;
 export function devboxSettleBeforeSnapshotCommand(): string {
   return `sync && sleep ${DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS} && sync && echo "settled $(cut -d' ' -f1-3 /proc/loadavg)"`;
 }
+
+/**
+ * The devbox daemon unit: cmux-devbox-boot supervises the cmux-tui daemon
+ * (build-devbox-freestyle.ts header). Its argv and environment are a contract
+ * with running machines (docs/cloud-guest-upgrades.md): add, never rename.
+ */
+export function devboxDaemonUnit(): string {
+  return [
+    "[Unit]",
+    "Description=cmux-tui session daemon supervisor",
+    "After=network.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    "User=root",
+    // Freestyle machines are reached at a private VPC address by default, or
+    // their stable public IPv6 on the legacy public-network path, so the daemon
+    // listens dual-stack ([::] accepts IPv4 too). cmux-devbox-boot
+    // defaults to 0.0.0.0 for the container providers, whose runtimes may have
+    // IPv6 disabled entirely.
+    "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
+    // Each terminal host gets its own transient scope (cmux-tui host_scope.rs),
+    // so a stop or restart of this unit keeps every terminal for re-adoption.
+    "Environment=CMUX_TUI_HOST_SCOPES=systemd",
+    // The browser host the daemon supervises refuses metadata, link-local and
+    // private ranges to every caller (cmux-browser-host egress_scope.rs).
+    "Environment=CMUX_BROWSER_HOST_EGRESS=isolated",
+    // Pane shells inherit this PATH; /usr/local/bin carries the base's Node
+    // and every pinned agent as symlinks, so no login shell is needed.
+    "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "ExecStart=/usr/local/bin/cmux-devbox-boot",
+    "Restart=always",
+    "RestartSec=2",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+  ].join("\n");
+}

@@ -45,12 +45,16 @@ nonisolated struct SidebarGroupBand: Sendable {
     }
 
     /// The first color no group in `sections` uses yet, so a new group
-    /// stands apart; blue once every color is taken.
+    /// stands apart; never blue or grey.
     static func newGroupColor(in sections: [SidebarSection]) -> GroupColor {
-        let used = Set(sections.flatMap(\.nodes).compactMap { node -> GroupColor? in
+        // The app's own pick follows the no-blue rule (GroupColor.automatic); when every
+        // palette color is taken, the least-used one repeats.
+        let used = sections.flatMap(\.nodes).compactMap { node -> GroupColor? in
             if case let .group(group) = node { return group.color }
             return nil
-        })
-        return GroupColor.allCases.first { $0 != .grey && !used.contains($0) } ?? .blue
+        }
+        if let free = GroupColor.automatic(used: Set(used.map(\.rawValue))) { return free }
+        let palette = GroupColor.allCases.filter { $0 != .grey && $0 != .blue }
+        return palette.min { a, b in used.count(where: { $0 == a }) < used.count(where: { $0 == b }) } ?? .purple
     }
 }

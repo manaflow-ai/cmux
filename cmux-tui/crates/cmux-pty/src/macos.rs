@@ -44,7 +44,27 @@ pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, 
     let slave = open_pty_slave(&slave_name)?;
     set_window_size(&slave, size)?;
 
-    Ok((Box::new(MacOsMasterPty { file: master, took_writer: Cell::new(false) }), Slave(slave)))
+    let master = MacOsMasterPty { file: master, took_writer: Cell::new(false), eof_on_drop: true };
+    Ok((Box::new(master), Slave(slave)))
+}
+
+/// Wrap an inherited PTY master whose session another process started.
+/// Its writer never sends the end-of-file sequence on drop: the session
+/// belongs to whoever spawned it, not to this process.
+pub(crate) fn adopt_master(
+    master: std::os::fd::OwnedFd,
+) -> anyhow::Result<Box<dyn MasterPty + Send>> {
+    let file = File::from(master);
+    if unsafe { libc::isatty(file.as_raw_fd()) } != 1 {
+        bail!("inherited descriptor is not a PTY master: {}", io::Error::last_os_error());
+    }
+    let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFD) };
+    if flags < 0
+        || unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
+    {
+        bail!("failed to mark the PTY master close-on-exec: {}", io::Error::last_os_error());
+    }
+    Ok(Box::new(MacOsMasterPty { file, took_writer: Cell::new(false), eof_on_drop: false }))
 }
 
 fn open_pty_master() -> anyhow::Result<File> {
@@ -202,6 +222,7 @@ pub(crate) fn spawn(
                 libc::SIGQUIT,
                 libc::SIGTERM,
                 libc::SIGALRM,
+                libc::SIGPIPE,
             ] {
                 libc::signal(signal, libc::SIG_DFL);
             }
@@ -419,6 +440,8 @@ fn parse_decimal_descriptor(name: &[u8]) -> Option<RawFd> {
 struct MacOsMasterPty {
     file: File,
     took_writer: Cell<bool>,
+    /// Whether the writer sends end-of-file to the child when dropped.
+    eof_on_drop: bool,
 }
 
 impl MasterPty for MacOsMasterPty {
@@ -462,7 +485,10 @@ impl MasterPty for MacOsMasterPty {
         if self.took_writer.replace(true) {
             bail!("cannot take PTY writer more than once");
         }
-        Ok(Box::new(MacOsMasterWriter { file: self.file.try_clone()? }))
+        Ok(Box::new(MacOsMasterWriter {
+            file: self.file.try_clone()?,
+            eof_on_drop: self.eof_on_drop,
+        }))
     }
 
     fn process_group_leader(&self) -> Option<libc::pid_t> {
@@ -496,6 +522,7 @@ impl Read for MacOsMasterReader {
 
 struct MacOsMasterWriter {
     file: File,
+    eof_on_drop: bool,
 }
 
 impl Write for MacOsMasterWriter {
@@ -510,6 +537,9 @@ impl Write for MacOsMasterWriter {
 
 impl Drop for MacOsMasterWriter {
     fn drop(&mut self) {
+        if !self.eof_on_drop {
+            return;
+        }
         let mut termios = std::mem::MaybeUninit::<libc::termios>::zeroed();
         if unsafe { libc::tcgetattr(self.file.as_raw_fd(), termios.as_mut_ptr()) } == 0 {
             let termios = unsafe { termios.assume_init() };

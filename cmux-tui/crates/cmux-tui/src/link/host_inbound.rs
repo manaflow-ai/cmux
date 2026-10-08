@@ -89,6 +89,9 @@ where
             let _ = tokio::io::copy_bidirectional(&mut stream, &mut sshd).await;
             Ok(())
         }
+        // A Cloud host has no owner session: its owner reaches it through the
+        // token-checked daemon entry.
+        Service::OwnerSession => Err(HostRefused::Inbound(InboundRefused::BadHello)),
     }
 }
 

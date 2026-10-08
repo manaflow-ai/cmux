@@ -1,0 +1,1051 @@
+[
+ {
+  "name": "first initialize gets the host's token after the rules",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1}}",
+  "state": {
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+     "protocolVersion": 1,
+     "_meta": {
+      "acpmux": {
+       "localAppToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     }
+    }
+   },
+   "facts": {
+    "is_first": true,
+    "method": "initialize",
+    "page_id": "1",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "first initialize without a host token goes as checked",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1}}",
+  "state": {
+   "first": true,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+     "protocolVersion": 1
+    }
+   },
+   "facts": {
+    "is_first": true,
+    "method": "initialize",
+    "page_id": "1",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "first initialize with the page's own token and no host token is refused (P1), never forwarded",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"_meta\":{\"acpmux\":{\"localAppToken\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}}}}",
+  "state": {
+   "first": true,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "initialize",
+   "id": "1",
+   "spend": null
+  }
+ },
+ {
+  "name": "first initialize with the page's own token is refused even with a host token",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"_meta\":{\"acpmux\":{\"localAppToken\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}}}}",
+  "state": {
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "initialize",
+   "id": "1",
+   "spend": null
+  }
+ },
+ {
+  "name": "first frame not initialize",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{\"cwd\":\"/x\"}}",
+  "state": {
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.first_frame",
+   "method": "session/new",
+   "id": "1",
+   "spend": null
+  }
+ },
+ {
+  "name": "a later frame never gets the token",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"_acpmux/harnesses\",\"params\":{}}",
+  "state": {
+   "first": false,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "_acpmux/harnesses",
+    "params": {}
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/harnesses",
+    "page_id": "2",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "session scope before P1, and the carried ticket is spent",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s2\",\"prompt\":[],\"_meta\":{\"cmuxGesture\":\"t1\"}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "session/prompt",
+   "id": "3",
+   "spend": "t1"
+  }
+ },
+ {
+  "name": "P1 refuses a forward mark",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s1\",\"prompt\":[],\"_meta\":{\"acpmux\":{\"via\":\"app\"}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "session/prompt",
+   "id": "4",
+   "spend": null
+  }
+ },
+ {
+  "name": "P1 refuses a redeeming setting frame with other meta, and spends its ticket",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"session/set_config_option\",\"params\":{\"sessionId\":\"s1\",\"configId\":\"fast\",\"value\":true,\"_meta\":{\"cmuxGesture\":\"t3\",\"acpmux\":{}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "session/set_config_option",
+   "id": "5",
+   "spend": "t3"
+  }
+ },
+ {
+  "name": "prompt block _meta is stripped; a prompt needs a gesture",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s1\",\"prompt\":[{\"type\":\"text\",\"text\":\"hi\",\"_meta\":{\"x\":1}}],\"_meta\":{\"acpmux\":{\"promptId\":\"p1\"}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "method": "session/prompt",
+    "params": {
+     "sessionId": "s1",
+     "prompt": [
+      {
+       "type": "text",
+       "text": "hi"
+      }
+     ],
+     "_meta": {
+      "acpmux": {
+       "promptId": "p1"
+      }
+     }
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/prompt",
+    "page_id": "6",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "set_mode with a ticket: stripped, pick, setting",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"session/set_mode\",\"params\":{\"sessionId\":\"s1\",\"modeId\":\"plan\",\"_meta\":{\"cmuxGesture\":\"t2\"}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "method": "session/set_mode",
+    "params": {
+     "sessionId": "s1",
+     "modeId": "plan"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/set_mode",
+    "page_id": "7",
+    "ticket": "t2",
+    "other_meta": false,
+    "pick": {
+     "method": "session/set_mode",
+     "params": {
+      "modeId": "plan"
+     }
+    },
+    "session_id": "s1",
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": {
+     "session_id": "s1",
+     "config_id": "mode",
+     "value": "plan",
+     "asked": {
+      "mode": "plan"
+     }
+    },
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "set_config_option with a value that is not a string: the sheet shows its JSON",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"session/set_config_option\",\"params\":{\"sessionId\":\"s1\",\"configId\":\"fast\",\"value\":true}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 8,
+    "method": "session/set_config_option",
+    "params": {
+     "sessionId": "s1",
+     "configId": "fast",
+     "value": true
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/set_config_option",
+    "page_id": "8",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": {
+     "session_id": "s1",
+     "config_id": "fast",
+     "value": null,
+     "asked": {
+      "option": {
+       "id": "fast",
+       "value": "true"
+      }
+     }
+    },
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "attach of a session outside the scope",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"_acpmux/attach\",\"params\":{\"sessionId\":\"s9\",\"limit\":50}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "method": "_acpmux/attach",
+    "params": {
+     "sessionId": "s9",
+     "limit": 50
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/attach",
+    "page_id": "9",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": "s9",
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "attach of the pane's own session is free",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"_acpmux/attach\",\"params\":{\"sessionId\":\"s1\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "method": "_acpmux/attach",
+    "params": {
+     "sessionId": "s1"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/attach",
+    "page_id": "10",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "fork from outside the scope uses scope credit",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"acp.session.fork\",\"params\":{\"sessionId\":\"s9\",\"throughSeq\":3}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "method": "acp.session.fork",
+    "params": {
+     "sessionId": "s9",
+     "throughSeq": 3
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "acp.session.fork",
+    "page_id": "11",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": true,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "fork from the scope is free",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"acp.session.fork\",\"params\":{\"sessionId\":\"s1\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "acp.session.fork",
+    "params": {
+     "sessionId": "s1"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "acp.session.fork",
+    "page_id": "12",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "handoff of an unknown handoff is foreign and names it",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"_acpmux/handoff_start\",\"params\":{\"handoffId\":\"h1\",\"revision\":2}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "method": "_acpmux/handoff_start",
+    "params": {
+     "handoffId": "h1",
+     "revision": 2
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/handoff_start",
+    "page_id": "13",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": true,
+    "handoff_id": "h1",
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "session/new waits for the path check",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"session/new\",\"params\":{\"cwd\":\"/x\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 14,
+    "method": "session/new",
+    "params": {
+     "cwd": "/x"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/new",
+    "page_id": "14",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "a folder key waits for the path check",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"_acpmux/prewarm\",\"params\":{\"harness\":\"codex\",\"cwd\":\"/x\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 15,
+    "method": "_acpmux/prewarm",
+    "params": {
+     "harness": "codex",
+     "cwd": "/x"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/prewarm",
+    "page_id": "15",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "Trust needs a gesture and the path check",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"acp.trust.set\",\"params\":{\"cwd\":\"/x\",\"level\":\"trusted\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "method": "acp.trust.set",
+    "params": {
+     "cwd": "/x",
+     "level": "trusted"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "acp.trust.set",
+    "page_id": "16",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "Don't trust needs only the path check",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"acp.trust.set\",\"params\":{\"cwd\":\"/x\",\"level\":\"untrusted\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 17,
+    "method": "acp.trust.set",
+    "params": {
+     "cwd": "/x",
+     "level": "untrusted"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "acp.trust.set",
+    "page_id": "17",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "a known deny needs no gesture",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":18,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"o1\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [
+    [
+     "p1",
+     "o1"
+    ]
+   ]
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 18,
+    "method": "_acpmux/permission_respond",
+    "params": {
+     "sessionId": "s1",
+     "permissionId": "p1",
+     "optionId": "o1"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/permission_respond",
+    "page_id": "18",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "an allow needs a gesture",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":19,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"o2\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [
+    [
+     "p1",
+     "o1"
+    ]
+   ]
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 19,
+    "method": "_acpmux/permission_respond",
+    "params": {
+     "sessionId": "s1",
+     "permissionId": "p1",
+     "optionId": "o2"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/permission_respond",
+    "page_id": "19",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "cancel notification in scope",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/cancel\",\"params\":{\"sessionId\":\"s1\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "method": "session/cancel",
+    "params": {
+     "sessionId": "s1"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/cancel",
+    "page_id": null,
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "cancel notification outside the scope",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"session/cancel\",\"params\":{\"sessionId\":\"s9\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "session/cancel",
+   "id": null,
+   "spend": null
+  }
+ },
+ {
+  "name": "a prompt held for the trust answer redeems its ticket bound to its promptId",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s1\",\"prompt\":[],\"_meta\":{\"cmuxGesture\":\"t4\",\"acpmux\":{\"promptId\":\"p1\"}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 21,
+    "method": "session/prompt",
+    "params": {
+     "sessionId": "s1",
+     "prompt": [],
+     "_meta": {
+      "acpmux": {
+       "promptId": "p1"
+      }
+     }
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/prompt",
+    "page_id": "21",
+    "ticket": "t4",
+    "other_meta": false,
+    "pick": {
+     "method": "session/prompt",
+     "params": {
+      "promptId": "p1"
+     }
+    },
+    "session_id": "s1",
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "enabling a folder harness waits for the host's sheet, a gesture and the path check",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"_acpmux/harness_enable\",\"params\":{\"folder\":\"/x\",\"id\":\"p1\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 22,
+    "method": "_acpmux/harness_enable",
+    "params": {
+     "folder": "/x",
+     "id": "p1"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/harness_enable",
+    "page_id": "22",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": true,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "an unknown top-level key (result) is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"_acpmux/harnesses\",\"params\":{},\"result\":1}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": "_acpmux/harnesses",
+   "id": "20",
+   "spend": null
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
+  "swift_expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 20,
+    "method": "_acpmux/harnesses",
+    "params": {},
+    "result": 1
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/harnesses",
+    "page_id": "20",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": true
+   }
+  }
+ }
+]

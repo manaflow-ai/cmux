@@ -1235,26 +1235,89 @@ export const meshDeviceHandlers = HttpApiBuilder.group(CmuxVmApi, "meshDevice", 
 
 /** The audit actor of a revocation the Stack team-membership webhook made (G1). */
 export const MEMBERSHIP_WEBHOOK_ACTOR = "system:stack-membership-webhook";
+/** The audit actor of a revocation the Stack `user.deleted` webhook made (G1). */
+export const USER_DELETED_WEBHOOK_ACTOR = "system:stack-user-deleted-webhook";
+
+/** What one webhook revocation did. */
+export interface RevocationResult {
+  readonly devicesRevoked: number;
+  readonly meshesReapplied: number;
+}
 
 /**
- * G1 (cx-0op.6): a user left team `tenantId`. Every device that user enrolled
- * in that tenant loses access at once: the shared membership cache entry is
- * revoked first (no isolate trusts a cached "member" again), then each device
- * is closed (its tunnel deleted by the recorded id, its rows marked deleted),
- * then each affected mesh's ACL is recompiled and re-applied under the mesh's
- * writer lock. Idempotent: a retry finds no live device of the user and only
- * re-applies the ACL. Devices enrolled by an API key are not the user's; they
- * stop when that key is revoked or expires.
+ * G1 (cx-0op.6): a user left team `tenantId`; the webhook message first
+ * reached the Worker at `eventAt` (every retry of it keeps that time).
+ *
+ * 1. The shared membership cache is revoked at `eventAt`: no isolate trusts a
+ *    "member" answer asked before the event again.
+ * 2. Each device the user enrolled in that tenant at or before `eventAt` is
+ *    closed and each affected mesh re-applied (closeUserDevices), also when
+ *    the user was added back before this delivery or its retry: a removal
+ *    cuts the devices that existed then (an admin may remove a user to cut a
+ *    lost laptop), and a re-add does not bring them back. A device enrolled
+ *    after the event passed a membership check after it and stays; if the
+ *    user was removed again, that removal's own event revokes it.
+ * 3. Stack is never asked: its answer would change nothing, and every event
+ *    would cost a Stack call. So an event for a team outside the mesh
+ *    allowlist, without devices, or for a user Stack no longer knows is a
+ *    recorded 200, never a 503 that Svix would retry until it disables the
+ *    endpoint. Revocation does not depend on the allowlist: a tenant that
+ *    left it still has its devices revoked.
+ *
+ * Idempotent: a retry finds no live device from before the event.
  */
-export const revokeMemberDevices = (tenantId: Principal["tenantId"], userId: UserId) =>
+export const revokeMemberDevices = (tenantId: Principal["tenantId"], userId: UserId, eventAt: Date) =>
+  Effect.gen(function* () {
+    const cache = yield* MembershipCache;
+    yield* cache.revoke(tenantId, userId, eventAt).pipe(Effect.catchAll(dependencyDown("membership.revoke")));
+    const result: RevocationResult = yield* closeUserDevices(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
+    return result;
+  });
+
+/**
+ * G1 (cx-0op.6): Stack deleted the user. Every tenant's cached "member"
+ * answer for the user is revoked, then every device the user enrolled is
+ * closed, in each tenant the event lists and each tenant where the Worker
+ * holds a live device of the user (the event's team list may be stale or
+ * partial). Stack is never asked about a deleted user, and a deleted user's id
+ * is never reused, so there is no re-add check and no time cutoff. Idempotent.
+ */
+export const revokeDeletedUser = (userId: UserId, listedTenants: ReadonlyArray<Principal["tenantId"]>, eventAt: Date) =>
   Effect.gen(function* () {
     const cache = yield* MembershipCache;
     const store = yield* MeshStore;
+    yield* cache.revokeUser(userId, eventAt).pipe(Effect.catchAll(dependencyDown("membership.revokeUser")));
+    const withDevices = yield* store
+      .listTenantsWithDevicesCreatedBy(actorRef({ kind: "session", userId }))
+      .pipe(Effect.catchAll(dependencyDown("mesh.listTenantsWithDevicesCreatedBy")));
+    const tenants = [...new Set([...listedTenants, ...withDevices])];
+    let devicesRevoked = 0;
+    let meshesReapplied = 0;
+    for (const tenantId of tenants) {
+      const done = yield* closeUserDevices(tenantId, userId, null, USER_DELETED_WEBHOOK_ACTOR);
+      devicesRevoked += done.devicesRevoked;
+      meshesReapplied += done.meshesReapplied;
+    }
+    const result: RevocationResult = { devicesRevoked, meshesReapplied };
+    return result;
+  });
+
+/**
+ * Closes every live device `userId` enrolled in `tenantId` (created at or
+ * before `cutoff`; null: all): each tunnel deleted by its recorded id and its
+ * rows marked deleted, one audit row per device as `auditActor` for the user;
+ * then each affected mesh's ACL is recompiled and re-applied under the mesh's
+ * writer lock. Devices enrolled by an API key are not the user's; they stop
+ * when that key is revoked or expires.
+ */
+const closeUserDevices = (tenantId: Principal["tenantId"], userId: UserId, cutoff: Date | null, auditActor: string) =>
+  Effect.gen(function* () {
+    const store = yield* MeshStore;
     const audit = yield* AuditStore;
-    yield* cache.revoke(tenantId, userId, yield* now).pipe(Effect.catchAll(dependencyDown("membership.revoke")));
     const owner: Principal["actor"] = { kind: "session", userId };
     const ownerRef = actorRef(owner);
-    const devices = yield* store.listDevicesCreatedBy(tenantId, ownerRef).pipe(Effect.catchAll(dependencyDown("mesh.listDevicesCreatedBy")));
+    const live = yield* store.listDevicesCreatedBy(tenantId, ownerRef).pipe(Effect.catchAll(dependencyDown("mesh.listDevicesCreatedBy")));
+    const devices = cutoff === null ? live : live.filter((row) => row.createdAt.getTime() <= cutoff.getTime());
     // The revocation acts with the owner's identity on the owner's own devices, so the same proofs as DELETE hold.
     const principal: Principal = {
       tenantId,
@@ -1265,7 +1328,7 @@ export const revokeMemberDevices = (tenantId: Principal["tenantId"], userId: Use
     };
     const write = (cmuxId: string, outcome: string) =>
       Effect.gen(function* () {
-        const entry = { tenantId, actor: MEMBERSHIP_WEBHOOK_ACTOR, ownerActor: ownerRef, action: "device.revoke", cmuxId, outcome, at: yield* now };
+        const entry = { tenantId, actor: auditActor, ownerActor: ownerRef, action: "device.revoke", cmuxId, outcome, at: yield* now };
         yield* audit.append(entry).pipe(
           Effect.catchAll(() => Effect.sync(() => console.error(JSON.stringify({ event: "cmux_vm_audit_fallback", ...entry, at: entry.at.toISOString() })))),
         );
@@ -1309,5 +1372,6 @@ export const revokeMemberDevices = (tenantId: Principal["tenantId"], userId: Use
         }
       }),
     );
-    return { devicesRevoked: devices.length, meshesReapplied: meshes.size };
+    const result: RevocationResult = { devicesRevoked: devices.length, meshesReapplied: meshes.size };
+    return result;
   });
