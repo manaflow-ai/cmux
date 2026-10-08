@@ -70,6 +70,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     tunnelCreateStatus: number | null;
     tunnelDeleteStatus: number | null;
     ruleCreateStatus: number | null;
+    ruleDeleteStatus: number | null;
     ruleCreates: number;
     rotations: number;
   } = {
@@ -77,6 +78,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     tunnelCreateStatus: null,
     tunnelDeleteStatus: null,
     ruleCreateStatus: null,
+    ruleDeleteStatus: null,
     ruleCreates: 0,
     rotations: 0,
   };
@@ -223,6 +225,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     const ruleMatch = /^\/v5\/firewall\/rules\/([^/]+)$/u.exec(path);
     if (ruleMatch !== null && method === "DELETE") {
       const id = decodeURIComponent(ruleMatch[1] ?? "");
+      if (state.ruleDeleteStatus !== null) return json({ message: "injected failure" }, state.ruleDeleteStatus);
       if (!rules.delete(id)) return json({ message: "not found" }, 404);
       return new Response(null, { status: 204 });
     }
@@ -280,6 +283,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       state.tunnelDeleteStatus = status;
     },
     /** Rule creates answer `status` (null: normal). */
+    /** Rule deletes answer `status` (null: normal). */
+    failRuleDeletes(status: number | null) {
+      state.ruleDeleteStatus = status;
+    },
     failRuleCreates(status: number | null) {
       state.ruleCreateStatus = status;
     },
