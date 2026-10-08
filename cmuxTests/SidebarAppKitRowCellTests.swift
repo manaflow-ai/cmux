@@ -301,6 +301,10 @@ struct SidebarAppKitRowCellTests {
 
         #expect(cell.accessibilityIdentifier() == "sidebarWorkspace.\(workspace.id.uuidString)")
         #expect(cell.accessibilityRole() == .button)
+        #expect(cell.accessibilityLabel() == model.snapshot.accessibilityLabel(
+            index: model.index,
+            workspaceCount: model.accessibilityWorkspaceCount
+        ))
         #expect(cell.accessibilityPerformPress())
         #expect(tabManager.selectedTabId == workspace.id)
     }
