@@ -248,4 +248,30 @@ struct CloudHubConnectorHedgeTests {
         #expect(!ledger.discardedValues.contains(value))
         #expect(ledger.discardedValues.count == ledger.startedCount - 1)
     }
+
+    @Test("A success after the deadline is discarded and does not resurrect the connection")
+    func lateSuccessAfterDeadlineIsDiscarded() async {
+        let ledger = Ledger()
+        await #expect(throws: (any Error).self) {
+            _ = try await CloudHubConnector.hedged(
+                candidates: 1,
+                fallbackDelay: .zero,
+                redialInterval: .seconds(1),
+                maxRedials: 0,
+                timeout: .milliseconds(20),
+                clock: ContinuousClock(),
+                attempt: { _ in
+                    _ = ledger.start()
+                    // Detached work models a Network callback that completes
+                    // after cancellation has reached the connection task.
+                    return await Task.detached {
+                        try? await Task.sleep(for: .milliseconds(60))
+                        return 1
+                    }.value
+                },
+                discard: { ledger.discard($0) }
+            )
+        }
+        #expect(ledger.discardedValues == [1])
+    }
 }
