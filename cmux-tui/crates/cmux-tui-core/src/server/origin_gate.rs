@@ -33,21 +33,22 @@ pub(super) fn handle_resource_line(
     };
     let (id, operation) = (envelope.id.clone(), envelope.operation);
     let admitted = check(mux, client, &envelope)
-        .and_then(|_| crate::resource_router::validate_resource_envelope(envelope));
+        .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
         Err(error) => send_resource_response(writer, id, operation, Err(error)),
     }
 }
 
-/// The origin of `envelope` on `client`, or why it is refused. A client
+/// The actor of `envelope` on `client` once its origin passes, or why it is
+/// refused. A client
 /// with no registry record (a connection detached while its reader still
 /// held a line) has no known role, so it is refused (fail closed).
 fn check(
     mux: &Mux,
     client: u64,
     envelope: &RequestEnvelope,
-) -> Result<RequestOrigin, ResourceError> {
+) -> Result<crate::workspace_registry::Actor, ResourceError> {
     let now_ms = mux.control_clients.origin_clock.monotonic_ms();
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -67,7 +68,18 @@ fn check(
         &envelope.params,
         envelope.origin.as_ref(),
         now_ms,
-    )
+    )?;
+    Ok(record.origin.actor())
+}
+
+/// The actor of a durable mutation that `client` asks for on the legacy
+/// control protocol; a client with no record is the local user.
+pub(super) fn connection_actor(mux: &Mux, client: u64) -> crate::workspace_registry::Actor {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    state
+        .clients
+        .get(&client)
+        .map_or_else(crate::workspace_registry::Actor::local_user, |record| record.origin.actor())
 }
 
 #[cfg(unix)]
@@ -114,7 +126,7 @@ pub(super) fn set_hello(
 /// verified app. Its `peer_key` stays the audit-token key, so its page
 /// relay (same process, same token) still matches it. False when the client
 /// is gone or is not role main.
-pub(super) fn set_install_proved(mux: &Mux, client: u64) -> bool {
+pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bool {
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(record) = state.clients.get_mut(&client) else { return false };
@@ -122,6 +134,7 @@ pub(super) fn set_install_proved(mux: &Mux, client: u64) -> bool {
         return false;
     }
     record.origin.verified_app = true;
+    record.origin.install_id = Some(install_id.to_string());
     true
 }
 
