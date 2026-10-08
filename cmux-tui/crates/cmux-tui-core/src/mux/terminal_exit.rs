@@ -56,7 +56,7 @@ impl Mux {
     /// (cx-0tgl LA): `"event":"daemon_signal"` in `terminal-losses.jsonl`,
     /// with the sender's name and parent. Best effort.
     #[cfg(unix)]
-    pub fn record_daemon_signal(&self, signal: i32, sender_pid: i32) {
+    pub fn record_daemon_signal(&self, signal: i32, sender_pid: i32, sender_uid: Option<u32>) {
         let root = self
             .surface_options
             .lock()
@@ -67,7 +67,7 @@ impl Mux {
             crate::terminal_loss_log::record_daemon_signal(
                 &root,
                 signal,
-                sender_pid,
+                (sender_pid, sender_uid),
                 self.started_at.elapsed().as_millis(),
             );
         }
@@ -327,7 +327,8 @@ impl Mux {
             // A host loss is logged once, with the signals its host recorded
             // (cx-6so.49); best effort, after the exit latch.
             #[cfg(unix)]
-            if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone()
+            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+            if let Some(root) = root
                 && let Some(cause) = crate::terminal_loss_log::record_host_loss(
                     &root.join(format!("{terminal_id}.json")),
                     terminal_id,

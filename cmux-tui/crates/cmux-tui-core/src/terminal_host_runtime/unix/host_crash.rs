@@ -2,14 +2,18 @@
 //!
 //! A host panic is a bug. The panic hook writes `<terminal-id>.crash` next
 //! to the host's discovery record (message, location, thread, backtrace,
-//! incarnation) before the default hook runs, so the owner names the crash
-//! in `terminal-losses.jsonl` and the tab's end instead of an anonymous
-//! "uncatchable end". The owner removes the sidecar with the breadcrumbs.
+//! incarnation) before the default hook runs. A panic does not always end
+//! the host (a caught parser panic publishes a normal exit; another thread's
+//! panic ends only that thread), so the owner reports it as context: "the
+//! host had panicked" next to the signals, in `terminal-losses.jsonl`, and
+//! as a flag in the tab's end. The owner removes the sidecar on every end of
+//! the host's incarnation.
 
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Largest backtrace kept in the sidecar.
 const MAX_BACKTRACE_BYTES: usize = 64 * 1024;
@@ -55,15 +59,26 @@ pub(super) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
             "at_ms": at_ms,
             "backtrace": backtrace,
         });
+        // Concurrent panics each write their own file and rename it over the
+        // sidecar, so the sidecar is always one whole record.
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let temporary = path.with_extension(format!(
+            "crash.tmp-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
         if let Ok(mut file) = OpenOptions::new()
-            .create(true)
+            .create_new(true)
             .write(true)
-            .truncate(true)
             .mode(0o600)
             .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
+            .open(&temporary)
         {
-            let _ = file.write_all(record.to_string().as_bytes());
+            if file.write_all(record.to_string().as_bytes()).is_ok() {
+                let _ = std::fs::rename(&temporary, &path);
+            } else {
+                let _ = std::fs::remove_file(&temporary);
+            }
         }
         previous(info);
     }));

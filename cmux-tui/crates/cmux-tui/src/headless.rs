@@ -20,14 +20,6 @@ where
         "{BIN}: headless, control socket at {}",
         socket_path.display()
     );
-    // A detached owner has no stderr (the null device): send its diagnostics
-    // (host losses, journal stops, replacement failures) to the bounded
-    // client log instead of discarding them (cx-0tgl LA). An owner run in a
-    // terminal or under a test harness keeps its stderr.
-    #[cfg(unix)]
-    if stderr_is_null_device() {
-        client_log::redirect_stderr_into_log();
-    }
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
@@ -52,8 +44,8 @@ where
             {
                 mux.begin_session_shutdown();
                 // Name who stopped this owner (cx-0tgl LA).
-                if let Some((signal, sender)) = shutdown_signal() {
-                    mux.record_daemon_signal(signal, sender);
+                if let Some((signal, sender, uid)) = shutdown_signal() {
+                    mux.record_daemon_signal(signal, sender, uid);
                 }
             }
             wake_headless();
@@ -86,20 +78,4 @@ pub(crate) fn wake_headless() {
     let mut generation = lock.lock().unwrap();
     *generation = generation.wrapping_add(1);
     wake.notify_all();
-}
-
-/// Whether fd 2 is the null device.
-#[cfg(unix)]
-// `st_rdev` is `u64` on Linux and `i32` on macOS.
-#[allow(clippy::unnecessary_cast, clippy::cast_sign_loss)]
-fn stderr_is_null_device() -> bool {
-    use std::os::unix::fs::MetadataExt;
-    let Ok(null) = std::fs::metadata("/dev/null") else { return false };
-    // SAFETY: fstat writes one `stat` for fd 2; zeroed is a valid start.
-    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
-    // SAFETY: `stat` is a valid, writable buffer.
-    if unsafe { libc::fstat(2, &mut stat) } != 0 {
-        return false;
-    }
-    (stat.st_mode & libc::S_IFMT) == libc::S_IFCHR && stat.st_rdev as u64 == null.rdev()
 }

@@ -145,6 +145,23 @@ unsafe extern "C" {
 static SHUTDOWN_SIGNAL: AtomicI32 = AtomicI32::new(0);
 #[cfg(unix)]
 static SHUTDOWN_SIGNAL_SENDER: AtomicI32 = AtomicI32::new(0);
+#[cfg(unix)]
+static SHUTDOWN_SIGNAL_SENDER_UID: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(u32::MAX);
+
+/// The sender's real user id from an `SA_SIGINFO` record.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+unsafe fn siginfo_uid(info: *mut libc::siginfo_t) -> u32 {
+    // SAFETY: the caller passes the kernel's non-null siginfo.
+    unsafe { (*info).si_uid }
+}
+
+/// The sender's real user id from an `SA_SIGINFO` record.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))))]
+unsafe fn siginfo_uid(info: *mut libc::siginfo_t) -> u32 {
+    // SAFETY: the caller passes the kernel's non-null siginfo.
+    unsafe { (*info).si_uid() }
+}
 
 #[cfg(unix)]
 extern "C" fn handle_signal(
@@ -155,8 +172,11 @@ extern "C" fn handle_signal(
     // SAFETY: the kernel passes a valid siginfo for an SA_SIGINFO handler;
     // reading si_pid is async-signal-safe.
     let sender = if info.is_null() { 0 } else { unsafe { (*info).si_pid() } };
+    // SAFETY: as above.
+    let uid = if info.is_null() { u32::MAX } else { unsafe { siginfo_uid(info) } };
     if SHUTDOWN_SIGNAL.compare_exchange(0, signal, Ordering::AcqRel, Ordering::Acquire).is_ok() {
         SHUTDOWN_SIGNAL_SENDER.store(sender, Ordering::Release);
+        SHUTDOWN_SIGNAL_SENDER_UID.store(uid, Ordering::Release);
     }
     SHUTDOWN_REQUESTED.store(true, Ordering::Release);
     let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
@@ -174,11 +194,15 @@ pub(crate) fn shutdown_requested() -> bool {
     SHUTDOWN_REQUESTED.load(Ordering::Acquire)
 }
 
-/// The first termination signal this process got and its sender PID.
+/// The first termination signal this process got, its sender PID and the
+/// sender's user id.
 #[cfg(unix)]
-pub(crate) fn shutdown_signal() -> Option<(i32, i32)> {
+pub(crate) fn shutdown_signal() -> Option<(i32, i32, Option<u32>)> {
     let signal = SHUTDOWN_SIGNAL.load(Ordering::Acquire);
-    (signal != 0).then(|| (signal, SHUTDOWN_SIGNAL_SENDER.load(Ordering::Acquire)))
+    let uid = SHUTDOWN_SIGNAL_SENDER_UID.load(Ordering::Acquire);
+    (signal != 0).then(|| {
+        (signal, SHUTDOWN_SIGNAL_SENDER.load(Ordering::Acquire), (uid != u32::MAX).then_some(uid))
+    })
 }
 
 #[cfg(unix)]

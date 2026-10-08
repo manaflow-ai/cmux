@@ -84,8 +84,14 @@ final class TerminalLinkWatch {
     private func forwardHostLoss() {
         let tab = store?.tab(surface: surface)
         let loss = (tab?.dead ?? false) ? Self.hostLoss(tab?.end) : nil
-        session?.hostLossCause = loss == nil ? nil : tab?.end?.cause
+        session?.hostLossCause = loss == nil ? nil : tab?.end?.cause.map(Self.hostLossCause)
         session?.hostLoss = loss
+    }
+
+    /// The banner's evidence for a host loss's `end.cause`.
+    static func hostLossCause(_ cause: TerminalTabEnd.Cause) -> TerminalHostLossCause {
+        TerminalHostLossCause(signal: cause.signal, senderPid: cause.senderPid,
+                              senderName: cause.senderName, panicked: cause.panicked)
     }
 
     /// The banner's reason for a tab `end` (nil unless the host was lost).

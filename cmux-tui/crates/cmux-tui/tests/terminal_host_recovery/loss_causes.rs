@@ -51,7 +51,7 @@ fn stop(mut child: Child) {
 
 #[test]
 fn host_loss_names_the_sender_of_each_recorded_signal() {
-    let harness = RecoveryHarness::start_without_respawn("loss-cause-sender");
+    let mut harness = RecoveryHarness::start_without_respawn("loss-cause-sender");
     let created = request(
         &harness.socket,
         serde_json::json!({"id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,"name":"sender"}),
@@ -79,22 +79,48 @@ fn host_loss_names_the_sender_of_each_recorded_signal() {
     let name = recorded["sender"]["name"].as_str().unwrap_or_default();
     assert!(!name.is_empty(), "the sender has no name: {line}");
     assert_eq!(recorded["sender"]["ppid"].as_u64(), Some(u64::from(std::process::id())), "{line}");
-    let cause = line["cause"].as_str().unwrap();
+    // SAFETY: getuid has no preconditions.
+    assert_eq!(
+        recorded["sender_uid"].as_u64(),
+        Some(u64::from(unsafe { libc::getuid() })),
+        "{line}"
+    );
+    let cause = line["cause"].as_str().unwrap().to_string();
+    let name = name.to_string();
     assert!(
         cause.contains(&format!("SIGTERM from pid {sender_pid} ({name}")),
         "the cause does not name the sender: {cause}"
     );
-    // The dead tab carries the same cause, for the app's banner.
-    let tree = request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-workspaces"}));
-    let tab = tree["workspaces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|workspace| workspace["name"] == "sender")
-        .and_then(first_tab)
-        .unwrap_or_else(|| panic!("the dead tab is gone: {tree}"));
-    assert_eq!(tab["end"]["kind"], "host_lost", "{tab}");
-    assert_eq!(tab["end"]["cause"], cause, "{tab}");
+    // The dead tab carries the cause for the app's banner, also after the
+    // owner restarts.
+    for round in ["live", "after an owner restart"] {
+        let tree = request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-workspaces"}));
+        let tab = tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["name"] == "sender")
+            .and_then(first_tab)
+            .unwrap_or_else(|| panic!("the dead tab is gone ({round}): {tree}"))
+            .clone();
+        assert_eq!(tab["end"]["kind"], "host_lost", "{round}: {tab}");
+        let summary = &tab["end"]["cause"];
+        assert_eq!(summary["signal"], "SIGTERM", "{round}: {tab}");
+        assert_eq!(summary["sender_pid"].as_u64(), Some(u64::from(sender_pid)), "{round}: {tab}");
+        assert_eq!(summary["sender_name"], name, "{round}: {tab}");
+        assert_eq!(summary["panicked"], false, "{round}: {tab}");
+        if round == "live" {
+            harness.signal_daemon(libc::SIGTERM);
+            let mut daemon = harness.child.take().unwrap();
+            let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+            while daemon.try_wait().unwrap().is_none() {
+                assert!(Instant::now() < deadline, "the daemon did not stop on SIGTERM");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let _ = fs::remove_file(&harness.socket);
+            harness.restart();
+        }
+    }
 }
 
 #[test]
@@ -118,7 +144,7 @@ fn host_crash_is_named_with_its_panic_message() {
     });
     assert!(once.exists(), "the crash seam did not run");
     let cause = line["cause"].as_str().unwrap();
-    assert!(cause.contains("crashed"), "{line}");
+    assert!(cause.contains("the host had panicked"), "{line}");
     assert!(cause.contains("test-injected host crash"), "{line}");
     assert!(line["crash"]["location"].as_str().is_some_and(|at| !at.is_empty()), "{line}");
     wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");

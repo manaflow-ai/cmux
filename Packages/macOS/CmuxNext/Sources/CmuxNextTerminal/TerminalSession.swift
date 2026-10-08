@@ -45,9 +45,9 @@ public final class TerminalSession {
         didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
     }
 
-    /// The owner's recorded cause of that loss (who signalled the host, or
-    /// its crash), shown after the reason. Set it before `hostLoss`.
-    public var hostLossCause: String? {
+    /// What the lost host left as evidence (who signalled it, whether it had
+    /// panicked), shown after the reason. Set it before `hostLoss`.
+    public var hostLossCause: TerminalHostLossCause? {
         didSet { if hostLossCause != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
     }
 

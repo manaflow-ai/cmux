@@ -22,7 +22,7 @@ public final class TerminalHostView: NSView {
     private let scroller = TerminalScroller()
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
-    private var hostLossCause: String?
+    private var hostLossCause: TerminalHostLossCause?
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with
@@ -100,7 +100,7 @@ public final class TerminalHostView: NSView {
         banner.show(status, hostLoss: hostLoss, cause: hostLossCause)
     }
 
-    func showHostLoss(_ loss: TerminalHostLoss?, cause: String?) {
+    func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
         banner.show(shownStatus, hostLoss: loss, cause: cause)
