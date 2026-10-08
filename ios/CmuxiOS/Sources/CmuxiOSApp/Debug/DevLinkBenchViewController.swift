@@ -25,6 +25,7 @@ final class DevLinkBenchViewController: UIViewController {
     private let identity: DirectIdentity
     private let runner: Runner
     private let requestedRig: BenchRigKind?
+    private let rigSelectionError: String?
     private let signaling: BenchSignalingAdapters?
     private let descriptorEditor = UITextView()
     private let resultView = UITextView()
@@ -84,9 +85,24 @@ final class DevLinkBenchViewController: UIViewController {
         runner: Runner? = nil
     ) {
         self.identity = identity
-        let configuredRig = rig ?? ProcessInfo.processInfo.environment["CMUX_IOS_LINK_BENCH_RIG"]
-            .flatMap(BenchRigKind.init(rawValue:))
-        self.requestedRig = configuredRig
+        if let rig {
+            self.requestedRig = rig
+            self.rigSelectionError = nil
+        } else if let rawRig = ProcessInfo.processInfo.environment["CMUX_IOS_LINK_BENCH_RIG"], !rawRig.isEmpty {
+            if rawRig == "direct" {
+                self.requestedRig = .v3
+                self.rigSelectionError = nil
+            } else if let parsedRig = BenchRigKind(rawValue: rawRig) {
+                self.requestedRig = parsedRig
+                self.rigSelectionError = nil
+            } else {
+                self.requestedRig = nil
+                self.rigSelectionError = "unsupported benchmark rig: \(rawRig)"
+            }
+        } else {
+            self.requestedRig = nil
+            self.rigSelectionError = nil
+        }
         self.signaling = signaling
         self.runner = runner ?? Self.liveRunner
         super.init(nibName: nil, bundle: nil)
@@ -175,6 +191,10 @@ final class DevLinkBenchViewController: UIViewController {
 
     @objc private func runTapped() {
         guard runTask == nil else { return }
+        if let rigSelectionError {
+            statusLabel.text = "Selection error: \(rigSelectionError)"
+            return
+        }
         let data = Data(descriptorEditor.text.utf8)
         let descriptor: BenchServeDescriptor
         do {
