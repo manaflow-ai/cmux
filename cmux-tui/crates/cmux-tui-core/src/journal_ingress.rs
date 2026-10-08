@@ -14,6 +14,8 @@ use crate::resource::{
     TerminalPublicId, WorkspacePublicId,
 };
 
+mod contention;
+
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
 const JOURNAL_TERMINAL_BATCH_CHUNKS: usize = 64;

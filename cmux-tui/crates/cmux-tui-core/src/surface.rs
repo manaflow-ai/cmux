@@ -19,6 +19,8 @@ mod host_frames;
 mod hosted_callbacks;
 #[cfg(unix)]
 use hosted_callbacks::hosted_terminal_callbacks;
+#[cfg(all(test, unix))]
+mod journal_failure_tests;
 #[cfg(unix)]
 mod prelaunch;
 #[cfg(unix)]
