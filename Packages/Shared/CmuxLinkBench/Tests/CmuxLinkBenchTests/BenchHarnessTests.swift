@@ -229,9 +229,10 @@ struct BenchHarnessTests {
         )
         let carrier = try #require(client.carriers(for: descriptor, selecting: rig).first)
         do {
-            let transport = try await TimeLimit(.seconds(15)).run {
+            let maybeTransport = try await TimeLimit(.seconds(15)).run {
                 try await carrier.connect(to: descriptor.peer)
             }
+            let transport = try #require(maybeTransport)
             await transport.close()
             await acceptor.stop()
         } catch {
