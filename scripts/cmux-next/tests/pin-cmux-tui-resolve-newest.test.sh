@@ -143,5 +143,30 @@ publish "$(git -C "$src" rev-parse HEAD)" ""
 resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 CMUX_TUI_TREE_SAME_PATHS=.github/workflows/nightly.yml
 [[ "$status" == 0 ]] && grep -qx "source_commit=$(git -C "$src" rev-parse HEAD)" <<<"$out" \
   || fail "the tip with the same workflow and a published tree must resolve (exit $status):" "$out" "$err"
+
+# Run the workflow's actual path policy against a repaired Chief lockfile.
+# Nightly-next run 37724899486 selected a published revision that predated
+# the lock repair on its tip, then failed the Chief's cargo build --locked.
+nightly_same_paths=$(sed -n 's/^ *CMUX_TUI_TREE_SAME_PATHS: *//p' "$ROOT/.github/workflows/nightly.yml")
+[[ -n "$nightly_same_paths" ]] || fail "nightly.yml must configure the resolver's same-path policy"
+chief_lock=Native/OptChat/optchat-chief/Cargo.lock
+mkdir -p "$src/$(dirname "$chief_lock")"
+echo stale > "$src/$chief_lock"
+git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "Chief before lock repair"
+publish "$(git -C "$src" rev-parse HEAD)" ""
+echo repaired > "$src/$chief_lock"
+echo five > "$src/cmux-tui/a"
+git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "repair Chief lock and update tui"
+repaired=$(git -C "$src" rev-parse HEAD)
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 "CMUX_TUI_TREE_SAME_PATHS=$nightly_same_paths"
+[[ "$status" != 0 ]] || fail "nightly must not resolve a published revision with the stale Chief lockfile, got:" "$out"
+grep -q "$chief_lock differs from the tip" <<<"$err" \
+  || fail "the stale Chief lockfile refusal needs a clear message:" "$err"
+
+# Once the repaired revision's tree publishes, the same policy accepts it.
+publish "$repaired" ""
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 "CMUX_TUI_TREE_SAME_PATHS=$nightly_same_paths"
+[[ "$status" == 0 ]] && grep -qx "source_commit=$repaired" <<<"$out" \
+  || fail "nightly must resolve the published revision with the repaired Chief lockfile (exit $status):" "$out" "$err"
 : "$old"
 echo "PASS: resolve-newest-published picks the newest verified published tree without waiting"
