@@ -250,6 +250,12 @@ export const feedDomain: Domain<FeedState> = {
 
   authorize: (state, op, _params, principal) => {
     if (SYSTEM_OPS.has(op)) return principal.kind === "system" ? undefined : { code: "auth.forbidden", message: `${op} is internal` }
+    // The owner's own UserDO posts security notices (FeedDO.systemPrincipal sets `user` only for
+    // the stream user:<feed user>); no other system source posts, and a system post is no grant.
+    if (principal.kind === "system") {
+      if (op !== "feed.post" || principal.identity !== `system:user:${principal.user}` || !principal.user) return { code: "auth.forbidden", message: `${op} is not open to system principals` }
+      return state.user && principal.user !== state.user ? { code: "auth.forbidden", message: "not this user's feed" } : undefined
+    }
     if (state.user && principal.user !== state.user) return { code: "auth.forbidden", message: "not this user's feed" }
     if (userOnly.has(op) && !isUserClient(principal)) return { code: "auth.forbidden", message: `${op} is for the user's own clients, not agents` }
     // The grant lives in UserDO; the Worker resolves it per call and passes the classes (as for TeamDO).
@@ -258,7 +264,8 @@ export const feedDomain: Domain<FeedState> = {
 
   reduce: (stateIn, op, params, ctx) => {
     const p = ctx.principal
-    const state = stateIn.user === null && p.kind !== "system" && p.user ? { ...stateIn, user: p.user } : stateIn
+    const owner = p.kind !== "system" || p.identity === `system:user:${p.user}`
+    const state = stateIn.user === null && owner && p.user ? { ...stateIn, user: p.user } : stateIn
     switch (op) {
       case "feed.post":
         return reducePost(state, params, ctx)
