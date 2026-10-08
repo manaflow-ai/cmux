@@ -106,6 +106,19 @@ import Testing
         #expect(router.route(URL(string: "file:///Users/me/Projects/")!) == .terminal(cwd: "/Users/me/Projects", command: nil))
     }
 
+    /// A feed item's link opens only as a web page or this build's link,
+    /// never a file, a script or a terminal command.
+    @Test func webLinksFromInsideCmuxNeverRunAnything() {
+        let router = ExternalOpenRouter(linkScheme: "cmux-dev-t", isDirectory: { _ in false }, isExecutable: { _ in true })
+        let page = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
+        #expect(router.routeWebLink(page) == .browserTab(page))
+        let link = URL(string: "cmux-dev-t://tab/tab_0123456789abcdef0123456789abcdef")!
+        #expect(router.routeWebLink(link) == .deepLink(link))
+        for text in ["file:///tmp/x.sh", "file:///tmp/x.pl", "file:///tmp/page.html", "file:///tmp/a.png", "ssh://host", "x-man-page://ls"] {
+            #expect(router.routeWebLink(URL(string: text)!) == .unsupported, "\(text)")
+        }
+    }
+
     @Test func otherSchemesAreUnsupported() {
         #expect(router.route(URL(string: "mailto:me@example.com")!) == .unsupported)
         #expect(router.route(URL(string: "javascript:alert(1)")!) == .unsupported)

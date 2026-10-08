@@ -31,6 +31,15 @@ final class ExternalOpenController {
         return true
     }
 
+    /// A web link from inside cmux (a feed item): never a file or a command.
+    @discardableResult
+    func openWebLink(_ url: URL) -> Bool {
+        let route = router.routeWebLink(url)
+        guard route != .unsupported else { return false }
+        perform(route)
+        return true
+    }
+
     /// A web page continued from another device (Handoff). False for any
     /// other activity (macOS then reports it could not continue).
     func continueActivity(type: String, webpageURL: URL?) -> Bool {

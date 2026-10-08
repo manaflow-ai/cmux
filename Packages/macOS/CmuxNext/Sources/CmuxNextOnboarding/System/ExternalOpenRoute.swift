@@ -85,6 +85,17 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         }
     }
 
+    /// A web link from inside cmux (a feed item): only `http(s)` and this
+    /// build's links, never a file or a terminal command, whatever the item
+    /// carries.
+    public func routeWebLink(_ url: URL) -> ExternalOpenRoute {
+        switch route(url) {
+        case .browserTab(let page) where page.scheme?.lowercased() != "file": .browserTab(page)
+        case .deepLink(let link): .deepLink(link)
+        default: .unsupported
+        }
+    }
+
     /// A web page continued from another device (Handoff,
     /// `NSUserActivityTypeBrowsingWeb`): a browser tab for its `http(s)` URL.
     /// Any other activity or URL is refused.

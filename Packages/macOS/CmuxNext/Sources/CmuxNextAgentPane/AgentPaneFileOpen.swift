@@ -35,6 +35,12 @@ public nonisolated enum AgentPaneFileOpen {
         "webarchive", "mht", "mhtml", "webloc", "inetloc", "url"
     ]
 
+    /// Audio and video a tab plays (an explicit list: the system types many
+    /// containers, such as AVI or MKV, that a tab cannot play).
+    public static let mediaExtensions: Set<String> = [
+        "mp4", "mov", "m4v", "webm", "mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "ogv", "ogm",
+    ]
+
     /// Whether a tab may show the file at `url`. The tab loads it as a WebKit page
     /// that can read the files beside it, so it shows only a file the system types
     /// as plain text, source code, an image, a PDF or audio/video, and never a page type; a file
@@ -44,10 +50,11 @@ public nonisolated enum AgentPaneFileOpen {
         let ext = url.pathExtension.lowercased()
         guard !ext.isEmpty, !pageExtensions.contains(ext),
               let type = UTType(filenameExtension: ext), type.isDeclared else { return false }
-        let shown: [UTType] = [.plainText, .sourceCode, .image, .pdf, .audiovisualContent]
-        // `.ts` is typed as an MPEG transport stream but is TypeScript far more often: the editor's.
-        let page: [UTType] = [.html, .xml, .svg, .webArchive, .internetLocation, .mpeg2TransportStream]
-        return shown.contains { type.conforms(to: $0) } && !page.contains { type.conforms(to: $0) }
+        let page: [UTType] = [.html, .xml, .svg, .webArchive, .internetLocation]
+        if page.contains(where: { type.conforms(to: $0) }) { return false }
+        if type.conforms(to: .audiovisualContent) { return mediaExtensions.contains(ext) }
+        let shown: [UTType] = [.plainText, .sourceCode, .image, .pdf]
+        return shown.contains { type.conforms(to: $0) }
     }
 
     /// The app that edits text: the default for source code, else for plain text.
