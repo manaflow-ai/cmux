@@ -21,7 +21,9 @@ export const confirmEnv = (state: UserState, appIdHash: string): homeUser.UserCo
   appIdHash,
   // The user's active chiefs (user-chief.ts) receive every change of the level.
   chiefs: activeChiefs(state),
-  locale: "en"
+  locale: "en",
+  // Security notices by email go only to an address the identity provider verified.
+  email: state.user?.email_verified ? state.user.email : null
 })
 
 export const reduceConfirm = (state: UserState, op: string, params: unknown, ctx: ReduceContext, appIdHash: string): ReduceResult<UserState> => {
