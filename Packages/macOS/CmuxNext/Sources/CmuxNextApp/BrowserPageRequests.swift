@@ -126,6 +126,12 @@ final class BrowserPageRequests: BrowserTabDelegate {
             }
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
+        case .openLocalFile(let url):
+            // A page's navigation is not the user choosing the file: it shows
+            // read only outside the roots the user chose.
+            if let reason = services.viewers.openFile(url, in: services.paneController(for: pane), userChose: false) {
+                services.cache.existingBrowser(key)?.chrome.showNotice(reason)
+            }
         case .openPopup(let child, let request):
             openPopup(child, request: request, openerKey: key, pane: pane)
         case .unhandledKey(let pageKey):

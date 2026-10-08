@@ -46,12 +46,15 @@ enum DebugKey {
 
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
-        guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
-              let shell = controller.window else { return .object(["error": .string("no window")]) }
+        let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })
+        // The palette opens with no main window (after Close All Windows), so its keys need none:
+        // a palette row then runs as the user's, which no socket call can do otherwise (bd cx-beg1).
+        let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palette.visiblePanel : nil
+        guard let shell = controller?.window ?? palettePanel else { return .object(["error": .string("no window")]) }
         var window: NSWindow = shell
         if params["target"]?.stringValue == "page" {
-            let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
-            guard let pane, let page = pageWindow(of: pane, in: controller) else {
+            let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane
+            guard let controller, let pane, let page = pageWindow(of: pane, in: controller) else {
                 return .object(["error": .string("no Chromium page window for pane")])
             }
             window = page
@@ -64,8 +67,8 @@ enum DebugKey {
             }
             window = debugWindow
         } else if params["target"]?.stringValue == "devtools" {
-            let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
-            guard let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
+            let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane
+            guard let controller, let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
                 return .object(["error": .string("no docked DevTools window for pane")])
             }
             window = devTools
@@ -115,7 +118,9 @@ enum DebugKey {
             // notice, and key-downs that reached the system beep.
             let palette = services.palette!
             return .object([
-                "handled_by": .string(handledBy == "page" ? "palette" : handledBy), "action": action, "window_kind": .string("palette"),
+                // With no main window the palette is the dispatch's only window.
+                "handled_by": .string(handledBy == "page" || (controller == nil && ["window", "responder"].contains(handledBy)) ? "palette" : handledBy),
+                "action": action, "window_kind": .string("palette"),
                 "palette_open": .bool(palette.isVisible), "palette_page": .string(palette.model.pageTitle),
                 "palette_text_input": .bool(palette.model.isTextInput),
                 "palette_notice": palette.model.notice.map { .string($0.text) } ?? .null,

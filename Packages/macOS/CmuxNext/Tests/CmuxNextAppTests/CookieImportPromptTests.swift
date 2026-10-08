@@ -61,4 +61,31 @@ struct CookieImportPromptTests {
         #expect(!found.contains { $0.browser.refusesSessionData }, "Tor's cookies stay in Tor")
         #expect(InstalledCookieBrowser.locate { _ in nil }.isEmpty, "no browser, no card")
     }
+
+    /// nxdog75: the card never came up in a real build. The whole path a person takes: their
+    /// Chromium tab finishes a web page, the browser search runs off the main thread, the card
+    /// shows on that tab; an agent's tab never gets it.
+    @Test func aFinishedPageInThePersonsTabShowsTheCard() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "cmux-cookie-prompt-\(UUID().uuidString)"))
+        let service = CookieImportPromptService(services: nil, defaults: defaults,
+                                                locate: { [(browser: .chrome, app: URL(fileURLWithPath: "/Applications/Google Chrome.app"))] })
+        service.enabledOverride = true
+        let agentTab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration())
+        agentTab.markAgentDriven()
+        let agent = BrowserEntry(tab: agentTab)
+        service.attach(agent)
+        agentTab.load(URL(string: "https://example.com/")!)
+        for _ in 0..<200 where service.browsers == nil { await Task.yield() }
+        #expect(!agent.chrome.showsCookieImportOffer, "an agent's tab never shows the card")
+
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration())
+        let entry = BrowserEntry(tab: tab)
+        service.attach(entry)
+        tab.load(URL(string: "https://example.com/")!)
+        for _ in 0..<500 where !entry.chrome.showsCookieImportOffer { await Task.yield() }
+        #expect(entry.chrome.showsCookieImportOffer, "the person's finished page shows the card")
+        #expect(service.shownThisLaunch)
+        #expect(service.browsers?.map(\.browser) == [.chrome])
+    }
 }
+

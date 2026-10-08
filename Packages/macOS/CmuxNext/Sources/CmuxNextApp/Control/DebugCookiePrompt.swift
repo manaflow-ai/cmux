@@ -23,8 +23,10 @@ enum DebugCookiePrompt {
         case "answer":
             let choices: [String: BrowserCookieImportChoice] = ["import": .importCookies, "not_now": .notNow, "never": .never]
             guard let choice = params["choice"]?.stringValue.flatMap({ choices[$0] }) else { return .object(["error": .string("choice: import, not_now or never")]) }
+            // Answered from the card on screen: Import Cookies then targets that tab's profile.
+            let shown = services.cache.browsers.values.first { $0.chrome.showsCookieImportOffer }
             for entry in services.cache.browsers.values { entry.chrome.hideCookieImportOffer() }
-            prompt.answer(choice)
+            prompt.answer(choice, profile: shown.map { BrowserProfileRecord.wireID(for: $0.tab.profileID) })
         case "reset": prompt.reset()
         default: break
         }

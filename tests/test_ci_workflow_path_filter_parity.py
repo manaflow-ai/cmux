@@ -35,7 +35,7 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
     # pull-request side.
     "cmux-next.yml": (
         "paths",
-        frozenset({"Packages/macOS/**", "Packages/Shared/**", "Packages/iOS/**"}),
+        frozenset({"Packages/macOS/**"}),
         "base pushes keep full side coverage for every package; pull requests send "
         "packages outside CmuxNext to the focused package lane",
     ),

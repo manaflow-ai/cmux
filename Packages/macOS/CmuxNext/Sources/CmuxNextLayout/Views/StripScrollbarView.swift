@@ -29,8 +29,10 @@ final class StripScrollbarView: NSView {
     private let thumb = CALayer()
     private(set) var thumbRect: CGRect?
     private var input: Input?
-    private var trackingArea: NSTrackingArea?
-    private var isHovered = false
+    /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
+    /// over the shown band now.
+    private(set) var isHovered = false
+    private var pointerHover: PointerHover?
     private var drag: (grab: CGFloat, width: CGFloat)?
     private(set) var isShown = false
     private let hideTimer: DemandTimer
@@ -48,6 +50,9 @@ final class StripScrollbarView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.scrollBar)
         setAccessibilityLabel(LayoutStrings.stripScrollbarAccessibility)
+        let hover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
+        hover.isHoverable = { [weak self] in self?.thumbRect != nil && self?.input?.mode != .off }
+        pointerHover = hover
     }
 
     @available(*, unavailable)
@@ -74,6 +79,9 @@ final class StripScrollbarView: NSView {
         thumbRect = StripScrollbarGeometry.thumb(track: track, offset: input.offset, contentWidth: input.contentWidth,
                                                  viewportWidth: input.viewportWidth, minimumThumbWidth: Self.minimumThumbWidth)
         layoutThumb()
+        // The band moved, resized or lost its thumb under a possibly still
+        // pointer: hover follows before the fade decision reads it.
+        pointerHover?.refresh()
         switch input.mode {
         case .off:
             setShown(false)
@@ -143,27 +151,13 @@ final class StripScrollbarView: NSView {
     /// A click on a window that is not key still scrolls, like a divider.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        guard thumbRect != nil, input?.mode != .off else { return }
-        isHovered = true
-        layoutThumb()
-        flash()
-        applyColors()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
+    /// Hover came or went (an enter or exit, or the band moved under a
+    /// still pointer): the thumb thickens and holds, or it may fade again.
+    private func setHovered(_ hovering: Bool) {
+        isHovered = hovering
         layoutThumb()
         applyColors()
-        if drag == nil, isShown { flash() }
+        if hovering { flash() } else if drag == nil, isShown { flash() }
     }
 
     override func mouseDown(with event: NSEvent) {
