@@ -345,7 +345,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(!service.shouldReplaySessionScrollback(hasRestorableAgent: true))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
-            tmuxStartCommand: "oh-my-codex hud"
+            tmuxStartCommand: "oh-my-codex hud --watch"
         ))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
@@ -357,10 +357,38 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     func restorableTmuxStartCommandRequiresOmxHud() {
         let service = makeService()
 
-        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud  ") == "oh-my-codex hud")
+        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud --watch  ") == "oh-my-codex hud --watch")
         #expect(service.restorableTmuxStartCommand("omx run") == nil)
         #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
-        #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
+        #expect(service.restorableTmuxStartCommand("omx hud --watch") == "omx hud --watch")
+    }
+
+    @Test("the commands OMX starts its HUD pane with are restorable", arguments: [
+        "node /opt/oh-my-codex/dist/omx.js hud --watch",
+        "env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch",
+        "exec env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch focused",
+        "OMX_TMUX_SPLIT_OPERATION_MARKER='m1' exec env OMX_SESSION_ID=s '/usr/local/bin/node' '/opt/oh my codex/omx.js' hud --watch",
+        "/usr/local/bin/omx hud --watch",
+    ])
+    func restorableTmuxStartCommandKeepsOmxHudInvocations(command: String) {
+        #expect(makeService().restorableTmuxStartCommand(command) == command)
+    }
+
+    /// Restore runs whatever this accepts, so text that only mentions OMX and a
+    /// HUD must not pass for the HUD invocation.
+    @Test("commands that only mention OMX and a HUD are not restorable", arguments: [
+        "echo omx hud",
+        "echo 'notomx hud'",
+        "echo omx hud --watch",
+        "omx hud",
+        "oh-my-codex hud",
+        "omx hud --watch; rm -rf build",
+        "cd /tmp && omx hud --watch",
+        "vim notes-about-omx-hud.md --watch",
+        "node /opt/tools/report.js hud --watch",
+    ])
+    func restorableTmuxStartCommandRejectsLooseOmxHudText(command: String) {
+        #expect(makeService().restorableTmuxStartCommand(command) == nil)
     }
 
     @Test("cmux-generated local tmux attach commands are restorable")
