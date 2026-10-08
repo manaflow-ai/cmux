@@ -12,6 +12,8 @@ export type ReportLinks = {
   artifact?: string;
   /** The thumbnails' URL prefix: a state's thumbnail is this followed by its key (pr-media raw URLs). */
   thumbBase?: string;
+  /** The branch's live gallery preview (`/wt/<name>/`, liveBase), on the tailnet gallery host. */
+  live?: string;
 };
 export type ReportMeta = { pr: number; head: string; base: string; links: ReportLinks };
 
@@ -34,6 +36,11 @@ export function counts(outcomes: Outcome[]): Record<Status, number> {
   return out;
 }
 
+/** Counts the states that remain after the diff page's entry filter is selected. */
+export function filteredCounts(outcomes: Outcome[], entry?: string): Record<Status, number> {
+  return counts(entry ? outcomes.filter((outcome) => outcome.entry === entry) : outcomes);
+}
+
 const plural = (n: number, status: Status) => `${n} ${LABELS[status][n === 1 ? 0 : 1]}`;
 
 /** `entry/variant`, with the theme and engine only where the matrix varies them. */
@@ -42,6 +49,17 @@ export function stateLabel(outcome: Outcome, outcomes: Outcome[]): string {
   const engines = new Set(outcomes.map((o) => o.engine)).size > 1;
   const extra = [themes ? outcome.theme : "", engines ? outcome.engine : ""].filter(Boolean);
   return `${outcome.entry}/${outcome.variant}${extra.length ? ` (${extra.join(", ")})` : ""}`;
+}
+
+/** The states whose play checks failed (play.ts: anchors, layout shift, long frames, or the play threw). */
+export const playFailures = (outcomes: Outcome[]) => outcomes.filter((o) => o.play?.status === "fail");
+
+/** Why one state's play failed: each failing step and its problems, else the error. */
+export function playFailureText(outcome: Outcome): string {
+  const steps = (outcome.frames ?? [])
+    .filter((frame) => frame.play?.status === "fail")
+    .map((frame) => `step ${frame.index + 1} ${frame.step}: ${frame.play!.problems.join("; ") || "failed"}`);
+  return [...steps, outcome.play?.error].filter(Boolean).join(" · ") || "failed";
 }
 
 /** "7 states changed: agent-pane.composer/streaming, ... · 1 new state", or that nothing changed. */
@@ -54,6 +72,8 @@ export function summaryLine(outcomes: Outcome[]): string {
     ? `${plural(n.changed, "changed")}: ${names.slice(0, SUMMARY_STATES).join(", ")}${names.length > SUMMARY_STATES ? ", ..." : ""}`
     : "No state changed";
   const rest = (["new", "removed", "broken"] as const).filter((s) => n[s]).map((s) => plural(n[s], s));
+  const failed = new Set(playFailures(outcomes).map((o) => `${o.entry}/${o.variant}`)).size;
+  if (failed) rest.push(`${failed} play check${failed === 1 ? "" : "s"} failed`);
   return [head, ...rest].join(" · ");
 }
 
@@ -63,7 +83,7 @@ export function feedSummary(outcomes: Outcome[], meta: ReportMeta) {
     head: meta.head,
     base: meta.base,
     summary: summaryLine(outcomes),
-    counts: counts(outcomes),
+    counts: { ...counts(outcomes), playFailed: playFailures(outcomes).length },
     links: { diff: meta.links.diff, gallery: meta.links.gallery, matrix: meta.links.matrix },
     changed: outcomes
       .filter((o) => o.status === "changed")
@@ -75,7 +95,9 @@ export function feedSummary(outcomes: Outcome[], meta: ReportMeta) {
         engine: o.engine,
         ratio: o.ratio,
         thumb: thumbUrl(o, meta),
+        steps: o.frames?.length,
       })),
+    playFailed: playFailures(outcomes).map((o) => ({ state: stateLabel(o, outcomes), why: playFailureText(o) })),
   };
 }
 
@@ -95,7 +117,47 @@ export const thumbUrl = (o: Outcome, meta: ReportMeta) =>
 export const commentThumbs = (outcomes: Outcome[], meta: ReportMeta) =>
   outcomes.filter((o) => o.status === "changed" && thumbUrl(o, meta)).slice(0, COMMENT_THUMBS);
 
+/** The live preview's path for a branch: gallery-live.sh's preview name (lower case, [a-z0-9-] runs,
+ *  at most 40 characters). The comment gives the path only; the host is tailnet-only. */
+export function liveBase(branch: string): string | undefined {
+  const name = branch
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40)
+    .replace(/-$/, "");
+  return name ? `/wt/${name}/` : undefined;
+}
+
+/** A state's page in the live preview: `/wt/<name>/?entry=<id>#/<id>/<variant>`. */
+export const liveLink = (o: Outcome, meta: ReportMeta) =>
+  meta.links.live && SAFE_KEY.test(o.entry) && SAFE_KEY.test(o.variant)
+    ? `${meta.links.live}?entry=${o.entry}#/${o.entry}/${o.variant}`
+    : undefined;
+
+type LiveEntry = { label: string; url: string };
+
+/** One live link per changed or new entry and variant (themes and engines share a page). */
+function liveEntries(outcomes: Outcome[], meta: ReportMeta): LiveEntry[] {
+  const seen = new Set<string>();
+  const links: LiveEntry[] = [];
+  for (const o of outcomes) {
+    if (o.status !== "changed" && o.status !== "new") continue;
+    const link = liveLink(o, meta);
+    if (!link || seen.has(link)) continue;
+    seen.add(link);
+    links.push({ label: `${o.entry}/${o.variant}`, url: link });
+  }
+  return links;
+}
+
 const escapeMd = (text: string) => text.replace(/[\r\n]+/g, " ").replace(/[|[\]<>`*_\\]/g, (c) => `\\${c}`);
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+
+function liveLinks(outcomes: Outcome[], meta: ReportMeta): string[] {
+  return liveEntries(outcomes, meta).map(({ label, url }) => `- ${escapeMd(label)}: \`${url}\``);
+}
 
 export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
   const n = counts(outcomes);
@@ -104,7 +166,9 @@ export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
     meta.links.diff && `[Diff page](${meta.links.diff})`,
     meta.links.gallery && `[Gallery at this head](${meta.links.gallery})`,
     meta.links.matrix && `[Matrix](${meta.links.matrix})`,
-    !meta.links.diff && meta.links.artifact && `[Diff page and renders](${meta.links.artifact}) (the run's \`gallery-pr\` artifact)`,
+    !meta.links.diff &&
+      meta.links.artifact &&
+      `[Diff page and renders](${meta.links.artifact}) (the run's \`gallery-pr\` artifact)`,
   ].filter(Boolean);
   if (links.length) lines.push(links.join(" · "), "");
   const changed = outcomes.filter((o) => o.status === "changed" && thumbUrl(o, meta));
@@ -113,6 +177,27 @@ export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
     for (const o of commentThumbs(outcomes, meta))
       lines.push(`| ${escapeMd(stateLabel(o, outcomes))} | <img src="${thumbUrl(o, meta)}" width="480"> |`);
     if (changed.length > COMMENT_THUMBS) lines.push("", `${changed.length - COMMENT_THUMBS} more on the diff page.`);
+    lines.push("");
+  }
+  const live = liveLinks(outcomes, meta);
+  if (live.length) {
+    lines.push(
+      "**Live preview** (follows this branch; start it with `scripts/gallery-live.sh up <branch>` from an hq checkout):",
+      "",
+    );
+    lines.push(...live.slice(0, COMMENT_THUMBS));
+    if (live.length > COMMENT_THUMBS) lines.push(`- ${live.length - COMMENT_THUMBS} more on the diff page`);
+    lines.push("");
+  }
+  const failed = playFailures(outcomes);
+  if (failed.length) {
+    lines.push(
+      "**Play checks failed** (0 px anchor movement, 0 layout shift, no frame over 33 ms unless the entry gives a reason):",
+      "",
+    );
+    for (const o of failed.slice(0, COMMENT_THUMBS))
+      lines.push(`- ${escapeMd(stateLabel(o, outcomes))}: ${escapeMd(playFailureText(o))}`);
+    if (failed.length > COMMENT_THUMBS) lines.push(`- ${failed.length - COMMENT_THUMBS} more on the diff page`);
     lines.push("");
   }
   if (n.nondeterministic)
@@ -126,8 +211,17 @@ export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
 
 /** The diff page: plain HTML and a small script, images beside it (base/, head/, thumbs/). */
 export function diffPage(outcomes: Outcome[], meta: ReportMeta): string {
-  const data = JSON.stringify({ outcomes, labels: outcomes.map((o) => stateLabel(o, outcomes)) }).replace(/</g, "\\u003c");
+  const data = JSON.stringify({ outcomes, labels: outcomes.map((o) => stateLabel(o, outcomes)) }).replace(
+    /</g,
+    "\\u003c",
+  );
   const title = `PR #${meta.pr} gallery diff`;
+  const live = liveEntries(outcomes, meta);
+  const liveMarkup = live.length
+    ? `<details class="live-links"><summary>Live previews (${live.length})</summary><ul>${live
+        .map(({ label, url }) => `<li><a href="${escapeHtml(url)}">${escapeHtml(label)}</a></li>`)
+        .join("")}</ul></details>`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
@@ -140,6 +234,9 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-a
 header{padding:20px 16px 8px;max-width:1240px;margin:0 auto}
 h1{font-size:18px;margin:0 0 4px}
 .sub{color:var(--muted)}
+.live-links{margin-top:10px;color:var(--muted);font-size:12px}.live-links ul{columns:2;margin:6px 0 0;padding-left:18px}.live-links a{color:inherit}
+label{display:inline-flex;align-items:center;gap:6px;margin-top:10px;color:var(--muted);font-size:12px}
+select{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--edge);border-radius:6px;padding:3px 6px}
 main{max-width:1240px;margin:0 auto;padding:8px 16px 48px}
 h2{font-size:15px;margin:28px 0 10px}
 article{background:var(--card);border-radius:10px;box-shadow:0 0 0 1px var(--edge);padding:12px;margin:0 0 16px}
@@ -157,17 +254,24 @@ article{background:var(--card);border-radius:10px;box-shadow:0 0 0 1px var(--edg
 .frame .over img{width:100%;height:100%;max-width:none}
 .box{position:absolute;outline:2px solid var(--box);outline-offset:1px;border-radius:2px;background:color-mix(in srgb,var(--box) 12%,transparent)}
 input[type=range]{width:min(420px,100%);margin:8px 0 0}
+.strip{display:flex;gap:8px;overflow-x:auto;margin-top:12px;padding-bottom:4px}
+.frame-cell{flex:none;width:200px;display:flex;flex-direction:column;gap:4px;text-align:left;font:inherit;font-size:12px;color:var(--text);background:none;border:0;border-radius:8px;padding:6px;box-shadow:0 0 0 1px var(--edge);cursor:pointer}
+.frame-cell[aria-pressed=true]{box-shadow:0 0 0 2px var(--text)}
+.frame-cell img{width:100%;height:auto;border-radius:4px}
+.frame-label{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frame-metrics{color:var(--muted)}.frame-metrics.fail{color:var(--box)}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .pair figure{margin:0}.pair figcaption{color:var(--muted);font-size:12px;margin-bottom:4px}
 details summary{cursor:pointer;color:var(--muted)}
 ul.plain{columns:2;padding-left:18px;color:var(--muted)}
 @media (max-width:640px){ul.plain{columns:1}.pair{grid-template-columns:1fr}}
 </style>
-<header><h1>${title}</h1><div class="sub" id="summary"></div></header>
+<header><h1>${title}</h1><div class="sub" id="summary"></div><label>Entry <select id="entry-filter" aria-label="Filter gallery diff by entry"><option value="">All entries</option></select></label>${liveMarkup}</header>
 <main id="main"></main>
 <script>
 const {outcomes, labels} = ${data};
 const main = document.getElementById("main");
+const entryFilter = document.getElementById("entry-filter");
 const el = (tag, attrs = {}, ...kids) => { const n = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); n.append(...kids); return n; };
 const img = (src, alt) => el("img", {src, alt, loading: "lazy"});
 const pct = (n, of) => (100 * n / of) + "%";
@@ -189,33 +293,122 @@ function layered(o, mode) {
   range.addEventListener("input", apply); apply();
   return el("div", {}, frame, range);
 }
+function metricsText(m) {
+  if (!m) return "";
+  return "CLS " + m.layoutShift.toFixed(3) + " · " + m.longFrames + " long frame" + (m.longFrames === 1 ? "" : "s") + (m.longFrames ? " (max " + m.longFrameMaxMs.toFixed(1) + " ms)" : "") + (m.frameSource === "raf" ? " · software-rendered, not a gate" : "");
+}
+function settleLatency(frames) {
+  const values = (frames || []).map((frame) => frame.play && frame.play.settleMs).filter((value) => typeof value === "number" && Number.isFinite(value) && value >= 0).sort((a, b) => a - b);
+  if (!values.length) return null;
+  const at = (fraction) => values[Math.min(values.length - 1, Math.max(0, Math.round((values.length - 1) * fraction)))];
+  return {count: values.length, p50: at(0.5), p95: at(0.95), max: values[values.length - 1]};
+}
+function settleLatencyText(summary) {
+  if (!summary) return "";
+  return "action → settled: p50 " + summary.p50.toFixed(1) + " ms · p95 " + summary.p95.toFixed(1) + " ms · max " + summary.max.toFixed(1) + " ms · count " + summary.count;
+}
+function picture(p, stage, buttons) {
+  const views = {highlight: () => highlight(p), slider: () => layered(p, "slider"), onion: () => layered(p, "onion")};
+  buttons.replaceChildren();
+  if (p.status === "changed") {
+    const show = (name) => { stage.replaceChildren(views[name]()); for (const b of buttons.children) b.setAttribute("aria-pressed", String(b.dataset.view === name)); };
+    for (const name of Object.keys(views)) { const b = el("button", {type: "button", "data-view": name}, name[0].toUpperCase() + name.slice(1)); b.onclick = () => show(name); buttons.append(b); }
+    show("highlight");
+  } else if (p.status === "nondeterministic") {
+    stage.replaceChildren(highlight(p));
+  } else {
+    const src = p.head || p.base;
+    stage.replaceChildren(...(src ? [img(src, p.status)] : []));
+  }
+}
 function card(o, i) {
-  const views = {highlight: () => highlight(o), slider: () => layered(o, "slider"), onion: () => layered(o, "onion")};
   const stage = el("div", {class: "stage"});
   const buttons = el("div", {class: "views"});
-  const show = (name) => { stage.replaceChildren(views[name]()); for (const b of buttons.children) b.setAttribute("aria-pressed", String(b.dataset.view === name)); };
   const meta = el("div", {class: "meta"}, el("strong", {}, labels[i]), el("span", {class: "tag " + o.status}, o.status));
-  if (o.status === "changed") {
-    meta.append(el("span", {class: "sub"}, (o.ratio * 100).toFixed(2) + "% of pixels · " + o.boxes.length + " region" + (o.boxes.length === 1 ? "" : "s")));
-    for (const name of Object.keys(views)) { const b = el("button", {type: "button", "data-view": name}, name[0].toUpperCase() + name.slice(1)); b.onclick = () => show(name); buttons.append(b); }
-    meta.append(buttons); show("highlight");
-  } else if (o.status === "nondeterministic") {
-    stage.append(highlight(o));
+  const latency = settleLatency(o.frames ?? []);
+  if (o.play && o.play.status === "fail") meta.append(el("span", {class: "tag broken"}, "play checks failed"));
+  if (o.status === "changed" && o.pixels) meta.append(el("span", {class: "sub"}, (o.ratio * 100).toFixed(2) + "% of pixels · " + o.boxes.length + " region" + (o.boxes.length === 1 ? "" : "s")));
+  if (latency) meta.append(el("span", {class: "sub"}, settleLatencyText(latency)));
+  meta.append(buttons);
+  const parts = [meta, stage];
+  if (o.frames && o.frames.length) {
+    // The filmstrip: the played steps in order, then the final still; a frame opens in the views above.
+    const strip = el("div", {class: "strip"});
+    const select = (p, cell) => { picture(p, stage, buttons); for (const c of strip.children) c.setAttribute("aria-pressed", String(c === cell)); };
+    // The final outcome's play field is the aggregate report, not a StepMetrics object.
+    // Leave it off the final cell so metricsText never reads step-only fields from it.
+    const frames = [
+      ...o.frames.map((f) => ({...f, label: "Step " + (f.index + 1) + ": " + f.step})),
+      {...o, play: undefined, label: "Final"},
+    ];
+    for (const f of frames) {
+      const src = f.head || f.base;
+      const cell = el("button", {type: "button", class: "frame-cell"}, ...(src ? [img(src, f.label)] : []), el("span", {class: "frame-label"}, f.label), el("span", {class: "tag " + f.status}, f.status));
+      if (f.play) cell.append(el("span", {class: "frame-metrics" + (f.play.status === "fail" ? " fail" : "")}, metricsText(f.play) + (f.play.problems.length ? " · " + f.play.problems.join("; ") : "")));
+      if (f.basePlay && f.play && (f.basePlay.layoutShift !== f.play.layoutShift || f.basePlay.longFrames !== f.play.longFrames)) cell.append(el("span", {class: "frame-metrics"}, "base: " + metricsText(f.basePlay)));
+      cell.onclick = () => select(f, cell);
+      strip.append(cell);
+    }
+    parts.push(strip);
+    const first = frames.find((f) => f.status !== "unchanged") || frames[frames.length - 1];
+    select(first, strip.children[frames.indexOf(first)]);
   } else {
-    const src = o.head || o.base;
-    if (src) stage.append(img(src, o.status));
+    picture(o, stage, buttons);
   }
-  return el("article", {id: o.key}, meta, stage);
+  if (o.play && o.play.error) parts.push(el("div", {class: "sub"}, "Play: " + o.play.error));
+  return el("article", {id: o.key, "data-entry": o.entry}, ...parts);
 }
 order.forEach((status) => {
   const list = outcomes.map((o, i) => [o, i]).filter(([o]) => o.status === status);
   if (!list.length) return;
   if (status === "unchanged") {
-    main.append(el("details", {}, el("summary", {}, list.length + " unchanged"), el("ul", {class: "plain"}, ...list.map(([, i]) => el("li", {}, labels[i])))));
+    const section = el("section", {"data-status": status});
+    const failed = list.filter(([o]) => o.play && o.play.status === "fail");
+    const unchanged = list.filter(([o]) => !o.play || o.play.status !== "fail");
+    if (failed.length) section.append(el("h2", {}, "Play checks failed (" + failed.length + ")"), ...failed.map(([o, i]) => card(o, i)));
+    const details = el("details", {});
+    details.append(
+      el("summary", {"data-summary": "unchanged"}, unchanged.length + " unchanged"),
+      el("ul", {class: "plain"}, ...unchanged.map(([o, i]) => el("li", {"data-entry": o.entry}, labels[i]))),
+    );
+    section.append(details);
+    main.append(section);
     return;
   }
-  main.append(el("h2", {}, titles[status] + " (" + list.length + ")"), ...list.map(([o, i]) => card(o, i)));
+  const section = el("section", {"data-status": status});
+  section.append(el("h2", {}, titles[status] + " (" + list.length + ")"), ...list.map(([o, i]) => card(o, i)));
+  main.append(section);
 });
+for (const entry of [...new Set(outcomes.map((o) => o.entry))].sort()) entryFilter.append(el("option", {value: entry}, entry));
+const applyEntryFilter = () => {
+  const selected = entryFilter.value;
+  for (const node of main.querySelectorAll("[data-entry]")) node.hidden = Boolean(selected && node.dataset.entry !== selected);
+  const filtered = selected ? outcomes.filter((o) => o.entry === selected) : outcomes;
+  const filteredCounts = Object.fromEntries(order.map((status) => [status, filtered.filter((o) => o.status === status).length]));
+  document.getElementById("summary").textContent = order.filter((status) => filteredCounts[status]).map((status) => filteredCounts[status] + " " + status).join(" · ") + " · base ${meta.base.slice(0, 11)} · head ${meta.head.slice(0, 11)}";
+  for (const section of main.querySelectorAll("[data-status]")) {
+    const status = section.dataset.status;
+    if (status === "unchanged") {
+      const failed = [...section.querySelectorAll("article[data-entry]")].filter((node) => !node.hidden);
+      const unchanged = [...section.querySelectorAll("ul.plain [data-entry]")].filter((node) => !node.hidden);
+      const heading = section.querySelector("h2");
+      if (heading) {
+        heading.hidden = failed.length === 0;
+        heading.textContent = "Play checks failed (" + failed.length + ")";
+      }
+      const summary = section.querySelector("[data-summary='unchanged']");
+      if (summary) summary.textContent = unchanged.length + " unchanged";
+      section.hidden = failed.length === 0 && unchanged.length === 0;
+    } else {
+      const visible = [...section.querySelectorAll("article[data-entry]")].filter((node) => !node.hidden);
+      const heading = section.querySelector("h2");
+      if (heading) heading.textContent = titles[status] + " (" + visible.length + ")";
+      section.hidden = visible.length === 0;
+    }
+  }
+};
+entryFilter.addEventListener("change", applyEntryFilter);
+applyEntryFilter();
 </script>
 </html>
 `;

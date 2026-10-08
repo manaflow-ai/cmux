@@ -198,18 +198,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "pull_request_target" in triggers
     pr_trigger = triggers["pull_request_target"]
     assert pr_trigger.get("branches") == ["feat-cmux-next"]
+    # The filter is the tree key's input list (checked item by item in
+    # test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths); here only
+    # that it starts with the cmux-tui sources.
     paths = pr_trigger.get("paths")
-    assert paths == [
-        "cmux-tui/**",
-        "ghostty",
-        "ghostty-next",
-        "scripts/cmux-next/build-layout-reducer-ffi.sh",
-        "scripts/ci/cmux-tui-darwin-builder",
-        "scripts/ci/macos-cross.sh",
-        "scripts/ci/macos_stubs.py",
-        "scripts/ci/macho_weaken.py",
-        "scripts/ci/macos-stubs/**",
-    ]
+    assert paths and paths[0] == "cmux-tui/**"
     push_trigger = triggers["push"]
     assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
     assert "paths" not in push_trigger

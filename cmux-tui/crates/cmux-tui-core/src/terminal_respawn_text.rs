@@ -19,12 +19,16 @@ pub struct TerminalRespawnText {
     /// The line under a reopened tab's archived screen when its close
     /// stopped a running program; `{program}` is the program's name.
     pub stopped: &'static str,
+    /// Name of the workspace that holds terminals whose hosts outlived the
+    /// owner's registry (cx-0tgl LC).
+    pub recovered_workspace: &'static str,
 }
 
 /// The English text, used until [`install`] runs.
 pub const ENGLISH: TerminalRespawnText = TerminalRespawnText {
     restored: "\u{2014} session restored (previous process ended) \u{2014}",
     restored_command: "\u{2014} session restored (previous process ended; it ran {program}) \u{2014}",
+    recovered_workspace: "Recovered terminals",
     stopped: "\u{2014} {program} was stopped when this tab closed \u{2014}",
 };
 
