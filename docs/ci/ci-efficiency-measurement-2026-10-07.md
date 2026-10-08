@@ -20,9 +20,10 @@ seconds.
 | artifact upload | 84 / 8.5 / 11.9 | 185 / 5.4 / 8.4 | upload phase duration |
 | storage cleanup snapshot | 120 / 0.018 / 0.028 | 264 / 0.162 / 1.686 | `after_cleanup` minus `before_cleanup` |
 
-The recovered host JSONL read adds this setup and run split. These are
-historical host receipt subsets, not rows in the current controller export;
-the raw host files are not mounted in this checkout.
+The recovered host JSONL read adds this setup and run split. These are prior
+supplied historical host receipt subsets, not rows in the current controller
+export; the raw host files are not mounted in this checkout and are not covered
+by the three controller snapshot hashes below.
 
 | host receipt subset | started / completed | admission wait p50 / p90 / max (s) | host run p50 / p90 (s) | telemetry and contention |
 | --- | ---: | ---: | ---: | --- |
@@ -55,12 +56,13 @@ policy.
 
 ## Smallest missing receipt
 
-Add `runner_ready_at` to the existing host job receipt, keyed by the controller
-job ID, and retain the existing wait reason. The controller already supplies
-`created_at` and `started_at`, while the workflow readout now supplies the
-first workflow step and final workflow step boundaries. This one host timestamp
-will separate controller queue from host admission and runner setup without
-changing placement or artifact transport.
+Add `runner_ready_at` to the existing host job receipt, keyed by its existing
+`(run_id, run_attempt, job, runner)` fields, and retain the existing wait
+reason. The controller already supplies `created_at` and `started_at`, while
+the workflow readout now supplies the first workflow step and final workflow
+step boundaries. This one host timestamp will separate controller queue from
+host admission and runner setup without changing placement or artifact
+transport.
 
 ## AWS relay canary
 
@@ -82,9 +84,10 @@ interval and its wait reason. Do not kill processes, clear broad caches, or
 override routing for this canary.
 
 Implementation on this branch is limited to the GitHub timing readout in
-`scripts/ci/ci_timing_readout.py`: it excludes `Set up job` and `Complete job`
-bookends, and reports runner setup and cleanup columns when workflow steps are
-present. Missing workflow steps render as unknown rather than zero.
+`scripts/ci/ci_timing_readout.py`: it excludes `Set up job`, `Set up runner`,
+and `Complete job` bookends, and reports runner setup and cleanup columns when
+workflow steps are present. Missing workflow steps render as unknown rather
+than zero.
 
 Source snapshot hashes:
 

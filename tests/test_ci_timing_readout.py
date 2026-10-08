@@ -83,6 +83,7 @@ class CriticalPathTests(unittest.TestCase):
             100,
             steps=[
                 ("Set up job", 10, 25),
+                ("Set up runner", 25, 35),
                 ("Checkout", 30, 40),
                 ("Complete job", 80, 100),
             ],

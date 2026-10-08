@@ -40,7 +40,7 @@ STEPS_PER_JOB = 3
 QUANTILE_POINTS = (10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99)
 # GitHub includes these runner bookends in a job's step list. They are not
 # workflow work, so leave them out when measuring runner setup and teardown.
-RUNNER_BOOKEND_STEPS = {"set up job", "complete job"}
+RUNNER_BOOKEND_STEPS = {"set up job", "set up runner", "complete job"}
 
 
 def step_name(step: dict) -> str:
