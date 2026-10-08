@@ -8,7 +8,7 @@ import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, sto
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 import { runLedgered } from "./integrations/external-ledger.ts"
 import { answerAdmitted } from "./integrations/approval-route.ts"
-import { approvalLedger, deliverAnswers, expireApprovals, gateRiskyOp, type GateHost, needsApproval, postIntegrationApproval, runApproved, withApprovalClass } from "./integrations/approval-gate.ts"
+import { APPROVAL_ITEM_OPS, approvalLedger, deliverAnswers, expireApprovals, gateRiskyOp, type GateHost, needsApproval, postIntegrationApproval, runApproved, withApprovalClass } from "./integrations/approval-gate.ts"
 import { approvalView, createApprovalTable, nextApprovalAt, pruneApprovals, APPROVAL_RETENTION_MS } from "./integrations/approvals.ts"
 import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./integrations/gmail-push.ts"
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
@@ -291,11 +291,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   /** Answers from the user's FeedDO (G8) run here (they call the provider); other items go to the engine. */
   override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
-    const answers = items.filter((i) => i.op === "integration.approval.answered")
-    const rest = items.filter((i) => i.op !== "integration.approval.answered")
+    const answers = items.filter((i) => APPROVAL_ITEM_OPS.has(i.op))
+    const rest = items.filter((i) => !APPROVAL_ITEM_OPS.has(i.op))
     const done: Array<number> = rest.length ? [...(await super.systemDeliver(entity, source, rest)).done] : (this.bind(entity), [])
     const allowed = (p: Principal, op: string, params: unknown) => !connectionsDomain.authorize!(this.boundEngine!.currentState, op, params, p)
-    done.push(...(await deliverAnswers(this.ctx.storage.sql, source, answers, runApproved(this.env, allowed, (p, row) => this.runLedgered(p, { op: row.op }, row.params, approvalLedger(row).identity, approvalLedger(row).key)), (row, p) => answerAdmitted(this.env, entity, row.user, p))))
+    done.push(...(await deliverAnswers(this.ctx.storage.sql, source, answers, runApproved(this.env, allowed, (p, row) => this.runLedgered(p, { op: row.op }, row.params, approvalLedger(row).identity, approvalLedger(row).key)), (row, p) => answerAdmitted(this.env, entity, row.user, p), entity)))
     return { done }
   }
 
