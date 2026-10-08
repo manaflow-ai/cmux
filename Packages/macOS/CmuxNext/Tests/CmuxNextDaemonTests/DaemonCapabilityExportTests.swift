@@ -30,6 +30,11 @@ struct DaemonCapabilityExportTests {
         #expect(added.isEmpty, "new unserved capabilities \(added.sorted()): land the daemon half on this branch and list them in optional")
     }
 
+    @Test func chiefInspectIsUnservedWithoutToolsSocket() {
+        #expect(capabilities.unservedByBundledDaemon.contains(capabilities.chiefInspect))
+        #expect(!capabilities.optional.contains(capabilities.chiefInspect))
+    }
+
     @Test func exportIsFresh() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
