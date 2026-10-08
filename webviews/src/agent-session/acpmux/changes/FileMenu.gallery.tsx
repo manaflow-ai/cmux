@@ -25,9 +25,10 @@ export default componentEntry<Props>({
   title: "Changes file menu",
   area: "Agent pane",
   covers: ["agent-session/acpmux/changes/FileMenu.tsx#FileMenu"],
-  load: async () => function GalleryFileMenu(input: Props) {
-    return <FileMenu {...input} onToggleCollapsed={() => {}} onOpenInTab={() => {}} />;
-  },
+  load: async () =>
+    function GalleryFileMenu(input: Props) {
+      return <FileMenu {...input} onToggleCollapsed={() => {}} onOpenInTab={() => {}} />;
+    },
   styles: () => Promise.all([import("../styles.css"), import("./changes.css")]),
   widths: { narrow: 320, normal: 480, wide: 640 },
   variants: {

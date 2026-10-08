@@ -26,11 +26,7 @@ export function ScopeMenu({
   };
   return (
     <span className="acpmux-scope-menu">
-      <Menu
-        open={open}
-        onOpenChange={setOpen}
-        onOpenChangeComplete={(next) => next && focusSelected()}
-      >
+      <Menu open={open} onOpenChange={setOpen} onOpenChangeComplete={(next) => next && focusSelected()}>
         <MenuButton
           className="acpmux-diff-scope"
           label={t("changes.scopeButton", { scope: t(SCOPE_LABEL[scope]) })}
@@ -57,11 +53,7 @@ export function ScopeMenu({
               entry === null ? (
                 <MenuSeparator key={`separator-${index}`} />
               ) : (
-                <MenuRadioItem
-                  key={entry}
-                  value={entry}
-                  className="acpmux-file-menu-item"
-                >
+                <MenuRadioItem key={entry} value={entry} className="acpmux-file-menu-item">
                   {t(SCOPE_LABEL[entry])}
                 </MenuRadioItem>
               ),

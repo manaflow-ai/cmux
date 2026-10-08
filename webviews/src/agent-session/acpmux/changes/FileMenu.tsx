@@ -31,24 +31,12 @@ export function FileMenu({
   return (
     <span className="acpmux-file-menu">
       <Menu>
-        <MenuButton
-          className="acpmux-fh-btn"
-          label={t("changes.moreActionsFor", { name })}
-          aria-haspopup="menu"
-        >
+        <MenuButton className="acpmux-fh-btn" label={t("changes.moreActionsFor", { name })} aria-haspopup="menu">
           <More />
         </MenuButton>
-        <MenuPopup
-          className="acpmux-file-menu-list"
-          label={t("changes.actionsFor", { name })}
-          align="start"
-        >
+        <MenuPopup className="acpmux-file-menu-list" label={t("changes.actionsFor", { name })} align="start">
           {items.map((item) => (
-            <MenuItem
-              key={item.label}
-              className="acpmux-file-menu-item"
-              onSelect={() => item.run()}
-            >
+            <MenuItem key={item.label} className="acpmux-file-menu-item" onSelect={() => item.run()}>
               {item.label}
             </MenuItem>
           ))}

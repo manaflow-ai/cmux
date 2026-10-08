@@ -105,12 +105,7 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   };
   return (
     <MenuContext value={context}>
-      <BaseMenu.Root
-        modal={false}
-        open={isOpen}
-        onOpenChange={setMenuOpen}
-        onOpenChangeComplete={onOpenChangeComplete}
-      >
+      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={onOpenChangeComplete}>
         {children}
       </BaseMenu.Root>
     </MenuContext>
@@ -179,7 +174,15 @@ export interface MenuPopupProps {
   children: ReactNode;
 }
 
-export function MenuPopup({ id, label, className, side = "bottom", align = "start", finalFocus, children }: MenuPopupProps) {
+export function MenuPopup({
+  id,
+  label,
+  className,
+  side = "bottom",
+  align = "start",
+  finalFocus,
+  children,
+}: MenuPopupProps) {
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>

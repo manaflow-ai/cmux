@@ -11,16 +11,26 @@ afterEach(unmount);
 afterAll(restoreDom);
 
 function FileFixture({ onOpen = () => {} }: { onOpen?: () => void }) {
-  return <UiProvider container={document.body}>
-    <FileMenu path="src/app.ts" name="app.ts" collapsed={false} onToggleCollapsed={() => {}} onOpenInTab={onOpen} />
-    <input aria-label="Next field" />
-  </UiProvider>;
+  return (
+    <UiProvider container={document.body}>
+      <FileMenu path="src/app.ts" name="app.ts" collapsed={false} onToggleCollapsed={() => {}} onOpenInTab={onOpen} />
+      <input aria-label="Next field" />
+    </UiProvider>
+  );
 }
 function ScopeFixture({ onScope = (_scope: ChangeScope) => {} }: { onScope?: (scope: ChangeScope) => void }) {
   const [scope, setScope] = useState<ChangeScope>("staged");
-  return <UiProvider container={document.body}>
-    <ScopeMenu scope={scope} onScope={(next) => { setScope(next); onScope(next); }} />
-  </UiProvider>;
+  return (
+    <UiProvider container={document.body}>
+      <ScopeMenu
+        scope={scope}
+        onScope={(next) => {
+          setScope(next);
+          onScope(next);
+        }}
+      />
+    </UiProvider>
+  );
 }
 const items = () => [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
 const focused = () => document.activeElement?.textContent?.replace("✓", "").trim();
@@ -28,7 +38,13 @@ const focused = () => document.activeElement?.textContent?.replace("✓", "").tr
 describe("Changes file menu", () => {
   test("ArrowDown opens the file actions and typeahead runs Open file in a tab", async () => {
     let opens = 0;
-    const root = await render(<FileFixture onOpen={() => { opens += 1; }} />);
+    const root = await render(
+      <FileFixture
+        onOpen={() => {
+          opens += 1;
+        }}
+      />,
+    );
     const trigger = root.querySelector<HTMLButtonElement>("button")!;
     await act(async () => trigger.focus());
     await press(trigger, "ArrowDown");
@@ -44,9 +60,17 @@ describe("Changes file menu", () => {
   test("a delayed clipboard completion does not take focus from the next field", async () => {
     let finish!: () => void;
     const copied: string[] = [];
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
-      writeText: (text: string) => { copied.push(text); return new Promise<void>((resolve) => { finish = resolve; }); },
-    } });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          copied.push(text);
+          return new Promise<void>((resolve) => {
+            finish = resolve;
+          });
+        },
+      },
+    });
     try {
       const root = await render(<FileFixture />);
       await click(root.querySelector("button")!);
@@ -57,11 +81,21 @@ describe("Changes file menu", () => {
       await settle();
       expect(copied).toEqual(["src/app.ts"]);
       expect(document.activeElement === field).toBe(true);
-    } finally { Reflect.deleteProperty(navigator, "clipboard"); }
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
   test("Escape closes only the menu and restores the file trigger", async () => {
     let escaped = 0;
-    const root = await render(<div onKeyDown={(event) => { if (event.key === "Escape") escaped += 1; }}><FileFixture /></div>);
+    const root = await render(
+      <div
+        onKeyDown={(event) => {
+          if (event.key === "Escape") escaped += 1;
+        }}
+      >
+        <FileFixture />
+      </div>,
+    );
     const trigger = root.querySelector<HTMLButtonElement>("button")!;
     await click(trigger);
     await press(document.activeElement!, "Escape");
