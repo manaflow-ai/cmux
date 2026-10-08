@@ -40,9 +40,12 @@ public struct SidebarTipsSchedule: Sendable {
     ///   - now: The current time, supplied by the caller.
     /// - Returns: The next eligible tip, or nil while suppressed or empty.
     public func automaticTip(_ progress: SidebarTipsProgress, tipIDs: [String], now: Date) -> String? {
-        guard !progress.automaticTipsDisabled,
-              progress.lastOpenedDay != dayKey(for: now) else { return nil }
-        if let lastOpenedAt = progress.lastOpenedAt, now.timeIntervalSince(lastOpenedAt) < 24 * 60 * 60 {
+        guard !progress.automaticTipsDisabled else { return nil }
+        if let lastOpenedAt = progress.lastOpenedAt {
+            guard now.timeIntervalSince(lastOpenedAt) >= 24 * 60 * 60 else { return nil }
+        } else if progress.lastOpenedDay == dayKey(for: now) {
+            // Older versions recorded only the local day. A timestamp, when
+            // available, takes precedence across time-zone and DST changes.
             return nil
         }
         if let unseen = tipIDs.first(where: { !progress.seenTipIDs.contains($0) }) {
