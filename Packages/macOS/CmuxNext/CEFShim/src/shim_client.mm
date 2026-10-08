@@ -138,6 +138,11 @@ class Client : public CefClient,
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
+    // A sign-in tab's callback never loads: the session ends with its URL.
+    if (NavigationIsAuthCallback(id, url)) {
+      Emit(CMUX_SHIM_AUTH_CALLBACK, id, 0, is_redirect ? 1 : 0, 0, url);
+      return true;
+    }
     // An agent-driven tab never commits a Chromium page (passwords.md, section 2).
     if (NavigationRefusedForAgent(id, url)) return true;
     if (!NavigationViolatesGuard(id, url)) return false;
