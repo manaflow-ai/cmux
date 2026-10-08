@@ -743,6 +743,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
 
+      - name: Validate signing secrets are read only in protected environments
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_signing_secrets_need_release_environment.py
+
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh

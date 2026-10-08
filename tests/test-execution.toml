@@ -611,6 +611,10 @@ path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_signing_secrets_need_release_environment.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_queue_janitor.py"
 lane = "linux-guard"
 

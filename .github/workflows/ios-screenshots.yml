@@ -178,6 +178,10 @@ jobs:
     # class. Keep enough budget for cold Xcode builds plus the frame lane on
     # shared macOS runners, where simulator resets can be slow.
     timeout-minutes: 300
+    # Only an upload dispatch reads the App Store Connect key, which lives in
+    # the release environment (main and v* tags). Capture-only runs, including
+    # the call from release.yml, enter no environment and read no secret.
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && 'release' || '' }}
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
       # pull-request lane's Xcode pin, so take that Xcode there, as
