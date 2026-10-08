@@ -14,7 +14,24 @@ export const USER_CONFIRM_OPS = homeUser.USER_CONFIRM_OPS
 /** sha256("<Team ID>.<bundle id>") (base64url) from the IOS_APP_ID setting, or "" when unset (iOS lowering then fails closed). */
 export const appIdHashFor = (iosAppId: string | undefined) => (iosAppId ? createHash("sha256").update(iosAppId).digest("base64url") : "")
 
-export const confirmEnv = (state: UserState, appIdHash: string): homeUser.UserConfirmEnv => ({
+/** How long a previous verified address keeps getting security notices after an email change. */
+export const PREVIOUS_EMAIL_WINDOW_MS = 14 * 86_400_000
+
+/** The current verified address first, then previous verified ones still in their window (cx-44j.45). */
+export const securityEmails = (state: UserState, now: number): ReadonlyArray<string> => {
+  const current = state.user?.email_verified && state.user.email ? [state.user.email] : []
+  const previous = (state.previous_emails ?? []).filter((p) => now < p.changed_at + PREVIOUS_EMAIL_WINDOW_MS).map((p) => p.email)
+  // One email per mailbox: addresses that differ only in case or spaces are the same.
+  const seen = new Set<string>()
+  return [...current, ...previous].filter((e) => {
+    const k = e.trim().toLowerCase()
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+}
+
+export const confirmEnv = (state: UserState, appIdHash: string, now: number): homeUser.UserConfirmEnv => ({
   user: state.user?.id ?? "",
   installActive: (id) => state.installs[id]?.revoked_at === null,
   installKind: (id) => state.installs[id]?.kind,
@@ -22,12 +39,12 @@ export const confirmEnv = (state: UserState, appIdHash: string): homeUser.UserCo
   // The user's active chiefs (user-chief.ts) receive every change of the level.
   chiefs: activeChiefs(state),
   locale: "en",
-  // Security notices by email go only to an address the identity provider verified.
-  email: state.user?.email_verified ? state.user.email : null
+  // Security notices by email go only to addresses the identity provider verified.
+  emails: securityEmails(state, now)
 })
 
 export const reduceConfirm = (state: UserState, op: string, params: unknown, ctx: ReduceContext, appIdHash: string): ReduceResult<UserState> => {
-  const r = homeUser.reduceUserConfirm(state.confirm ?? homeUser.EMPTY_USER_CONFIRM, op, (params ?? {}) as Record<string, unknown>, ctx, confirmEnv(state, appIdHash))
+  const r = homeUser.reduceUserConfirm(state.confirm ?? homeUser.EMPTY_USER_CONFIRM, op, (params ?? {}) as Record<string, unknown>, ctx, confirmEnv(state, appIdHash, ctx.now))
   if (!r.ok) return { ok: false, code: r.code, message: r.message }
   return { ok: true, state: { ...state, confirm: r.state }, value: r.value, ...(r.changed === false ? { changed: false } : {}), ...(r.outbox ? { outbox: [...r.outbox] } : {}) }
 }
