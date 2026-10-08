@@ -26,6 +26,8 @@ use crate::workspace_registry::{
     new_saved_screen_group_id, new_screen_group_id, validate_tab_group_color,
     validate_tab_group_name,
 };
+mod screen_order;
+pub(crate) use screen_order::normalize_screen_order;
 
 /// One contiguous screen group run in a workspace, as frontends see it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,38 +173,6 @@ pub(crate) fn prune_screen_state(state: &State, screens: &mut ScreenPresentation
     });
     let used = screens.members.values().cloned().collect::<HashSet<_>>();
     screens.groups.retain(|id, _| used.contains(id));
-}
-
-/// Pinned screens first, then every group gathered at its first member. The
-/// active screen stays active.
-pub(crate) fn normalize_screen_order(workspace: &mut Workspace, screens: &ScreenPresentationState) {
-    let active = workspace.screens.get(workspace.active_screen).map(|screen| screen.id);
-    let group_of = |screen: &Screen| screens.members.get(screen.public_id.as_str()).cloned();
-    let old = std::mem::take(&mut workspace.screens);
-    let (mut ordered, rest): (Vec<Screen>, Vec<Screen>) =
-        old.into_iter().partition(|screen| screens.is_pinned(screen.public_id.as_str()));
-    let mut rest = rest.into_iter().map(Some).collect::<Vec<_>>();
-    for index in 0..rest.len() {
-        let Some(screen) = rest[index].take() else { continue };
-        let group = group_of(&screen);
-        ordered.push(screen);
-        if let Some(group) = group {
-            for later in rest.iter_mut().skip(index + 1) {
-                if later
-                    .as_ref()
-                    .is_some_and(|candidate| group_of(candidate).as_ref() == Some(&group))
-                {
-                    ordered.extend(later.take());
-                }
-            }
-        }
-    }
-    workspace.screens = ordered;
-    let last = workspace.screens.len().saturating_sub(1);
-    workspace.active_screen = active
-        .and_then(|id| workspace.screens.iter().position(|screen| screen.id == id))
-        .unwrap_or(0)
-        .min(last);
 }
 
 /// Move `block` (screens of workspace `from`) to workspace `to` at insertion
@@ -801,8 +771,9 @@ impl Mux {
     }
 
     /// Close every member screen. A linked saved record stays.
-    pub fn close_screen_group(
+    pub fn close_screen_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         group: &str,
         end_terminals: bool,
     ) -> anyhow::Result<Vec<ScreenId>> {
@@ -820,7 +791,7 @@ impl Mux {
             let ok = if end_terminals {
                 self.close_container_ending_terminals(BatchCloseTarget::Screen(*screen)).is_ok()
             } else {
-                self.close_screen(*screen)?
+                self.close_screen_as(actor, *screen)?
             };
             if ok {
                 closed.push(*screen);
@@ -929,8 +900,9 @@ impl Mux {
     /// Reopen a saved group into `workspace`: one new screen per member, in
     /// the member's directory, with its name, color, and icon, grouped and
     /// linked to the saved record. An open group is returned as it is.
-    pub fn reopen_saved_screen_group(
+    pub fn reopen_saved_screen_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         saved: &str,
         workspace: WorkspaceId,
     ) -> anyhow::Result<ScreenGroupOutcome> {
@@ -958,7 +930,8 @@ impl Mux {
                 ..ScreenSpec::default()
             };
             let spawn = TerminalSpawnOptions::new(member.cwd.clone(), Vec::new());
-            let (_, screen) = self.new_screen_with_spec(Some(workspace), spawn, None, spec)?;
+            let (_, screen) =
+                self.new_screen_with_spec_as(actor, Some(workspace), spawn, None, spec)?;
             created.push(screen);
         }
         anyhow::ensure!(!created.is_empty(), "bad request: the saved screen group has no members");
@@ -983,8 +956,9 @@ impl Mux {
     /// applied: the name in the creating commit, the rest (color, icon, pin,
     /// position, group) in one screen commit right after. Returns the new
     /// surface and screen.
-    pub fn new_screen_with_spec(
+    pub fn new_screen_with_spec_as(
         self: &Arc<Self>,
+        actor: &Actor,
         workspace: Option<WorkspaceId>,
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
@@ -996,7 +970,7 @@ impl Mux {
         if let Some(icon) = &spec.icon {
             crate::workspace_registry::validate_presentation_icon(icon)?;
         }
-        let surface = self.new_screen_named(workspace, spec.name.clone(), spawn, size)?;
+        let surface = self.new_screen_named_as(actor, workspace, spec.name.clone(), spawn, size)?;
         let screen = self
             .with_state(|state| {
                 let pane = state.pane_of(surface.id)?;

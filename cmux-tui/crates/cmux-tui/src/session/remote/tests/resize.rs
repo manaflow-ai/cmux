@@ -1,6 +1,6 @@
 //! Resize replay and kitty image alias state.
 
-use super::*;
+use {super::*, crate::local_actor::TuiMuxOps};
 
 #[test]
 fn two_views_of_one_terminal_keep_independent_scroll_offsets() {
