@@ -14,6 +14,7 @@ fn sender_tab(harness: &RecoveryHarness) -> serde_json::Value {
         .iter()
         .find(|workspace| workspace["name"] == "lost")
         .and_then(first_tab)
+        .cloned()
         .unwrap_or_else(|| panic!("the dead tab is gone: {tree}"))
 }
 
