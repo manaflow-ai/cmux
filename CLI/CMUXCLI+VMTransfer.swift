@@ -98,6 +98,21 @@ extension CMUXCLI {
         ))
     }
 
+    /// A remote path is interpreted by the machine's shell/filesystem, not by
+    /// this Mac. A literal `~` component is especially dangerous: it creates a
+    /// directory that later shell guidance such as `rm -rf ~` resolves to the
+    /// machine user's home. Reject it before any remote mkdir or file delivery.
+    static func rejectLiteralTildePath(_ path: String, operation: String) throws {
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard !components.contains(where: { $0 == "~" }) else {
+            let message = String(
+                localized: "cli.vm.path.unexpandedTilde",
+                defaultValue: "%1$@ contains an unexpanded '~' path component; expand it or use an absolute path"
+            )
+            throw CLIError(message: String(format: message, operation))
+        }
+    }
+
     func runVMPushCommand(rest: [String], client: SocketClient, jsonOutput: Bool, quiet: Bool = false) throws {
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.vmPushUsage)
@@ -157,12 +172,19 @@ extension CMUXCLI {
         let vmID = positional[0]
         let localPath = (positional[1] as NSString).expandingTildeInPath
         let localURL = URL(fileURLWithPath: localPath)
+        let requestedRemotePath = positional.count == 3 ? positional[2] : nil
+        if let requestedRemotePath {
+            try Self.rejectLiteralTildePath(requestedRemotePath, operation: "vm push remote path")
+        }
 
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: localURL.path, isDirectory: &isDirectory) else {
             throw CLIError(message: "No such local path: \(localPath)")
         }
-        let remotePath = positional.count == 3 ? positional[2] : localURL.lastPathComponent
+        let remotePath = requestedRemotePath ?? localURL.lastPathComponent
+        if requestedRemotePath == nil {
+            try Self.rejectLiteralTildePath(remotePath, operation: "vm push remote path")
+        }
 
         if secret {
             guard !watch, extraExcludes.isEmpty, useDefaultExcludes else {
@@ -1845,7 +1867,7 @@ extension CMUXCLI {
             }
             memoryMb = parsed
         }
-        let workDirectory = cwdOption.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        let workDirectory = cwdOption.map { URL(fileURLWithPath: resolvePath($0)).standardizedFileURL.path }
             ?? FileManager.default.currentDirectoryPath
         let selection = try selectVMForRun(
             machineOverride: nil,
@@ -1868,7 +1890,7 @@ extension CMUXCLI {
         }
         if selection.wouldProvision {
             print(String(
-                format: String(localized: "cli.vm.route.wouldProvision", defaultValue: "No pool machine is free for %@ \u{2014} `cmux vm run` would provision a fresh one (add --provision to create it now)."),
+                format: String(localized: "cli.vm.route.wouldProvision", defaultValue: "No pool machine is free for %@ — `cmux vm run` would provision a fresh one (add --provision to create it now)."),
                 workDirectory
             ))
             return
@@ -1960,7 +1982,7 @@ extension CMUXCLI {
             }
             waitTimeoutSeconds = parsed
         }
-        let workDirectory = cwdOption.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        let workDirectory = cwdOption.map { URL(fileURLWithPath: resolvePath($0)).standardizedFileURL.path }
             ?? FileManager.default.currentDirectoryPath
 
         if sync {
@@ -2045,7 +2067,7 @@ extension CMUXCLI {
         if let surfaceId { payload["surface_id"] = surfaceId }
         if let syncedRemoteDir { payload["synced_to"] = syncedRemoteDir }
         let startedLine = String(
-            format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ \u{2014} terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes)."),
+            format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ — terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes)."),
             agent, selection.id, terminalId, workspaceId
         )
         let reattachLine = String(

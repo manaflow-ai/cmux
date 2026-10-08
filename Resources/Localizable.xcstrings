@@ -120148,6 +120148,65 @@
         }
       }
     },
+    "cli.vm.path.unexpandedTilde": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ contains an unexpanded '~' path component; expand it or use an absolute path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ に未展開の「~」パス要素があります。展開するか絶対パスを使用してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 包含未展开的“~”路径组件；请展开它或使用绝对路径"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ enthält eine nicht erweiterte Pfadkomponente „~“; erweitern Sie sie oder verwenden Sie einen absoluten Pfad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ contient un composant de chemin « ~ » non développé ; développez-le ou utilisez un chemin absolu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي %1$@ على مكوّن مسار «~» غير موسّع؛ وسّعه أو استخدم مسارًا مطلقًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ contiene un componente de ruta «~» sin expandir; expándalo o usa una ruta absoluta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 包含未展開的「~」路徑元件；請展開它或使用絕對路徑"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 확장되지 않은 '~' 경로 구성 요소가 있습니다. 확장하거나 절대 경로를 사용하세요"
+          }
+        }
+      }
+    },
     "cli.vm.push.progress": {
       "extractionState": "manual",
       "localizations": {

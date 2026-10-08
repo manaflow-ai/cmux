@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -815,6 +815,9 @@ pub(crate) fn validate_relative(input: &str) -> Result<PathBuf, RpcError> {
     let mut parts = Vec::<OsString>::new();
     for component in path.components() {
         match component {
+            Component::Normal(part) if part == OsStr::new("~") => {
+                return Err(invalid_path("path contains an unexpanded '~' component"));
+            }
             Component::Normal(part) => parts.push(part.to_owned()),
             Component::CurDir => {}
             Component::ParentDir => {
