@@ -3,10 +3,11 @@
 //! Modes (browser process; CEF helpers carry `--type=`):
 //! - `--serve [--listen 127.0.0.1:4103] [--url URL | --ui-page | --picker-page] [--once] [--lifeline]`:
 //!   one tab over cmux.rd/1 (service rb/1, stream carrier). macOS. Port 0 binds a free port;
-//!   stdout gets one `{"listening":"ADDR"}` line. `--lifeline` reads the per-launch secret from the
-//!   first stdin line (a viewer's hello token must equal it) and quits at stdin end of file. Loopback only.
+//!   stdout gets one `{"listening":"ADDR"}` line. `--lifeline` is required: the per-launch secret is
+//!   the first stdin line (a viewer's hello token must equal it; no secret, no start) and the host
+//!   quits at stdin end of file. Loopback only.
 //! - `--probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]`: the loopback viewer
-//!   that measures a serving host (any platform).
+//!   that measures a serving host (any platform). Its first stdin line is the host's secret.
 //! - `--smoke OUT_DIR`: the shim's own capture proof. macOS.
 
 /// `--probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]`.
@@ -15,7 +16,8 @@ fn probe(args: &[String]) -> Option<std::process::ExitCode> {
     let i = args.iter().position(|a| a == "--probe")?;
     let usage = || {
         eprintln!(
-            "usage: --probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]"
+            "usage: --probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key] \
+             (stdin: the host's secret as the first line)"
         );
         Some(std::process::ExitCode::from(2))
     };
@@ -37,7 +39,9 @@ fn probe(args: &[String]) -> Option<std::process::ExitCode> {
     plan.ui = args.iter().any(|a| a == "--ui");
     plan.pickers = args.iter().any(|a| a == "--pickers");
     plan.stuck_key = args.iter().any(|a| a == "--stuck-key");
-    let report = run(addr, std::path::Path::new(out), plan);
+    // The host's per-launch secret: the first stdin line, never argv or env.
+    let token = cmux_remote_browser_host::launch::read_secret(&mut std::io::stdin().lock());
+    let report = run(addr, std::path::Path::new(out), plan, token.as_deref());
     println!(
         "{}",
         std::fs::read_to_string(std::path::Path::new(out).join("result.json")).unwrap_or_default()
@@ -72,11 +76,19 @@ fn main() -> std::process::ExitCode {
         };
         let lifeline = all.iter().any(|a| a == "--lifeline");
         // The app writes the per-launch secret as the lifeline's first line.
+        // There is no open mode: without a secret the host does not start.
         let secret = if lifeline {
             cmux_remote_browser_host::launch::read_secret(&mut std::io::stdin().lock())
         } else {
             None
         };
+        if secret.is_none() {
+            eprintln!(
+                "--serve needs --lifeline and the per-launch secret as the first stdin line \
+                 (by hand: (printf '%s\\n' \"$SECRET\"; cat) | cmux-remote-browser-host --serve --lifeline)"
+            );
+            return std::process::ExitCode::from(2);
+        }
         let opts = cmux_remote_browser_host::serve::Options {
             listen,
             url: flag("--url").unwrap_or_else(|| {

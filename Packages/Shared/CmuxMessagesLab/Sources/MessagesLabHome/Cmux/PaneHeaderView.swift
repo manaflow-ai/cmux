@@ -48,10 +48,25 @@ final class PaneHeaderView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
 
-    /// Only the controls take clicks; the rest of the header shows the rows.
+    /// The name pill takes its clicks; the rest of the header is the header
+    /// itself: a click on the avatar opens the contact (as the pill does),
+    /// and the empty space drags the window (cmux: Messages' header is its
+    /// toolbar, so a drag there moves the window; the scroll view starts
+    /// below the header).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
-        return pill.frame.contains(p) && !pill.isHidden ? pill : nil
+        if pill.frame.contains(p) && !pill.isHidden { return pill }
+        return bounds.contains(p) ? self : nil
+    }
+
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    /// The avatar opens the contact; elsewhere AppKit's window drag (with its
+    /// snapping and Spaces behavior), not a move loop.
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if !avatar.isHidden, avatar.frame.contains(p) { onContact(); return }
+        window?.performDrag(with: event)
     }
 
     override func layout() {
