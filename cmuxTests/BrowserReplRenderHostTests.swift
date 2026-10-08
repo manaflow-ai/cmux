@@ -28,13 +28,14 @@ struct BrowserReplRenderHostTests {
         )
     }
 
-    private func makeWindow() throws -> (NSWindow, NSView) {
-        let window = NSWindow(
+    private func makeWindow() throws -> (KeyStatusWindow, NSView) {
+        let window = KeyStatusWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
+        window.reportsKey = true
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
