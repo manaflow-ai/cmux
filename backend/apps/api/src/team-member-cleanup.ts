@@ -5,6 +5,7 @@ import { KRL_GRACE_MS } from "./domains/team-ssh.ts"
 import { ensureSshTables } from "./team-ssh-ca.ts"
 import { ensureLoginTables } from "./team-sso-login.ts"
 import { userIdFor } from "./domains/user.ts"
+import { forgetHolder, lastCertValidBefore } from "./team-ssh-taint.ts"
 
 export interface CleanupDeps {
   readonly state: () => TeamState
@@ -83,7 +84,10 @@ export const cleanupRemovedMembers = (deps: CleanupDeps): number => {
     // Legacy maps (an old head before team.rows_migrate) hold hosts too.
     for (const h of Object.values(deps.state().hosts ?? {})) if (h.owner_user === user && !h.orphaned && h.enrolled_at <= at && !hosts.includes(h.id)) hosts.push(h.id)
     endSsoSessions(deps, subjects.get(user) ?? [], at)
-    committed(deps.submitSystem("team.member.cleaned", { user, hosts }, `member-cleaned:${user}:${at}`))
+    // TeamVmDO taints the current VM when this certificate outlived the VM's creation (cx-q4f3).
+    const certValidBefore = lastCertValidBefore(deps.sql, user)
+    committed(deps.submitSystem("team.member.cleaned", { user, hosts, ...(certValidBefore === null ? {} : { cert_valid_before: certValidBefore }) }, `member-cleaned:${user}:${at}`))
+    forgetHolder(deps.sql, user)
   }
   return pending.length
 }

@@ -3,6 +3,7 @@ import { TeamVmBindInstallParams, TeamVmDriverResultParams, TeamVmEnsureAwake, T
 import { Schema, Exit } from "effect"
 import { admit, decodeParams, reject } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
+import { reduceMemberRemoved, reduceRebuildRequested, reduceRetired, reduceTaintAccepted, taintBlocks, type TeamVmRetired, type TeamVmTaint } from "./team-vm-taint.ts"
 
 export type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
 export type ProviderState = "starting" | "running" | "pausing" | "paused" | "stopped"
@@ -37,6 +38,12 @@ export interface TeamVmState {
   readonly pending: TeamVmPending | null
   readonly last_error: { readonly code: string; readonly message: string; readonly at: number } | null
   readonly updated_at: number
+  /** When the current VM was created (cx-q4f3); absent on records from before, which count as created at 0. */
+  readonly vm_created_at?: number
+  /** A member removal tainted this epoch (team-vm-taint.ts); null or another epoch's means clean. */
+  readonly taint?: TeamVmTaint | null
+  /** VMs a rebuild replaced, paused and kept until an owner deletes them. */
+  readonly retired?: ReadonlyArray<TeamVmRetired>
 }
 
 /** Default wake lease (spec team-vm.md: idle after about 10 minutes without a lease). */
@@ -124,6 +131,8 @@ export const teamVmDomain: Domain<TeamVmState> = {
         // The bind names the VM it proved (vm-image.md 6b): a bind for another VM of this epoch is refused.
         if (d.value.vm !== undefined && d.value.vm !== state.vm) return reject("team_vm.stale_epoch", "bind is for another VM")
         if (state.vm_install && state.vm_install !== d.value.install) return reject("team_vm.already_bound", "this epoch's VM install is already bound")
+        // A VM tainted by a member removal binds no new install until an owner accepts or rebuilds (cx-q4f3).
+        if (state.vm_install !== d.value.install && taintBlocks(state)) return reject("team_vm.tainted", "this team VM is tainted by a member removal; an owner must accept or rebuild")
         if (state.vm_install === d.value.install) return { ok: true, state, value: { install: d.value.install, epoch: state.epoch }, changed: false }
         return { ok: true, state: { ...state, vm_install: d.value.install, updated_at: ctx.now }, value: { install: d.value.install, epoch: state.epoch } }
       }
@@ -171,6 +180,7 @@ export const teamVmDomain: Domain<TeamVmState> = {
             slug: r.slug,
             epoch: state.epoch + 1,
             vm_install: null,
+            vm_created_at: ctx.now,
             status: observedStatus(r.observed),
             pending: r.observed === "running" ? null : { action: "start", attempts: 0, retry_at: ctx.now + PENDING_SAFETY_MS },
             last_error: null,
@@ -180,6 +190,16 @@ export const teamVmDomain: Domain<TeamVmState> = {
         }
         return { ok: true, state: { ...state, status: observedStatus(r.observed), pending: null, last_error: null, updated_at: ctx.now }, value: { applied: true } }
       }
+
+      case "team_vm.member_removed":
+        return reduceMemberRemoved(state, params, ctx)
+      case "team_vm.taint_accepted":
+        return reduceTaintAccepted(state, params, ctx)
+      case "team_vm.rebuild_requested":
+        return reduceRebuildRequested(state, params, ctx)
+      case "team_vm.retired_paused":
+      case "team_vm.retired_deleted":
+        return reduceRetired(state, op, params, ctx)
 
       default:
         return reject("validation.invalid", `unknown op ${op}`)
@@ -191,6 +211,8 @@ export const teamVmDomain: Domain<TeamVmState> = {
 export const teamVmWakeAt = (state: TeamVmState): number | null => {
   const times = Object.values(state.leases).map((l) => l.expires_at)
   if (state.pending) times.push(state.pending.retry_at)
+  // A retired VM not yet paused is retried by the alarm.
+  if ((state.retired ?? []).some((r) => r.state === "pausing")) times.push(state.updated_at + 60_000)
   return times.length ? Math.min(...times) : null
 }
 

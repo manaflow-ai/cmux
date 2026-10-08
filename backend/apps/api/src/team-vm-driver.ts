@@ -16,6 +16,8 @@ export interface TeamVmDriver {
   lookup(name: string): Promise<{ readonly id: string; readonly team: string | null } | null>
   /** Deletes the VM with this provider id; a VM already gone counts as deleted. Callers pass ledger ids only. */
   deleteVm(id: string): Promise<void>
+  /** Pauses the VM with this provider id (memory and disk kept); a VM already paused counts as paused. */
+  pauseVm(id: string): Promise<void>
   /**
    * Runs one command on this exact VM through the provider API (authenticated by our provider key,
    * which the guest never sees) and returns its exit code and output. Used only by the bind
@@ -137,6 +139,15 @@ export class FreestyleDriver implements TeamVmDriver {
     this.fail(gone.status, gone.json, "delete VM")
   }
 
+  async pauseVm(id: string) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/pause`)
+    if (r.status >= 200 && r.status < 300) return
+    // A VM that is already paused (or stopped) may refuse the call; that is the state asked for.
+    const got = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
+    if (got.status === 200 && (got.json.state === "paused" || got.json.state === "stopped")) return
+    this.fail(r.status, r.json, "pause VM")
+  }
+
   /** POST /v5/vms/{id}/exec-await {command, timeoutMs, linuxUser} answers {statusCode, stdout, stderr} (as the web resource reader uses it). */
   async exec(id: string, command: string, timeoutMs: number) {
     // As root: the bind writes root-only state (/var/lib/cmux); the provider's default exec user is the work user.
@@ -220,6 +231,12 @@ export class FakeDriver implements TeamVmDriver {
   async deleteVm(id: string) {
     this.maybeFail()
     this.sql.exec(`DELETE FROM fake_vm WHERE id = ?`, id)
+  }
+
+  async pauseVm(id: string) {
+    this.maybeFail()
+    if (!this.sql.exec<{ id: string }>(`SELECT id FROM fake_vm WHERE id = ?`, id)[0]) throw new DriverError("team_vm.vm_missing", "pause VM: 404", true)
+    this.sql.exec(`UPDATE fake_vm SET state = 'paused' WHERE id = ?`, id)
   }
 
   async exec(id: string, command: string, _timeoutMs: number) {

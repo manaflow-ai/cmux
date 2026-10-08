@@ -9,6 +9,7 @@ import { keyFingerprint, sshPurpose, type PresenceProof, type SshPresence } from
 import { authorizedKeyLine, certLine, certToSign, ed25519Blob, parseUserKey, toBase64, type UserKey } from "./team-ssh-wire.ts"
 import type { RowReader } from "@cmux/ownership"
 import { hostByInstall, memberOf, roleOf } from "./domains/team-members.ts"
+import { certTaintGate, recordHolder, type VmTaint } from "./team-ssh-taint.ts"
 
 /**
  * The team SSH CA in TeamDO (plans/cmux-next/team-vm-plan.md S3). The Ed25519 CA key is made in
@@ -52,6 +53,8 @@ export interface SshCaDeps {
    * a stored request without a reply that is not here crashed. Required: without it there is no duplicate guard.
    */
   readonly running: Set<string>
+  /** TeamVmDO's taint of the team VM (cx-q4f3, team-ssh-taint.ts); absent means no team VM check. */
+  readonly vmTaint?: () => Promise<VmTaint | null>
 }
 
 export const ensureSshTables = (sql: SqlStorage) => {
@@ -300,6 +303,10 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
   const named = deps.state().vm_accounts?.[user]
   if (!named) throw new Refusal("auth.forbidden", "not a member of this team")
   if (cls === "human") await assertPresence(deps, p, idem, key, linuxUserFor(named, "human"), minutes, params.presence!)
+  // A team VM tainted by a member removal: owners and admins only, each certificate audited (cx-q4f3).
+  const taint = await certTaintGate(deps.vmTaint, isAdmin(deps.state(), user, deps.rows))
+  if (taint.refuse && taint.unreachable) throw new Refusal("owner.unreachable", "the team VM record did not answer; try again", true)
+  if (taint.refuse) throw new Refusal("team_vm.tainted", "the team VM is tainted by a member removal; an owner or admin must accept the risk or rebuild it")
   await ensureCa(deps, user, null)
   // A rotation during the signing await makes this certificate one of the old CA; sign again with the new one.
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -347,12 +354,17 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
       prep.valid_before
     )
     deps.sql.exec(`INSERT OR REPLACE INTO ssh_prepared (identity, idem, serial, generation, body, at) VALUES (?, ?, ?, ?, ?, ?)`, p.identity, idem, serial, ca.generation, JSON.stringify(prep), now)
+    recordHolder(deps.sql, user, prep.valid_before)
     let value: Awaited<ReturnType<typeof signPrepared>>
     try {
       value = await signPrepared(deps, deps.team, key, prep)
     } catch (e) {
       forget(deps.sql, p.identity, idem, serial)
       throw e
+    }
+    if (value && taint.audit) {
+      const t = { action: "cert_issued_while_tainted", by: user, epoch: taint.audit.epoch, tainted_by: taint.audit.users, serial: value.serial }
+      committed(deps.submitSystem("team_vm.taint_audit", t, `taint-cert:${value.serial}`))
     }
     if (value) return value
     // The CA rotated during signing: this certificate would be one of the old CA; sign again with the new one.
