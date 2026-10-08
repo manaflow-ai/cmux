@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Mux;
+use crate::Actor;
 use crate::workspace_registry::WorkspaceMutation;
 use crate::workspace_registry::personal_bookmarks::{
     BookmarkError, BookmarkImport, BookmarkImportNode, BookmarkInput, BookmarkOp, BookmarkUpdate,
@@ -119,7 +120,7 @@ pub(super) fn list(mux: &Mux, params: ListParams) -> anyhow::Result<Value> {
     Ok(json!({"bookmarks_revision": revision, "bookmarks": bookmarks}))
 }
 
-pub(super) fn create(mux: &Mux, params: CreateParams) -> anyhow::Result<Value> {
+pub(super) fn create(mux: &Mux, actor: &Actor, params: CreateParams) -> anyhow::Result<Value> {
     let input = BookmarkInput {
         id: params.bookmark,
         browser_profile_id: params.browser_profile_id,
@@ -132,30 +133,30 @@ pub(super) fn create(mux: &Mux, params: CreateParams) -> anyhow::Result<Value> {
         source_key: params.source_key,
         created_ms: params.created_ms,
     };
-    apply(mux, params.key, BookmarkOp::Create(input))
+    apply(mux, actor, params.key, BookmarkOp::Create(input))
 }
 
-pub(super) fn update(mux: &Mux, params: UpdateParams) -> anyhow::Result<Value> {
+pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateParams) -> anyhow::Result<Value> {
     let update = BookmarkUpdate {
         title: params.title,
         url: params.url,
         favicon_key: params.favicon_key,
         last_used_ms: params.last_used_ms,
     };
-    apply(mux, params.key, BookmarkOp::Update { bookmark: params.bookmark, update })
+    apply(mux, actor, params.key, BookmarkOp::Update { bookmark: params.bookmark, update })
 }
 
-pub(super) fn move_to(mux: &Mux, params: MoveParams) -> anyhow::Result<Value> {
+pub(super) fn move_to(mux: &Mux, actor: &Actor, params: MoveParams) -> anyhow::Result<Value> {
     let op =
         BookmarkOp::Move { bookmark: params.bookmark, parent: params.parent, index: params.index };
-    apply(mux, params.key, op)
+    apply(mux, actor, params.key, op)
 }
 
-pub(super) fn delete(mux: &Mux, params: DeleteParams) -> anyhow::Result<Value> {
-    apply(mux, params.key, BookmarkOp::Delete { bookmark: params.bookmark })
+pub(super) fn delete(mux: &Mux, actor: &Actor, params: DeleteParams) -> anyhow::Result<Value> {
+    apply(mux, actor, params.key, BookmarkOp::Delete { bookmark: params.bookmark })
 }
 
-pub(super) fn import(mux: &Mux, params: ImportParams) -> anyhow::Result<Value> {
+pub(super) fn import(mux: &Mux, actor: &Actor, params: ImportParams) -> anyhow::Result<Value> {
     let nodes = params
         .nodes
         .into_iter()
@@ -170,14 +171,14 @@ pub(super) fn import(mux: &Mux, params: ImportParams) -> anyhow::Result<Value> {
         replace: params.replace,
         nodes,
     };
-    apply(mux, params.key, BookmarkOp::Import(import))
+    apply(mux, actor, params.key, BookmarkOp::Import(import))
 }
 
-fn apply(mux: &Mux, key: Key, op: BookmarkOp) -> anyhow::Result<Value> {
+fn apply(mux: &Mux, actor: &Actor, key: Key, op: BookmarkOp) -> anyhow::Result<Value> {
     let key = match (key.origin, key.mutation_id) {
         (None, None) => None,
         (Some(origin), Some(mutation_id)) => Some(
-            WorkspaceMutation::daemon(mutation_id, origin)
+            WorkspaceMutation::new(mutation_id, origin, actor.clone())
                 .map_err(|error| invalid_bookmark(error.to_string()))?,
         ),
         _ => return Err(invalid_bookmark("origin and mutation_id must be given together")),

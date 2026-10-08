@@ -408,7 +408,8 @@ pub(super) fn create_journal_extensions_schema(
            content BLOB NOT NULL,
            uncompressed_bytes INTEGER NOT NULL CHECK(uncompressed_bytes > 0),
            sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
-           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0)
+           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0),
+           actors_json TEXT
          );
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments
@@ -1212,6 +1213,7 @@ impl WorkspaceRegistry {
                         content: None,
                         resource_revision: None,
                         previous_resource_revision: None,
+                        actor: None,
                     },
                 )?;
                 commits.push(None);
@@ -1347,6 +1349,7 @@ impl WorkspaceRegistry {
                     content,
                     resource_revision: None,
                     previous_resource_revision: None,
+                    actor: None,
                 },
             )?;
             commits.push(None);
@@ -1534,6 +1537,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -1679,6 +1683,7 @@ fn append_journal_ingress_transaction(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: None,
         },
     )?;
     let result = json!({
@@ -1852,6 +1857,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -2275,6 +2281,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -2609,8 +2616,8 @@ impl WorkspaceRegistry {
             tx.execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
-                   uncompressed_bytes, sha256, sealed_at_ms
-                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8)",
+                   uncompressed_bytes, sha256, sealed_at_ms, actors_json
+                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8, ?9)",
                 params![
                     segment.metadata.segment_id,
                     i64::try_from(segment.metadata.start_sequence)?,
@@ -2620,6 +2627,11 @@ impl WorkspaceRegistry {
                     i64::try_from(segment.metadata.uncompressed_bytes)?,
                     segment.digest,
                     i64::try_from(segment.metadata.sealed_at_ms)?,
+                    session_journal::segment_actors_json(
+                        &tx,
+                        segment.metadata.start_sequence,
+                        segment.metadata.end_sequence,
+                    )?,
                 ],
             )?;
         }
@@ -2666,6 +2678,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -2971,6 +2984,7 @@ fn append_hook_delivery_event(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: None,
         },
     )?;
     Ok((sequence, event_id))

@@ -17,7 +17,7 @@ import { readTunes, writeTunes } from "../../experiments/tunable";
 import { readyEntries } from "../entryStore";
 import { entryStore } from "../registry";
 
-export const VIEWS = ["variant", "variants", "locales", "themes", "compare"] as const;
+export const VIEWS = ["variant", "variants", "locales", "themes", "compare", "browse"] as const;
 export type View = (typeof VIEWS)[number];
 /**
  * The controls, the view, the compare view's state (compare.ts; written only in that view), and

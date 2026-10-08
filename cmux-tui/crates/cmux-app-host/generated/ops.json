@@ -348,6 +348,7 @@
     "team.policy.history",
     "team.policy.rollback",
     "team.policy.update",
+    "team_vm.accounts",
     "team_vm.ensure_awake",
     "team_vm.journal.append",
     "team_vm.journal.high_water",

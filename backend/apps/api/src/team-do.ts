@@ -4,7 +4,7 @@ import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead } from "./team-reads.ts"
-import { homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { firstOwner, homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
@@ -16,6 +16,7 @@ import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
+import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers } from "./team-member-cleanup.ts"
 
@@ -193,7 +194,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const engine = this.boundEngine
     if (!engine) return
     try {
-      cleanupRemovedMembers({ state: () => this.boundEngine!.currentState, rows: engine.rows, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) })
+      cleanupRemovedMembers({ state: () => this.boundEngine!.currentState, rows: engine.rows, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key), stackProjectId: this.env.STACK_PROJECT_ID })
       this.cleanupAttempts = 0
       this.cleanupRetryAt = null
     } catch (e) {
@@ -296,9 +297,14 @@ export class TeamDO extends OwnerDO<TeamState> {
       sql: this.ctx.storage.sql,
       now: () => Date.now(),
       submitSystem: (op, params, key) => this.submitSystem(op, params, key),
-      running: this.sshRunning
+      running: this.sshRunning,
+      vmTaint: () => this.teamVm(entity).taintStatus(entity)
     }
   }
+
+  /** cx-q4f3: team_vm.taint.accept, team_vm.rebuild, team_vm.retired.delete (team-vm-taint-admin.ts). */
+  async vmAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return vmAdminExternal({ ...this.sshDeps(entity), teamVm: this.teamVm(entity) }, principal, frame) }
+  private teamVm = (team: string) => this.env.TEAM_VM_DO.get(this.env.TEAM_VM_DO.idFromName(team))
 
   /** SSH CA requests running in this instance (team-ssh-ca.ts); a reset object starts with none, so its stored requests resume. */
   private readonly sshRunning = new Set<string>()
@@ -314,6 +320,8 @@ export class TeamDO extends OwnerDO<TeamState> {
    * that install (and only that user's) goes into the KRL, and the install gets no new one.
    */
   async revokeInstallCerts(entity: string, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> {
+    // A team that never existed here issued nothing; never create its storage for a notice (cx-44j.50).
+    if (!this.isBound(entity)) return { ok: true, revoked: [] }
     return revokeInstallCerts(this.sshDeps(entity), user, install)
   }
 
@@ -363,6 +371,12 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
+  /** RPC from TeamVmDO's bind (vm-image.md 6b): the owner whose UserDO holds the team VM's install. */
+  async teamVmInstallOwner(entity: string): Promise<string | null> {
+    const state = this.bind(entity).currentState
+    return state.team?.id === entity ? (firstOwner(state, this.rows) ?? null) : null
+  }
+
   async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
     return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(this.bind(entity).currentState, principal.user, this.rows)
   }

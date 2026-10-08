@@ -20,7 +20,12 @@ extension AppOnboardingServices {
             guard let self else { return }
             for saved in workspaces {
                 do {
-                    let id = try await windows.createWorkspace(WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name), into: target)
+                    // Recreated in their saved order: each one after the last loose row. An
+                    // explicit slot, because the daemon itself puts a new workspace at the
+                    // `workspaces.newPlacement` slot (top by default).
+                    var spawn = WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name)
+                    spawn.slot = .bottom(anchor: nil)
+                    let id = try await windows.createWorkspace(spawn, into: target)
                     guard let daemon = services.machines.daemon(forWorkspace: id), let connection = daemon.connection else { continue }
                     try await restoreClassicLayout(saved.layout, workspaceID: id, connection: connection)
                 }
