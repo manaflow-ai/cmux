@@ -205,8 +205,12 @@ describe("devbox image template", () => {
     expect(mount).toContain(`STATE_SIZE_BYTES=${CMUX_TUI_STATE_RESERVATION_BYTES}`);
     expect(mount).toContain(`STATE_MAX_BYTES=${CMUX_TUI_STATE_MAX_BYTES}`);
     expect(mount).toContain("grow_if_needed");
+    expect(mount).toContain("STATE_LOCK=/var/lib/cmux/cmux-tui-state.lock");
+    expect(mount).toContain("flock -x 9");
     expect(mount).toContain("losetup -c");
     expect(mount).toContain("resize2fs");
+    expect(mount).toContain('resize2fs "$loop_device"');
+    expect(mount).toContain("ensure_locked");
     expect(mount).toContain("ROOT_MIN_FREE_KB");
     expect(upgrade).toContain('writeFileCommand(`${runDir}/state-mount.sh`, stateMountScript)');
     expect(upgrade).toContain("CMUX_TUI_STATE_MOUNT_HELPER_PATH");

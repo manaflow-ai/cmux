@@ -9,6 +9,7 @@
 set -eu
 
 STATE_IMAGE=/var/lib/cmux/cmux-tui-state.ext4
+STATE_LOCK=/var/lib/cmux/cmux-tui-state.lock
 STATE_RESERVATION_MARKER=/etc/cmux/cmux-tui-state-reservation
 STATE_SIZE_BYTES=1073741824
 STATE_MAX_BYTES=8589934592
@@ -47,6 +48,24 @@ grow_if_needed() {
   [ -n "$state_free_kb" ] || { echo "cmux-tui-state-mount: cannot read state filesystem free space" >&2; return 1; }
   [ "$state_free_kb" -ge "$STATE_MIN_FREE_KB" ] && return 0
 
+  command -v findmnt >/dev/null 2>&1 || { echo "cmux-tui-state-mount: findmnt is required for state growth" >&2; return 1; }
+  command -v losetup >/dev/null 2>&1 || { echo "cmux-tui-state-mount: losetup is required for state growth" >&2; return 1; }
+  command -v resize2fs >/dev/null 2>&1 || { echo "cmux-tui-state-mount: resize2fs is required for state growth" >&2; return 1; }
+
+  # A previous grow may have allocated the larger backing file and then
+  # failed before resize2fs completed. Finish that resize before allocating
+  # another step, so retries never double-count unused backing blocks.
+  loop_device=$(findmnt -n -o SOURCE --target "$state")
+  case "$loop_device" in
+    /dev/loop*) ;;
+    *) echo "cmux-tui-state-mount: state mount is not backed by a loop device" >&2; return 1 ;;
+  esac
+  losetup -c "$loop_device"
+  resize2fs "$loop_device" >/dev/null
+  state_free_kb=$(free_kb "$state")
+  [ -n "$state_free_kb" ] || { echo "cmux-tui-state-mount: cannot reread state filesystem free space" >&2; return 1; }
+  [ "$state_free_kb" -ge "$STATE_MIN_FREE_KB" ] && return 0
+
   current_bytes=$(stat -c %s "$STATE_IMAGE")
   [ "$current_bytes" -lt "$STATE_MAX_BYTES" ] || {
     echo "cmux-tui-state-mount: state filesystem reached its ${STATE_MAX_BYTES}-byte cap" >&2
@@ -63,22 +82,14 @@ grow_if_needed() {
   fi
 
   command -v fallocate >/dev/null 2>&1 || { echo "cmux-tui-state-mount: fallocate is required for state growth" >&2; return 1; }
-  command -v findmnt >/dev/null 2>&1 || { echo "cmux-tui-state-mount: findmnt is required for state growth" >&2; return 1; }
-  command -v losetup >/dev/null 2>&1 || { echo "cmux-tui-state-mount: losetup is required for state growth" >&2; return 1; }
-  command -v resize2fs >/dev/null 2>&1 || { echo "cmux-tui-state-mount: resize2fs is required for state growth" >&2; return 1; }
 
   echo "cmux-tui-state-mount: growing state image from ${current_bytes} to ${next_bytes} bytes" >&2
   (umask 077; fallocate -l "$next_bytes" "$STATE_IMAGE")
-  loop_device=$(findmnt -n -o SOURCE --target "$state")
-  case "$loop_device" in
-    /dev/loop*) ;;
-    *) echo "cmux-tui-state-mount: state mount is not backed by a loop device" >&2; return 1 ;;
-  esac
   losetup -c "$loop_device"
   resize2fs "$loop_device" >/dev/null
 }
 
-ensure() {
+ensure_locked() {
   # Older images do not carry a reservation. Keep their existing layout
   # working until they are replaced by an image that does.
   [ -f "$STATE_IMAGE" ] || return 0
@@ -93,7 +104,7 @@ ensure() {
   grow_if_needed
 }
 
-create() {
+create_locked() {
   command -v fallocate >/dev/null 2>&1 || { echo "cmux-tui-state-mount: fallocate is required" >&2; return 1; }
   command -v mkfs.ext4 >/dev/null 2>&1 || { echo "cmux-tui-state-mount: mkfs.ext4 is required" >&2; return 1; }
   command -v mount >/dev/null 2>&1 || { echo "cmux-tui-state-mount: mount is required" >&2; return 1; }
@@ -103,7 +114,7 @@ create() {
   if [ -e "$STATE_IMAGE" ]; then
     [ -f "$STATE_IMAGE" ] || { echo "cmux-tui-state-mount: state image is not a regular file" >&2; return 1; }
     if [ -f "$STATE_RESERVATION_MARKER" ]; then
-      ensure
+      ensure_locked
       return 0
     fi
     # An image without the marker is an interrupted or pre-marker creation.
@@ -134,13 +145,24 @@ create() {
   (umask 077; fallocate -l "$STATE_SIZE_BYTES" "$STATE_IMAGE")
   created_image=1
   mkfs.ext4 -F -m 0 -L cmux-tui-state "$STATE_IMAGE" >/dev/null
-  ensure
+  ensure_locked
   cp -a "$seed/." "$state/"
   chown -R "$user:$user" "$state"
   created_image=0
   trap - EXIT HUP INT TERM
   cleanup
 }
+
+with_state_lock() {
+  mkdir -p /var/lib/cmux
+  command -v flock >/dev/null 2>&1 || { echo "cmux-tui-state-mount: flock is required" >&2; return 1; }
+  exec 9>"$STATE_LOCK"
+  flock -x 9
+  "$@"
+}
+
+ensure() { with_state_lock ensure_locked; }
+create() { with_state_lock create_locked; }
 
 case "$action" in
   ensure) ensure ;;
