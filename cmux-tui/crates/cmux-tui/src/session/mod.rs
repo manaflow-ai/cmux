@@ -281,6 +281,8 @@ fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> 
 }
 
 #[cfg(test)]
+mod local_actor_tests;
+#[cfg(test)]
 mod test_errors;
 #[cfg(test)]
 pub(crate) use test_errors::*;
@@ -1880,7 +1882,7 @@ impl Session {
         confirm_close: bool,
     ) -> anyhow::Result<LayoutUndoResult> {
         match self {
-            Session::Local(mux) => mux.undo_layout(pane, revision, confirm_close),
+            Session::Local(mux) => mux.undo_layout_as(me(), pane, revision, confirm_close),
             Session::Remote(remote) => {
                 if !remote.supports_capability(LAYOUT_UNDO_CAPABILITY) {
                     anyhow::bail!(
@@ -1991,7 +1993,7 @@ impl Session {
     pub fn close_workspace(&self, workspace: WorkspaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .close_workspace_at_revision(workspace, None)?
+                .close_workspace_at_revision_as(me(), workspace, None)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
@@ -2040,7 +2042,7 @@ impl Session {
     ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .close_provider_managed_workspace(workspace, &key)?
+                .close_provider_managed_workspace_as(me(), workspace, &key)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
             Session::Remote(remote) => {
@@ -2074,7 +2076,7 @@ impl Session {
     pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .rename_workspace_at_revision(workspace, name, None)?
+                .rename_workspace_at_revision_as(me(), workspace, name, None)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
@@ -2095,7 +2097,7 @@ impl Session {
     ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .rename_provider_managed_workspace(workspace, &key, name)?
+                .rename_provider_managed_workspace_as(me(), workspace, &key, name)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
             Session::Remote(remote) => {
@@ -2172,7 +2174,7 @@ impl Session {
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_workspace_at_revision(workspace, index, None)?;
+                mux.move_workspace_at_revision_as(me(), workspace, index, None)?;
                 Ok(())
             }
             Session::Remote(remote) => remote
