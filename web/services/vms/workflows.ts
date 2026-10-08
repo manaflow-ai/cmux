@@ -3826,7 +3826,11 @@ export function execVm(input: {
       // nothing about the machine: the command ran out of time, and that is
       // the answer. Earlier failures stay provider errors.
       Effect.catchAll((err) => Effect.flatMap(Clock.currentTimeMillis, (nowMs) => nowMs - execStartedAtMs >= input.timeoutMs
-        ? Effect.succeed(execTimedOutResult(input.timeoutMs))
+        ? Effect.sync(() => {
+          // Kept for operators: the answer is the timeout, the cause is the provider's.
+          console.error(`[vm] exec failed after its command timeout for ${input.providerVmId}`, errorMessage(err));
+          return execTimedOutResult(input.timeoutMs);
+        })
         : Effect.fail(err))),
       Effect.timeoutTo({
         duration: answerWithinMs,
