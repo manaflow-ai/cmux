@@ -1,10 +1,11 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import CmuxSettingsUI
 
 @MainActor
-@Suite
+@Suite(.timeLimit(.minutes(1)))
 struct AccountTeamCardModelTests {
     @Test func roleChangesImmediatelyAndStaysSelectedUntilRefreshFinishes() async {
         let flow = TeamCardFlow()
@@ -73,17 +74,29 @@ struct AccountTeamCardModelTests {
     }
 
     private func waitUntil(_ predicate: () -> Bool) async {
-        for _ in 0..<10_000 {
-            if predicate() { return }
-            await Task.yield()
+        while !predicate() {
+            let (changes, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+            withObservationTracking {
+                _ = predicate()
+            } onChange: {
+                continuation.yield(())
+                continuation.finish()
+            }
+            // Observation fires before the write. Resuming on the main actor
+            // reads the new value after that write has completed.
+            var iterator = changes.makeAsyncIterator()
+            guard await iterator.next() != nil else {
+                Issue.record("Team card observation ended before the expected state")
+                return
+            }
         }
-        Issue.record("Team card did not reach the expected state")
     }
 }
 
 private enum TeamCardFailure: Error { case rejected }
 
 @MainActor
+@Observable
 private final class TeamCardFlow: AccountFlow {
     var currentIdentity: AccountIdentity? { nil }
     var availableTeams: [AccountTeamSummary] { [] }
