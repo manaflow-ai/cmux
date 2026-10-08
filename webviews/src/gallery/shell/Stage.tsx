@@ -20,7 +20,14 @@ import { stageHeight, type GalleryEntry } from "../format";
 import { themeIsDark } from "../theme/ghostty";
 import type { PlayReport } from "../play";
 import { entryPaneSize, fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
-import { readScrollPosition, restoreScrollPositionUnlessMoved, SCROLL_KEYS, scrollTargetFor } from "./scroll";
+import {
+  readScrollPosition,
+  restoreScrollPosition,
+  restoreScrollPositionUnlessMoved,
+  SCROLL_KEYS,
+  scrollBaselineAfterEvent,
+  scrollTargetFor,
+} from "./scroll";
 import metrics from "virtual:cmux-gallery/metrics";
 import themes from "virtual:cmux-gallery/themes";
 
@@ -137,7 +144,7 @@ export function Stage({
   const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
     if (!iframe) return;
     const scrollTarget = scrollTargetFor(iframe);
-    const initialScroll = readScrollPosition(scrollTarget);
+    let baseline = readScrollPosition(scrollTarget);
     let restored = false;
     let userMoved = false;
     const intentTarget: EventTarget = scrollTarget ?? window;
@@ -150,15 +157,22 @@ export function Stage({
     for (const type of ["wheel", "touchstart", "touchmove", "pointerdown"])
       intentTarget.addEventListener(type, markUserMoved, { passive: true });
     addEventListener("keydown", markKeyboardScroll, true);
+    const onScroll = () => {
+      const result = scrollBaselineAfterEvent(scrollTarget, iframe, baseline, userMoved);
+      baseline = result.baseline;
+      if (result.restore) restoreScrollPosition(scrollTarget, baseline);
+    };
+    intentTarget.addEventListener("scroll", onScroll, { passive: true });
     const removeIntentListeners = () => {
       for (const type of ["wheel", "touchstart", "touchmove", "pointerdown"])
         intentTarget.removeEventListener(type, markUserMoved);
+      intentTarget.removeEventListener("scroll", onScroll);
       removeEventListener("keydown", markKeyboardScroll, true);
     };
     const restore = () => {
       if (restored) return;
       restored = true;
-      restoreScrollPositionUnlessMoved(scrollTarget, initialScroll, userMoved);
+      restoreScrollPositionUnlessMoved(scrollTarget, baseline, userMoved);
       removeIntentListeners();
     };
     const receive = (event: MessageEvent) => {

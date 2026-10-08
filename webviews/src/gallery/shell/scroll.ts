@@ -36,6 +36,20 @@ export function restoreScrollPositionUnlessMoved(
   return true;
 }
 
+export function scrollBaselineAfterEvent(
+  target: HTMLElement | null,
+  iframe: HTMLIFrameElement,
+  baseline: GalleryScrollPosition,
+  userMoved: boolean,
+): { baseline: GalleryScrollPosition; restore: boolean } {
+  const current = readScrollPosition(target);
+  if (userMoved) return { baseline, restore: false };
+  if (iframe.ownerDocument.activeElement === iframe) {
+    return { baseline, restore: current.x !== baseline.x || current.y !== baseline.y };
+  }
+  return { baseline: current, restore: false };
+}
+
 export const SCROLL_KEYS = new Set([
   "ArrowDown",
   "ArrowLeft",
