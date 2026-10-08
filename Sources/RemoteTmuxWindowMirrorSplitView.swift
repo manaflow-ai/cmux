@@ -10,8 +10,6 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     let portalPriority: Int
     let onOuterFocus: () -> Void
     var unreadSurfaceIDs: Set<UUID> = []
-    @Environment(\.displayScale) private var displayScale
-    @State private var containerSize: CGSize = .zero
 
     var body: some View {
         // The base color is the region, and it answers every proposal with
@@ -26,19 +24,13 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         // view's reported size, every space-filling ancestor up to the main
         // window's root content inherited it (observed live: the content
         // view marching wider than the display-pinned window a step per
-        // layout pass), and the geometry callback below then read the
+        // layout pass), and geometry reporting then read the
         // mirror's own imposed width back as its "container".
         Color(nsColor: appearance.backgroundColor)
             .overlay(alignment: .topLeading) {
                 splitTree
             }
             .background(MirrorHostProbe(mirror: mirror))
-            .onGeometryChange(for: CGSize.self) { proxy in
-                proxy.size
-            } action: { newSize in
-                containerSize = newSize
-                pushClientSize(pointSize: newSize)
-            }
             .onAppear {
                 mirror.isVisibleForSizing = isVisibleInUI
                 if !isVisibleInUI {
@@ -66,7 +58,8 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                 if visible { becameVisible() }
             }
             .onChange(of: mirror.layoutStructureVersion) { _, _ in
-                pushClientSize(pointSize: containerSize)
+                mirror.refreshContainerSizeFromHost()
+                mirror.setNeedsSizingPass()
             }
     }
 
@@ -122,17 +115,11 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         )
     }
 
-    private func pushClientSize(pointSize: CGSize) {
-        mirror.isVisibleForSizing = isVisibleInUI
-        guard pointSize.width > 0, pointSize.height > 0 else { return }
-        mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
-    }
-
     /// A tab shown again may have had its views recreated while hidden, so
     /// identical sizing inputs do not mean the fresh views hold the plan —
     /// request the pass that ignores the settled check.
     private func becameVisible() {
-        pushClientSize(pointSize: containerSize)
+        mirror.refreshContainerSizeFromHost()
         mirror.setNeedsSizingPassIgnoringInputs()
     }
 }
@@ -143,32 +130,27 @@ struct RemoteTmuxWindowMirrorSplitView: View {
 /// geometry diagnostics.
 final class MirrorHostProbeView: NSView {
     weak var mirror: RemoteTmuxWindowMirror?
-    private weak var pendingDisplayWindow: NSWindow?
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
+    /// Region changes can finish after a display change or outside live resize.
+    /// AppKit's actual frame supplies the measurement, without a queue delay.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        mirror?.noteHostProbeGeometry(self)
     }
 
-    @objc private func hostWindowDisplayDidChange(_ notification: Notification) {
-        guard let sourceWindow = notification.object as? NSWindow,
-              sourceWindow === window,
-              pendingDisplayWindow !== sourceWindow else { return }
-        pendingDisplayWindow = sourceWindow
-        // Display removal can resize the region without ending a live resize.
-        // Read the region after AppKit updates its layout and backing scale;
-        // the window content size includes chrome outside this mirror.
-        DispatchQueue.main.async { [weak self, weak sourceWindow] in
-            guard let self, let sourceWindow,
-                  self.pendingDisplayWindow === sourceWindow else { return }
-            self.pendingDisplayWindow = nil
-            guard self.window === sourceWindow,
-                  let mirror = self.mirror,
-                  mirror.hostProbeView === self else { return }
-            mirror.noteContainerSize(
-                pointSize: self.bounds.size,
-                scale: sourceWindow.backingScaleFactor
-            )
-        }
+    override func setBoundsSize(_ newSize: NSSize) {
+        super.setBoundsSize(newSize)
+        mirror?.noteHostProbeGeometry(self)
+    }
+
+    override func layout() {
+        super.layout()
+        mirror?.noteHostProbeGeometry(self)
+    }
+
+    /// A scale-only display move does not change the region's point size.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        mirror?.refreshContainerSizeFromHost()
     }
 
     /// The probe backs the whole mirror region, including the sub-cell
@@ -179,7 +161,7 @@ final class MirrorHostProbeView: NSView {
         super.viewDidEndLiveResize()
         // A window live-resize whose final geometry arrived BEFORE mouse-up
         // leaves a parked oversized reading with no edge to consume it —
-        // onGeometryChange fires only on value change, and the parked-reading
+        // the host geometry can already be final, and the parked-reading
         // consumer holds while inLiveResize is true. By the time this
         // coalesced pass runs, inLiveResize is false so the consume proceeds.
         // setNeedsSizingPass (not IgnoringInputs): the consume sits above the
@@ -189,9 +171,7 @@ final class MirrorHostProbeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        NotificationCenter.default.removeObserver(self)
-        pendingDisplayWindow = nil
-        guard let window else {
+        guard window != nil else {
             // A tab re-show can recreate the probe, and AppKit delivers the
             // DYING probe's move-to-nil-window after the replacement already
             // registered — claiming here would shadow the live probe's
@@ -202,14 +182,7 @@ final class MirrorHostProbeView: NSView {
             return
         }
         mirror?.hostProbeView = self
-        for name in [NSWindow.didChangeScreenNotification, NSWindow.didChangeBackingPropertiesNotification] {
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(hostWindowDisplayDidChange(_:)),
-                name: name,
-                object: window
-            )
-        }
+        mirror?.noteHostProbeGeometry(self)
     }
 }
 
@@ -226,5 +199,29 @@ private struct MirrorHostProbe: NSViewRepresentable {
     func updateNSView(_ nsView: MirrorHostProbeView, context: Context) {
         nsView.mirror = mirror
         mirror.hostProbeView = nsView
+        mirror.noteHostProbeGeometry(nsView)
+    }
+}
+
+extension RemoteTmuxWindowMirror {
+    /// Reveal and topology changes sample the current host instead of replaying
+    /// a SwiftUI measurement captured before a display move.
+    func refreshContainerSizeFromHost() {
+        guard let probe = hostProbeView else { return }
+        // This can run inside SwiftUI/AppKit layout. Later frame and layout
+        // callbacks deliver final geometry without recursively forcing layout.
+        noteHostProbeGeometry(probe)
+    }
+
+    /// Only the registered, attached probe can deliver geometry. Repeated
+    /// AppKit callbacks share the model's accepted or pending measurement.
+    func noteHostProbeGeometry(_ probe: NSView) {
+        guard hostProbeView === probe, let window = probe.window else { return }
+        let size = probe.bounds.size
+        let scale = window.backingScaleFactor
+        let latestSize = pendingOversizedReading?.size ?? pendingContainerSizePt ?? containerSizePt
+        let latestScale = pendingOversizedReading?.scale ?? pendingContainerScale ?? containerScale
+        guard latestSize != size || latestScale != scale else { return }
+        noteContainerSize(pointSize: size, scale: scale)
     }
 }

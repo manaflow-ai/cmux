@@ -1629,20 +1629,19 @@ import Testing
         withExtendedLifetime(connection) {}
     }
 
-    @Test(arguments: [NSWindow.didChangeScreenNotification, NSWindow.didChangeBackingPropertiesNotification])
-    func displayChangeRefreshesTheMirrorRegionWithoutALiveResize(notification: Notification.Name) async throws {
+    @Test func displayChangeRefreshesTheMirrorRegionWithoutALiveResize() async throws {
         let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
         defer { window.orderOut(nil) }
         let previous = try #require(connection.lastWindowSizes[0])
 
-        // Display removal need not end a mouse-driven live resize or deliver
-        // another SwiftUI geometry change. Only the host notification fires.
+        // Display removal need not end a mouse-driven live resize. AppKit
+        // may deliver a transient region followed by its final layout.
         window.setContentSize(CGSize(width: 650, height: 500))
         probe.setFrameSize(CGSize(width: 580, height: 430))
         window.reportedScale = 1
-        NotificationCenter.default.post(name: notification, object: window)
-        NotificationCenter.default.post(name: notification, object: window)
-        // AppKit finishes laying out after the notification: sample at delivery.
+        probe.viewDidChangeBackingProperties()
+        probe.viewDidChangeBackingProperties()
+        // The final region arrives later and must replace the transient one.
         let settledRegion = CGSize(width: 560, height: 410)
         probe.setFrameSize(settledRegion)
         await drainDisplayChangeCallbacks()
@@ -1661,7 +1660,7 @@ import Testing
         defer { window.orderOut(nil) }
         let previous = try #require(connection.lastWindowSizes[0])
         window.reportedScale = 1
-        NotificationCenter.default.post(name: NSWindow.didChangeBackingPropertiesNotification, object: window)
+        probe.viewDidChangeBackingProperties()
         await drainDisplayChangeCallbacks()
         mirror.performSizingPassNow()
 
@@ -1697,17 +1696,18 @@ import Testing
         let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
         defer { window.orderOut(nil) }
         let originalRegion = mirror.containerSizePt
-        probe.setFrameSize(CGSize(width: 560, height: 410))
-        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
         let replacement = MirrorHostProbeView()
         replacement.mirror = mirror
         mirror.hostProbeView = replacement
+        probe.setFrameSize(CGSize(width: 560, height: 410))
+        probe.viewDidChangeBackingProperties()
         await drainDisplayChangeCallbacks()
         #expect(mirror.containerSizePt == originalRegion)
 
         mirror.hostProbeView = probe
-        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
         probe.removeFromSuperview()
+        probe.setFrameSize(CGSize(width: 540, height: 400))
+        probe.viewDidChangeBackingProperties()
         await drainDisplayChangeCallbacks()
         #expect(mirror.containerSizePt == originalRegion)
         NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
