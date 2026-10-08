@@ -236,11 +236,11 @@ cmux vm self <id> [<path>] [--json]   # the machine's reflection (name, owner, t
 Create and name:
 
 ```bash
-cmux vm new [--base] [--size <2g|4g|8g|16g|32g>] [--detach|-d]
+cmux vm new [--base] [--size <4g|8g|16g|24g|32g|64g>] [--detach|-d]
 cmux vm rename <id> <new-label>      # label only; the id stays the address
 ```
 
-`vm new` takes no positional arguments (rejected so a typo cannot provision a paid machine). A bare `vm new` creates a persistent machine with its own durable home, up to the plan limit. The backend picks the provider.
+`vm new` takes no positional arguments (rejected so a typo cannot provision a paid machine). A bare `vm new` creates a persistent machine with its own durable home, up to the plan limit. Pro and Team can use 4g, 8g, and 16g (2, 4, and 8 vCPU); Max also unlocks 24g and 32g (12 and 16 vCPU), plus 64g (32 vCPU). The backend picks the provider.
 
 Base:
 
@@ -294,7 +294,7 @@ Run commands:
 
 ```bash
 cmux vm exec [--timeout <s>] <id> -- <command...>   # one command, 30 s default up to 900 s, exit code passes through
-cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <s>] [--timeout <seconds>] [--wait [--output]] -- <command...>
+cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--timeout <seconds>] [--wait [--output]] -- <command...>
 cmux vm route [--cwd <dir>]              # print which machine vm run/agent would pick, and why
 cmux vm wait <id> [--timeout <seconds>] [--wake]
 cmux vm dev <id> [<folder>] [--name <ws>] [--layout <file>] [--command "<cmd>"] [--port <n>] [--remote <path>] [--sync|--no-sync] [--no-open] [--dry-run] [--json]
@@ -305,7 +305,7 @@ cmux vm dev <id> [<folder>] [--name <ws>] [--layout <file>] [--command "<cmd>"] 
 Coding agents on machines:
 
 ```bash
-cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--wait [--output] [--timeout <s>]] -- <prompt or args...>
+cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--wait [--output] [--timeout <s>]] -- <prompt or args...>
 ```
 
 The agent starts as a detached terminal in the machine's cmux-tui session: it keeps running when the pane closes, and `cmux vm open <machine>/<ws>/<term>` reattaches from any device. A bare prompt runs the agent's one-shot form; leading flags or known subcommands pass through verbatim. Credentials for cloud agents come from `cmux ai-accounts upload`. `--wait` blocks until the agent's process exits (Ctrl-C stops the wait, not the agent), `--output` then prints everything it wrote, and the agent's exit code becomes yours (1 on timeout or signal). Without `--wait`, `cmux vm terminal wait-exit` + `terminal output` on the printed terminal id do the same later.

@@ -497,11 +497,11 @@
           ],
           "pro": [
             "在 Cloud VM 上執行雲端代理",
-            "最多 5 台 Cloud VM，共用 20 個 vCPU 和 40 GB RAM",
+            "最多 5 台 Cloud VM，共用 20 個 vCPU 和 40 GB RAM. 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。",
             "cmux iOS App"
           ],
           "max": [
-            "最多 5 台 Cloud VM，共用 80 個 vCPU 和 160 GB RAM",
+            "最多 5 台 Cloud VM，共用 80 個 vCPU 和 160 GB RAM. Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可達 64 GB / 32 vCPU。",
             "更大的機器規格",
             "Pro 的所有功能"
           ],
@@ -2918,7 +2918,7 @@
       "createCli": "在 CLI 中，cmux vm new 會建立機器並在其上開啟工作區。使用 --detach 可只建立而不開啟任何內容。如果建立要求被重試，cmux 會沿用同一個要求，因此不會產生兩台機器。",
       "createFailed": "如果建立失敗，你可以從通知中重試、顯示錯誤，或拷貝錯誤以提交支援要求。",
       "sizesTitle": "規格",
-      "sizesDesc": "每種規格會同時決定記憶體、vCPU 和磁碟。可以在建立面板中或透過 --size 選擇規格。",
+      "sizesDesc": "每種規格會同時決定記憶體、vCPU 和磁碟。可以在建立面板中或透過 --size 選擇規格。 Pro 和 Team 支援 4g、8g 和 16g（2、4 和 8 vCPU）。Max 也會解鎖 24g 和 32g（12 和 16 vCPU），以及 64g（32 vCPU）。",
       "sizeColumn": "規格",
       "memoryColumn": "記憶體",
       "cpuColumn": "vCPU",
@@ -5343,7 +5343,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro 已啟用",
     "title": "歡迎加入 cmux Pro",
-    "body": "Pro 包含最多 5 台共用 20 個 vCPU 與 40 GB 記憶體的 Cloud VM，以及 cmux iOS TestFlight 存取權。",
+    "body": "Pro 包含最多 5 台共用 20 個 vCPU 與 40 GB 記憶體的 Cloud VM，以及 cmux iOS TestFlight 存取權。 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。",
     "done": "前往控制面板",
     "steps": {
       "iosApp": {

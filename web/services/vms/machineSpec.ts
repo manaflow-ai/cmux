@@ -98,8 +98,8 @@ export type VmImageResourceShape = {
 
 /**
  * Historical default shape for recovery paths that predate reservation
- * markers. Never use it for the resource pool: a legacy live row draws from
- * the pool at its plan's default machine size (VmResourcePoolPolicy).
+ * markers. Never use it for the resource pool: a legacy live row reserves the
+ * provider maximum until reconciliation measures it (VmResourcePoolPolicy).
  */
 export const DEFAULT_VM_RESOURCE_RESERVATION: VmResourceReservation = {
   vcpus: 5,

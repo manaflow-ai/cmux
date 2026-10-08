@@ -97,9 +97,11 @@ cmux vm status <machine>
 ```
 
 Named sizes are `4g`, `8g`, `16g`, `24g`, `32g`, and `64g`; a raw memory value
-in MB is also parsed. Read `vm ls --json` → `limits.memoryOptionsMb` for the
-current plan's choices. The server uses its plan default when a parsed request
-is not allowed; the chosen image supplies the matching CPU and initial disk.
+in MB is also parsed. Pro and Team support 4g, 8g, and 16g (2, 4, and 8 vCPU).
+Max additionally unlocks 24g and 32g (12 and 16 vCPU), plus 64g (32 vCPU).
+Read `vm ls --json` → `limits.memoryOptionsMb` for the current plan's choices.
+The server uses its plan default when a parsed request is not allowed; the
+chosen image supplies the matching CPU and initial disk.
 `--name` changes the display label, never the generated machine id. Prefer a
 workspace on an existing machine for another task; use `vm fork` for an
 isolated experiment. `vm rm` permanently deletes the machine and its volume,
@@ -113,7 +115,7 @@ cmux vm new [--desktop|--base] [--size <4g|8g|16g|24g|32g|64g|MB>] [--name <labe
 # alias: cmux vm create
 ```
 
-Socket `vm.create` with `kind: desktop` for every new machine. The legacy `--base`/`--no-desktop` and `--desktop` flags all select the same devbox; contradictory flags are rejected. The backend selects the image from its manifest; `--image <id>` is the explicit override and the only way an image id leaves the client. If the requested kind is not offered, the server fails closed with an image-config error rather than silently returning the wrong shape. `--size` accepts `4g`, `8g`, `16g`, `24g`, `32g`, `64g`, or raw MB ≥ 512. `vm ls --json` → `limits.memoryOptionsMb` is authoritative for the current plan; the backend selects its default when a parsed request is unavailable, and the chosen image supplies the matching CPU and initial disk. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
+Socket `vm.create` with `kind: desktop` for every new machine. The legacy `--base`/`--no-desktop` and `--desktop` flags all select the same devbox; contradictory flags are rejected. The backend selects the image from its manifest; `--image <id>` is the explicit override and the only way an image id leaves the client. If the requested kind is not offered, the server fails closed with an image-config error rather than silently returning the wrong shape. `--size` accepts `4g`, `8g`, `16g`, `24g`, `32g`, `64g`, or raw MB ≥ 512. Pro and Team can create through 16g (8 vCPU); 24g and 32g (12 and 16 vCPU) and 64g (32 vCPU) require Max. `vm ls --json` → `limits.memoryOptionsMb` is authoritative for the current plan; the backend selects its default when a parsed request is unavailable, and the chosen image supplies the matching CPU and initial disk. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
 Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); it switches to its workspace only when run interactively from a terminal (an agent or script gets it in the background, marked unread); `--focus` / `--no-focus` (also `--focus true|false`) override that, and `--no-focus` is what the New Machine sheet does — the app's Create returns control immediately and the pane appears in the background); desktop machines also get their screen in a split. Text output carries the stable `OK machine=<id>` marker after the localized created line; `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid-plan machine caps come from the backend (`vm ls --json` → `limits.maxActiveVms`; absent means uncapped). The current CLI accepts `--provider freestyle`; omit it to let the server choose the configured default. If a deployment adds another provider, read that tagged app's `vm new --help` before using it.
 
 ### `cmux vm rename`
@@ -162,6 +164,9 @@ in 4 GiB steps. Supply at least one dimension. Omitted dimensions stay unchanged
 and every requested dimension must be at least its current size. `vm ls --json`
 publishes the current plan's `maxDiskMb`, `maxMemoryMb`, and `maxVcpus`; the CLI
 checks those ceilings before sending the resize and the server checks them again.
+Pro and Team stop at 16 GiB / 8 vCPU. Max permits the 24 GiB / 12 vCPU and
+32 GiB / 16 vCPU rows and reaches 64 GiB / 32 vCPU. The shared CPU and memory
+pool is reserved transactionally for every growth request.
 
 Socket `vm.resize` accepts `{id, cpu?, memory_mb?, storage_mb?}` and returns the
 provider-confirmed `VMStats` object, including `cpus`, `memory_total_mb`, and

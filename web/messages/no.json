@@ -497,11 +497,11 @@
           ],
           "pro": [
             "Skyagenter på Cloud VMs",
-            "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM",
+            "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max.",
             "cmux-appen for iOS"
           ],
           "max": [
-            "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM",
+            "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM. Max gir tilgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU.",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],
@@ -2916,7 +2916,7 @@
       "createCli": "Fra CLI-en oppretter cmux vm new en maskin og åpner et arbeidsområde på den. Bruk --detach for å opprette den uten å åpne noe. Hvis en opprettelsesforespørsel sendes på nytt, gjenbruker cmux den samme forespørselen, så du ikke får to maskiner.",
       "createFailed": "Hvis opprettelsen mislykkes, lar varselet deg prøve på nytt, vise feilen eller kopiere den til en supportforespørsel.",
       "sizesTitle": "Størrelser",
-      "sizesDesc": "Hver størrelse angir minne, vCPU og disk samlet. Velg en størrelse i opprettelsesdialogen eller med --size.",
+      "sizesDesc": "Hver størrelse angir minne, vCPU og disk samlet. Velg en størrelse i opprettelsesdialogen eller med --size. Pro og Team støtter 4g, 8g og 16g (2, 4 og 8 vCPU). Max låser også opp 24g og 32g (12 og 16 vCPU), samt 64g (32 vCPU).",
       "sizeColumn": "Størrelse",
       "memoryColumn": "Minne",
       "cpuColumn": "vCPU",
@@ -5341,7 +5341,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro er aktiv",
     "title": "Velkommen til cmux Pro",
-    "body": "Pro inkluderer opptil 5 Cloud VM-er som deler 20 vCPU-er og 40 GB RAM, samt tilgang til cmux iOS via TestFlight.",
+    "body": "Pro inkluderer opptil 5 Cloud VM-er som deler 20 vCPU-er og 40 GB RAM, samt tilgang til cmux iOS via TestFlight. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max.",
     "done": "Gå til kontrollpanelet",
     "steps": {
       "iosApp": {

@@ -728,7 +728,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, for $200 per month, billed monthly."
+        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes, for $200 per month, billed monthly. One Max VM can use up to 64 GB RAM / 32 vCPU."
       },
       "teamPanel": {
         "notFound": "This team is not available. You may have left it, or it was deleted.",
@@ -793,11 +793,11 @@
           ],
           "pro": [
             "Cloud agents on Cloud VMs",
-            "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
+            "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
             "The cmux iOS app"
           ],
           "max": [
-            "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM",
+            "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
             "Larger machine sizes",
             "Everything in Pro"
           ],
@@ -1749,7 +1749,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
+        "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -1769,7 +1769,7 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM",
+        "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
         "Unlimited workspaces and the iOS app"
       ]
     },
@@ -1887,9 +1887,9 @@
         {
           "label": "Largest Cloud VM",
           "free": "false",
-          "pro": "16 GB RAM",
-          "max": "64 GB RAM",
-          "team": "16 GB RAM",
+          "pro": "16 GB RAM / 8 vCPU (24 GB / 12 vCPU and 32 GB / 16 vCPU require Max)",
+          "max": "64 GB RAM / 32 vCPU (includes 24 GB / 12 vCPU and 32 GB / 16 vCPU)",
+          "team": "16 GB RAM / 8 vCPU (24 GB / 12 vCPU and 32 GB / 16 vCPU require Max)",
           "enterprise": "Custom",
           "go": "4 GiB RAM"
         },
@@ -1987,11 +1987,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team includes the same allowance for each paid seat, in one pool shared across the team."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
+          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes. One Max VM can use up to 64 GB RAM / 32 vCPU. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one Pro or Team VM can use up to 16 GB RAM / 8 vCPU. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -4442,7 +4442,7 @@
       "createCli": "From the CLI, cmux vm new creates a machine and opens a workspace on it. Use --detach to create it without opening anything. If a create request is retried, cmux reuses the same request so you do not get two machines.",
       "createFailed": "If creation fails, the notification lets you retry, show the error, or copy it for a support request.",
       "sizesTitle": "Sizes",
-      "sizesDesc": "Each size sets memory, vCPU, and disk together. Pick a size in the create sheet or with --size.",
+      "sizesDesc": "Each size sets memory, vCPU, and disk together. Pick a size in the create sheet or with --size. Pro and Team support 4g, 8g, and 16g (2, 4, and 8 vCPU). Max also unlocks 24g and 32g (12 and 16 vCPU), plus 64g (32 vCPU).",
       "sizeColumn": "Size",
       "memoryColumn": "Memory",
       "cpuColumn": "vCPU",
@@ -7119,7 +7119,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus cmux iOS TestFlight access.",
+    "body": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus cmux iOS TestFlight access. One VM can use up to 16 GB RAM / 8 vCPU; 24 GB / 12 vCPU and 32 GB / 16 vCPU require Max.",
     "done": "Go to dashboard",
     "steps": {
       "iosApp": {

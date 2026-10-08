@@ -172,8 +172,9 @@ export async function GET(request: Request): Promise<Response> {
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
       setSpanAttributes(span, { "cmux.vm.creator_names": creatorNames.size });
-      // A legacy row without a reservation marker draws from the pool at the
-      // plan's default machine size, exactly as the repository counts it.
+      // A legacy row without a reservation marker reserves the provider
+      // maximum until reconciliation measures it, exactly as the repository
+      // counts it.
       const legacyPoolShare = legacyPoolReservationForPlan(listEntitlements?.planId ?? null, process.env);
       const poolShare = (entry: (typeof entries)[number]) => entry.resourceReservation ?? legacyPoolShare;
       const vms = entries.map((entry) => ({

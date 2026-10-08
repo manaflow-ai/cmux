@@ -497,11 +497,11 @@
           ],
           "pro": [
             "Agentes en la nube en Cloud VMs",
-            "Hasta 5 Cloud VMs que comparten 20 vCPU y 40 GB de RAM",
+            "Hasta 5 Cloud VMs que comparten 20 vCPU y 40 GB de RAM. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max.",
             "La app cmux para iOS"
           ],
           "max": [
-            "Hasta 5 Cloud VMs que comparten 80 vCPU y 160 GB de RAM",
+            "Hasta 5 Cloud VMs que comparten 80 vCPU y 160 GB de RAM. Max desbloquea 24 GB / 12 vCPU, 32 GB / 16 vCPU y hasta 64 GB / 32 vCPU.",
             "Máquinas más grandes",
             "Todo lo de Pro"
           ],
@@ -2918,7 +2918,7 @@
       "createCli": "Desde la CLI, cmux vm new crea una máquina y abre un espacio de trabajo en ella. Usa --detach para crearla sin abrir nada. Si se reintenta una solicitud de creación, cmux reutiliza la misma solicitud para que no obtengas dos máquinas.",
       "createFailed": "Si la creación falla, la notificación te permite reintentar, mostrar el error o copiarlo para una solicitud de soporte.",
       "sizesTitle": "Tamaños",
-      "sizesDesc": "Cada tamaño define a la vez la memoria, las vCPU y el disco. Elige un tamaño en el diálogo de creación o con --size.",
+      "sizesDesc": "Cada tamaño define a la vez la memoria, las vCPU y el disco. Elige un tamaño en el diálogo de creación o con --size. Pro y Team admiten 4g, 8g y 16g (2, 4 y 8 vCPU). Max también desbloquea 24g y 32g (12 y 16 vCPU), además de 64g (32 vCPU).",
       "sizeColumn": "Tamaño",
       "memoryColumn": "Memoria",
       "cpuColumn": "vCPU",
@@ -5343,7 +5343,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro está activo",
     "title": "Te damos la bienvenida a cmux Pro",
-    "body": "Pro incluye hasta 5 VM de Cloud que comparten 20 vCPU y 40 GB de RAM, además del acceso a cmux iOS mediante TestFlight.",
+    "body": "Pro incluye hasta 5 VM de Cloud que comparten 20 vCPU y 40 GB de RAM, además del acceso a cmux iOS mediante TestFlight. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max.",
     "done": "Ir al panel",
     "steps": {
       "iosApp": {

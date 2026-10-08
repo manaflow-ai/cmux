@@ -767,10 +767,11 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    // A legacy source draws from the pool at the plan's default machine size.
-    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
+    // A legacy source is measured before the fork so its actual shape is
+    // reserved while the copy is provisioned.
+    expect(reservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
     expect(beginInput?.forkPending).toBe(true);
-    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
+    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
     expect(finalizedReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
   });
 
@@ -855,11 +856,10 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    // A legacy source draws from the pool at the plan's default machine size.
-    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
+    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 });
     expect(beginInput?.forkPending).toBe(true);
-    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
-    expect(finalizedReservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
+    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 });
+    expect(finalizedReservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 });
   });
 
   test("keeps the supported 1-vCPU legacy fork shape", async () => {
@@ -942,8 +942,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    // A legacy source draws from the pool at the plan's default machine size.
-    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
+    expect(reservation).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 16384 });
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 16384 });
@@ -1077,8 +1076,8 @@ describe("VM Effect workflows", () => {
 
     const event = usageEvents.find((candidate) => candidate.eventType === "vm.snapshot.created");
     expect(event?.metadata).toMatchObject({
-      vcpus: 5,
-      memoryMb: 20 * 1024,
+      vcpus: 32,
+      memoryMb: 64 * 1024,
       diskMb: VM_DISK_MB_MAX,
     });
   });
@@ -1274,6 +1273,7 @@ describe("VM Effect workflows", () => {
       billingPlanId: "pro",
       providerVmId: "provider-vm-resize-confirmed",
       status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
     });
     const confirmations: Array<{
       id: string;
@@ -1334,6 +1334,7 @@ describe("VM Effect workflows", () => {
       billingPlanId: "pro",
       providerVmId: "provider-vm-resize-confirmation-race",
       status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
     });
     const usageEvents: RecordedUsageEvent[] = [];
     let statsCalls = 0;
@@ -1381,6 +1382,7 @@ describe("VM Effect workflows", () => {
       billingPlanId: "pro",
       providerVmId: "provider-vm-resize-stats-failure",
       status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
     });
     const unconfirmed: Array<{
       id: string;
@@ -1473,6 +1475,7 @@ describe("VM Effect workflows", () => {
       billingPlanId: "pro",
       providerVmId: "provider-vm-resize-plan",
       status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
     });
     let providerCalls = 0;
     const provider: VmProviderGatewayShape = {
@@ -1498,6 +1501,54 @@ describe("VM Effect workflows", () => {
       planId: "pro",
     });
     expect(providerCalls).toBe(0);
+  });
+
+  test.each([
+    [12, 24 * 1024],
+    [16, 32 * 1024],
+  ] as const)("Max can resize to the %d-vCPU image-ladder row", async (cpu, memoryMb) => {
+    const vm = testCloudVmRow({
+      id: `00000000-0000-4000-8000-00000000014${cpu}`,
+      userId: `user-workflow-resize-max-${cpu}`,
+      billingTeamId: `team-workflow-resize-max-${cpu}`,
+      billingPlanId: "max",
+      providerVmId: `provider-vm-resize-max-${cpu}`,
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 8, memoryMb: 16 * 1024, diskMb: 65536 } },
+    });
+    let resized = false;
+    let resizeOptions: { cpu?: number; memoryMb?: number } | undefined;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: resized ? cpu : 8,
+        memoryTotalMb: resized ? memoryMb : 16 * 1024,
+        diskTotalMb: 65536,
+      }),
+      resize: (_provider, _providerVmId, options) => Effect.sync(() => {
+        resizeOptions = options;
+        resized = true;
+      }),
+    };
+
+    const result = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "max",
+        maxActiveVms: 5,
+        cpu,
+        memoryMb,
+      }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+
+    expect(resizeOptions).toEqual({ cpu, memoryMb });
+    expect(result.cpus).toBe(cpu);
+    expect(result.memoryTotalMb).toBe(memoryMb);
   });
 
   test("rejects an unsupported port before attempting to resume a paused VM", async () => {
@@ -8758,7 +8809,12 @@ describe("status read that observes a gone machine", () => {
 
 describe("private SCP workflow", () => {
   test("returns the private endpoint without revoking another transfer or recording a bearer lease", async () => {
-    const vm = testCloudVmRow({ providerVmId: "vm-scp", status: "running", billingPlanId: "pro" });
+    const vm = testCloudVmRow({
+      providerVmId: "vm-scp",
+      status: "running",
+      billingPlanId: "pro",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
+    });
     const leases: RecordedLease[] = [];
     const events: RecordedUsageEvent[] = [];
     const endpoint = { host: "10.1.2.3", port: 22, username: "cmux", hostPublicKey: "guest-key", expiresAtUnix: 123 };

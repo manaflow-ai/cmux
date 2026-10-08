@@ -497,11 +497,11 @@
           ],
           "pro": [
             "Agentes na nuvem em Cloud VMs",
-            "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM",
+            "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM. Uma VM pode usar até 16 GB de RAM / 8 vCPU. Os tamanhos de 24 GB / 12 vCPU e 32 GB / 16 vCPU exigem Max.",
             "O app cmux para iOS"
           ],
           "max": [
-            "Até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM",
+            "Até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM. O Max libera 24 GB / 12 vCPU, 32 GB / 16 vCPU e até 64 GB / 32 vCPU.",
             "Máquinas maiores",
             "Tudo do Pro"
           ],
@@ -2919,7 +2919,7 @@
       "createCli": "Pela CLI, cmux vm new cria uma máquina e abre um espaço de trabalho nela. Use --detach para criá-la sem abrir nada. Se uma solicitação de criação for repetida, o cmux reutiliza a mesma solicitação para que você não fique com duas máquinas.",
       "createFailed": "Se a criação falhar, a notificação permite tentar de novo, mostrar o erro ou copiá-lo para uma solicitação de suporte.",
       "sizesTitle": "Tamanhos",
-      "sizesDesc": "Cada tamanho define memória, vCPU e disco juntos. Escolha um tamanho na janela de criação ou com --size.",
+      "sizesDesc": "Cada tamanho define memória, vCPU e disco juntos. Escolha um tamanho na janela de criação ou com --size. Pro e Team oferecem 4g, 8g e 16g (2, 4 e 8 vCPU). O Max também libera 24g e 32g (12 e 16 vCPU), além de 64g (32 vCPU).",
       "sizeColumn": "Tamanho",
       "memoryColumn": "Memória",
       "cpuColumn": "vCPU",
@@ -5344,7 +5344,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro está ativo",
     "title": "Boas-vindas ao cmux Pro",
-    "body": "O Pro inclui até 5 VMs Cloud compartilhando 20 vCPUs e 40 GB de RAM, além de acesso ao cmux iOS pelo TestFlight.",
+    "body": "O Pro inclui até 5 VMs Cloud compartilhando 20 vCPUs e 40 GB de RAM, além de acesso ao cmux iOS pelo TestFlight. Uma VM pode usar até 16 GB de RAM / 8 vCPU. Os tamanhos de 24 GB / 12 vCPU e 32 GB / 16 vCPU exigem Max.",
     "done": "Ir para o painel",
     "steps": {
       "iosApp": {

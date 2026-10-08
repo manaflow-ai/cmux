@@ -497,11 +497,11 @@
           ],
           "pro": [
             "Cloud-agenter på Cloud VMs",
-            "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM",
+            "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max.",
             "cmux-appen til iOS"
           ],
           "max": [
-            "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM",
+            "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM. Max giver adgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og op til 64 GB / 32 vCPU.",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],
@@ -2916,7 +2916,7 @@
       "createCli": "Fra CLI'en opretter cmux vm new en maskine og åbner et arbejdsområde på den. Brug --detach for at oprette den uden at åbne noget. Hvis en oprettelsesanmodning gentages, genbruger cmux den samme anmodning, så du ikke får to maskiner.",
       "createFailed": "Hvis oprettelsen mislykkes, kan du fra notifikationen prøve igen, vise fejlen eller kopiere den til en supportanmodning.",
       "sizesTitle": "Størrelser",
-      "sizesDesc": "Hver størrelse fastsætter hukommelse, vCPU og disk samlet. Vælg en størrelse i oprettelsesdialogen eller med --size.",
+      "sizesDesc": "Hver størrelse fastsætter hukommelse, vCPU og disk samlet. Vælg en størrelse i oprettelsesdialogen eller med --size. Pro og Team understøtter 4g, 8g og 16g (2, 4 og 8 vCPU). Max låser også 24g og 32g op (12 og 16 vCPU) samt 64g (32 vCPU).",
       "sizeColumn": "Størrelse",
       "memoryColumn": "Hukommelse",
       "cpuColumn": "vCPU",
@@ -5341,7 +5341,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro er aktiv",
     "title": "Velkommen til cmux Pro",
-    "body": "Pro inkluderer op til 5 Cloud-VM'er, der deler 20 vCPU'er og 40 GB RAM, samt adgang til cmux iOS via TestFlight.",
+    "body": "Pro inkluderer op til 5 Cloud-VM'er, der deler 20 vCPU'er og 40 GB RAM, samt adgang til cmux iOS via TestFlight. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max.",
     "done": "Gå til kontrolpanelet",
     "steps": {
       "iosApp": {

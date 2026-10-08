@@ -275275,121 +275275,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a"
+            "value": "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM"
+            "value": "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM"
+            "value": "Fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM. Una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB"
+            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB. VM មួយអាចប្រើ RAM រហូតដល់ 16 GB / 8 vCPU។ ទំហំ 24 GB / 12 vCPU និង 32 GB / 16 vCPU ត្រូវការ Max។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM"
+            "value": "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM"
+            "value": "Do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM. Jedna VM może używać do 16 GB RAM / 8 vCPU. Rozmiary 24 GB / 12 vCPU i 32 GB / 16 vCPU wymagają Max."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM"
+            "value": "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM. Uma VM pode usar até 16 GB de RAM / 8 vCPU. Os tamanhos de 24 GB / 12 vCPU e 32 GB / 16 vCPU exigem Max."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "До 5 Cloud VMs с общими 20 vCPU и 40 ГБ RAM"
+            "value": "До 5 Cloud VMs с общими 20 vCPU и 40 ГБ RAM. Одна VM может использовать до 16 ГБ RAM / 8 vCPU. Для размеров 24 ГБ / 12 vCPU и 32 ГБ / 16 vCPU требуется Max."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 20 vCPU และ RAM 40 GB ร่วมกัน"
+            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 20 vCPU และ RAM 40 GB ร่วมกัน. VM หนึ่งเครื่องใช้ RAM ได้สูงสุด 16 GB / 8 vCPU ขนาด 24 GB / 12 vCPU และ 32 GB / 16 vCPU ต้องใช้ Max"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM"
+            "value": "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "До 5 Cloud VMs зі спільними 20 vCPU і 40 ГБ RAM"
+            "value": "До 5 Cloud VMs зі спільними 20 vCPU і 40 ГБ RAM. Одна VM може використовувати до 16 ГБ RAM / 8 vCPU. Для розмірів 24 ГБ / 12 vCPU і 32 ГБ / 16 vCPU потрібен Max."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM"
+            "value": "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有"
+            "value": "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有. 1 台の VM は最大 16 GB RAM / 8 vCPU を利用できます。24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存"
+            "value": "最多 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存. 单台 VM 最多可使用 16 GB 内存 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 规格需要 Max。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen"
+            "value": "Bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen. Eine VM kann bis zu 16 GB RAM / 8 vCPU nutzen. Für 24 GB / 12 vCPU und 32 GB / 16 vCPU ist Max erforderlich."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud partageant 20 vCPU et 40 Go de RAM"
+            "value": "Jusqu’à 5 VM cloud partageant 20 vCPU et 40 Go de RAM. Une VM peut utiliser jusqu’à 16 Go de RAM / 8 vCPU. Les tailles 24 Go / 12 vCPU et 32 Go / 16 vCPU nécessitent Max."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة. يمكن للجهاز الواحد استخدام ما يصل إلى 16 GB من الذاكرة / 8 vCPU. تتطلب أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU خطة Max."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM"
+            "value": "Hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體"
+            "value": "最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體. 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 5개의 클라우드 VM이 vCPU 20개와 RAM 40 GB를 공유"
+            "value": "최대 5개의 클라우드 VM이 vCPU 20개와 RAM 40 GB를 공유. VM 한 대는 최대 16 GB RAM / 8 vCPU를 사용할 수 있습니다. 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기는 Max가 필요합니다."
           }
         }
       }
@@ -275946,121 +275946,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team adds the same pool for each paid seat, shared across the team. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. There is no metering or overage billing."
+            "value": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team adds the same pool for each paid seat, shared across the team. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. There is no metering or overage billing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro には最大 5 台の Cloud VM が含まれ、20 vCPU と 40 GB RAM を共有します。Team では有料シートごとに同じプールが加わり、チーム全体で共有します。VM はすべて 1 つのプールからリソースを使います。大きな VM を 1 台動かすことも、小さな VM を 5 台動かすこともできます。一時停止中の VM はプールを使いません。従量課金や超過料金はありません。"
+            "value": "Pro には最大 5 台の Cloud VM が含まれ、20 vCPU と 40 GB RAM を共有します。Team では有料シートごとに同じプールが加わり、チーム全体で共有します。VM はすべて 1 つのプールからリソースを使います。大きな VM を 1 台動かすことも、小さな VM を 5 台動かすこともできます。一時停止中の VM はプールを使いません。従量課金や超過料金はありません。 1 台の VM は最大 16 GB RAM / 8 vCPU を利用できます。24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتضمن باقة Pro ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة. وتضيف باقة Team المجموعة نفسها لكل مقعد مدفوع، ويتشاركها الفريق بأكمله. تستمد أجهزتك الافتراضية مواردها من مجموعة واحدة، فيمكنك تشغيل جهاز كبير واحد أو خمسة أجهزة صغيرة. ولا تستهلك الأجهزة المتوقفة مؤقتًا شيئًا من المجموعة. لا توجد فوترة حسب الاستهلاك أو رسوم إضافية لتجاوز الحدود."
+            "value": "تتضمن باقة Pro ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة. وتضيف باقة Team المجموعة نفسها لكل مقعد مدفوع، ويتشاركها الفريق بأكمله. تستمد أجهزتك الافتراضية مواردها من مجموعة واحدة، فيمكنك تشغيل جهاز كبير واحد أو خمسة أجهزة صغيرة. ولا تستهلك الأجهزة المتوقفة مؤقتًا شيئًا من المجموعة. لا توجد فوترة حسب الاستهلاك أو رسوم إضافية لتجاوز الحدود. يمكن للجهاز الواحد استخدام ما يصل إلى 16 GB من الذاكرة / 8 vCPU. تتطلب أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU خطة Max."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Team dodaje isti skup resursa za svako plaćeno mjesto, zajednički za cijeli tim. Vaši VM-ovi koriste jedan zajednički skup. Pokrenite jedan veliki VM ili pet malih. Pauzirani VM-ovi ne koriste skup. Nema naplate prema potrošnji niti naplate prekoračenja."
+            "value": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Team dodaje isti skup resursa za svako plaćeno mjesto, zajednički za cijeli tim. Vaši VM-ovi koriste jedan zajednički skup. Pokrenite jedan veliki VM ili pet malih. Pauzirani VM-ovi ne koriste skup. Nema naplate prema potrošnji niti naplate prekoračenja. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inkluderer op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Team tilføjer den samme pulje for hver betalt plads, delt på tværs af teamet. Dine VMs trækker på én fælles pulje. Kør én stor VM eller fem små. VMs på pause bruger ikke af puljen. Der er ingen forbrugsafregning eller betaling for overforbrug."
+            "value": "Pro inkluderer op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Team tilføjer den samme pulje for hver betalt plads, delt på tværs af teamet. Dine VMs trækker på én fælles pulje. Kør én stor VM eller fem små. VMs på pause bruger ikke af puljen. Der er ingen forbrugsafregning eller betaling for overforbrug. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro beinhaltet bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen. Team fügt denselben Pool für jeden bezahlten Platz hinzu, gemeinsam für das ganze Team. Deine VMs nutzen einen gemeinsamen Pool. Betreibe eine große VM oder fünf kleine. Pausierte VMs belegen nichts vom Pool. Es gibt keine verbrauchsabhängige Abrechnung oder Nachberechnung."
+            "value": "Pro beinhaltet bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen. Team fügt denselben Pool für jeden bezahlten Platz hinzu, gemeinsam für das ganze Team. Deine VMs nutzen einen gemeinsamen Pool. Betreibe eine große VM oder fünf kleine. Pausierte VMs belegen nichts vom Pool. Es gibt keine verbrauchsabhängige Abrechnung oder Nachberechnung. Eine VM kann bis zu 16 GB RAM / 8 vCPU nutzen. Für 24 GB / 12 vCPU und 32 GB / 16 vCPU ist Max erforderlich."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro incluye hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM. Team añade el mismo grupo de recursos por cada puesto de pago, compartido por todo el equipo. Tus VM usan un único grupo de recursos. Ejecuta una VM grande o cinco pequeñas. Las VM en pausa no usan el grupo. No hay facturación por consumo ni por exceso."
+            "value": "Pro incluye hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM. Team añade el mismo grupo de recursos por cada puesto de pago, compartido por todo el equipo. Tus VM usan un único grupo de recursos. Ejecuta una VM grande o cinco pequeñas. Las VM en pausa no usan el grupo. No hay facturación por consumo ni por exceso. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inclut jusqu'à 5 VM Cloud qui partagent 20 vCPU et 40 Go de RAM. Team ajoute la même réserve pour chaque siège payant, partagée par toute l'équipe. Vos VM puisent dans une réserve commune. Lancez une grande VM ou cinq petites. Les VM en pause n'utilisent pas la réserve. Il n'y a pas de facturation à l'utilisation ou de dépassement."
+            "value": "Pro inclut jusqu'à 5 VM Cloud qui partagent 20 vCPU et 40 Go de RAM. Team ajoute la même réserve pour chaque siège payant, partagée par toute l'équipe. Vos VM puisent dans une réserve commune. Lancez une grande VM ou cinq petites. Les VM en pause n'utilisent pas la réserve. Il n'y a pas de facturation à l'utilisation ou de dépassement. Une VM peut utiliser jusqu’à 16 Go de RAM / 8 vCPU. Les tailles 24 Go / 12 vCPU et 32 Go / 16 vCPU nécessitent Max."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro include fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM. Team aggiunge lo stesso pool per ogni postazione a pagamento, condiviso da tutto il team. Le tue VM attingono a un unico pool. Esegui una VM grande o cinque piccole. Le VM in pausa non usano il pool. Non è prevista fatturazione a consumo né per eccedenze."
+            "value": "Pro include fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM. Team aggiunge lo stesso pool per ogni postazione a pagamento, condiviso da tutto il team. Le tue VM attingono a un unico pool. Esegui una VM grande o cinque piccole. Le VM in pausa non usano il pool. Non è prevista fatturazione a consumo né per eccedenze. Una VM può usare fino a 16 GB di RAM / 8 vCPU. Le dimensioni 24 GB / 12 vCPU e 32 GB / 16 vCPU richiedono Max."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB។ Team បន្ថែមបណ្តុំធនធានដូចគ្នាសម្រាប់កៅអីបង់ប្រាក់នីមួយៗ ដែលក្រុមទាំងមូលប្រើរួមគ្នា។ VMs របស់អ្នកប្រើធនធានពីបណ្តុំតែមួយ។ ដំណើរការ VM ធំមួយ ឬ VM តូចប្រាំ។ VMs ដែលបានផ្អាកមិនប្រើបណ្តុំទេ។ មិនមានការគិតថ្លៃតាមការប្រើប្រាស់ ឬថ្លៃលើសកំណត់ទេ។"
+            "value": "Pro រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB។ Team បន្ថែមបណ្តុំធនធានដូចគ្នាសម្រាប់កៅអីបង់ប្រាក់នីមួយៗ ដែលក្រុមទាំងមូលប្រើរួមគ្នា។ VMs របស់អ្នកប្រើធនធានពីបណ្តុំតែមួយ។ ដំណើរការ VM ធំមួយ ឬ VM តូចប្រាំ។ VMs ដែលបានផ្អាកមិនប្រើបណ្តុំទេ។ មិនមានការគិតថ្លៃតាមការប្រើប្រាស់ ឬថ្លៃលើសកំណត់ទេ។. VM មួយអាចប្រើ RAM រហូតដល់ 16 GB / 8 vCPU។ ទំហំ 24 GB / 12 vCPU និង 32 GB / 16 vCPU ត្រូវការ Max។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 20개와 RAM 40 GB를 공유합니다. Team은 유료 시트마다 동일한 풀이 추가되며 팀 전체가 공유합니다. VM은 하나의 풀에서 리소스를 사용합니다. 큰 VM 1개를 실행하거나 작은 VM 5개를 실행할 수 있습니다. 일시 중지된 VM은 풀을 사용하지 않습니다. 사용량 기반 과금이나 초과 요금은 없습니다."
+            "value": "Pro는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 20개와 RAM 40 GB를 공유합니다. Team은 유료 시트마다 동일한 풀이 추가되며 팀 전체가 공유합니다. VM은 하나의 풀에서 리소스를 사용합니다. 큰 VM 1개를 실행하거나 작은 VM 5개를 실행할 수 있습니다. 일시 중지된 VM은 풀을 사용하지 않습니다. 사용량 기반 과금이나 초과 요금은 없습니다. VM 한 대는 최대 16 GB RAM / 8 vCPU를 사용할 수 있습니다. 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기는 Max가 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inkluderer opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Team legger til den samme ressurspoolen for hver betalt plass, delt på tvers av teamet. VM-ene dine bruker én felles ressurspool. Kjør én stor VM eller fem små. VM-er på pause bruker ikke av ressurspoolen. Det er ingen forbruksbasert fakturering eller betaling for overforbruk."
+            "value": "Pro inkluderer opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Team legger til den samme ressurspoolen for hver betalt plass, delt på tvers av teamet. VM-ene dine bruker én felles ressurspool. Kjør én stor VM eller fem små. VM-er på pause bruker ikke av ressurspoolen. Det er ingen forbruksbasert fakturering eller betaling for overforbruk. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro obejmuje do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM. Team dodaje tę samą pulę za każde płatne miejsce, wspólną dla całego zespołu. Twoje VM korzystają z jednej wspólnej puli. Uruchom jedną dużą VM albo pięć małych. Wstrzymane VM nie zużywają puli. Nie ma rozliczeń za zużycie ani opłat za przekroczenie limitów."
+            "value": "Pro obejmuje do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM. Team dodaje tę samą pulę za każde płatne miejsce, wspólną dla całego zespołu. Twoje VM korzystają z jednej wspólnej puli. Uruchom jedną dużą VM albo pięć małych. Wstrzymane VM nie zużywają puli. Nie ma rozliczeń za zużycie ani opłat za przekroczenie limitów. Jedna VM może używać do 16 GB RAM / 8 vCPU. Rozmiary 24 GB / 12 vCPU i 32 GB / 16 vCPU wymagają Max."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Pro inclui até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM. O Team adiciona o mesmo pool para cada assento pago, compartilhado por toda a equipe. Suas VMs usam um único pool de recursos. Execute uma VM grande ou cinco pequenas. VMs pausadas não usam o pool. Não há cobrança por uso nem por excedente."
+            "value": "O Pro inclui até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM. O Team adiciona o mesmo pool para cada assento pago, compartilhado por toda a equipe. Suas VMs usam um único pool de recursos. Execute uma VM grande ou cinco pequenas. VMs pausadas não usam o pool. Não há cobrança por uso nem por excedente. Uma VM pode usar até 16 GB de RAM / 8 vCPU. Os tamanhos de 24 GB / 12 vCPU e 32 GB / 16 vCPU exigem Max."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro включает до 5 Cloud VMs с общим пулом из 20 vCPU и 40 ГБ RAM. Team добавляет такой же пул за каждое оплаченное место, общий для всей команды. Все ваши VM берут ресурсы из одного пула. Запустите одну большую VM или пять маленьких. Приостановленные VM не расходуют пул. Нет оплаты по факту использования или за превышение."
+            "value": "Pro включает до 5 Cloud VMs с общим пулом из 20 vCPU и 40 ГБ RAM. Team добавляет такой же пул за каждое оплаченное место, общий для всей команды. Все ваши VM берут ресурсы из одного пула. Запустите одну большую VM или пять маленьких. Приостановленные VM не расходуют пул. Нет оплаты по факту использования или за превышение. Одна VM может использовать до 16 ГБ RAM / 8 vCPU. Для размеров 24 ГБ / 12 vCPU и 32 ГБ / 16 vCPU требуется Max."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 20 vCPU และ RAM 40 GB ร่วมกัน Team เพิ่มพูลเดียวกันนี้ต่อที่นั่งแบบชำระเงินแต่ละที่นั่ง โดยใช้ร่วมกันทั้งทีม VM ทั้งหมดของคุณใช้ทรัพยากรจากพูลเดียว จะรัน VM ใหญ่เครื่องเดียวหรือ VM เล็กห้าเครื่องก็ได้ VM ที่หยุดชั่วคราวไม่ใช้พูล ไม่มีการคิดค่าบริการตามการใช้งานหรือค่าใช้งานส่วนเกิน"
+            "value": "Pro มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 20 vCPU และ RAM 40 GB ร่วมกัน Team เพิ่มพูลเดียวกันนี้ต่อที่นั่งแบบชำระเงินแต่ละที่นั่ง โดยใช้ร่วมกันทั้งทีม VM ทั้งหมดของคุณใช้ทรัพยากรจากพูลเดียว จะรัน VM ใหญ่เครื่องเดียวหรือ VM เล็กห้าเครื่องก็ได้ VM ที่หยุดชั่วคราวไม่ใช้พูล ไม่มีการคิดค่าบริการตามการใช้งานหรือค่าใช้งานส่วนเกิน. VM หนึ่งเครื่องใช้ RAM ได้สูงสุด 16 GB / 8 vCPU ขนาด 24 GB / 12 vCPU และ 32 GB / 16 vCPU ต้องใช้ Max"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro, 20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM içerir. Team, her ücretli koltuk için aynı havuzu ekler ve bu havuz tüm ekip tarafından paylaşılır. VM'leriniz tek bir havuzu kullanır. Tek bir büyük VM ya da beş küçük VM çalıştırın. Duraklatılmış VM'ler havuzu kullanmaz. Kullanıma göre ücretlendirme veya aşım ücreti yoktur."
+            "value": "Pro, 20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM içerir. Team, her ücretli koltuk için aynı havuzu ekler ve bu havuz tüm ekip tarafından paylaşılır. VM'leriniz tek bir havuzu kullanır. Tek bir büyük VM ya da beş küçük VM çalıştırın. Duraklatılmış VM'ler havuzu kullanmaz. Kullanıma göre ücretlendirme veya aşım ücreti yoktur. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro включає до 5 Cloud VMs зі спільним пулом із 20 vCPU і 40 ГБ RAM. Team додає такий самий пул за кожне оплачене місце, спільний для всієї команди. Усі ваші VM беруть ресурси з одного пулу. Запустіть одну велику VM або п'ять малих. Призупинені VM не використовують пул. Немає оплати за фактичне використання чи за перевищення."
+            "value": "Pro включає до 5 Cloud VMs зі спільним пулом із 20 vCPU і 40 ГБ RAM. Team додає такий самий пул за кожне оплачене місце, спільний для всієї команди. Усі ваші VM беруть ресурси з одного пулу. Запустіть одну велику VM або п'ять малих. Призупинені VM не використовують пул. Немає оплати за фактичне використання чи за перевищення. Одна VM може використовувати до 16 ГБ RAM / 8 vCPU. Для розмірів 24 ГБ / 12 vCPU і 32 ГБ / 16 vCPU потрібен Max."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 最多包含 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存。Team 为每个付费席位增加相同的资源池，由整个团队共享。你的虚拟机共用一个资源池，可以运行一台大型虚拟机，也可以运行五台小型虚拟机。已暂停的虚拟机不占用资源池。不按用量计费，也不收取超额费用。"
+            "value": "Pro 最多包含 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存。Team 为每个付费席位增加相同的资源池，由整个团队共享。你的虚拟机共用一个资源池，可以运行一台大型虚拟机，也可以运行五台小型虚拟机。已暂停的虚拟机不占用资源池。不按用量计费，也不收取超额费用。 单台 VM 最多可使用 16 GB 内存 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 规格需要 Max。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 包含最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體。Team 為每個付費席位增加相同的資源池，由整個團隊共用。你的虛擬機共用一個資源池，可以執行一台大型虛擬機，也可以執行五台小型虛擬機。已暫停的虛擬機不會占用資源池。不按用量計費，也不收取超額費用。"
+            "value": "Pro 包含最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體。Team 為每個付費席位增加相同的資源池，由整個團隊共用。你的虛擬機共用一個資源池，可以執行一台大型虛擬機，也可以執行五台小型虛擬機。已暫停的虛擬機不會占用資源池。不按用量計費，也不收取超額費用。 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。"
           }
         }
       }
@@ -522217,49 +522217,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: CPU 1–32, Arbeitsspeicher 1–64 GiB in ganzen GiB und Festplatte 4–256 GiB in 4-GiB-Schritten angeben."
+            "value": "vm resize: CPU 1–32, Arbeitsspeicher 4–64 GiB in ganzen GiB und Festplatte 4–256 GiB in 4-GiB-Schritten angeben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize : indiquez 1–32 CPU, 1–64 Gio de mémoire en Gio entiers et 4–256 Gio de disque par pas de 4 Gio."
+            "value": "vm resize : indiquez 1–32 CPU, 4–64 Gio de mémoire en Gio entiers et 4–256 Gio de disque par pas de 4 Gio."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: استخدم 1–32 وحدة معالجة، وذاكرة 1–64 GiB بأعداد صحيحة، وقرصًا 4–256 GiB بخطوات 4 GiB."
+            "value": "vm resize: استخدم 1–32 وحدة معالجة، وذاكرة 4–64 GiB بأعداد صحيحة، وقرصًا 4–256 GiB بخطوات 4 GiB."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: usa CPU 1–32, memoria 1–64 GiB en GiB enteros y disco 4–256 GiB en pasos de 4 GiB."
+            "value": "vm resize: usa CPU 1–32, memoria 4–64 GiB en GiB enteros y disco 4–256 GiB en pasos de 4 GiB."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize：CPU 為 1–32，記憶體為 1–64 GiB（整數 GiB），磁碟為 4–256 GiB（以 4 GiB 為增量）。"
+            "value": "vm resize：CPU 為 1–32，記憶體為 4–64 GiB（整數 GiB），磁碟為 4–256 GiB（以 4 GiB 為增量）。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize：CPU 为 1–32，内存为 1–64 GiB（整数 GiB），磁盘为 4–256 GiB（以 4 GiB 为增量）。"
+            "value": "vm resize：CPU 为 1–32，内存为 4–64 GiB（整数 GiB），磁盘为 4–256 GiB（以 4 GiB 为增量）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: CPU 1–32, 메모리 1–64GiB(정수 GiB), 디스크 4–256GiB(4GiB 단위)를 사용하세요."
+            "value": "vm resize: CPU 1–32, 메모리 4–64GiB(정수 GiB), 디스크 4–256GiB(4GiB 단위)를 사용하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: CPU は 1〜32、メモリは 1〜64 GiB（1 GiB 単位）、ディスクは 4〜256 GiB（4 GiB 単位）で指定してください。"
+            "value": "vm resize: CPU は 1〜32、メモリは 4〜64 GiB（1 GiB 単位）、ディスクは 4〜256 GiB（4 GiB 単位）で指定してください。"
           }
         },
         "bs": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."}},
@@ -522619,68 +522619,68 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again\nand returns the provider-confirmed resources.\nAdd --json for the structured result."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nErhöht die Ressourcen einer bestehenden Cloud-VM. Mindestens eine Ressource angeben:\nCPU: 1–32 vCPUs. Arbeitsspeicher: 4–64 GiB in ganzen GiB. Festplatte: 4–256 GiB in 4-GiB-Schritten.\nArbeitsspeicher und Festplatte akzeptieren G, GB oder GiB als Suffix. Verkleinern wird nicht unterstützt.\nDer Server prüft die Tarifgrenzen und gibt die vom Anbieter bestätigten Ressourcen zurück.\nMit --json wird das strukturierte Ergebnis ausgegeben."
+            "value": "Verwendung:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nErhöht die Ressourcen einer bestehenden Cloud-VM. Mindestens eine Ressource angeben:\nCPU: 1–32 vCPUs. Arbeitsspeicher: 4–64 GiB in ganzen GiB. Festplatte: 4–256 GiB in 4-GiB-Schritten.\nArbeitsspeicher und Festplatte akzeptieren G, GB oder GiB als Suffix. Verkleinern wird nicht unterstützt.\nDer Server prüft die Tarifgrenzen und gibt die vom Anbieter bestätigten Ressourcen zurück.\nMit --json wird das strukturierte Ergebnis ausgegeben.\n"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation :\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAugmente les ressources d’une Cloud VM existante. Indiquez au moins une ressource :\nCPU : 1–32 vCPU. Mémoire : 4–64 Gio en Gio entiers. Disque : 4–256 Gio par pas de 4 Gio.\nLa mémoire et le disque acceptent les suffixes G, GB ou GiB. La réduction n’est pas prise en charge.\nLe serveur applique les limites de l’offre et renvoie les ressources confirmées par le fournisseur.\nAjoutez --json pour obtenir le résultat structuré."
+            "value": "Utilisation :\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAugmente les ressources d’une Cloud VM existante. Indiquez au moins une ressource :\nCPU : 1–32 vCPU. Mémoire : 4–64 Gio en Gio entiers. Disque : 4–256 Gio par pas de 4 Gio.\nLa mémoire et le disque acceptent les suffixes G, GB ou GiB. La réduction n’est pas prise en charge.\nLe serveur applique les limites de l’offre et renvoie les ressources confirmées par le fournisseur.\n\nAjoutez --json pour obtenir le résultat structuré."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nزِد موارد Cloud VM موجودة دون استبدالها. حدّد موردًا واحدًا على الأقل:\nالمعالج: 1–32 وحدة افتراضية. الذاكرة: 1–64 GiB بأعداد صحيحة. القرص: 4–256 GiB بخطوات 4 GiB.\nتقبل الذاكرة والقرص اللواحق G أو GB أو GiB. تقليل الموارد غير مدعوم.\nيفرض الخادم حدود الخطة ويعيد الموارد التي أكدها المزوّد.\nأضف --json للحصول على النتيجة المنظّمة."
+            "value": "الاستخدام:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nزِد موارد Cloud VM موجودة دون استبدالها. حدّد موردًا واحدًا على الأقل:\nالمعالج: 1–32 وحدة افتراضية. الذاكرة: 4–64 GiB بأعداد صحيحة. القرص: 4–256 GiB بخطوات 4 GiB.\nتقبل الذاكرة والقرص اللواحق G أو GB أو GiB. تقليل الموارد غير مدعوم.\nيفرض الخادم حدود الخطة ويعيد الموارد التي أكدها المزوّد.\n\nأضف --json للحصول على النتيجة المنظّمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAumenta los recursos de una Cloud VM existente. Especifica al menos un recurso:\nCPU: 1–32 vCPU. Memoria: 4–64 GiB en GiB enteros. Disco: 4–256 GiB en pasos de 4 GiB.\nLa memoria y el disco aceptan los sufijos G, GB o GiB. No se admite reducir recursos.\nEl servidor aplica los límites del plan y devuelve los recursos confirmados por el proveedor.\nAñade --json para obtener el resultado estructurado."
+            "value": "Uso:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAumenta los recursos de una Cloud VM existente. Especifica al menos un recurso:\nCPU: 1–32 vCPU. Memoria: 4–64 GiB en GiB enteros. Disco: 4–256 GiB en pasos de 4 GiB.\nLa memoria y el disco aceptan los sufijos G, GB o GiB. No se admite reducir recursos.\nEl servidor aplica los límites del plan y devuelve los recursos confirmados por el proveedor.\n\nAñade --json para obtener el resultado estructurado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加現有 Cloud VM 的資源。請指定至少一項資源：\nCPU：1–32 vCPU。記憶體：4–64 GiB，以整數 GiB 指定。磁碟：4–256 GiB，以 4 GiB 為增量。\n記憶體和磁碟接受 G、GB 或 GiB 後綴。不支援縮減資源。\n伺服器會執行方案限制，並回傳供應商確認的資源。\n加上 --json 以取得結構化結果。"
+            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加現有 Cloud VM 的資源。請指定至少一項資源：\nCPU：1–32 vCPU。記憶體：4–64 GiB，以整數 GiB 指定。磁碟：4–256 GiB，以 4 GiB 為增量。\n記憶體和磁碟接受 G、GB 或 GiB 後綴。不支援縮減資源。\n伺服器會執行方案限制，並回傳供應商確認的資源。\n\n加上 --json 以取得結構化結果。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加现有 Cloud VM 的资源。请指定至少一项资源：\nCPU：1–32 vCPU。内存：4–64 GiB，以整数 GiB 指定。磁盘：4–256 GiB，以 4 GiB 为增量。\n内存和磁盘接受 G、GB 或 GiB 后缀。不支持缩减资源。\n服务器会执行套餐限制，并返回提供商确认的资源。\n加上 --json 以获取结构化结果。"
+            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加现有 Cloud VM 的资源。请指定至少一项资源：\nCPU：1–32 vCPU。内存：4–64 GiB，以整数 GiB 指定。磁盘：4–256 GiB，以 4 GiB 为增量。\n内存和磁盘接受 G、GB 或 GiB 后缀。不支持缩减资源。\n服务器会执行套餐限制，并返回提供商确认的资源。\n\n加上 --json 以获取结构化结果。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n기존 Cloud VM의 리소스를 늘립니다. 리소스를 하나 이상 지정하세요:\nCPU: 1–32 vCPU. 메모리: 4–64GiB, 정수 GiB 단위. 디스크: 4–256GiB, 4GiB 단위.\n메모리와 디스크는 G, GB 또는 GiB 접미사를 허용합니다. 리소스 축소는 지원하지 않습니다.\n서버가 요금제 제한을 적용하고 공급자가 확인한 리소스를 반환합니다.\n구조화된 결과를 보려면 --json을 추가하세요."
+            "value": "사용법:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n기존 Cloud VM의 리소스를 늘립니다. 리소스를 하나 이상 지정하세요:\nCPU: 1–32 vCPU. 메모리: 4–64GiB, 정수 GiB 단위. 디스크: 4–256GiB, 4GiB 단위.\n메모리와 디스크는 G, GB 또는 GiB 접미사를 허용합니다. 리소스 축소는 지원하지 않습니다.\n서버가 요금제 제한을 적용하고 공급자가 확인한 리소스를 반환합니다.\n\n구조화된 결과를 보려면 --json을 추가하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n既存の Cloud VM のリソースを増量します。少なくとも1つのリソースを指定してください：\nCPU：1〜32 vCPU。メモリ：4〜64 GiB、1 GiB 単位。ディスク：4〜256 GiB、4 GiB 単位。\nメモリとディスクには G、GB、GiB の接尾辞を使用できます。縮小には対応していません。\nサーバーがプランの制限を適用し、プロバイダーが確認したリソースを返します。\n構造化された結果には --json を追加してください。"
+            "value": "使用方法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n既存の Cloud VM のリソースを増量します。少なくとも1つのリソースを指定してください：\nCPU：1〜32 vCPU。メモリ：4〜64 GiB、1 GiB 単位。ディスク：4〜256 GiB、4 GiB 単位。\nメモリとディスクには G、GB、GiB の接尾辞を使用できます。縮小には対応していません。\nサーバーがプランの制限を適用し、プロバイダーが確認したリソースを返します。\n\n構造化された結果には --json を追加してください。"
           }
         },
-        "bs": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "da": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "it": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "km": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "th": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\nAdd --json for the structured result."}}
+        "bs": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "km": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "th": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}}
       }
     },
     "cli.vm.resize.helpDescription": {
@@ -524644,121 +524644,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max uključuje do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a, a jedan VM može koristiti do 64 GB RAM-a."
+            "value": "Max uključuje do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a, a jedan VM može koristiti do 64 GB RAM-a. Max omogućava 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max inkluderer op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM, og én VM kan bruge op til 64 GB RAM."
+            "value": "Max inkluderer op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM, og én VM kan bruge op til 64 GB RAM. Max giver adgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og op til 64 GB / 32 vCPU."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max include fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM, e una singola VM può usare fino a 64 GB di RAM."
+            "value": "Max include fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM, e una singola VM può usare fino a 64 GB di RAM. Max sblocca 24 GB / 12 vCPU, 32 GB / 16 vCPU e fino a 64 GB / 32 vCPU."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB ហើយ VM មួយអាចប្រើ RAM រហូតដល់ 64 GB។"
+            "value": "Max រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB ហើយ VM មួយអាចប្រើ RAM រហូតដល់ 64 GB។. Max ផ្តល់ទំហំ 24 GB / 12 vCPU, 32 GB / 16 vCPU និងរហូតដល់ 64 GB / 32 vCPU។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max inkluderer opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM, og én VM kan bruke opptil 64 GB RAM."
+            "value": "Max inkluderer opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM, og én VM kan bruke opptil 64 GB RAM. Max gir tilgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max obejmuje do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM, a jedna VM może używać do 64 GB RAM."
+            "value": "Max obejmuje do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM, a jedna VM może używać do 64 GB RAM. Max udostępnia 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Max inclui até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM, e uma VM pode usar até 64 GB de RAM."
+            "value": "O Max inclui até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM, e uma VM pode usar até 64 GB de RAM. O Max libera 24 GB / 12 vCPU, 32 GB / 16 vCPU e até 64 GB / 32 vCPU."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max включает до 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM, а одна VM может использовать до 64 ГБ RAM."
+            "value": "Max включает до 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM, а одна VM может использовать до 64 ГБ RAM. Max открывает размеры 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU и до 64 ГБ / 32 vCPU."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 80 vCPU และ RAM 160 GB ร่วมกัน และ VM หนึ่งเครื่องใช้ RAM ได้สูงสุด 64 GB"
+            "value": "Max มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 80 vCPU และ RAM 160 GB ร่วมกัน และ VM หนึ่งเครื่องใช้ RAM ได้สูงสุด 64 GB. Max เปิดให้ใช้ขนาด 24 GB / 12 vCPU, 32 GB / 16 vCPU และสูงสุด 64 GB / 32 vCPU"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max, 80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM içerir ve tek bir VM en fazla 64 GB RAM kullanabilir."
+            "value": "Max, 80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM içerir ve tek bir VM en fazla 64 GB RAM kullanabilir. Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max включає до 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM, а одна VM може використовувати до 64 ГБ RAM."
+            "value": "Max включає до 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM, а одна VM може використовувати до 64 ГБ RAM. Max відкриває розміри 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU і до 64 ГБ / 32 vCPU."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, and one VM can use up to 64 GB RAM."
+            "value": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM. It unlocks 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes, and one VM can use up to 64 GB RAM / 32 vCPU."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max beinhaltet bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen; eine einzelne VM kann bis zu 64 GB RAM nutzen."
+            "value": "Max beinhaltet bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen; eine einzelne VM kann bis zu 64 GB RAM nutzen. Max schaltet 24 GB / 12 vCPU, 32 GB / 16 vCPU und bis zu 64 GB / 32 vCPU frei."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max inclut jusqu'à 5 VM Cloud qui partagent 80 vCPU et 160 Go de RAM, et une seule VM peut utiliser jusqu'à 64 Go de RAM."
+            "value": "Max inclut jusqu'à 5 VM Cloud qui partagent 80 vCPU et 160 Go de RAM, et une seule VM peut utiliser jusqu'à 64 Go de RAM. Max donne accès à 24 Go / 12 vCPU, 32 Go / 16 vCPU et jusqu’à 64 Go / 32 vCPU."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتضمن باقة Max ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة، ويمكن للجهاز الواحد استخدام ما يصل إلى 64 جيجابايت من الذاكرة."
+            "value": "تتضمن باقة Max ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة، ويمكن للجهاز الواحد استخدام ما يصل إلى 64 جيجابايت من الذاكرة. تتيح Max أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU وحتى 64 GB / 32 vCPU."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max incluye hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM, y una sola VM puede usar hasta 64 GB de RAM."
+            "value": "Max incluye hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM, y una sola VM puede usar hasta 64 GB de RAM. Max desbloquea 24 GB / 12 vCPU, 32 GB / 16 vCPU y hasta 64 GB / 32 vCPU."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max 包含最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體，單台虛擬機最多可使用 64 GB 記憶體。"
+            "value": "Max 包含最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體，單台虛擬機最多可使用 64 GB 記憶體。 Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可達 64 GB / 32 vCPU。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max 最多包含 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存，单台虚拟机最多可使用 64 GB 内存。"
+            "value": "Max 最多包含 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存，单台虚拟机最多可使用 64 GB 内存。 Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可达 64 GB / 32 vCPU。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 80개와 RAM 160 GB를 공유합니다. VM 1개는 최대 RAM 64 GB까지 사용할 수 있습니다."
+            "value": "Max는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 80개와 RAM 160 GB를 공유합니다. VM 1개는 최대 RAM 64 GB까지 사용할 수 있습니다. Max는 24 GB / 12 vCPU, 32 GB / 16 vCPU 및 최대 64 GB / 32 vCPU를 제공합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max には最大 5 台の Cloud VM が含まれ、80 vCPU と 160 GB RAM を共有します。1 台の VM で最大 64 GB RAM を利用できます。"
+            "value": "Max には最大 5 台の Cloud VM が含まれ、80 vCPU と 160 GB RAM を共有します。1 台の VM で最大 64 GB RAM を利用できます。 Max では 24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。"
           }
         }
       }
@@ -525536,121 +525536,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a"
+            "value": "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a. Max omogućava 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM"
+            "value": "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM. Max giver adgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og op til 64 GB / 32 vCPU."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM"
+            "value": "Fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM. Max sblocca 24 GB / 12 vCPU, 32 GB / 16 vCPU e fino a 64 GB / 32 vCPU."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB"
+            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB. Max ផ្តល់ទំហំ 24 GB / 12 vCPU, 32 GB / 16 vCPU និងរហូតដល់ 64 GB / 32 vCPU។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM"
+            "value": "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM. Max gir tilgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM"
+            "value": "Do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM. Max udostępnia 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM"
+            "value": "Até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM. O Max libera 24 GB / 12 vCPU, 32 GB / 16 vCPU e até 64 GB / 32 vCPU."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "До 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM"
+            "value": "До 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM. Max открывает размеры 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU и до 64 ГБ / 32 vCPU."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 80 vCPU และ RAM 160 GB ร่วมกัน"
+            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 80 vCPU และ RAM 160 GB ร่วมกัน. Max เปิดให้ใช้ขนาด 24 GB / 12 vCPU, 32 GB / 16 vCPU และสูงสุด 64 GB / 32 vCPU"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM"
+            "value": "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM. Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "До 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM"
+            "value": "До 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM. Max відкриває розміри 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU і до 64 ГБ / 32 vCPU."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM"
+            "value": "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen"
+            "value": "Bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen. Max schaltet 24 GB / 12 vCPU, 32 GB / 16 vCPU und bis zu 64 GB / 32 vCPU frei."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud partageant 80 vCPU et 160 Go de RAM"
+            "value": "Jusqu’à 5 VM cloud partageant 80 vCPU et 160 Go de RAM. Max donne accès à 24 Go / 12 vCPU, 32 Go / 16 vCPU et jusqu’à 64 Go / 32 vCPU."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة. تتيح Max أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU وحتى 64 GB / 32 vCPU."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM"
+            "value": "Hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM. Max desbloquea 24 GB / 12 vCPU, 32 GB / 16 vCPU y hasta 64 GB / 32 vCPU."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體"
+            "value": "最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體. Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可達 64 GB / 32 vCPU。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存"
+            "value": "最多 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存. Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可达 64 GB / 32 vCPU。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 5개의 클라우드 VM이 vCPU 80개와 RAM 160 GB를 공유"
+            "value": "최대 5개의 클라우드 VM이 vCPU 80개와 RAM 160 GB를 공유. Max는 24 GB / 12 vCPU, 32 GB / 16 vCPU 및 최대 64 GB / 32 vCPU를 제공합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有"
+            "value": "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有. Max では 24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。"
           }
         }
       }
@@ -525779,121 +525779,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM-a"
+            "value": "64 GB RAM-a / 32 vCPU"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB di RAM"
+            "value": "64 GB di RAM / 32 vCPU"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 64 GB"
+            "value": "RAM 64 GB / 32 vCPU"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB de RAM"
+            "value": "64 GB de RAM / 32 vCPU"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 ГБ RAM"
+            "value": "64 ГБ RAM / 32 vCPU"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 64 GB"
+            "value": "RAM 64 GB / 32 vCPU"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 ГБ RAM"
+            "value": "64 ГБ RAM / 32 vCPU"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM / 32 vCPU"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB Arbeitsspeicher"
+            "value": "64 GB Arbeitsspeicher / 32 vCPU"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 Go de RAM"
+            "value": "64 Go de RAM / 32 vCPU"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 غيغابايت من الذاكرة"
+            "value": "64 غيغابايت من الذاكرة / 32 vCPU"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB de RAM"
+            "value": "64 GB de RAM / 32 vCPU"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 記憶體"
+            "value": "64 GB 記憶體 / 32 vCPU"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 内存"
+            "value": "64 GB 内存 / 32 vCPU"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 메모리"
+            "value": "64 GB 메모리 / 32 vCPU"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB メモリ"
+            "value": "64 GB メモリ / 32 vCPU"
           }
         }
       }
@@ -526994,121 +526994,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB RAM-a"
+            "value": "16 GB RAM-a / 8 vCPU"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB di RAM"
+            "value": "16 GB di RAM / 8 vCPU"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 16 GB"
+            "value": "RAM 16 GB / 8 vCPU"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB de RAM"
+            "value": "16 GB de RAM / 8 vCPU"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 ГБ RAM"
+            "value": "16 ГБ RAM / 8 vCPU"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "RAM 16 GB"
+            "value": "RAM 16 GB / 8 vCPU"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 ГБ RAM"
+            "value": "16 ГБ RAM / 8 vCPU"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB RAM"
+            "value": "16 GB RAM / 8 vCPU"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB Arbeitsspeicher"
+            "value": "16 GB Arbeitsspeicher / 8 vCPU"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 Go de RAM"
+            "value": "16 Go de RAM / 8 vCPU"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 غيغابايت من الذاكرة"
+            "value": "16 غيغابايت من الذاكرة / 8 vCPU"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB de RAM"
+            "value": "16 GB de RAM / 8 vCPU"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB 記憶體"
+            "value": "16 GB 記憶體 / 8 vCPU"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB 内存"
+            "value": "16 GB 内存 / 8 vCPU"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB 메모리"
+            "value": "16 GB 메모리 / 8 vCPU"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "16 GB メモリ"
+            "value": "16 GB メモリ / 8 vCPU"
           }
         }
       }

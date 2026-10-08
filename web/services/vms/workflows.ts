@@ -227,8 +227,8 @@ export type VmEntry = {
   readonly agentUpdates: VmAgentUpdatesSetting;
   /**
    * The machine's recorded share of the shared vCPU/memory pool, or null for a
-   * legacy row without a valid reservation marker (the pool counts those at
-   * the plan's default machine size).
+   * legacy row without a valid reservation marker (the pool conservatively
+   * reserves the provider maximum until reconciliation measures it).
    */
   readonly resourceReservation?: VmComputeResources | null;
 };
@@ -973,7 +973,7 @@ function requireMeasuredMachineFitsPlan(
   providers: VmProviderGatewayShape,
   vm: Pick<CloudVmRow, "provider" | "providerVmId">,
   providerVmId: string,
-): Effect.Effect<VmResourceReservation, VmMemoryPlanError | VmProviderOperationError> {
+): Effect.Effect<VmResourceReservation, VmWorkflowError> {
   if (!providers.getStats) {
     return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "getStats" }));
   }
@@ -986,7 +986,7 @@ function requireMeasuredMachineFitsPlan(
         cause: new Error("provider stats timed out while checking the machine plan"),
       }),
     }),
-    Effect.flatMap((stats): Effect.Effect<VmResourceReservation, VmMemoryPlanError | VmProviderOperationError> => {
+    Effect.flatMap((stats): Effect.Effect<VmResourceReservation, VmWorkflowError> => {
       const memoryMb = vmProviderResourceSize("memoryMb", stats.memoryTotalMb);
       const vcpus = vmProviderResourceSize("vcpus", stats.cpus);
       if (memoryMb === null || vcpus === null) {
@@ -1592,9 +1592,10 @@ function finishBaseCreate(
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
+  // oxlint-disable-next-line complexity -- Base retries keep provider recovery, plan checks, and billing cleanup in one ordered workflow.
   return Effect.gen(function* () {
     if (create.kind === "existing") {
-      const existing = create.vm;
+      let existing = create.vm;
       if (isFailedVmCreate(existing)) {
         return yield* Effect.fail(
           new VmCreateFailedError({
@@ -1631,7 +1632,19 @@ function finishBaseCreate(
         if (hasVmResourceReservationMetadata(existing.providerMetadata)) {
           yield* requireMachineFitsPlan(input.billingPlanId, existing.providerMetadata);
         } else {
-          yield* requireMeasuredMachineFitsPlan(input.billingPlanId, providers, existing, existing.providerVmId);
+          const measured = yield* requireMeasuredMachineFitsPlan(input.billingPlanId, providers, existing, existing.providerVmId);
+          if (repo.setResourceReservation) {
+            const persisted = yield* repo.setResourceReservation({ id: existing.id, reservation: measured });
+            if (persisted) {
+              existing = {
+                ...existing,
+                providerMetadata: {
+                  ...existing.providerMetadata,
+                  [VM_RESOURCE_RESERVATION_METADATA_KEY]: measured,
+                },
+              };
+            }
+          }
         }
       }
       return baseVmEntryFromRows(create.base, create.generation, existing, null);
@@ -2223,9 +2236,10 @@ function snapshotResourceReservation(
 ): VmResourceReservation {
   const sourceReservation = vmResourceReservationFromMetadata(providerMetadata);
   if (!hasVmResourceReservationMetadata(providerMetadata)) {
+    const conservative = legacyPoolReservationForPlan(null);
     return {
-      vcpus: providerResources?.vcpus ?? DEFAULT_VM_RESOURCE_RESERVATION.vcpus,
-      memoryMb: providerResources?.memoryMb ?? DEFAULT_VM_RESOURCE_RESERVATION.memoryMb,
+      vcpus: providerResources?.vcpus ?? conservative.vcpus,
+      memoryMb: providerResources?.memoryMb ?? conservative.memoryMb,
       diskMb: providerResources?.diskMb ?? VM_DISK_MB_MAX,
     };
   }
@@ -2287,9 +2301,9 @@ export function restoreVm(input: {
     }
     const resourceReservation = input.billingPlanId === "go" ? snapshotReservation ?? undefined : isPaidVmPlan(input.billingPlanId)
       ? restoreResourceReservation(snapshotReservation ?? {
-        ...DEFAULT_VM_RESOURCE_RESERVATION,
+        ...legacyPoolReservationForPlan(input.billingPlanId),
         // A snapshot event written before resource metadata existed has no
-        // trustworthy shape. Claim the historical machine shape and maximum disk size.
+        // trustworthy shape. Claim the provider maximum and maximum disk size.
         diskMb: VM_DISK_MB_MAX,
       })
       : undefined;
@@ -2330,11 +2344,10 @@ function resourceReservationForFork(
     return Effect.succeed(reservation);
   }
 
-  // Unknown legacy dimensions claim the historical machine shape. This keeps the
-  // fallback compatible with legacy machines until provider stats arrive.
+  // Unknown legacy dimensions claim the provider maximum. This keeps a
+  // Max-sized source from being undercounted while provider stats are missing.
   const unknownShape = {
-    vcpus: DEFAULT_VM_RESOURCE_RESERVATION.vcpus,
-    memoryMb: DEFAULT_VM_RESOURCE_RESERVATION.memoryMb,
+    ...legacyPoolReservationForPlan(billingPlanId),
     diskMb: VM_DISK_MB_MAX,
   } satisfies VmResourceReservation;
   if (!providers.getStats) return Effect.succeed(unknownShape);
@@ -2508,8 +2521,8 @@ export function forkVm(input: {
       ? sourceHasReservation
         ? vmResourceReservationFromMetadata(source.providerMetadata)
         : {
-          // A legacy source draws from the pool at the plan's default machine
-          // size until the copy is measured (finalizeNativeForkReservation).
+          // A legacy source reserves the provider maximum until the copy is
+          // measured (finalizeNativeForkReservation).
           ...legacyPoolReservationForPlan(input.billingPlanId),
           diskMb: VM_DISK_MB_MAX,
         }
@@ -3016,7 +3029,12 @@ function reconcileLegacyResourceCandidate(
     Effect.flatMap((stats) => {
       const diskMb = vmProviderResourceSize("diskMb", stats.diskTotalMb);
       if (diskMb === null) return deferLegacyResourceCandidate(repo, vm);
-      const existing = vmResourceReservationFromMetadata(metadata);
+      const existing = hasVmResourceReservationMetadata(metadata)
+        ? vmResourceReservationFromMetadata(metadata)
+        : {
+          ...legacyPoolReservationForPlan(vm.billingPlanId),
+          diskMb: VM_DISK_MB_MAX,
+        };
       if (hasForkPendingMarker && forkMinimumReservation) {
         return reconcilePendingForkReservation({
           setReservation,

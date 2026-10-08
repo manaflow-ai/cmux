@@ -728,7 +728,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 の月払いで、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有できます。"
+        "upsell": "Max は月額 $200 の月払いで、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有できます。24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。"
       },
       "teamPanel": {
         "notFound": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
@@ -793,11 +793,11 @@
           ],
           "pro": [
             "Cloud VM 上のクラウドエージェント",
-            "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有",
+            "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有。1 台の VM は最大 16 GB RAM / 8 vCPU。24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。",
             "cmux iOS アプリ"
           ],
           "max": [
-            "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有",
+            "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有。Max では 24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。",
             "より大きなマシンサイズ",
             "Pro のすべての機能"
           ],
@@ -1749,7 +1749,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有",
+        "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有。1 台の VM は最大 16 GB RAM / 8 vCPU。24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -1769,7 +1769,7 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有",
+        "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有。Max では 24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。",
         "無制限のワークスペースと iOS アプリ"
       ]
     },
@@ -1887,9 +1887,9 @@
         {
           "label": "最大の Cloud VM",
           "free": "false",
-          "pro": "16 GB RAM",
-          "max": "64 GB RAM",
-          "team": "16 GB RAM",
+          "pro": "16 GB RAM / 8 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要）",
+          "max": "64 GB RAM / 32 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU を含む）",
+          "team": "16 GB RAM / 8 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要）",
           "enterprise": "カスタム",
           "go": "4 GiB RAM"
         },
@@ -1991,7 +1991,7 @@
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。Pro のすべてを含み、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有します。Pro と Team では最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有します。VM は 1 つのプールからリソースを使います。大きな VM 1 台でも、小さな VM 5 台でも動かせます。一時停止中の VM はプールを使いません。Free には Cloud VM は含まれません。"
+          "a": "Max は月払いで $200/月です。Pro のすべてを含み、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有します。24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU を利用できます。Pro と Team では最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有し、1 台は最大 16 GB RAM / 8 vCPU です。VM は 1 つのプールからリソースを使います。大きな VM 1 台でも、小さな VM 5 台でも動かせます。一時停止中の VM はプールを使いません。Free には Cloud VM は含まれません。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -4354,7 +4354,7 @@
       "createCli": "CLIでは、cmux vm new がマシンを作成し、そのマシン上でワークスペースを開きます。何も開かずに作成するには --detach を使います。作成リクエストが再試行された場合、cmuxは同じリクエストを再利用するため、マシンが2台できることはありません。",
       "createFailed": "作成に失敗した場合は、通知から再試行、エラーの表示、またはサポート依頼用にエラーをコピーできます。",
       "sizesTitle": "サイズ",
-      "sizesDesc": "各サイズはメモリ、vCPU、ディスクをまとめて決めます。作成シートまたは --size でサイズを選びます。",
+      "sizesDesc": "各サイズはメモリ、vCPU、ディスクをまとめて決めます。作成シートまたは --size でサイズを選びます。 Pro と Team は 4g、8g、16g（2、4、8 vCPU）に対応します。Max では 24g と 32g（12、16 vCPU）、さらに 64g（32 vCPU）も利用できます。",
       "sizeColumn": "サイズ",
       "memoryColumn": "メモリ",
       "cpuColumn": "vCPU",
@@ -7029,7 +7029,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro が有効です",
     "title": "cmux Pro へようこそ",
-    "body": "Pro には、20 個の vCPU と 40 GB の RAM を共有する最大 5 台の Cloud VM と、cmux iOS TestFlight へのアクセスが含まれます。",
+    "body": "Pro には最大 5 台の Cloud VM が含まれ、20 vCPU と 40 GB RAM を共有します。1 台は最大 16 GB RAM / 8 vCPU で、24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要です。cmux iOS TestFlight も利用できます。",
     "done": "ダッシュボードへ",
     "steps": {
       "iosApp": {

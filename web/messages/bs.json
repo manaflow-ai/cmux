@@ -497,11 +497,11 @@
           ],
           "pro": [
             "Cloud agenti na Cloud VMs",
-            "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a",
+            "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
             "cmux aplikacija za iOS"
           ],
           "max": [
-            "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a",
+            "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a. Max omogućava 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU.",
             "Veće mašine",
             "Sve iz Pro"
           ],
@@ -2919,7 +2919,7 @@
       "createCli": "U CLI-ju, cmux vm new kreira mašinu i otvara radni prostor na njoj. Koristite --detach da je kreirate bez otvaranja bilo čega. Ako se zahtjev za kreiranje ponovi, cmux ponovo koristi isti zahtjev, tako da ne dobijete dvije mašine.",
       "createFailed": "Ako kreiranje ne uspije, notifikacija vam omogućava da pokušate ponovo, prikažete grešku ili je kopirate za zahtjev podršci.",
       "sizesTitle": "Veličine",
-      "sizesDesc": "Svaka veličina zajedno određuje memoriju, vCPU i disk. Izaberite veličinu u prozoru za kreiranje ili pomoću --size.",
+      "sizesDesc": "Svaka veličina zajedno određuje memoriju, vCPU i disk. Izaberite veličinu u prozoru za kreiranje ili pomoću --size. Pro i Team podržavaju 4g, 8g i 16g (2, 4 i 8 vCPU). Max otključava i 24g i 32g (12 i 16 vCPU) te 64g (32 vCPU).",
       "sizeColumn": "Veličina",
       "memoryColumn": "Memorija",
       "cpuColumn": "vCPU",
@@ -5344,7 +5344,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro je aktivan",
     "title": "Dobro došli u cmux Pro",
-    "body": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a, kao i pristup cmux iOS-u putem TestFlighta.",
+    "body": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a, kao i pristup cmux iOS-u putem TestFlighta. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
     "done": "Idi na kontrolnu ploču",
     "steps": {
       "iosApp": {

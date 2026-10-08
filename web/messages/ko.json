@@ -497,11 +497,11 @@
           ],
           "pro": [
             "Cloud VM의 클라우드 에이전트",
-            "최대 5대의 Cloud VM이 vCPU 20개와 40 GB RAM을 공유",
+            "최대 5대의 Cloud VM이 vCPU 20개와 40 GB RAM을 공유. VM 한 대는 최대 16 GB RAM / 8 vCPU를 사용할 수 있습니다. 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기는 Max가 필요합니다.",
             "cmux iOS 앱"
           ],
           "max": [
-            "최대 5대의 Cloud VM이 vCPU 80개와 160 GB RAM을 공유",
+            "최대 5대의 Cloud VM이 vCPU 80개와 160 GB RAM을 공유. Max는 24 GB / 12 vCPU, 32 GB / 16 vCPU 및 최대 64 GB / 32 vCPU를 제공합니다.",
             "더 큰 머신 크기",
             "Pro의 모든 기능"
           ],
@@ -2916,7 +2916,7 @@
       "createCli": "CLI에서는 cmux vm new가 머신을 만들고 그 머신에서 워크스페이스를 엽니다. 아무것도 열지 않고 만들려면 --detach를 사용합니다. 생성 요청이 재시도되면 cmux가 같은 요청을 재사용하므로 머신이 두 대 생기지 않습니다.",
       "createFailed": "생성에 실패하면 알림에서 재시도하거나, 오류를 보거나, 지원 요청용으로 오류를 복사할 수 있습니다.",
       "sizesTitle": "크기",
-      "sizesDesc": "각 크기는 메모리, vCPU, 디스크를 함께 정합니다. 생성 시트나 --size로 크기를 고릅니다.",
+      "sizesDesc": "각 크기는 메모리, vCPU, 디스크를 함께 정합니다. 생성 시트나 --size로 크기를 고릅니다. Pro와 Team은 4g, 8g, 16g(2, 4, 8 vCPU)를 지원합니다. Max는 24g와 32g(12, 16 vCPU), 그리고 64g(32 vCPU)도 잠금 해제합니다.",
       "sizeColumn": "크기",
       "memoryColumn": "메모리",
       "cpuColumn": "vCPU",
@@ -5341,7 +5341,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro 활성화됨",
     "title": "cmux Pro에 오신 것을 환영합니다",
-    "body": "Pro에는 20 vCPU와 40GB RAM을 공유하는 최대 5대의 Cloud VM과 cmux iOS TestFlight 이용 권한이 포함됩니다.",
+    "body": "Pro에는 20 vCPU와 40GB RAM을 공유하는 최대 5대의 Cloud VM과 cmux iOS TestFlight 이용 권한이 포함됩니다. VM 한 대는 최대 16 GB RAM / 8 vCPU를 사용할 수 있습니다. 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기는 Max가 필요합니다.",
     "done": "대시보드로 이동",
     "steps": {
       "iosApp": {

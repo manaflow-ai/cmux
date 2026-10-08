@@ -497,11 +497,11 @@
           ],
           "pro": [
             "Cloud VMs üzerinde bulut ajanları",
-            "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM",
+            "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
             "cmux iOS uygulaması"
           ],
           "max": [
-            "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM",
+            "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM. Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar.",
             "Daha büyük makine boyutları",
             "Pro'daki her şey"
           ],
@@ -2917,7 +2917,7 @@
       "createCli": "CLI'da cmux vm new bir makine oluşturur ve üzerinde bir çalışma alanı açar. Hiçbir şey açmadan oluşturmak için --detach kullanın. Bir oluşturma isteği yeniden denenirse cmux aynı isteği yeniden kullanır, böylece iki makine elde etmezsiniz.",
       "createFailed": "Oluşturma başarısız olursa bildirim; yeniden denemenize, hatayı göstermenize veya destek talebi için kopyalamanıza olanak tanır.",
       "sizesTitle": "Boyutlar",
-      "sizesDesc": "Her boyut belleği, vCPU'yu ve diski birlikte belirler. Boyutu oluşturma sayfasında veya --size ile seçin.",
+      "sizesDesc": "Her boyut belleği, vCPU'yu ve diski birlikte belirler. Boyutu oluşturma sayfasında veya --size ile seçin. Pro ve Team 4g, 8g ve 16g (2, 4 ve 8 vCPU) destekler. Max ayrıca 24g ve 32g (12 ve 16 vCPU) ile 64g (32 vCPU) boyutlarının kilidini açar.",
       "sizeColumn": "Boyut",
       "memoryColumn": "Bellek",
       "cpuColumn": "vCPU",
@@ -5342,7 +5342,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro etkin",
     "title": "cmux Pro’ya hoş geldin",
-    "body": "Pro, 20 vCPU ve 40 GB RAM paylaşan en fazla 5 Cloud VM'in yanı sıra TestFlight üzerinden cmux iOS erişimini içerir.",
+    "body": "Pro, 20 vCPU ve 40 GB RAM paylaşan en fazla 5 Cloud VM'in yanı sıra TestFlight üzerinden cmux iOS erişimini içerir. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
     "done": "Kontrol paneline git",
     "steps": {
       "iosApp": {

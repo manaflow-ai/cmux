@@ -234,3 +234,122 @@ test("reopening an existing oversized Base cannot bypass the caller's Pro CPU ce
     }
   }
 });
+
+test("reopening a markerless Base persists the measured reservation before returning it", async () => {
+  const base = { id: "base", name: "default" };
+  const generation = { id: "generation", generation: 1 };
+  const existing = {
+    id: "vm",
+    userId: "u",
+    billingTeamId: "u",
+    ownerTeamId: "u",
+    coderouterPoolId: null,
+    status: "running" as const,
+    provider: "freestyle" as const,
+    providerVmId: "provider-vm",
+    imageId: "snapshot",
+    imageVersion: null,
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    displayName: null,
+    slug: null,
+    providerMetadata: {},
+  };
+  let persisted: unknown;
+  const repo = {
+    beginBaseOpen: () => Effect.succeed({
+      kind: "existing" as const,
+      base,
+      generation,
+      vm: existing,
+    }),
+    setResourceReservation: (input: { id: string; reservation: unknown }) => Effect.sync(() => {
+      persisted = input;
+      return true;
+    }),
+  } as unknown as VmRepositoryShape;
+  const providers = {
+    getStatus: () => Effect.succeed("running" as const),
+    getStats: () => Effect.succeed({ memoryTotalMb: 16384, cpus: 8, diskTotalMb: 65536 }),
+  } as unknown as VmProviderGatewayShape;
+  const layer = Layer.mergeAll(
+    Layer.succeed(VmRepository, repo),
+    Layer.succeed(VmProviderGateway, providers),
+    Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+  );
+
+  await Effect.runPromise(openBaseVm({
+    userId: "u",
+    billingCustomerType: "user",
+    billingTeamId: "u",
+    billingPlanId: "pro",
+    maxActiveVms: 5,
+    provider: "freestyle",
+    image: "snapshot",
+    baseName: "default",
+  }).pipe(Effect.provide(layer)));
+
+  expect(persisted).toEqual({
+    id: "vm",
+    reservation: { memoryMb: 16384, vcpus: 8, diskMb: 65536 },
+  });
+});
+
+test("an idempotent create retry cannot return a Max-sized row to Pro", async () => {
+  const existing = {
+    id: "vm",
+    userId: "u",
+    billingTeamId: "u",
+    ownerTeamId: "u",
+    coderouterPoolId: null,
+    status: "running" as const,
+    provider: "freestyle" as const,
+    providerVmId: "provider-vm",
+    imageId: "snapshot",
+    imageVersion: null,
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    displayName: null,
+    slug: null,
+    providerMetadata: {
+      cmuxResourceReservation: { memoryMb: 24576, vcpus: 12, diskMb: 98304 },
+    },
+  };
+  const repo = {
+    beginCreate: () => Effect.succeed({ inserted: false as const, vm: existing }),
+    findNetwork: () => Effect.succeed({
+      id: "network",
+      userId: "u",
+      provider: "freestyle" as const,
+      providerNetworkId: "provider-network",
+      slug: "u",
+      cidr: null,
+      cidrV6: null,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    }),
+  } as unknown as VmRepositoryShape;
+  const providers = {
+    supportsPrivateNetworking: () => true,
+    ensureNetwork: () => Effect.die("the existing owner network should be reused"),
+  } as unknown as VmProviderGatewayShape;
+  const layer = Layer.mergeAll(
+    Layer.succeed(VmRepository, repo),
+    Layer.succeed(VmProviderGateway, providers),
+    Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+  );
+
+  const result = await Effect.runPromiseExit(createVm({
+    userId: "u",
+    billingCustomerType: "user",
+    billingTeamId: "u",
+    billingPlanId: "pro",
+    maxActiveVms: 5,
+    provider: "freestyle",
+    image: "snapshot",
+    idempotencyKey: "retry",
+  }).pipe(Effect.provide(layer)));
+
+  expect(result._tag).toBe("Failure");
+  if (result._tag === "Failure") {
+    expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
+  }
+});

@@ -148,8 +148,14 @@ describe("VM defaults and pricing copy", () => {
       }
       expect(row!.max).toContain("80 vCPU");
       expect(row!.max).toContain("160 GB RAM");
+      expect(features).toContain("24 GB / 12 vCPU");
+      expect(features).toContain("32 GB / 16 vCPU");
+      expect(faq).toContain("24 GB / 12 vCPU");
+      expect(faq).toContain("32 GB / 16 vCPU");
       // The retired per-VM limits and shared-pool numbers must not come back.
-      expect(JSON.stringify(messages.pricing)).not.toMatch(/per VM|VM あたり|4 vCPU|8 GB RAM|24 GB|50 Cloud VMs|6 vCPUs shared/);
+      // 24/32 GB and 12/16 vCPU are current Max offerings and are expected in
+      // the plan ladder copy.
+      expect(JSON.stringify(messages.pricing)).not.toMatch(/per VM|VM あたり|4 vCPU|8 GB RAM|50 Cloud VMs|6 vCPUs shared/);
       expect(JSON.stringify(messages.dashboard.billing)).not.toMatch(/per VM|VM あたり|(?:^|\D)4 vCPU/);
     });
   }
@@ -167,9 +173,11 @@ describe("VM defaults and pricing copy", () => {
       expect(messages.dashboard.billing.max.upsell).toContain("160 GB");
       const row = messages.pricing.compare.rows.find(row => row.label === largestLabel);
       expect(row).toBeDefined();
-      expect(row!.max).toBe("64 GB RAM");
+      expect(row!.max).toContain("64 GB RAM");
+      expect(row!.max).toContain("32 vCPU");
       for (const plan of ["pro", "team"] as const) {
-        expect(row![plan]).toBe("16 GB RAM");
+        expect(row![plan]).toContain("16 GB RAM");
+        expect(row![plan]).toContain("8 vCPU");
       }
       // Free accounts include no Cloud VM at all.
       expect(row!.free).toBe("false");
@@ -183,6 +191,8 @@ describe("VM defaults and pricing copy", () => {
       expect(faq!.a).toContain("160 GB");
       expect(faq!.a).toContain("20 vCPU");
       expect(faq!.a).toContain("40 GB");
+      expect(faq!.a).toContain("24 GB / 12 vCPU");
+      expect(faq!.a).toContain("32 GB / 16 vCPU");
       expect(faq!.a).toContain(poolSentence);
       const billingFaq = messages.pricing.faq.items.map(item => item.a).join("\n");
       expect(billingFaq).toContain("$200");
@@ -193,8 +203,14 @@ describe("VM defaults and pricing copy", () => {
     for (const locale of locales) {
       if (locale === "en" || locale === "ja") continue;
       const messages = await loadMessages(locale) as unknown as typeof enMessages;
-      expect(messages.pricing.pro.features.join("\n")).toContain("Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM");
-      expect(messages.pricing.max.features[0]).toBe("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
+      const proCopy = messages.pricing.pro.features.join("\n");
+      const maxCopy = messages.pricing.max.features.join("\n");
+      expect(proCopy).toMatch(/20 vCPU(?:s)?[^\n]*40 GB/);
+      expect(maxCopy).toMatch(/80 vCPU(?:s)?[^\n]*160 GB/);
+      expect(proCopy).toContain("12 vCPU");
+      expect(proCopy).toContain("16 vCPU");
+      expect(maxCopy).toContain("12 vCPU");
+      expect(maxCopy).toContain("16 vCPU");
       expect(messages.pricing.compare.rows.find(row => row.label === "Cloud VM resources")).toBeDefined();
     }
   });
@@ -205,7 +221,7 @@ describe("VM defaults and pricing copy", () => {
       const picker = messages.dashboard.billing.picker.features;
       for (const quantity of ["5", "20", "40"]) expect(picker.pro.join("\n")).toContain(quantity);
       for (const quantity of ["5", "80", "160"]) expect(picker.max.join("\n")).toContain(quantity);
-      expect(JSON.stringify(picker)).not.toMatch(/(?:^|\D)(?:4 vCPU|8 GB|16 vCPU|32 GB)/);
+      expect(JSON.stringify(picker)).not.toMatch(/(?:^|\D)(?:4 vCPU|8 GB RAM)/);
       const sizeError = messages.docs.cloudTroubleshooting.fixSize;
       expect(sizeError).toContain("16");
       expect(sizeError).not.toContain("32 GB");
@@ -231,7 +247,7 @@ describe("VM defaults and pricing copy", () => {
         // Remove only the $50 Pro price tokens, so a stale "50 Cloud VMs"
         // elsewhere in the same value still fails.
         const withoutPrice = value.replace(/^\$?50$|\$50\/?|(?<!\d)50\s?\$|(?<!\d)50\s*美元/g, "");
-        if (/(?<!\d)50(?!\d)|(?<!\d)24\s?(?:GB|Go)|\btrial\b|\$480/i.test(withoutPrice)) {
+        if (/(?<!\d)50(?!\d)|\btrial\b|\$480/i.test(withoutPrice)) {
           stale.push(`${key} ${locale}: ${value}`);
         }
       }
@@ -248,7 +264,9 @@ describe("VM defaults and pricing copy", () => {
         for (const quantity of [5, 20, 40]) {
           expect(value).toMatch(new RegExp(`(?:^|\\D)${quantity}(?:\\D|$)`));
         }
-        expect(value).not.toMatch(/(?:^|\D)(?:6|24|50|64)(?:\D|$)/);
+        // 24/32/64 GB and 12/16/32 vCPU are current Max offerings and may
+        // appear in the explanatory size ladder copy.
+        expect(value).not.toMatch(/(?:^|\D)(?:6|50)(?:\D|$)/);
       }
     }
     for (const key of ["pricing.native.max.feature.sizes", "pricing.native.sizes.max"]) {
