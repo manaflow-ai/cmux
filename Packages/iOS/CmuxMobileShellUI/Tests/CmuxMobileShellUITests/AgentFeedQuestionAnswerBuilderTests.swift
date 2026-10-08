@@ -109,6 +109,21 @@ import Testing
         #expect(builder.answer(for: question, draft: draft) == nil)
     }
 
+    @Test(arguments: [false, true])
+    func committingUnchangedCustomTextKeepsTheSelectedPreset(multiSelect: Bool) {
+        let question = question(id: "q", options: [.init(id: "a", label: "Alpha")], multiSelect: multiSelect)
+        var draft = AgentFeedQuestionAnswerBuilder.Draft(customText: "Saved draft")
+        let committedText = draft.customText
+
+        draft.toggleOption("a", multiSelect: multiSelect)
+        // A text field can commit its current value again when it loses focus.
+        draft.customText = committedText
+
+        #expect(!draft.isCustomAnswerSelected)
+        #expect(draft.customText == "Saved draft")
+        #expect(builder.answer(for: question, draft: draft) == "Alpha")
+    }
+
     @Test func multiSelectAfterCustomAnswerCanToggleEveryChoiceOff() {
         let question = question(
             id: "q",
