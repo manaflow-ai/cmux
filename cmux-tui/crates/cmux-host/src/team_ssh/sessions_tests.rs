@@ -11,6 +11,8 @@ struct FakeHost {
     procs: BTreeMap<u32, (u64, &'static str)>,
     revoked: Vec<String>,
     check_fails: bool,
+    /// Certificates whose revocation check fails.
+    unreadable: Vec<String>,
     end_fails: bool,
     ended: RefCell<Vec<u32>>,
     lingering: RefCell<Vec<String>>,
@@ -26,7 +28,7 @@ impl Host for FakeHost {
         self.procs.get(&pid).map(|p| p.1.to_owned())
     }
     fn revoked(&self, _krl: &Path, cert: &str) -> io::Result<bool> {
-        if self.check_fails {
+        if self.check_fails || self.unreadable.iter().any(|u| u.as_str() == cert) {
             return Err(io::Error::other("ssh-keygen failed"));
         }
         Ok(self.revoked.iter().any(|r| r.as_str() == cert))
@@ -47,14 +49,18 @@ impl Host for FakeHost {
         }
         Ok(was)
     }
-    fn stop_user_manager(&self, user: &str) -> io::Result<bool> {
-        self.actions.borrow_mut().push(format!("stop {user}"));
+    fn stop_user_manager(&self, user: &str, revoked_sessions: &[String]) -> io::Result<bool> {
+        self.actions.borrow_mut().push(format!("stop {user} {}", revoked_sessions.join(",")));
         Ok(true)
     }
 }
 
 fn user_record(pid: u32, user: &str, cert: &str) -> SessionRecord {
-    SessionRecord { user: user.into(), ..record(pid, 500, cert) }
+    SessionRecord {
+        user: user.into(),
+        logind_session: Some(format!("s{pid}")),
+        ..record(pid, 500, cert)
+    }
 }
 
 fn record(pid: u32, start_time: u64, cert: &str) -> SessionRecord {
@@ -170,7 +176,7 @@ fn revoking_a_users_last_valid_session_turns_lingering_off_then_stops_its_user_m
     };
     let out = reap(&paths, &host);
     assert_eq!(out.ended, vec![10]);
-    assert_eq!(*host.actions.borrow(), vec!["linger-off alice", "stop alice"]);
+    assert_eq!(*host.actions.borrow(), vec!["linger-off alice", "stop alice s10"]);
     assert_eq!(out.linger_off, vec!["alice"]);
     assert_eq!(out.managers_stopped, vec!["alice"]);
     assert_eq!(*host.lingering.borrow(), vec!["bob"], "bob has no principals file: untouched");
@@ -199,7 +205,7 @@ fn a_user_with_another_valid_live_session_keeps_its_user_manager() {
     };
     let out = reap(&paths, &host);
     assert_eq!(out.ended, vec![11]);
-    assert_eq!(*host.actions.borrow(), vec!["stop alice"]);
+    assert_eq!(*host.actions.borrow(), vec!["stop alice s11"]);
 }
 
 #[test]
@@ -207,13 +213,17 @@ fn an_unchecked_session_of_the_user_keeps_its_user_manager() {
     let dir = tempfile::tempdir().expect("tempdir");
     let paths = Paths::new(dir.path());
     save(&paths, &user_record(10, "alice", "cert-revoked")).expect("save");
+    save(&paths, &user_record(11, "alice", "cert-unreadable")).expect("save");
     let host = FakeHost {
-        procs: BTreeMap::from([(10, (500, "sshd"))]),
-        check_fails: true,
+        procs: BTreeMap::from([(10, (500, "sshd")), (11, (500, "sshd"))]),
+        revoked: vec!["cert-revoked".into()],
+        unreadable: vec!["cert-unreadable".into()],
         ..FakeHost::default()
     };
     let out = reap(&paths, &host);
-    assert!(host.actions.borrow().is_empty(), "{out:?}");
+    assert_eq!(out.ended, vec![10]);
+    assert_eq!(out.errors.len(), 1, "{out:?}");
+    assert!(host.actions.borrow().is_empty(), "no stop while a session is unchecked: {out:?}");
 }
 
 #[test]

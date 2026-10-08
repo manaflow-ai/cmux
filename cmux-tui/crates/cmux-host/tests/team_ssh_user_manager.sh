@@ -188,18 +188,26 @@ wait_for 5 gone 1 && pass "C no lingering process left" || fail "C processes: $(
 # must refuse the session. Simulated with a PAM stack without pam_systemd.
 echo "--- D"
 SSHD_D=/usr/local/sbin/sshd-cmuxt9d
+PAM_D=/etc/pam.d/sshd-cmuxt9d
 install -m 0755 "$(command -v sshd)" "$SSHD_D"
 grep -v pam_systemd /etc/pam.d/common-session > "$d/common-session-d"
-awk -v inc="$d/common-session-d" '$0 == "@include common-session" { while ((getline l < inc) > 0) print l; next } { print }' "$PAM_FILE" > /etc/pam.d/sshd-cmuxt9d
-if grep -q pam_systemd /etc/pam.d/sshd-cmuxt9d; then fail "D setup: pam_systemd still in the stack"; fi
+awk -v inc="$d/common-session-d" '$0 == "@include common-session" { while ((getline l < inc) > 0) print l; next } { print }' "$PAM_FILE" > "$d/pam-d"
+if grep -q pam_systemd "$d/pam-d"; then fail "D setup: pam_systemd still in the stack"; fi
+grep -v 'team-ssh session-open' "$d/pam-d" > "$d/pam-d-control"
 sed -e "s/^Port .*/Port $((PORT + 1))/" -e "s|^PidFile .*|PidFile $d/sshd-d.pid|" "$d/sshd_config" > "$d/sshd_config_d"
 systemctl reset-failed cmuxt9cnf-sshd-d.service 2>/dev/null || true
 systemd-run --quiet --unit=cmuxt9cnf-sshd-d.service "$SSHD_D" -D -f "$d/sshd_config_d"
-for i in $(seq 50); do [[ -s "$d/sshd-d.pid" ]] && break; sleep 0.1; done
+wait_for 5 test -s "$d/sshd-d.pid" || fail "D setup: the second sshd did not start"
 ssh-keygen -q -s "$d/ca" -I cmuxt-5 -n "$USER_NAME" -z 5 -V +20m "$d/u2.pub"
-out="$("${SSH_BASE[@]}" -p "$((PORT + 1))" -i "$d/u2" -o CertificateFile="$d/u2-cert.pub" "$USER_NAME@127.0.0.1" 'echo d-opened sid=$XDG_SESSION_ID' 2>&1 < /dev/null || true)"
+login_d() { "${SSH_BASE[@]}" -p "$((PORT + 1))" -i "$d/u2" -o CertificateFile="$d/u2-cert.pub" "$USER_NAME@127.0.0.1" 'echo d-opened sid=$XDG_SESSION_ID' 2>&1 < /dev/null || true; }
+# PAM reads its stack per connection, so the same sshd serves both.
+cp "$d/pam-d-control" "$PAM_D"
+out="$(login_d)"
+grep -qx 'd-opened sid=' <<< "$out" && pass "D control: without the recorder the login opens, with no logind session" || fail "D control: $(tr '\n' ' ' <<< "$out")"
+cp "$d/pam-d" "$PAM_D"
+out="$(login_d)"
 systemctl stop cmuxt9cnf-sshd-d.service
-rm -f "$SSHD_D" /etc/pam.d/sshd-cmuxt9d
+rm -f "$SSHD_D" "$PAM_D"
 [[ "$out" != *d-opened* ]] && pass "D session with no logind session refused" || fail "D session with no logind session opened: $(tr '\n' ' ' <<< "$out")"
 
 echo "--- $fails failure(s)"

@@ -129,7 +129,7 @@ impl Host for LinuxHost {
         Ok(true)
     }
 
-    fn stop_user_manager(&self, user: &str) -> io::Result<bool> {
+    fn stop_user_manager(&self, user: &str, revoked_sessions: &[String]) -> io::Result<bool> {
         if !valid_user(user) {
             return Err(io::Error::other(format!("invalid user name {user:?}")));
         }
@@ -137,24 +137,59 @@ impl Host for LinuxHost {
         if account.uid < UID_MIN || account.uid == NOBODY_UID {
             return Ok(false);
         }
+        for id in self.logind_sessions(account.uid) {
+            if !revoked_sessions.contains(&id) && !self.session_closing(&id) {
+                return Ok(false);
+            }
+        }
+        // --no-block: a slow user unit must not hold the trust sync past
+        // its fail-closed bound; logind finishes the stop.
         let unit = format!("user@{}.service", account.uid);
-        run_tool(&self.systemctl, &["stop", &unit])?;
+        run_tool(&self.systemctl, &["--no-block", "stop", &unit])?;
         Ok(true)
     }
 }
 
 impl LinuxHost {
-    /// Ends the logind session (every process of its scope) only when the
-    /// recorded sshd process leads it.
-    fn terminate_logind(&self, id: &str, leader: u32) {
+    /// The user's logind session ids; none when logind does not know the
+    /// user (not logged in, not lingering).
+    fn logind_sessions(&self, uid: u32) -> Vec<String> {
         let Ok(out) = Command::new(&self.loginctl)
-            .args(["show-session", id, "-p", "Leader", "--value"])
+            .args(["show-user", &uid.to_string(), "-p", "Sessions", "--value"])
             .stdin(Stdio::null())
             .output()
         else {
-            return;
+            return Vec::new();
         };
-        if String::from_utf8_lossy(&out.stdout).trim() != leader.to_string() {
+        String::from_utf8_lossy(&out.stdout).split_whitespace().map(str::to_owned).collect()
+    }
+
+    /// Whether the logind session is closing (or already gone).
+    fn session_closing(&self, id: &str) -> bool {
+        let Ok(out) = Command::new(&self.loginctl)
+            .args(["show-session", id, "-p", "State", "--value"])
+            .stdin(Stdio::null())
+            .output()
+        else {
+            return false;
+        };
+        !out.status.success() || String::from_utf8_lossy(&out.stdout).trim() == "closing"
+    }
+
+    /// The leader pid of a logind session, `None` when unknown.
+    pub fn session_leader(&self, id: &str) -> Option<u32> {
+        let out = Command::new(&self.loginctl)
+            .args(["show-session", id, "-p", "Leader", "--value"])
+            .stdin(Stdio::null())
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    }
+
+    /// Ends the logind session (every process of its scope) only when the
+    /// recorded sshd process leads it.
+    fn terminate_logind(&self, id: &str, leader: u32) {
+        if self.session_leader(id) != Some(leader) {
             return;
         }
         let _ = Command::new(&self.loginctl)

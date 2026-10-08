@@ -179,8 +179,14 @@ fn session_verb(paths: &Paths) -> u8 {
     // Only a logind session scopes every process of the session, so only
     // then can a revocation end them all (pam_systemd is `optional` and
     // opens none when sshd already runs inside a session).
-    if record.logind_session.is_none() {
+    let Some(id) = record.logind_session.as_deref() else {
         eprintln!("cmux host team-ssh session-open: no logind session (pam_systemd), refused");
+        return 1;
+    };
+    if host.session_leader(id) != Some(parent) {
+        eprintln!(
+            "cmux host team-ssh session-open: logind session {id} is not led by sshd {parent}, refused"
+        );
         return 1;
     }
     match save(paths, &record) {

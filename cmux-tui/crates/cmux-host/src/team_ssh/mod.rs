@@ -32,7 +32,12 @@
 //!   another valid session of the same Linux user is live, work the revoked
 //!   session moved into the shared user manager keeps running until that
 //!   session ends. Work handed to another system service (cron or at jobs,
-//!   a docker daemon the user may reach) is outside these scopes.
+//!   a docker daemon the user may reach) is outside these scopes. Lingering
+//!   is a product decision for team users: off, reverted on every pass.
+//! - These controls end what a revoked user left running by accident. They
+//!   do not contain a hostile one while the work user has passwordless sudo
+//!   (web/services/vms/images/workUser.ts) or docker access: root can add
+//!   system units or cron jobs, or edit the session records.
 //! - Only Ed25519 and ECDSA user certificates can be recorded; a session
 //!   with another certificate type is refused at session open (the team CA
 //!   is Ed25519 only).

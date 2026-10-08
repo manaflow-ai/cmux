@@ -19,7 +19,7 @@
 //! lingering off for each user that has a principals file. Every action
 //! names one user or one unit; nothing is matched by name or pattern.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -86,9 +86,13 @@ pub trait Host {
     /// Turns lingering off for exactly `user`; `Ok(false)` when it was off.
     fn disable_linger(&self, user: &str) -> io::Result<bool>;
     /// Stops exactly `user@<uid>.service` of `user` (its user manager, every
-    /// user unit and process in it). `Ok(false)` when there is nothing to
-    /// stop: an unknown user or a system account.
-    fn stop_user_manager(&self, user: &str) -> io::Result<bool>;
+    /// user unit and process in it) without waiting for the stop, but only
+    /// when every logind session of the user is one of `revoked_sessions` or
+    /// already closing: a session no record covers (a valid login the
+    /// recorder has not seen yet, a non-ssh login) keeps the manager.
+    /// `Ok(false)` when nothing was stopped: such a session, an unknown user
+    /// or a system account.
+    fn stop_user_manager(&self, user: &str, revoked_sessions: &[String]) -> io::Result<bool>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -175,13 +179,17 @@ pub fn reap(paths: &Paths, host: &dyn Host) -> Reaped {
     let mut out = Reaped::default();
     // Users seen with a revoked certificate, and users that still hold a
     // live session that is not revoked (or could not be checked).
-    let mut revoked = BTreeSet::new();
+    // Revoked users map to the logind sessions of their revoked records.
+    let mut revoked: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut live = BTreeSet::new();
     for record in load_all(paths) {
         let verdict = judge(host, &krl, &record);
         match &verdict {
             Ok(Verdict::End) => {
-                revoked.insert(record.user.clone());
+                revoked
+                    .entry(record.user.clone())
+                    .or_default()
+                    .extend(record.logind_session.clone());
             }
             Ok(Verdict::Keep) | Err(_) => {
                 live.insert(record.user.clone());
@@ -204,7 +212,7 @@ pub fn reap(paths: &Paths, host: &dyn Host) -> Reaped {
             Err(e) => out.errors.push(format!("check session {}: {e}", record.pid)),
         }
     }
-    let mut linger_users = revoked.clone();
+    let mut linger_users: BTreeSet<String> = revoked.keys().cloned().collect();
     linger_users.extend(team_users(paths));
     for user in &linger_users {
         match host.disable_linger(user) {
@@ -216,8 +224,8 @@ pub fn reap(paths: &Paths, host: &dyn Host) -> Reaped {
     // Lingering is off first, so logind never keeps or restarts a manager
     // stopped here; a user with a valid live session keeps its manager until
     // that session ends (logind then stops it).
-    for user in revoked.difference(&live) {
-        match host.stop_user_manager(user) {
+    for (user, sessions) in revoked.iter().filter(|(user, _)| !live.contains(*user)) {
+        match host.stop_user_manager(user, sessions) {
             Ok(true) => out.managers_stopped.push(user.clone()),
             Ok(false) => {}
             Err(e) => out.errors.push(format!("stop user manager {user}: {e}")),
