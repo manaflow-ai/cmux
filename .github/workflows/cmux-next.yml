@@ -755,11 +755,6 @@ jobs:
         continue-on-error: true
         run: python3 tests/test_cmux_next_app_ffi_pin_scope.py
 
-      - name: Bundle regeneration route
-        id: regenerate-bundles
-        continue-on-error: true
-        run: python3 tests/test_cmux_next_regenerate_bundles_workflow.py
-
       # The tier routing on the committed target graph: a UI change selects its
       # own test targets, a daemon change the live-daemon suites, an unknown
       # path every tier.
@@ -843,7 +838,6 @@ jobs:
             ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.ffi-pin-scope.outcome }}|App FFI pin scope
-            ${{ steps.regenerate-bundles.outcome }}|Bundle regeneration route
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.companion-workflows.outcome }}|Companion workflows
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)

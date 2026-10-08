@@ -443,7 +443,9 @@ jobs:
   # so a source change on feat-cmux-next no longer leaves the pin stale until a
   # person notices. The branch is app-ffi-repin, from feat-cmux-next's head;
   # a newer publish force-pushes it, so one pull request carries the newest
-  # pin. An App token's push starts CI on it, which GITHUB_TOKEN's does not.
+  # pin. Its title and body are refreshed too, so the open PR never describes
+  # an older release. An App token's push starts CI on it, which GITHUB_TOKEN's
+  # does not.
   repin:
     name: open the re-pin pull request
     needs: [build, publish]
@@ -515,8 +517,10 @@ jobs:
             echo "::warning title=Open the re-pin pull request::the release App has no pull-requests permission; open $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/feat-cmux-next...$branch?expand=1"
             exit 0
           fi
-          if [[ -n "$(gh pr list --head "$branch" --base feat-cmux-next --state open --json number --jq '.[0].number')" ]]; then
-            echo "updated the open re-pin pull request"
+          pr_number="$(gh pr list --head "$branch" --base feat-cmux-next --state open --json number --jq '.[0].number')"
+          if [[ -n "$pr_number" ]]; then
+            gh pr edit "$pr_number" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body"
+            echo "updated the open re-pin pull request #$pr_number"
           else
             gh pr create --base feat-cmux-next --head "$branch" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body"
           fi
