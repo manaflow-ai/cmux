@@ -9923,6 +9923,9 @@ class TerminalController {
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
+            // Restoring a discarded page commits a document. Let that happen before
+            // noting which document the frame is checked in.
+            _ = v2EnsureBrowserDocumentLoaded(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId)
             let document = v2MainSync { v2BrowserDocumentState.documentGeneration(surfaceID: surfaceId) }
             switch v2BrowserProbeFrame(ctx, selector: selector) {
             case .scriptFailed(let message):
@@ -9953,8 +9956,9 @@ class TerminalController {
 
     /// Checks that `selector` names a same-origin frame in the document commands currently run in.
     ///
-    /// - Parameter afterDocumentParsed: Wait for the document to finish parsing first.
-    ///   A navigation is reported at commit, when the frame element may not exist yet.
+    /// - Parameter afterDocumentParsed: Wait up to two seconds for the document to finish
+    ///   parsing first. A navigation is reported at commit, when the frame element may not
+    ///   exist yet; the wait is bounded in the page so a stalled parser cannot hold the command.
     private nonisolated func v2BrowserProbeFrame(
         _ ctx: V2BrowserPanelContext,
         selector: String,
@@ -9962,7 +9966,7 @@ class TerminalController {
     ) -> V2BrowserFrameProbe {
         let selectorLiteral = v2JSONLiteral(selector)
         let waitForParse = afterDocumentParsed
-            ? "if (document.readyState === 'loading') { await new Promise((resolve) => document.addEventListener('DOMContentLoaded', resolve, { once: true })); }"
+            ? "if (document.readyState === 'loading') { await new Promise((resolve) => { document.addEventListener('DOMContentLoaded', resolve, { once: true }); setTimeout(resolve, 2000); }); }"
             : ""
         let script = """
         (async () => {
@@ -9979,13 +9983,7 @@ class TerminalController {
           return { ok: true };
         })()
         """
-        switch v2RunBrowserJavaScript(
-            ctx.webView,
-            browserPanel: ctx.browserPanel,
-            surfaceId: ctx.surfaceId,
-            script: script,
-            timeout: afterDocumentParsed ? 10.0 : 5.0
-        ) {
+        switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
         case .failure(let message):
             return .scriptFailed(message)
         case .success(let value):
