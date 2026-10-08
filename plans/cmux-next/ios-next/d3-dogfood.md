@@ -112,7 +112,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.17 | Erase all data on this device | C11, E5 | done (sandbox-wide plan, e5-extras.md 3) |
 | 1.17 | DEBUG Developer section | A1 | done |
 | 1.18 | Structured diagnostic log, terminal latency trace | C16, C1 | done |
-| 1.18 | Analytics uploader | C16 | seam only (`NoopAnalytics`; proxy wire contract and bounds implemented, uploader/composition pending) |
+| 1.18 | Analytics uploader | C16 | seam implemented (`BufferedAnalytics`; bounded queue, wire batch splitting, offline fail-closed and retry/backoff tests; `NoopAnalytics` remains default) |
 | 1.18 | Crash reporting (Sentry, hangs) | C16 | done (session replay off until masks are listed, section 4) |
 | 1.18 | DEBUG Copy Logs, Send Feedback | C16 | done (diagnostics share) |
 | 1.19 | Toast center | C16 | done |

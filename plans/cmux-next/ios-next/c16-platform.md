@@ -57,12 +57,14 @@ UI: `DiagnosticsView` (SwiftUI form, low frequency): crash reports toggle, line 
 Diagnostics (`ShareLink` on the exported file), Copy Support Info, Clear Log with confirmation.
 Reached from Settings > Diagnostics and `cmux://diagnostics`.
 
-Analytics: the new tree has `CMUXMobileCore.AnalyticsEmitting` and `NoopAnalytics` but no
-uploader (the shipping uploader lives in `CmuxMobileAnalytics`, scheduled for deletion in
-ios-rewrite.md section 2, and posts to the old web API). No privacy-reviewed pipeline exists for
-the new app, so C16 ships none. When one exists it plugs in at `AppContainer` as an
-`AnalyticsEmitting`, gated by the same consent provider, events limited to counts, durations and
-enum strings.
+Analytics: `CMUXMobileCore` now provides the transport-agnostic `BufferedAnalytics` emitter (and
+`AnalyticsUploader` alias) behind `AnalyticsEmitting`. It keeps a bounded newest-first command
+queue, validates and greedily splits wire batches by event and body limits, fails closed when the
+reachability hint is offline, drops invalid/permanently rejected events, and retries transient
+transport results with injected cancellable exponential backoff. `AnalyticsUploadTransport`
+receives only encoded `AnalyticsWireBatch` bytes. The emitter remains opt-in: `NoopAnalytics` is
+still the `AppContainer` runtime default until consent, persistence and lifecycle composition are
+reviewed together.
 
 ## 4. `ShellRoute` router
 
@@ -225,7 +227,10 @@ The whole `CmuxiOSApp` target compiles for the iOS simulator with SwiftPM.
 `CMUXMobileCore` now contains a privacy-bounded `AnalyticsWireContract` and `AnalyticsWireBatch`.
 It mirrors the worker's `/api/analytics/events` envelope, allowlists event names, limits properties,
 identifiers, strings, batches and encoded bodies, rejects non-finite numbers, and maps an anonymous
-install id to `$anon_distinct_id`. The contract is transport-free and does not enable collection;
-`NoopAnalytics` remains the runtime owner until consent, persistence, retry and uploader lifecycle are
-wired. Five Swift Testing regressions cover shape, aliases and all bounds; package execution is
-blocked by the known `CMUXMobileCore` xcstringtool/Testing plugin checkout issue.
+install id to `$anon_distinct_id`. `BufferedAnalytics` adds bounded asynchronous composition,
+offline fail-closed behavior, request splitting, permanent-drop handling and retry/backoff without
+polling. The contract and emitter remain opt-in; `NoopAnalytics` is still the runtime owner until
+consent, persistence and lifecycle composition are wired. Swift Testing covers shape, aliases and
+all bounds plus offline dropping, batch splitting, invalid-event dropping, retry delays and
+cancellation; package execution is blocked by the known `CMUXMobileCore` xcstringtool/Testing
+plugin checkout issue.
