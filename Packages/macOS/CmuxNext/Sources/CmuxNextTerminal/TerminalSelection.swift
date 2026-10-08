@@ -34,8 +34,12 @@ enum TerminalServices {
     }
 
     static func write(_ text: String?, to pboard: NSPasteboard, types requested: [NSPasteboard.PasteboardType]) -> Bool {
+        write(text, types: requested) { pboard.clearContents(); return pboard.setString($0, forType: .string) }
+    }
+
+    /// The selection a service gets, through `set` (the pasteboard write).
+    static func write(_ text: String?, types requested: [NSPasteboard.PasteboardType], set: (String) -> Bool) -> Bool {
         guard requested.contains(where: types.contains), let text, !text.isEmpty else { return false }
-        pboard.clearContents()
-        return pboard.setString(text, forType: .string)
+        return set(text)
     }
 }

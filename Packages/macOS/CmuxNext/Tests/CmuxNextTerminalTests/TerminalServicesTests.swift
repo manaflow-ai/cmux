@@ -15,12 +15,12 @@ import Testing
     }
 
     @Test func writesTheSelectionAsAString() {
-        let board = NSPasteboard(name: NSPasteboard.Name("cmux-test-services-\(UUID().uuidString)"))
-        defer { board.releaseGlobally() }
-        #expect(TerminalServices.write("ls -la", to: board, types: [.string]))
-        #expect(board.string(forType: .string) == "ls -la")
-        #expect(!TerminalServices.write(nil, to: board, types: [.string]))
-        #expect(!TerminalServices.write("", to: board, types: [.string]))
-        #expect(!TerminalServices.write("x", to: board, types: [.rtf]))
+        var written: [String] = []
+        let set: (String) -> Bool = { written.append($0); return true }
+        #expect(TerminalServices.write("ls -la", types: [.string], set: set))
+        #expect(!TerminalServices.write(nil, types: [.string], set: set))
+        #expect(!TerminalServices.write("", types: [.string], set: set))
+        #expect(!TerminalServices.write("x", types: [.rtf], set: set))
+        #expect(written == ["ls -la"])
     }
 }
