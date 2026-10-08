@@ -89,18 +89,24 @@ final class SidebarToggleAnimator: ObservableObject {
 #if DEBUG
         let probe = SidebarToggleSlideProbe.begin(visible: visible, window: window, animator: self)
 #endif
-        let width = Double(layout.width)
-        execute(machine.request(visible: visible, width: width, now: CACurrentMediaTime()), in: window)
-        while !queuedRequests.isEmpty {
-            let next = queuedRequests.removeFirst()
-            execute(machine.request(visible: next, width: width, now: CACurrentMediaTime()), in: window)
-        }
+        execute(machine.request(visible: visible, width: Double(layout.width), now: CACurrentMediaTime()), in: window)
+        drainQueuedRequests(in: window)
         syncPendingVisibility()
 #if DEBUG
         probe?.keypressDidFinish()
 #endif
         SidebarNavigationTimings.end(visible ? "toggle.show" : "toggle.hide")
         return true
+    }
+
+    /// Presses that arrived while effects ran (the atomic commit spins the
+    /// run loop once), in order.
+    private func drainQueuedRequests(in window: NSWindow) {
+        while !queuedRequests.isEmpty {
+            let next = queuedRequests.removeFirst()
+            guard let layout else { continue }
+            execute(machine.request(visible: next, width: Double(layout.width), now: CACurrentMediaTime()), in: window)
+        }
     }
 
     private func execute(_ effects: [SidebarToggleSlideMachine.Effect], in window: NSWindow) {
@@ -196,10 +202,18 @@ final class SidebarToggleAnimator: ObservableObject {
     }
 
     private func addSlideAnimation(_ slide: SidebarToggleSlideMachine.Slide, in window: NSWindow) {
+        // A visibility commit during the atomic commit's run loop pass can
+        // drop the slide this was for; a session built for it would never land.
+        guard machine.slide?.generation == slide.generation else { return }
         if session == nil, let views = Self.slidingViews(in: window) {
             session = SlideSession(views: views, trailingStillWidth: trailingStillWidth())
         }
-        guard let session else { return }
+        guard let session, !session.movingLayers.isEmpty else {
+            // Nothing to move: land now, so the press still takes effect.
+            // Called mid-execute, so the landing runs on the next turn.
+            land(generation: slide.generation)
+            return
+        }
         let distance = slide.to - slide.from
         for (index, layer) in session.movingLayers.enumerated() {
             let animation = slideSpring(from: slide.from, to: slide.to, velocity: distance == 0 ? 0 : slide.velocity / distance, duration: slide.duration)
@@ -215,10 +229,6 @@ final class SidebarToggleAnimator: ObservableObject {
         for mask in session.masks {
             let animation = slideSpring(from: -slide.from, to: -slide.to, velocity: distance == 0 ? 0 : slide.velocity / distance, duration: slide.duration)
             mask.add(animation, forKey: Self.animationKey)
-        }
-        // A missed delegate callback must not strand the layout: land anyway.
-        DispatchQueue.main.asyncAfter(deadline: .now() + slide.duration / Double(Self.speed) + 0.1) { [weak self] in
-            self?.land(generation: slide.generation)
         }
     }
 
@@ -258,6 +268,7 @@ final class SidebarToggleAnimator: ObservableObject {
         let landingCPU = SidebarToggleSlideProbe.threadCPU()
 #endif
         execute(effects, in: window)
+        drainQueuedRequests(in: window)
         syncPendingVisibility()
 #if DEBUG
         SidebarToggleSlideProbe.current?.didLand(cpu: SidebarToggleSlideProbe.threadCPU() - landingCPU)
@@ -276,6 +287,7 @@ final class SidebarToggleAnimator: ObservableObject {
     /// collapse, the instant path): drop any slide and follow it.
     private func visibilityDidCommit(_ visible: Bool) {
         guard !isCommittingVisibility else { return }
+        queuedRequests.removeAll()
         if session != nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -391,8 +403,12 @@ private final class SlideSession {
     }
 }
 
-/// Lands the slide when its spring finishes. Core Animation retains its
+/// Lands the slide when its spring stops. Core Animation retains its
 /// delegate; the closure holds the animator weakly.
+///
+/// Every stop lands, finished or not: a spring removed early (its layer
+/// left the tree) must not strand the layout. A retargeted or torn-down
+/// slide's generation is stale by then, so its landing does nothing.
 private final class SlideLandingDelegate: NSObject, CAAnimationDelegate {
     private let onLand: @MainActor @Sendable () -> Void
 
@@ -401,7 +417,6 @@ private final class SlideLandingDelegate: NSObject, CAAnimationDelegate {
     }
 
     func animationDidStop(_ animation: CAAnimation, finished: Bool) {
-        guard finished else { return }
         let onLand = onLand
         // Out of Core Animation's callout before touching layout.
         DispatchQueue.main.async {

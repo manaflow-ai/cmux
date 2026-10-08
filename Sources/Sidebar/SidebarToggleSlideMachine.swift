@@ -127,7 +127,7 @@ struct SidebarToggleSlideMachine: Equatable {
     }
 
     /// The motion with `generation` finished. Stale generations (a slide
-    /// that was retargeted, or a duplicate fallback) do nothing.
+    /// that was retargeted, or a repeated landing) do nothing.
     mutating func land(generation landed: Int) -> [Effect] {
         guard let current = slide, current.generation == landed else { return [] }
         slide = nil

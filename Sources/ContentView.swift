@@ -1960,10 +1960,13 @@ struct ContentView: View {
                 // The retained docked list stays live while hidden, in its own
                 // host that parks it by drawing only, so a show slides in
                 // painted rows from its first frame.
+                let listIsPresented = sidebarState.occupiesLayout
+                    || (retainsDefaultAppKitSidebarWhenHidden && sidebarState.presentationMode == .docked)
                 SidebarDockedPaneHost(
-                    parkedOffset: sidebarState.presentationMode == .docked && sidebarLayout.docksSidebar ? 0 : width,
-                    content: AnyView(sidebarEnvironment(sidebarView(isPresented: sidebarState.occupiesLayout
-                        || (retainsDefaultAppKitSidebarWhenHidden && sidebarState.presentationMode == .docked))
+                    parkedOffset: sidebarState.occupiesLayout && sidebarLayout.docksSidebar ? 0 : width,
+                    isPresented: listIsPresented,
+                    presentationMode: sidebarState.presentationMode,
+                    content: AnyView(sidebarEnvironment(sidebarView(isPresented: listIsPresented)
                         .environment(\.colorScheme, appearance.sidebarContentColorScheme)
                         .environment(\.sidebarReadabilityBackdrop, appearance.sidebarReadabilityBackdrop)))
                 )
@@ -2568,11 +2571,11 @@ struct ContentView: View {
             layout = AnyView(
                 ZStack(alignment: .leading) {
                     terminalContentWithRightSidebarPanel(appearance: appearance)
-                        // Docked mode only (a floating sidebar does not push
+                        // `occupiesLayout` (a floating sidebar does not push
                         // the terminal aside), gated by the layout flag.
                         .modifier(SidebarWidthLeadingPaddingModifier(
                             layout: sidebarLayout,
-                            enabled: sidebarState.presentationMode == .docked
+                            enabled: sidebarState.occupiesLayout
                         ))
                     SidebarWidthReader(layout: sidebarLayout) { width in
                         sidebarPanelWithBackdrop(appearance: appearance)
@@ -2591,7 +2594,7 @@ struct ContentView: View {
                         terminalContentWithSidebarDropOverlay(appearance: appearance)
                             .modifier(SidebarWidthLeadingPaddingModifier(
                                 layout: sidebarLayout,
-                                enabled: sidebarState.presentationMode == .docked
+                                enabled: sidebarState.occupiesLayout
                             ))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)

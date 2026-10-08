@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebar
 import SwiftUI
 
 /// Hosts the docked sidebar pane in its own AppKit view, always in its slot.
@@ -14,11 +15,18 @@ import SwiftUI
 struct SidebarDockedPaneHost: NSViewRepresentable {
     /// How far left the pane's drawing is moved: 0 docked, its width parked.
     let parkedOffset: CGFloat
+    /// What the content was built for. A park change alone skips the content
+    /// push; a change here never does (a dock/float switch moves the park
+    /// and the list's presentation in the same update).
+    let isPresented: Bool
+    let presentationMode: SidebarPresentationMode
     let content: AnyView
 
     final class ContainerView: NSView {
         let hostingView: NSHostingView<AnyView>
         fileprivate var parkedOffset: CGFloat = 0
+        fileprivate var isPresented = false
+        fileprivate var presentationMode: SidebarPresentationMode = .docked
 
         init(content: AnyView) {
             hostingView = NSHostingView(rootView: content)
@@ -42,6 +50,8 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
 
     func makeNSView(context: Context) -> ContainerView {
         let view = ContainerView(content: content)
+        view.isPresented = isPresented
+        view.presentationMode = presentationMode
         apply(parkedOffset, to: view)
         return view
     }
@@ -50,10 +60,14 @@ struct SidebarDockedPaneHost: NSViewRepresentable {
         // A toggle's park or unpark changes nothing in the pane: move the
         // drawing and skip re-diffing the whole sidebar in the keypress and
         // landing frames. The next update pushes content as usual.
+        let contentInputsChanged = view.isPresented != isPresented
+            || view.presentationMode != presentationMode
         if view.parkedOffset != parkedOffset {
             apply(parkedOffset, to: view)
-            return
+            guard contentInputsChanged else { return }
         }
+        view.isPresented = isPresented
+        view.presentationMode = presentationMode
         view.hostingView.rootView = content
     }
 

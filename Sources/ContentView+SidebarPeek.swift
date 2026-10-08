@@ -85,7 +85,7 @@ extension ContentView {
         SidebarPeekPresentation(
             // The layout flag, not `isVisible`: a toggle moves the pane
             // before ContentView hears about it.
-            isRevealed: sidebarState.presentationMode == .docked && sidebarLayout.docksSidebar,
+            isRevealed: sidebarState.occupiesLayout && sidebarLayout.docksSidebar,
             rendersAsCard: false,
             width: width,
             panelMetrics: sidebarPeekPanelMetrics,

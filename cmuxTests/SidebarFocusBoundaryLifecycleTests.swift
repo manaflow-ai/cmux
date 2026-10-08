@@ -108,6 +108,27 @@ struct SidebarStateAnimatedToggleTests {
         #expect(state.requestedVisibility)
         #expect(!state.isVisible)
     }
+
+    /// The toggle animator drops a running slide when anyone else commits
+    /// visibility, so every `setVisible` must report the commit, even one
+    /// that repeats the current value, and clear a pending request.
+    @Test
+    func programmaticSetVisibleAlwaysReportsTheCommit() {
+        let state = SidebarState(isVisible: true)
+        var commits: [Bool] = []
+        state.visibilityDidCommit = { commits.append($0) }
+        state.pendingVisibility = false
+
+        state.setVisible(true)
+        #expect(commits == [true])
+        #expect(state.pendingVisibility == nil)
+        #expect(state.requestedVisibility)
+
+        state.setVisible(false)
+        state.setVisible(false)
+        #expect(commits == [true, false, false])
+        #expect(!state.isVisible)
+    }
 }
 
 /// The toggle's slide machine, driven with a fake clock: the layout commits
@@ -161,6 +182,41 @@ struct SidebarToggleSlideMachineTests {
             let position = try #require(machine.offset(at: 0.05 + Double(step) / 1000))
             #expect(position <= width + 0.001 && position >= -0.001)
         }
+    }
+
+    /// A reversal hands its velocity to the next spring, so the motion
+    /// turns around without a kink.
+    @Test
+    func reversalCarriesThePresentedVelocity() {
+        var machine = SidebarToggleSlideMachine(docked: true)
+        guard case let .animate(first)? = machine.request(visible: false, width: width, now: 0).last else {
+            Issue.record("hide did not animate")
+            return
+        }
+        let elapsed = 0.04
+        let presented = machine.spring.velocity(from: first.from, to: first.to, velocity: first.velocity, at: elapsed)
+        #expect(presented < 0, "the hide is moving toward 0")
+        guard case let .animate(reverse)? = machine.request(visible: true, width: width, now: elapsed).first else {
+            Issue.record("reversal did not animate")
+            return
+        }
+        #expect(abs(reverse.velocity - presented) < 1e-9)
+        let start = machine.spring.velocity(from: reverse.from, to: reverse.to, velocity: reverse.velocity, at: 0)
+        #expect(abs(start - presented) < 1e-9)
+    }
+
+    /// Every Core Animation stop lands, so a landing can arrive twice for
+    /// the same slide; only the first may commit.
+    @Test
+    func repeatedLandingsCommitOnce() {
+        var machine = SidebarToggleSlideMachine(docked: false)
+        guard case let .animate(slide)? = machine.request(visible: true, width: width, now: 0).first else {
+            Issue.record("show did not animate")
+            return
+        }
+        #expect(machine.land(generation: slide.generation) == [.commitShownLayout])
+        #expect(machine.land(generation: slide.generation).isEmpty)
+        #expect(machine.docked && machine.slide == nil)
     }
 
     @Test
