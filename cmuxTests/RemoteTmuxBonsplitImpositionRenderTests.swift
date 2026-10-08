@@ -1594,6 +1594,41 @@ import Testing
         }
     }
 
+    /// AppKit can deliver the final region after its screen notification.
+    /// The region itself must refresh sizing without another notification.
+    @Test func lateProbeGeometryRefreshesWithoutAnotherDisplayNotification() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+
+        let settledRegion = CGSize(width: 560, height: 410)
+        probe.setFrameSize(settledRegion)
+        probe.needsLayout = true
+        probe.layoutSubtreeIfNeeded()
+        mirror.performSizingPassNow()
+
+        #expect(mirror.containerSizePt == settledRegion)
+        let requested = try #require(connection.lastWindowSizes[0])
+        let expected = try #require(mirror.clientGrid(contentSize: settledRegion))
+        #expect(requested.0 == expected.columns && requested.1 == expected.rows)
+    }
+
+    /// The view's backing lifecycle delivers scale changes even when its
+    /// point dimensions remain unchanged.
+    @Test func probeBackingChangeRefreshesScaleWithoutAWindowObserver() throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        window.reportedScale = 1
+        probe.viewDidChangeBackingProperties()
+        mirror.performSizingPassNow()
+
+        #expect(mirror.containerScale == 1)
+        #expect(mirror.containerSizePt == probe.bounds.size)
+        withExtendedLifetime(connection) {}
+    }
+
     @Test(arguments: [NSWindow.didChangeScreenNotification, NSWindow.didChangeBackingPropertiesNotification])
     func displayChangeRefreshesTheMirrorRegionWithoutALiveResize(notification: Notification.Name) async throws {
         let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
