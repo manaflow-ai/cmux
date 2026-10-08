@@ -19,9 +19,6 @@ extension WebKitTab: BrowserCertificateBypassing {
     func answer(_ challenge: URLAuthenticationChallenge,
                 completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let space = challenge.protectionSpace
-        // WebKit's proposed credential is never sent: it may come from the
-        // system's stores, which the user did not choose for this tab (and an
-        // incognito tab must not use). Only cmux's own remembered login is.
         switch Self.decide(method: space.authenticationMethod, failures: challenge.previousFailureCount, trusted: false,
                            excepted: false, proposed: challenge.proposedCredential?.hasPassword == true) {
         case .defaultHandling, .useServerTrust:
@@ -60,7 +57,9 @@ enum WebKitChallengeDecision: Equatable {
 
     /// Pure: HTTP authentication asks (until 5 failures; the tab first tries
     /// a login the user chose to remember); WebKit's proposed credential
-    /// (`proposed`) never answers on its own. An untrusted server certificate
+    /// (`proposed`) never answers on its own: it may come from system stores
+    /// the user did not choose for this tab (and an incognito tab must not
+    /// use). An untrusted server certificate
     /// is used only for a host the user proceeded to.
     init(method: String, failures: Int, trusted: Bool, excepted: Bool, proposed: Bool = false) {
         switch method {
