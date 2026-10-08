@@ -19,6 +19,56 @@ import Testing
 @MainActor
 @Suite("Terminal dictation accessibility", .serialized, .timeLimit(.minutes(2)))
 struct TerminalDictationAccessibilityTests {
+    @Test("Disabling screen text removes the whole-screen speech fallback and preserves insertion")
+    func screenTextOptOutPreservesSelectionAndInsertion() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let defaults = UserDefaults.standard
+            let key = "terminal.accessibilityScreenText"
+            let previous = defaults.object(forKey: key)
+            defer {
+                if let previous { defaults.set(previous, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+            defaults.removeObject(forKey: key)
+            let fixture = try DictationTerminalFixture()
+            defer { fixture.close() }
+            try await fixture.waitUntilReady()
+
+            // Prime the screen snapshot before changing the preference. A
+            // cached screen must not survive the opt-out on an existing pane.
+            let screen = try #require(fixture.view.accessibilityValue() as? String)
+            try #require(screen.contains(DictationTerminalFixture.readyMarker))
+            defaults.set(false, forKey: key)
+            #expect(fixture.view.isAccessibilityElement())
+            #expect(fixture.view.accessibilityRole() == .textArea)
+            #expect(fixture.view.accessibilityValue() as? String == "")
+            #expect(fixture.view.accessibilityNumberOfCharacters() == 0)
+            #expect(fixture.view.accessibilityVisibleCharacterRange() == NSRange(location: 0, length: 0))
+            #expect(fixture.view.accessibilityString(for: NSRange(location: 0, length: 1)) == nil)
+            #expect(fixture.view.accessibilityLine(for: 100) == 0)
+            #expect(fixture.view.accessibilitySelectedText() == nil)
+
+            // Native selections still work without exposing unselected text.
+            try #require(fixture.surface.performBindingAction("select_all"))
+            let selected = try #require(fixture.view.accessibilitySelectedText())
+            #expect(selected.contains(DictationTerminalFixture.readyMarker))
+            #expect(fixture.view.accessibilityValue() as? String == selected)
+            let selectedRange = NSRange(location: 0, length: (selected as NSString).length)
+            #expect(fixture.view.accessibilitySelectedTextRange() == selectedRange)
+            #expect(fixture.view.accessibilityString(for: selectedRange) == selected)
+
+            let recorder = GhosttyKeyPressRecorder()
+            defer { recorder.stop() }
+            fixture.view.setAccessibilitySelectedText("dictated words")
+            #expect(recorder.texts == ["dictated words"])
+            #expect(fixture.view.isAccessibilitySelectorAllowed(#selector(GhosttyNSView.setAccessibilityValue(_:))))
+            #expect(fixture.view.isAccessibilitySelectorAllowed(#selector(GhosttyNSView.setAccessibilitySelectedText(_:))))
+
+            defaults.set(true, forKey: key)
+            #expect((fixture.view.accessibilityValue() as? String)?.contains(DictationTerminalFixture.readyMarker) == true)
+        }
+    }
+
     @Test("AX value exposes the terminal's active screen")
     func accessibilityValueShowsScreenText() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
