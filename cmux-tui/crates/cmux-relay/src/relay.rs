@@ -682,7 +682,9 @@ impl Relay {
                 .get(&slot)
                 .map(|existing| (existing.provider_ticket.clone(), existing.peer.clone()))
             {
-                if !self.inner.tickets.uses_hmac() && existing_ticket != ticket {
+                if !self.inner.tickets.uses_hmac()
+                    && !crate::ticket::tickets_equal(&existing_ticket, &ticket)
+                {
                     return Err(RelayError::policy(
                         "slot-in-use",
                         "slot already has a daemon registered with a different ticket",
@@ -948,7 +950,7 @@ impl Relay {
                         circuit.daemon.is_some(),
                     ),
                 };
-                if expected_ticket != &ticket {
+                if !crate::ticket::tickets_equal(expected_ticket, &ticket) {
                     return Err(RelayError::policy(
                         "circuit-ticket-mismatch",
                         "relay join ticket does not match the circuit allocation",
@@ -1560,6 +1562,11 @@ mod tests {
 
     use super::*;
 
+    /// An open relay (no ticket secret), which tests start explicitly.
+    fn open_config() -> RelayConfig {
+        RelayConfig { allow_open: true, ..RelayConfig::default() }
+    }
+
     const RELAY_CONTROL_CONFORMANCE: &str =
         include_str!("../../cmux-remote-protocol/tests/fixtures/relay-control-v1.jsonl");
 
@@ -1748,7 +1755,7 @@ mod tests {
 
     #[tokio::test]
     async fn websocket_circuit_registers_pairs_and_forwards_opaque_binary() {
-        let server = TestServer::start(RelayConfig::default()).await;
+        let server = TestServer::start(open_config()).await;
         let mut daemon_control = server.connect().await;
         send_control(
             &mut daemon_control,
@@ -1887,7 +1894,7 @@ mod tests {
         let config = RelayConfig {
             ticket_secret: Some(vec![9; 32]),
             ticket_issuer: "relay.test".into(),
-            ..RelayConfig::default()
+            ..open_config()
         };
         let server = TestServer::start(config.clone()).await;
         let connect_ticket = provider_ticket(
@@ -2014,7 +2021,7 @@ mod tests {
             ticket_secret: Some(vec![17; 32]),
             ticket_issuer: "relay-expiry.test".into(),
             join_ticket_ttl: Duration::from_secs(120),
-            ..RelayConfig::default()
+            ..open_config()
         };
         let relay = Relay::new(config.clone()).unwrap();
         let now = unix_timestamp(SystemTime::now()).unwrap();
@@ -2087,7 +2094,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_endpoint_is_available_without_a_websocket_upgrade() {
-        let server = TestServer::start(RelayConfig::default()).await;
+        let server = TestServer::start(open_config()).await;
         let mut stream = TcpStream::connect(server.address).await.unwrap();
         stream
             .write_all(
@@ -2105,7 +2112,7 @@ mod tests {
 
     #[tokio::test]
     async fn pending_circuit_cleanup_closes_a_joined_peer() {
-        let config = RelayConfig::default();
+        let config = open_config();
         let relay = Relay::new(config.clone()).unwrap();
         let (daemon, _daemon_outbound, _daemon_shutdown) = test_peer(1, &config);
         relay
@@ -2184,7 +2191,7 @@ mod tests {
 
     #[tokio::test]
     async fn slot_and_circuit_counts_are_bounded() {
-        let config = RelayConfig { max_slots: 1, max_circuits: 1, ..RelayConfig::default() };
+        let config = RelayConfig { max_slots: 1, max_circuits: 1, ..open_config() };
         let relay = Relay::new(config.clone()).unwrap();
         let (daemon, _daemon_outbound, _daemon_shutdown) = test_peer(1, &config);
         relay
@@ -2231,7 +2238,7 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_websocket_count_is_bounded() {
-        let config = RelayConfig { max_connections: 1, ..RelayConfig::default() };
+        let config = RelayConfig { max_connections: 1, ..open_config() };
         let server = TestServer::start(config).await;
         let mut first = server.connect().await;
         send_control(
@@ -2255,7 +2262,7 @@ mod tests {
 
     #[tokio::test]
     async fn browser_origin_is_rejected_before_relay_admission() {
-        let config = RelayConfig { max_connections: 1, ..RelayConfig::default() };
+        let config = RelayConfig { max_connections: 1, ..open_config() };
         let server = TestServer::start(config).await;
 
         for path in ["/v1/relay", "/ws"] {
@@ -2282,7 +2289,7 @@ mod tests {
         let config = RelayConfig {
             http_header_timeout: Duration::from_millis(120),
             max_http_connections: 1,
-            ..RelayConfig::default()
+            ..open_config()
         };
         let server = TestServer::start(config).await;
         let mut slow = TcpStream::connect(server.address).await.unwrap();
@@ -2318,7 +2325,7 @@ mod tests {
             max_control_sockets_per_slot: 2,
             max_pending_circuits_per_slot: 8,
             max_allocations_per_second_per_slot: 8,
-            ..RelayConfig::default()
+            ..open_config()
         };
         let server = TestServer::start(config).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;
@@ -2348,7 +2355,7 @@ mod tests {
         let config = RelayConfig {
             max_pending_circuits_per_slot: 1,
             max_allocations_per_second_per_slot: 8,
-            ..RelayConfig::default()
+            ..open_config()
         };
         let server = TestServer::start(config).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;
@@ -2378,7 +2385,7 @@ mod tests {
         let config = RelayConfig {
             max_pending_circuits_per_slot: 8,
             max_allocations_per_second_per_slot: 1,
-            ..RelayConfig::default()
+            ..open_config()
         };
         let server = TestServer::start(config).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;
@@ -2409,7 +2416,7 @@ mod tests {
             max_active_circuits_per_slot: 1,
             max_pending_circuits_per_slot: 4,
             max_allocations_per_second_per_slot: 4,
-            ..RelayConfig::default()
+            ..open_config()
         };
         let relay = Relay::new(config.clone()).unwrap();
         let (daemon_control, _daemon_outbound, _daemon_shutdown) = test_peer(1, &config);
@@ -2493,7 +2500,7 @@ mod tests {
         let config = RelayConfig {
             lease_duration: Duration::from_secs(2),
             control_idle_timeout: Duration::from_millis(50),
-            ..RelayConfig::default()
+            ..open_config()
         };
         let server = TestServer::start(config).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;

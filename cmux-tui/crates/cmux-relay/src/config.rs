@@ -258,9 +258,12 @@ impl RelayConfig {
                 "CMUX_RELAY_ISSUER must contain 1 to 256 bytes without newline",
             ));
         }
-        if !self.bind.ip().is_loopback() && self.ticket_secret.is_none() && !self.allow_open {
+        // Open mode admits any non-empty provider ticket: any process that
+        // reaches the port could register or connect to any slot, also on
+        // loopback. It needs an explicit opt-in.
+        if self.ticket_secret.is_none() && !self.allow_open {
             return Err(ConfigError::new(
-                "refusing a non-loopback open relay; configure CMUX_RELAY_HMAC_SECRET or pass --allow-open",
+                "refusing an open relay; configure CMUX_RELAY_HMAC_SECRET or pass --allow-open (development only)",
             ));
         }
         Ok(())
@@ -519,7 +522,7 @@ impl RelayCommand {
            --max-active-circuits-per-slot N   Paired circuits per slot\n\
            --max-allocations-per-second-per-slot N  Sliding one-second allocation limit\n\
            --issuer NAME                     HMAC ticket issuer (CMUX_RELAY_ISSUER)\n\
-           --allow-open                      Permit an unauthenticated non-loopback relay\n\n\
+           --allow-open                      Permit an unauthenticated relay (development only)\n\n\
          Ticket options: --lane TOKEN, --generation N, --ttl-seconds N (maximum 300).\n\
          Set CMUX_RELAY_HMAC_SECRET to validate provider tickets and mint join tickets.\n\
          Endpoints: /healthz, /v1/relay, and /ws\n"
@@ -625,7 +628,7 @@ mod tests {
     #[test]
     fn command_line_overrides_defaults() {
         let command = RelayCommand::parse(
-            RelayConfig::default(),
+            RelayConfig { allow_open: true, ..RelayConfig::default() },
             [
                 "--bind",
                 "127.0.0.1:9000",
