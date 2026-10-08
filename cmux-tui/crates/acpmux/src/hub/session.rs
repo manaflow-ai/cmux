@@ -25,6 +25,14 @@ pub struct Session {
     /// is answered `cancelled` instead of being registered.
     pub(super) permission_epoch: AtomicU64,
     pub(super) rehydrate: AtomicBool,
+    /// The Claude conversation acpmux started with a fresh id has not
+    /// finished a turn, so Claude may never have stored it (a launcher that
+    /// died before the prompt reached Claude stores nothing). A respawn
+    /// (a fallback profile, a dead process) then starts a fresh
+    /// conversation instead of `--resume`, which would fail the turn with
+    /// "No conversation found with session ID". In memory only: after a
+    /// daemon restart a respawn resumes, as before.
+    pub(super) claude_unstored: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
