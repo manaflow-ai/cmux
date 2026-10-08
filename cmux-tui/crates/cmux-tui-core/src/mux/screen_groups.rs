@@ -994,41 +994,42 @@ impl Mux {
         if let Some(icon) = &spec.icon {
             crate::workspace_registry::validate_presentation_icon(icon)?;
         }
-        let surface = self.new_screen_named_as(actor, workspace, spec.name.clone(), spawn, size)?;
-        let screen = self
-            .with_state(|state| {
-                let pane = state.pane_of(surface.id)?;
-                let (wi, si) = state.screen_of(pane)?;
-                Some(state.workspaces[wi].screens[si].id)
-            })
-            .context("new screen disappeared")?;
+        let (surface, screen) =
+            self.new_screen_created_as(actor, workspace, spec.name.clone(), spawn, size)?;
         if spec.has_presentation() {
-            self.commit_screen_change(actor, "screen.create.presentation", |_, state, screens| {
-                let public = screen_public_id(state, screen)?;
-                screens.edit(&public, |record| {
-                    record.color = spec.color.clone();
-                    record.icon = spec.icon.clone();
-                    record.pinned = spec.pinned.unwrap_or(false);
-                });
-                if let Some(group) = &spec.group {
-                    let record = screens
-                        .groups
-                        .get(group)
-                        .with_context(|| format!("unknown screen group {group}"))?;
-                    let (wi, _) = locate_screen(state, screen).context("new screen disappeared")?;
-                    anyhow::ensure!(
-                        record.workspace_key == state.workspaces[wi].key,
-                        "bad request: a screen can join only a group of its own workspace"
-                    );
-                    screens.members.insert(public, group.clone());
-                }
-                if let Some(index) = spec.index {
-                    let (wi, _) = locate_screen(state, screen).context("new screen disappeared")?;
-                    place_screens(state, &[screen], wi, wi, Some(index))?;
-                }
-                Ok(())
-            })?;
-            self.emit_screen_changed(&[screen]);
+            let applied = self.commit_screen_change(
+                actor,
+                "screen.create.presentation",
+                |_, state, screens| {
+                    // A terminal that exited at once may have closed the screen
+                    // already: it was created, and there is nothing to dress.
+                    let Some((wi, _)) = locate_screen(state, screen) else { return Ok(false) };
+                    let public = screen_public_id(state, screen)?;
+                    screens.edit(&public, |record| {
+                        record.color = spec.color.clone();
+                        record.icon = spec.icon.clone();
+                        record.pinned = spec.pinned.unwrap_or(false);
+                    });
+                    if let Some(group) = &spec.group {
+                        let record = screens
+                            .groups
+                            .get(group)
+                            .with_context(|| format!("unknown screen group {group}"))?;
+                        anyhow::ensure!(
+                            record.workspace_key == state.workspaces[wi].key,
+                            "bad request: a screen can join only a group of its own workspace"
+                        );
+                        screens.members.insert(public, group.clone());
+                    }
+                    if let Some(index) = spec.index {
+                        place_screens(state, &[screen], wi, wi, Some(index))?;
+                    }
+                    Ok(true)
+                },
+            )?;
+            if applied {
+                self.emit_screen_changed(&[screen]);
+            }
         }
         Ok((surface, screen))
     }
