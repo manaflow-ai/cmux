@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use crate::server::origin_gate::{
     set_peer_key_for_test, set_role_for_test, set_verified_app_for_test,
 };
+use crate::PairingDecision;
 use crate::server::*;
 
 struct Conn {
@@ -95,13 +96,16 @@ fn a_local_agent_connection_cannot_approve_a_pairing() {
     // Denying is harmless and stays open to local connections.
     let reply = send(&mux, &agent, &legacy(challenge.id, false));
     assert_eq!(reply["ok"], true, "legacy deny: {reply}");
-    assert_eq!(decision.recv_timeout(Duration::from_secs(1)).unwrap(), crate::PairingDecision::Denied);
+    assert_eq!(
+        decision.recv_timeout(Duration::from_secs(1)).unwrap(),
+        PairingDecision::Denied
+    );
     let (second, second_decision) = mux.begin_pairing("127.0.0.2".parse().unwrap()).unwrap();
     let reply = send(&mux, &agent, &resolve(second.id, "reject", "pairing-gate-reject"));
     assert_eq!(reply["ok"], true, "resource reject: {reply}");
     assert_eq!(
         second_decision.recv_timeout(Duration::from_secs(1)).unwrap(),
-        crate::PairingDecision::Denied
+        PairingDecision::Denied
     );
 }
 
@@ -114,7 +118,7 @@ fn the_verified_app_approves_a_pairing_on_both_protocols() {
     assert_eq!(reply["ok"], true, "legacy approve: {reply}");
     assert!(matches!(
         decision.recv_timeout(Duration::from_secs(1)),
-        Ok(crate::PairingDecision::Approved { .. })
+        Ok(PairingDecision::Approved { .. })
     ));
 
     let (second, second_decision) = mux.begin_pairing("127.0.0.2".parse().unwrap()).unwrap();
@@ -122,7 +126,7 @@ fn the_verified_app_approves_a_pairing_on_both_protocols() {
     assert_eq!(reply["ok"], true, "resource accept: {reply}");
     assert!(matches!(
         second_decision.recv_timeout(Duration::from_secs(1)),
-        Ok(crate::PairingDecision::Approved { .. })
+        Ok(PairingDecision::Approved { .. })
     ));
 }
 
@@ -133,6 +137,6 @@ fn the_in_process_tui_approves_a_pairing() {
     assert!(mux.respond_pairing(challenge.id, true));
     assert!(matches!(
         decision.recv_timeout(Duration::from_secs(1)),
-        Ok(crate::PairingDecision::Approved { .. })
+        Ok(PairingDecision::Approved { .. })
     ));
 }
