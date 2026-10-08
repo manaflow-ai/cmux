@@ -62,11 +62,6 @@ struct FilePreviewQuickLookRetirementTests {
         )
         window.isReleasedWhenClosed = false
         nextWindow.isReleasedWhenClosed = false
-        defer {
-            session.dismantle(container)
-            window.close()
-            nextWindow.close()
-        }
 
         window.contentView = container
         window.makeKeyAndOrderFront(nil)
@@ -82,6 +77,14 @@ struct FilePreviewQuickLookRetirementTests {
             transitionCount += 1
             previewDuringRetirement = container.livePreviewView()
         }
+        defer {
+            // Keep the transition callback scoped to the move; dismantle only
+            // during cleanup after the registered-container assertions finish.
+            reentrantView.onWindowTransition = nil
+            session.dismantle(container)
+            window.close()
+            nextWindow.close()
+        }
 
         // Keep the root registered while moving it between windows. The
         // window-transition path must invalidate the child before AppKit's
@@ -92,9 +95,6 @@ struct FilePreviewQuickLookRetirementTests {
         let replacementPreview = try #require(container.livePreviewView())
         #expect(replacementPreview !== previewView)
 
-        session.dismantle(container)
-        reentrantView.onWindowTransition = nil
-
         #expect(
             transitionCount > 0,
             "The fixture must observe AppKit's synchronous window teardown"
@@ -103,6 +103,6 @@ struct FilePreviewQuickLookRetirementTests {
             previewDuringRetirement == nil,
             "A retiring or dismantled container must not re-adopt its deactivated child"
         )
-        #expect(container.livePreviewView() == nil)
+        #expect(container.livePreviewView() === replacementPreview)
     }
 }
