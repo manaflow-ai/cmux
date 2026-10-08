@@ -25,6 +25,11 @@ path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_remote_tmux_et_conformance.py"
+lane = "macos-shell"
+serial = true
+
+[[test]]
 path = "tests/test_cli_vm_transfer_progress.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -221,6 +226,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_cli_claude_teams_existing_shim.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_claude_teams_integration_disabled.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -746,6 +756,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_lan_product_source.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_upgrade_rollout_retirement.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1618,4 +1632,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_backend_migrations_plan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green_revert.py"
 lane = "linux-guard"

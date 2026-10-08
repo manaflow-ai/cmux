@@ -146,6 +146,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_gh_merge_green.py
 
+      - name: Validate gh-merge-green --revert
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_gh_merge_green_revert.py
+
       - name: Validate base-red excusal for gh-merge-green
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_base_red_excuse.py
@@ -192,7 +196,7 @@ jobs:
 
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: python3 tests/test_lint_feature_flags_scope.py
+        run: python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_cloud_upgrade_rollout_retirement.py
 
       - name: Validate feature flag review lead-time report
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}

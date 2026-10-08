@@ -1114,7 +1114,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (["vm", "layout", "--help"], ["cmux vm layout"], ["cmux vm new"]),
             // The family text stays for the family itself and for verbs without their own usage.
             (["vm", "--help"], ["pause|resume", "terminal wait-exit", "exec [--timeout <s>]", "workspace new <machine> [--name <name>] [--reuse]", "resize <id>"], []),
-            (["vm", "ls", "--help"], ["Usage: cmux vm <", "resize <id>"], []),
+            (["vm", "new", "--help"], ["Usage:", "cmux vm new", "--size", "--detach"], ["Usage: cmux vm <"]),
+            (["vm", "ls", "--help"], ["Usage:", "cmux vm ls", "List your Cloud VMs"], ["Usage: cmux vm <"]),
+            (["vm", "ports", "--help"], ["Usage:", "cmux vm ports", "listening TCP ports"], ["Usage: cmux vm <"]),
         ]
         for testCase in cases {
             let result = runProcess(executablePath: cliPath, arguments: testCase.arguments, environment: environment, timeout: 30)

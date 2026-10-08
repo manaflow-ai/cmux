@@ -1926,6 +1926,7 @@ class TerminalController {
             return v2RemoteTmuxDetach(id: request.id, params: request.params)
         case "remote.tmux.state":
             return v2RemoteTmuxState(id: request.id, params: request.params)
+        case "remote.tmux.attach_progress": return v2RemoteTmuxAttachProgress(id: request.id, params: request.params)
         case "remote.tmux.mirror": return v2RemoteTmuxMirror(id: request.id, params: request.params)
         case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
@@ -3916,7 +3917,7 @@ class TerminalController {
     /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
     nonisolated func v2VmCall(
         id: Any?,
-        timeoutSeconds: TimeInterval = 17 * 60,
+        timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
@@ -3930,13 +3931,18 @@ class TerminalController {
             }
             semaphore.signal()
         }
-        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-            task.cancel()
-            return v2Error(
-                id: id,
-                code: "timeout",
-                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
-            )
+        if let timeoutSeconds {
+            if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+                task.cancel()
+                return v2Error(
+                    id: id,
+                    code: "timeout",
+                    message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
+                )
+            }
+        } else {
+            // Opt-in for operations that enforce their own lifecycle deadline.
+            semaphore.wait()
         }
         switch result {
         case .success(let payload):
@@ -3971,6 +3977,17 @@ class TerminalController {
             }
             if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if let linkError = error as? CloudMachineLink.LinkError,
+               String(describing: linkError).lowercased().contains("daemon") {
+                return v2Error(
+                    id: id,
+                    code: "vm_tui_daemon_unavailable",
+                    message: String(
+                        localized: "socket.cloudVM.tuiDaemonUnavailable",
+                        defaultValue: "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
+                    )
+                )
             }
             if let failure = error as? SSHTuiOpenFailure {
                 return v2Error(id: id, code: "ssh_failed", message: failure.reason)

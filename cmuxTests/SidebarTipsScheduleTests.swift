@@ -10,6 +10,28 @@ import Testing
 @Suite
 struct SidebarTipsScheduleTests {
     @Test
+    func legacyOptOutIsPreservedWithoutRemovingManualAccess() {
+        let progress = SidebarTipsStorage.progress(
+            currentTipID: "commandPalette", seenTipIDs: "commandPalette", lastOpenedDay: "2026-10-07",
+            automaticTipsDisabled: true
+        )
+        #expect(progress.automaticTipsDisabled)
+        #expect(progress.lastOpenedAt == nil)
+        #expect(progress.currentTipID == "commandPalette")
+    }
+
+    @Test
+    func storageRoundTripsSeenTipsAndTheReminderTimestamp() {
+        let progress = SidebarTipsStorage.progress(
+            currentTipID: "splitPanes", seenTipIDs: "splitPanes,commandPalette", lastOpenedDay: "2026-10-07",
+            automaticTipsDisabled: true, lastOpenedAt: 1_791_417_600
+        )
+        #expect(SidebarTipsStorage.encodedSeenTipIDs(progress.seenTipIDs) == "commandPalette,splitPanes")
+        #expect(progress.lastOpenedAt?.timeIntervalSince1970 == 1_791_417_600)
+        #expect(progress.automaticTipsDisabled)
+    }
+
+    @Test
     func catalogHasUniqueIDsAndHidesTheHoldCommandTipWhenHintsAreOff() {
         let all = SidebarTipsCatalog.all
         #expect(Set(all.map(\.id)).count == all.count)

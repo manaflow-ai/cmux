@@ -1,5 +1,6 @@
 #!/bin/bash
 # gh-merge-green REPO#PR [--main-fix] [--override "reason"] [gh pr merge flags...]
+# gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
 set -Eeuo pipefail
@@ -100,6 +101,11 @@ maybe_update_checkout() {
 }
 
 maybe_update_checkout "$ref" "$@"
+
+# --revert: one-command rollback. The revert PR lands through this same tool.
+if [ "$ref" = --revert ]; then
+  exec python3 "$script_dir/ci/revert_pr.py" "$@"
+fi
 
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
@@ -236,8 +242,8 @@ excuse_runs=()
 red_lanes=()
 if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 
-# Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
-# Require it only if it was scheduled or the diff touches app code.
+# Use a conservative path fallback until the exact-head CI routing is available.
+needs_app_compile=0
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
@@ -246,7 +252,7 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
       'restore GitHub API access, then retry the exact-head check'
   fi
   if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
-    must+=("macos / macOS compile admission")
+    needs_app_compile=1
   fi
 fi
 if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
@@ -265,6 +271,23 @@ if ! runs=$(jq -r '
   refuse \
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
+fi
+
+# CI's package graph can exclude iOS-only Swift changes that the path fallback
+# includes. Accept an explicit skip only from GitHub Actions in the same suite
+# as the latest successful ci-status. Missing or unrelated routing stays closed.
+# A reported compile-admission check is still required below, even with a skip.
+if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
+  (map(.check_runs) | add | sort_by(.name, (.id // 0))
+   | group_by(.name) | map(last)) as $latest
+  | ($latest[] | select(.name == "ci-status")) as $ci
+  | $ci.status == "completed" and $ci.conclusion == "success"
+    and $ci.app.slug == "github-actions" and $ci.check_suite.id != null
+    and any($latest[];
+      .name == "macos" and .status == "completed" and .conclusion == "skipped"
+      and .app.slug == "github-actions" and .check_suite.id == $ci.check_suite.id)
+' <<<"$check_runs_json" >/dev/null 2>&1; then
+  must+=("macos / macOS compile admission")
 fi
 
 # God-file, localization and concurrency lint fail only on the change itself, so

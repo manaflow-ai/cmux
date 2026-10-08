@@ -5,6 +5,12 @@ public import Foundation
 /// The button carries a small dot until the popover is opened for the first
 /// time, then never again. Opening it on a new day moves on to the next
 /// unseen tip, so each day starts on something new without any badge.
+///
+/// Pass a fixed time to exercise the reminder policy without an app or defaults:
+/// ```swift
+/// let schedule = SidebarTipsSchedule()
+/// let next = schedule.automaticTip(SidebarTipsProgress(), tipIDs: ["split"], now: date)
+/// ```
 public struct SidebarTipsSchedule: Sendable {
     /// Creates the schedule for manual tips and daily automatic reminders.
     public init() {}
@@ -46,7 +52,12 @@ public struct SidebarTipsSchedule: Sendable {
         progress.currentTipID.flatMap { tipIDs.firstIndex(of: $0) } ?? 0
     }
 
-    /// Progress after the popover opens on `today`.
+    /// Records a presentation and rotates manual viewing on a new day.
+    /// - Parameters:
+    ///   - progress: Persisted viewing history.
+    ///   - tipIDs: Currently applicable tip identifiers.
+    ///   - now: Presentation time, supplied by the caller.
+    /// - Returns: Updated selection, seen tips, and reminder timestamp.
     public func opened(
         _ progress: SidebarTipsProgress,
         tipIDs: [String],
