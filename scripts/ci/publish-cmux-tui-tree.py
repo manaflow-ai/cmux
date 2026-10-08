@@ -24,11 +24,26 @@ import tempfile
 from typing import Any
 
 
+# Every binary a tree carries. The macOS arm64 three come first: the cmux-next
+# app bundles them, and the tree completeness checks in cmux-tui-artifacts.yml
+# read only them (trees published before the Linux targets stay complete).
+# Linux daemon mode fetches the musl daemon and its app host
+# (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target). The
+# workflow reads this list with --list-companions.
 COMPANION_NAMES = (
     "cmux-tui-aarch64-apple-darwin",
     "cmux-tui-app-host-aarch64-apple-darwin",
     "cmux-tui-cloud-server-aarch64-apple-darwin",
+    "cmux-tui-x86_64-unknown-linux-musl",
+    "cmux-tui-aarch64-unknown-linux-musl",
+    "cmux-tui-app-host-x86_64-unknown-linux-musl",
+    "cmux-tui-app-host-aarch64-unknown-linux-musl",
 )
+# completion.json attests these (unchanged since before the Linux targets, so a
+# republication of an older tree writes byte-identical immutable metadata);
+# completion-linux.json attests the rest. An older tree gains its Linux
+# binaries on its next republication without an immutable conflict.
+GATE_NAMES = COMPANION_NAMES[:3]
 REPAIR_POINTER = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 
 
@@ -111,7 +126,7 @@ def publish_tree(
     source_file: Path | None = None,
     publish_source: bool = False,
 ) -> dict[str, str]:
-    """Validate and publish all arm64 tree companions.
+    """Validate and publish all tree companions (COMPANION_NAMES).
 
     ``manifest_file`` is the immutable commit-addressed manifest that attests
     the bytes.  ``source_file`` is an existing tree source.json, when present;
@@ -208,29 +223,40 @@ def publish_tree(
                 cache_control=cache,
             )
 
-        completion = {
-            "schemaVersion": 1,
-            "key": key,
-            "sourceCommit": source_commit,
-            "binaries": digests,
-        }
-        if source_file is not None and source_file.is_file():
-            completion["sourceSha256"] = _sha256(source_file)
-        completion_file = temporary_dir / "completion.json"
-        completion_file.write_text(json.dumps(completion, indent=2, sort_keys=True) + "\n")
-        _upload(
-            uploader,
-            completion_file,
-            endpoint_url=endpoint_url,
-            bucket=bucket,
-            key=f"{prefix}/completion.json",
-            cache_control=cache,
-        )
+        def write_completion(name: str, binaries: dict[str, str]) -> None:
+            completion: dict[str, Any] = {
+                "schemaVersion": 1,
+                "key": key,
+                "sourceCommit": source_commit,
+                "binaries": binaries,
+            }
+            if source_file is not None and source_file.is_file():
+                completion["sourceSha256"] = _sha256(source_file)
+            completion_file = temporary_dir / name
+            completion_file.write_text(json.dumps(completion, indent=2, sort_keys=True) + "\n")
+            _upload(
+                uploader,
+                completion_file,
+                endpoint_url=endpoint_url,
+                bucket=bucket,
+                key=f"{prefix}/{name}",
+                cache_control=cache,
+            )
+
+        write_completion("completion-linux.json", {n: d for n, d in digests.items() if n not in GATE_NAMES})
+        # Last: the cmux-next gate reads completion.json as "the tree is complete".
+        write_completion("completion.json", {n: d for n, d in digests.items() if n in GATE_NAMES})
     return digests
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv == ["--list-companions"]:
+        print("\n".join(COMPANION_NAMES))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--list-companions", action="store_true",
+                        help="print the companion names, one per line, and exit")
     parser.add_argument("--key", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--assets-dir", type=Path, required=True)

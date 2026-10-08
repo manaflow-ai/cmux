@@ -65,6 +65,7 @@ mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
+pub mod store_schemas;
 mod stream_interrupt;
 mod surface;
 #[cfg(unix)]
@@ -73,6 +74,9 @@ mod terminal_end;
 #[cfg(unix)]
 mod terminal_loss_log;
 mod terminal_metadata;
+pub mod terminal_respawn_text;
+#[cfg(windows)]
+mod windows_processes;
 mod workspace_registry;
 
 pub mod layout;
@@ -101,7 +105,7 @@ pub use layout::{
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
 pub use model::{
-    ColumnDock, DockEdge, DockMode, Node, Pane, Screen, State, ViewportColumn, Workspace,
+    ColumnDock, DockEdge, DockMode, DockRole, Node, Pane, Screen, State, ViewportColumn, Workspace,
 };
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
@@ -143,10 +147,10 @@ pub use surface::{
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
 pub use workspace_registry::{
-    FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,
-    JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,
-    JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry, JournalIngress,
-    JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
+    Actor, FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint,
+    JournalClass, JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy,
+    JournalHookExec, JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry,
+    JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
     RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
@@ -154,7 +158,6 @@ pub use workspace_registry::{
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};
-pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
 
 pub type SurfaceId = u64;

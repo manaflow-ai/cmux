@@ -86,9 +86,10 @@ fn view_at_turn_equals_the_bytes_the_turn_sent_cached_layout() {
             agents.systems[k].as_ref(),
             "turn {k}: the system prompt"
         );
-        assert!(
-            prompt.system.len() > optchat_chief::prompt::claude_md(None).len(),
-            "the view head is in the system prompt"
+        assert_eq!(
+            prompt.system,
+            optchat_chief::prompt::claude_md(None),
+            "the system prompt is the constant text alone (spec 3.3)"
         );
     }
     assert_ne!(
@@ -302,10 +303,22 @@ fn the_server_refuses_non_loopback_missing_tokens_and_writes() {
         .unwrap()
         .to_owned();
     assert!(spent.headers.contains("HttpOnly") && spent.headers.contains("SameSite=Strict"));
+    // The browser loads the ticket URL again when the tab moves into its
+    // column: within 10 s that reload gets the same session, not a new one.
+    let again = get(addr, "GET", &format!("/?ticket={ticket}"), &host, "");
+    assert_eq!(again.status, 303);
+    assert!(again.headers.contains(&cookie), "the same session");
+    // A ticket nobody minted buys nothing.
     assert_eq!(
-        get(addr, "GET", &format!("/?ticket={ticket}"), &host, "").status,
-        401,
-        "a ticket works once"
+        get(
+            addr,
+            "GET",
+            &format!("/?ticket={}", "0".repeat(64)),
+            &host,
+            ""
+        )
+        .status,
+        401
     );
     let page = get(addr, "GET", "/", &host, &format!("Cookie: {cookie}\r\n"));
     assert_eq!(page.status, 200);
@@ -321,6 +334,87 @@ fn the_server_refuses_non_loopback_missing_tokens_and_writes() {
         .status,
         200
     );
+}
+
+/// A web page cannot read the inspector: a foreign or `null` Origin is
+/// refused even with the token or a session, so neither a cross-site fetch
+/// nor a DNS-rebound name on another port gets an answer. A same-origin
+/// request (no Origin, or the inspector's own loopback origin) is served.
+#[test]
+fn a_foreign_origin_is_refused_even_with_the_token() {
+    let h = harness(true, 40);
+    let token = http::new_secret().unwrap();
+    let running =
+        http::start(inspector(&h), "127.0.0.1:0".parse().unwrap(), token.clone()).unwrap();
+    let addr = running.addr;
+    let port = addr.port();
+    let host = format!("127.0.0.1:{port}");
+    let bearer = format!("Authorization: Bearer {token}\r\n");
+    for origin in [
+        "https://evil.example".to_owned(),
+        "null".to_owned(),
+        format!("http://evil.example:{port}"),
+        format!("http://127.0.0.1:{}", port.wrapping_add(1)),
+        format!("https://127.0.0.1:{port}"),
+    ] {
+        let extra = format!("{bearer}Origin: {origin}\r\n");
+        for path in ["/api/status", "/api/ticket", "/"] {
+            assert_eq!(
+                get(addr, "GET", path, &host, &extra).status,
+                403,
+                "{origin} {path}"
+            );
+        }
+    }
+    for origin in [
+        format!("http://127.0.0.1:{port}"),
+        format!("http://localhost:{port}"),
+        format!("http://[::1]:{port}"),
+    ] {
+        let extra = format!("{bearer}Origin: {origin}\r\n");
+        assert_eq!(
+            get(addr, "GET", "/api/status", &host, &extra).status,
+            200,
+            "{origin}"
+        );
+    }
+    assert_eq!(
+        get(addr, "GET", "/api/status", &host, &bearer).status,
+        200,
+        "no Origin"
+    );
+    // HEAD gets the same rule; two Origin headers are refused.
+    let foreign = format!("{bearer}Origin: https://evil.example\r\n");
+    assert_eq!(
+        get(addr, "HEAD", "/api/status", &host, &foreign).status,
+        403
+    );
+    let two =
+        format!("{bearer}Origin: http://127.0.0.1:{port}\r\nOrigin: https://evil.example\r\n");
+    assert_eq!(get(addr, "GET", "/api/status", &host, &two).status, 403);
+    // The localhost Host with the localhost origin is served.
+    let localhost = format!("localhost:{port}");
+    let own = format!("{bearer}Origin: http://localhost:{port}\r\n");
+    assert_eq!(
+        get(addr, "GET", "/api/status", &localhost, &own).status,
+        200
+    );
+    // A page on another loopback port sends no Origin on a no-cors request
+    // but its browser marks it same-site: refused, also with the token.
+    for site in ["same-site", "cross-site"] {
+        let extra = format!("{bearer}Sec-Fetch-Site: {site}\r\nSec-Fetch-Mode: no-cors\r\n");
+        assert_eq!(
+            get(addr, "GET", "/api/status", &host, &extra).status,
+            403,
+            "{site}"
+        );
+    }
+    let same = format!("{bearer}Sec-Fetch-Site: same-origin\r\nSec-Fetch-Mode: cors\r\n");
+    assert_eq!(get(addr, "GET", "/api/status", &host, &same).status, 200);
+    // A top-level navigation to the page is not refused for its site (it
+    // still needs a ticket or a session).
+    let nav = "Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: navigate\r\n";
+    assert_eq!(get(addr, "GET", "/", &host, nav).status, 401);
 }
 
 /// Every endpoint, called on a quiet memory, leaves the database as it was.
@@ -361,4 +455,108 @@ fn the_api_never_writes_the_memory() {
     assert!(before.0 == after.0, "the database file is unchanged");
     assert_eq!(before.1, after.1, "the WAL did not grow");
     assert_eq!(before.2, after.2);
+}
+
+/// After its reload window a spent ticket buys nothing.
+#[test]
+fn a_spent_ticket_expires() {
+    let h = harness(true, 10);
+    let token = http::new_secret().unwrap();
+    let running =
+        http::start(inspector(&h), "127.0.0.1:0".parse().unwrap(), token.clone()).unwrap();
+    let addr = running.addr;
+    let host = format!("127.0.0.1:{}", addr.port());
+    let bearer = format!("Authorization: Bearer {token}\r\n");
+    let ticket: Value =
+        serde_json::from_str(&get(addr, "GET", "/api/ticket", &host, &bearer).body).unwrap();
+    let url = format!("/?ticket={}", ticket["ticket"].as_str().unwrap());
+    assert_eq!(get(addr, "GET", &url, &host, "").status, 303);
+    std::thread::sleep(std::time::Duration::from_secs(11));
+    assert_eq!(get(addr, "GET", &url, &host, "").status, 401);
+}
+
+/// The tools socket's `inspect` tool (a remote owner's route, through the
+/// brain's daemon): the same answers as HTTP for the seven read-only paths,
+/// nothing else, GET only, and a size cap.
+#[test]
+fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
+    let mut h = harness(true, 120);
+    h.say("user_local", "a question");
+    h.settle();
+    assert!(h.chat.wait_idle(None, Some(WAIT)));
+    let insp = inspector(&h);
+    let sock = h.dir.path().join("tools.sock");
+    optchat_chief::tools::serve_all(
+        &sock,
+        optchat_chief::tools::Served {
+            memory: h.chat.clone(),
+            orchestrator: None,
+            control: None,
+            inspector: Some(insp.clone()),
+        },
+    )
+    .unwrap();
+    let ask = |req: Value| -> Value {
+        use std::io::{BufRead, BufReader};
+        let mut s = std::os::unix::net::UnixStream::connect(&sock).unwrap();
+        writeln!(s, "{req}").unwrap();
+        let mut line = String::new();
+        BufReader::new(s).read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    };
+    let db = h.chat.db_path();
+    let before = std::fs::read(&db).unwrap();
+    for (path, query) in [
+        ("/api/status", serde_json::json!({})),
+        ("/api/turns", serde_json::json!({})),
+        ("/api/turn", serde_json::json!({"key": "now"})),
+        ("/api/node", serde_json::json!({"name": "0+8"})),
+        ("/api/level", serde_json::json!({"l": "1"})),
+        ("/api/date", serde_json::json!({"id": "3"})),
+        ("/api/search", serde_json::json!({"q": "context"})),
+    ] {
+        let got = ask(
+            serde_json::json!({"tool": "inspect", "method": "GET", "path": path, "query": query}),
+        );
+        assert_eq!(got["status"], 200, "{path}: {got}");
+        let pairs: Vec<(String, String)> = query
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+            .collect();
+        let direct = insp.answer(path, &pairs).unwrap();
+        if path != "/api/status" && path != "/api/turns" {
+            assert_eq!(got["body"], direct, "{path}: same answer as HTTP");
+        }
+    }
+    // Only the seven paths; GET only; an unknown tool path is refused.
+    for path in [
+        "/api/ticket",
+        "/",
+        "/index.html",
+        "/api/../etc",
+        "/api/write",
+    ] {
+        let got = ask(serde_json::json!({"tool": "inspect", "path": path}));
+        assert_eq!(got["status"], 404, "{path}: {got}");
+    }
+    for method in ["POST", "PUT", "DELETE"] {
+        let got =
+            ask(serde_json::json!({"tool": "inspect", "method": method, "path": "/api/status"}));
+        assert_eq!(got["status"], 405, "{method}");
+    }
+    // Answers above the cap are refused, not cut.
+    const { assert!(optchat_chief::inspect::INSPECT_MAX_BYTES <= 8 * 1024 * 1024) };
+    let big = optchat_chief::inspect::tool_answer(
+        &insp,
+        &serde_json::json!({"tool": "inspect", "path": "/api/turn", "query": {"key": "now"}}),
+        64,
+    );
+    assert_eq!(big["status"], 413);
+    assert!(big.get("body").is_none());
+    assert!(
+        std::fs::read(&db).unwrap() == before,
+        "the tool never writes the memory"
+    );
 }

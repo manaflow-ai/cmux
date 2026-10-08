@@ -21,6 +21,9 @@ import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } 
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
 import "../../markdown-task-checkbox.css";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TaskCheckbox } from "../../ui/TaskCheckbox";
 import {
   brokenLinkPlugin,
   caretAt,
@@ -31,6 +34,7 @@ import {
   type LinkHost,
 } from "./linkEditing";
 import { findHeading } from "./links";
+import { githubReferences } from "../../githubReferences";
 import { LinkOverlays } from "./overlays";
 import {
   RAW_NODE,
@@ -58,6 +62,8 @@ export interface MarkdownEditorHost {
   label(key: EditorLabel): string;
   /** Sanitized HTML for an HTML block's preview. */
   htmlPreview?(html: string): DocumentFragment | null;
+  /** The workspace's GitHub `owner/repo`, used for bare issue references. */
+  githubRepository?: string;
   /** Link checks, hover card strings and path completion. */
   links?: LinkHost;
 }
@@ -252,6 +258,7 @@ export class MarkdownEditor {
       .use(rawSchema)
       .use(activeBlockPlugin)
       .use(taskCheckboxPlugin())
+      .use(githubReferencePlugin(() => host.githubRepository))
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
       .use(codeHighlightPlugin(host));
     if (host.links)
@@ -471,28 +478,54 @@ const activeKey = new PluginKey("cmuxMarkdownActive");
 
 const taskCheckboxKey = new PluginKey<DecorationSet>("cmuxMarkdownTaskCheckbox");
 
+const githubReferenceKey = new PluginKey<DecorationSet>("cmuxMarkdownGithubReferences");
+
+/** Renders GitHub issue references without changing the Markdown source or editor marks. */
+function githubReferencePlugin(repository: () => string | undefined) {
+  return $prose(
+    () =>
+      new Plugin<DecorationSet>({
+        key: githubReferenceKey,
+        state: {
+          init: (_config, state) => githubReferenceDecorations(state.doc, repository()),
+          apply: (tr, previous, _old, state) =>
+            tr.docChanged ? githubReferenceDecorations(state.doc, repository()) : previous.map(tr.mapping, state.doc),
+        },
+        props: { decorations: (state) => githubReferenceKey.getState(state) },
+      }),
+  );
+}
+
+function githubReferenceDecorations(doc: ProseNode, repository?: string): DecorationSet {
+  const decorations: Decoration[] = [];
+  doc.descendants((node, pos, parent) => {
+    if (parent?.type.spec.code) return false;
+    if (!node.isText) return true;
+    if (node.marks.some((mark) => mark.type.name === "link" || mark.type.spec.code)) return false;
+    for (const reference of githubReferences(node.text!, repository)) {
+      decorations.push(
+        Decoration.inline(pos + reference.start, pos + reference.end, {
+          nodeName: "a",
+          href: reference.href,
+          title: reference.href,
+          class: "md-github-reference",
+        }),
+      );
+    }
+    return false;
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
 /** Draws the same custom task checkbox as the agent reply renderer. It is a widget rather than a
  * pseudo-element so the task state is exposed to assistive technology in the rich editor. */
 function taskCheckboxPlugin() {
   const checkbox = (checked: boolean): HTMLElement => {
-    const element = document.createElement("span");
-    element.className = "cmux-markdown-checkbox md-task-checkbox";
-    element.dataset.checked = String(checked);
-    // ui-allow: a read-only task mark drawn as a ProseMirror decoration, which src/ui cannot render (7f67cf1a538)
-    element.setAttribute("role", "checkbox");
-    element.setAttribute("aria-checked", String(checked));
-    element.setAttribute("aria-readonly", "true");
+    const template = document.createElement("template");
+    template.innerHTML = renderToStaticMarkup(createElement(TaskCheckbox, { checked }));
+    const element = template.content.firstElementChild;
+    if (!(element instanceof HTMLElement)) throw new Error("task checkbox primitive did not render an element");
     element.contentEditable = "false";
-    if (checked) {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("viewBox", "0 0 14 14");
-      svg.setAttribute("aria-hidden", "true");
-      svg.setAttribute("focusable", "false");
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("d", "M3 7.2 5.7 10 11 4.3");
-      svg.append(path);
-      element.append(svg);
-    }
     return element;
   };
 

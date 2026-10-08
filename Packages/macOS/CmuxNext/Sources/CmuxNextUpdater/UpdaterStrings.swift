@@ -59,7 +59,6 @@ nonisolated enum UpdaterStrings {
     static var testFeedTitle: String { text("updater.testFeed.title", "Test Update Feed") }
     static var testFeedUseReal: String { text("updater.testFeed.useReal", "Use Real Feed") }
 
-    static func whatsNewTitle(_ version: String) -> String { format("updater.card.whatsNew", "What's New in cmux %@", version) }
 
     /// The footer pill's tooltip and VoiceOver label (SIDEBAR-FOOTER-MINIMAL):
     /// the relaunch keeps terminals and agents (browser pages reload).
@@ -83,6 +82,10 @@ nonisolated enum UpdaterStrings {
     static func moreChanges(_ count: Int) -> String {
         count == 1 ? text("updater.card.oneMoreChange", "1 more change") : format("updater.card.moreChanges", "%ld more changes", count)
     }
+
+    // The tips card (BOTTOM-LEFT-CARDS K1)
+    static var tipEyebrow: String { text("updater.tip.eyebrow", "Did you know?") }
+    static var tipDismiss: String { text("updater.tip.dismiss", "Hide This Tip") }
 
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {

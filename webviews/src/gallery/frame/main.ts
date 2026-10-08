@@ -4,12 +4,14 @@
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
 import { readEnv, widthPx } from "../env";
+import { readTunes } from "../../experiments/tunable";
 import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
 import { entryStore } from "../registry";
 import { watchStageErrors } from "./liveErrors";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
+import { deriveAppTheme } from "../../theme/appTheme";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
@@ -80,7 +82,9 @@ const bootstrap = document.createElement("script");
 bootstrap.textContent = webThemeBootstrap;
 document.head.append(bootstrap);
 bootstrap.remove();
-(window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(webThemePayload(tokens));
+(window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
+  webThemePayload(tokens, deriveAppTheme(theme)),
+);
 // Interface scale: the app sets WKWebView.pageZoom (DesignSettings.uiScale).
 if (env.scale !== 1) root.style.zoom = String(env.scale);
 root.dataset.galleryEntry = entry.id;
@@ -100,6 +104,9 @@ if (experiment && arm) {
   root.dataset.galleryArm = arm;
   experimentRunner!.installAnimationControl();
 }
+
+// Edited tunables (the stage's curve editors): the page reads them through tunableValue().
+globalThis.cmuxTunables = { ...globalThis.cmuxTunables, ...readTunes(params.get("tune") ?? "") };
 
 const log: { method: string; params?: unknown }[] = [];
 (window as unknown as { cmuxGalleryLog: typeof log }).cmuxGalleryLog = log;

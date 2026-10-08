@@ -53,6 +53,11 @@ pub(crate) struct CloudSession {
     /// verifies the token on every request. `None` when the token has no
     /// readable `sub`.
     pub(crate) account: Option<String>,
+    /// The chief id (JWT `agt`) when the lease is a chief token: the only
+    /// source of the MuxDO stream and ack target (`cloud-mux-*`), never a
+    /// request field. Read without verifying the signature; the Worker
+    /// verifies the token and MuxDO refuses any other chief.
+    pub(crate) agent: Option<String>,
 }
 
 impl fmt::Debug for CloudSession {
@@ -64,6 +69,7 @@ impl fmt::Debug for CloudSession {
             .field("expires_at", &self.expires_at)
             .field("generation", &self.generation)
             .field("account", &self.account)
+            .field("agent", &self.agent)
             .finish()
     }
 }
@@ -109,6 +115,24 @@ pub(crate) fn validate_api_base_url(raw: &str) -> Result<String, CloudError> {
     })
 }
 
+/// The `agt` claim (a chief id, `agent_...`) of a JWT-shaped token; `None`
+/// for a person's session token. Like `sub`, unverified here.
+pub(crate) fn token_agent(token: &str) -> Option<String> {
+    token_claim(token, "agt").filter(|agent| super::contract::valid_agent_id(agent))
+}
+
+fn token_claim(token: &str, name: &str) -> Option<String> {
+    use base64::Engine;
+    let mut parts = token.split('.');
+    let (_header, payload, _signature) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    claims.get(name)?.as_str().map(str::to_string)
+}
+
 /// The `sub` claim of a JWT-shaped token (`header.payload.signature`, each
 /// part base64url without padding). The signature is not checked: the value
 /// only tags events with an account (home-cloud-proxy.md section 5), never
@@ -147,6 +171,7 @@ impl CloudSession {
             )));
         }
         let account = token_account(&token);
+        let agent = token_agent(&token);
         Ok(Self {
             origin,
             token,
@@ -154,6 +179,7 @@ impl CloudSession {
             client_version: params.client_version,
             generation,
             account,
+            agent,
         })
     }
 

@@ -147,7 +147,7 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
             .value("harness")
             .map(str::to_owned)
             .or_else(|| env("MUX_HARNESS"))
-            .unwrap_or_else(|| "claude-sr".into()),
+            .unwrap_or_else(|| crate::host::DEFAULT_HARNESS.into()),
         policy: flags
             .value("policy")
             .map(str::to_owned)
@@ -172,12 +172,24 @@ fn asks(s: &SessionSummary) -> bool {
     s.tags.get(crate::approval::POLICY_TAG).map(String::as_str) == Some(crate::approval::ASK)
 }
 
-/// Whether `agents allow|deny` may answer `child`: not a child that runs with
-/// policy `ask`, whose approvals a person gives in the Chief chat.
-pub fn cli_may_answer(child: &SessionSummary) -> Result<(), String> {
+/// Whether `agents allow|deny` may answer `child`'s `pending` permission (an
+/// `_acpmux/info` pending entry): not a child that runs with policy `ask`,
+/// whose approvals a person gives in the Chief chat, and never a question
+/// (`toolCall._meta.acpmux.question`), which only a person answers or
+/// declines.
+pub fn cli_may_answer(child: &SessionSummary, pending: &Value) -> Result<(), String> {
     if asks(child) {
         return Err(format!(
             "{} needs approvals from a person: answer allow or deny in the Chief chat",
+            child.name
+        ));
+    }
+    if pending
+        .pointer("/request/toolCall/_meta/acpmux/question")
+        .is_some_and(|q| !q.is_null())
+    {
+        return Err(format!(
+            "{} is asking a question: only a person answers it, in its agent tab or the Home card; an agent never answers or declines a question",
             child.name
         ));
     }
@@ -240,7 +252,6 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             let name = args.first().ok_or(USAGE)?;
             let (client, _) = connect()?;
             let target = child(&client, name)?;
-            cli_may_answer(&target)?;
             let info = client
                 .request("_acpmux/info", json!({"sessionId": target.session_id}))
                 .map_err(|e| e.to_string())?;
@@ -250,6 +261,7 @@ pub fn run(flags: &Flags) -> Result<String, String> {
                 .and_then(|p| p.first())
                 .cloned()
                 .ok_or_else(|| format!("{name} has no pending permission"))?;
+            cli_may_answer(&target, &pending)?;
             let permission = pending
                 .get("permissionId")
                 .and_then(Value::as_str)
@@ -300,6 +312,17 @@ mod tests {
         let tags = parent.map_or(json!({}), |p| json!({PARENT_TAG: p}));
         serde_json::from_value(json!({"sessionId": format!("id-{name}"), "name": name, "status": "idle", "tags": tags}))
             .unwrap()
+    }
+
+    #[test]
+    fn an_agent_never_answers_a_question() {
+        let child = session("helper", Some("optchat-chief:aa"));
+        let question = json!({"permissionId": "p1", "request": {"toolCall": {"_meta": {"acpmux": {"question": {
+            "harness": "claude", "items": [{"id": "q0", "prompt": "Which?", "options": []}]}}}}}});
+        let err = cli_may_answer(&child, &question).unwrap_err();
+        assert!(err.contains("question") && err.contains("person"), "{err}");
+        let plain = json!({"permissionId": "p2", "request": {"toolCall": {"title": "ls"}}});
+        assert_eq!(cli_may_answer(&child, &plain), Ok(()));
     }
 
     #[test]

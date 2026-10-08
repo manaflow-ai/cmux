@@ -5644,8 +5644,11 @@
     "ipad",
     "tui",
     "browser",
+    "linux",
+    "windows",
     "unknown"
-   ]
+   ],
+   "fallback": "unknown"
   },
   "SizeMode": {
    "kind": "enum",
@@ -5753,7 +5756,7 @@
      "nullable": true,
      "default": null,
      "constraints": [
-      "mac, iphone, ipad, tui, browser; anything else is unknown."
+      "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown."
      ]
     },
     "device_name": {
@@ -6215,6 +6218,17 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "role": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "since": 12,
+     "capability": "dock-column-role-v1"
     }
    },
    "additional_properties": false
@@ -8059,7 +8073,7 @@
       "since": 12,
       "capability": "shared-sizing-v1",
       "constraints": [
-       "mac, iphone, ipad, tui, browser; anything else is unknown; defaults to kind."
+       "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown; defaults to kind."
       ]
      },
      "device_name": {
@@ -11474,6 +11488,17 @@
       "nullable": true,
       "default": null
      },
+     "role": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "dock-column-role-v1"
+     },
      "transaction": {
       "type": {
        "kind": "scalar",
@@ -11492,7 +11517,7 @@
    },
    "stream": null,
    "constraints": [
-    "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\").",
+    "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\"). role is \"agent_chat\" with dock-column-role-v1 (default none).",
     "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
     "See spec/commands.md for the result object."
    ]
@@ -19493,6 +19518,73 @@
     "Trusted local user connections only (an agent-bound connection is refused; the remote relay does not admit it). Appends history from another store once: authors, times and ids are kept, the owner assigns seqs and one rev, skips a message whose author and client_msg_id (or id) it holds, and refuses times that go backward, pass the newest message it holds, or lie in the future. See spec/commands.md."
    ]
   },
+  "chief-inspect": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "chief-inspect-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "query": {
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": {}
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "body": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "error": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "status": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Read-only: one of seven /api paths, GET, forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+   ]
+  },
   "snapshot-request": {
    "authority": "frontend",
    "since": 12,
@@ -20649,6 +20741,77 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. variant original (default), poster or preview; length at most 4 MiB. The hash must be referenced by a message of the conversation or uploaded there by the caller. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview). See spec/commands.md."
+   ]
+  },
+  "cloud-mux-subscribe": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Subscribes this connection to the leased chief's MuxDO wake queue (mux:<agent>); the agent is the lease token's agt claim, never a request field (no fields are accepted). Refused with mux_needs_chief for a person's session. Replies like cloud-inbox-subscribe, then emits cloud-subscription-state (scope mux). See spec/commands.md."
+   ]
+  },
+  "cloud-mux-unsubscribe": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Releases this connection's interest in the leased chief's wake queue."
+   ]
+  },
+  "cloud-mux-ack": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. mux.ack for the lease's own chief (agent from the token; an agent field is refused): the wakes of conversation up to seq are handled. Idempotency key mux-ack:<conversation>:<seq>, so a repeated ack is a replay. Replies with the owner's mutation result."
    ]
   }
  },
@@ -24396,6 +24559,98 @@
        "name": "ActivitySnapshot"
       },
       "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-mux-wake": {
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-mux-wake"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "wakes": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-mux-resynced": {
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-mux-resynced"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "pending": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
       "nullable": false
      }
     },

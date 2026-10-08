@@ -18,7 +18,7 @@ struct StatusMappingTests {
         #expect(StatusMapping.shared.summary(tab) == .idle)
         tab.setAgent(AgentStatus(surface: 1, state: .working, agent: "claude", updatedAtMs: 5))
         let working = StatusMapping.shared.summary(tab)
-        #expect(working.state == .busy)
+        #expect(working.state == .working)
         #expect(working.primary?.label == "claude")
         #expect(working.primary?.source == .agent)
         tab.setAgent(AgentStatus(surface: 1, state: .blocked))
@@ -52,9 +52,9 @@ struct StatusMappingTests {
         tab.setAgent(AgentStatus(surface: 1, state: .working))
         let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
         let row = try #require(SidebarMapping.shared.sections(store.sidebarSections, machine: machine)[0].workspaces.first { $0.title == "beta" })
-        #expect(row.activity == .busy)
+        #expect(row.activity == .working)
         let item = TabItemMapping.shared.item(tab, fallbackTitle: "Terminal")
         #expect(item.isBusy)
-        #expect(item.indicator == .busy)
+        #expect(item.indicator == .working)
     }
 }

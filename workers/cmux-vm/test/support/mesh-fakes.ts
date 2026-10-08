@@ -47,14 +47,26 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const rules = new Map<string, FakeRule>();
   /** VM provider id -> network id. */
   const vmNetworks = new Map<string, string>();
-  const state: { mintKey: boolean; tunnelCreateStatus: number | null; ruleCreateStatus: number | null; ruleCreates: number; rotations: number } = {
+  const state: {
+    mintKey: boolean;
+    tunnelCreateStatus: number | null;
+    tunnelDeleteStatus: number | null;
+    ruleCreateStatus: number | null;
+    ruleCreates: number;
+    rotations: number;
+  } = {
     mintKey: false,
     tunnelCreateStatus: null,
+    tunnelDeleteStatus: null,
     ruleCreateStatus: null,
     ruleCreates: 0,
     rotations: 0,
   };
   let hostCounter = 10;
+  /** While set, rule creates wait for this promise (a stalled provider call). */
+  let ruleHold: Promise<void> | null = null;
+  const heldWaiters: Array<() => void> = [];
+  let heldCount = 0;
 
   const tunnelBody = (tunnel: FakeTunnel, privateKey: string) => ({
     id: tunnel.id,
@@ -155,6 +167,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       if (tunnel === undefined) return json({ message: "not found" }, 404);
       if (method === "GET") return json(tunnelBody(tunnel, ""));
       if (method === "DELETE") {
+        if (state.tunnelDeleteStatus !== null) return json({ message: "injected failure" }, state.tunnelDeleteStatus);
         tunnels.delete(id);
         // Rules naming a deleted tunnel go with it.
         for (const [ruleId, rule] of rules) if (rule.source["tunnelId"] === id || rule.destination["tunnelId"] === id) rules.delete(ruleId);
@@ -162,6 +175,11 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       }
     }
     if (path === "/v5/firewall/rules" && method === "POST") {
+      if (ruleHold !== null) {
+        heldCount += 1;
+        for (const wake of heldWaiters.splice(0)) wake();
+        await ruleHold;
+      }
       state.ruleCreates += 1;
       if (state.ruleCreateStatus !== null) return json({ message: "refused" }, state.ruleCreateStatus);
       const source = typeof fields["source"] === "object" && fields["source"] !== null ? Object.fromEntries(Object.entries(fields["source"])) : {};
@@ -231,11 +249,32 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     failTunnelCreates(status: number | null) {
       state.tunnelCreateStatus = status;
     },
+    /** Tunnel deletes answer `status` (null: normal). */
+    failTunnelDeletes(status: number | null) {
+      state.tunnelDeleteStatus = status;
+    },
     /** Rule creates answer `status` (null: normal). */
     failRuleCreates(status: number | null) {
       state.ruleCreateStatus = status;
     },
     ruleCreateCount: () => state.ruleCreates,
+    /** Rule creates stall until the returned function is called. */
+    holdRuleCreates(): () => void {
+      let release = () => {};
+      ruleHold = new Promise<void>((resolve) => {
+        release = () => {
+          ruleHold = null;
+          resolve();
+        };
+      });
+      heldCount = 0;
+      return () => release();
+    },
+    /** Resolves once a rule create is stalled by holdRuleCreates. */
+    ruleCreateHeld(): Promise<void> {
+      if (heldCount > 0) return Promise.resolve();
+      return new Promise<void>((resolve) => heldWaiters.push(resolve));
+    },
   };
 }
 

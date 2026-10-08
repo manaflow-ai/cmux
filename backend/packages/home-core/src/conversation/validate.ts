@@ -1,5 +1,6 @@
 import { cleanAttachmentPart } from "./attachments.ts"
 import { validAddressId, validParticipantId } from "./ids.ts"
+import { validateQuestion } from "./question.ts"
 import { fail } from "./reject.ts"
 import {
   MAX_DISPLAY_NAME_CHARS,
@@ -168,6 +169,8 @@ export const validateParts = (parts: unknown, allowAttachments = false): Readonl
         status: part.status as WorkStatus,
         ...(part.preview === undefined ? {} : { preview: part.preview as string })
       })
+    } else if (part.type === "question") {
+      out.push(validateQuestion(part))
     } else if (part.type === "attachment" && allowAttachments) {
       // Cloud heads only: a local head (the Rust crate) has no attachment parts.
       const clean = cleanAttachmentPart(part)
@@ -193,7 +196,8 @@ export const currentParticipant = (head: ConversationHead, id: string): Particip
 export const currentParticipants = (head: ConversationHead): ReadonlyArray<Participant> =>
   head.participants.filter((participant) => participant.left_at === undefined)
 
-export const hasText = (parts: ReadonlyArray<Part>): boolean => parts.some((part) => part.type === "text")
+/** Whether a message is a counted turn for the loop guard: text, or a question (an agent asking is a turn). */
+export const hasText = (parts: ReadonlyArray<Part>): boolean => parts.some((part) => part.type === "text" || part.type === "question")
 
 /**
  * A display name from an outside source (Stack, the caller): control
