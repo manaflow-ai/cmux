@@ -11,7 +11,8 @@ import type { FeedItem } from "@cmux/protocol"
 export const integrationPoster = (p: Principal): string | null =>
   p.kind === "system" && p.user && p.identity.startsWith("system:connections:") ? p.identity.slice("system:connections:".length) : null
 
-const approvalOf = (item: FeedItem): { team: string; request: string; digest: string } | null => {
+/** The approval an integration approve item carries, when its poster scope is the named team's ConnectionDO. */
+export const approvalOf = (item: FeedItem): { team: string; request: string; digest: string } | null => {
   if (item.poster.kind !== "integration" || item.kind !== "approve") return null
   const a = ((item.prompt as { action?: { input?: { approval?: unknown } } } | undefined)?.action?.input?.approval ?? null) as Record<string, unknown> | null
   if (!a || typeof a.team !== "string" || typeof a.request !== "string" || typeof a.digest !== "string" || !a.team) return null
