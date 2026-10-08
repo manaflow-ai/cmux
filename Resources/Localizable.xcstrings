@@ -85303,7 +85303,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nعكس جلسات tmux لمضيف بعيد في الشريط الجانبي للنافذة الحالية عبر\nوضع التحكم في tmux عبر SSH (tmux -CC). تصبح كل جلسة مساحة عمل، وكل\nنافذة علامة تبويب، وكل نافذة متعددة الأجزاء تقسيمًا أصليًا. يتطلب ذلك\nالإعداد التجريبي \"Remote tmux\".\n\nإذا احتاج المضيف إلى مصادقة تفاعلية (كلمة مرور، أو تأكيد مفتاح المضيف،\nأو MFA، أو لمس مفتاح أمان)، يشغّل cmux أمر ssh داخل هذه الطرفية لتتمكن من\nالمصادقة، ثم يعكس الجلسات عبر اتصال SSH المشترك. أما المضيفات\nالتي تتم مصادقتها دون تفاعل (ssh-agent / مفتاح في ~/.ssh/config) فتُعكس\nدون مطالبة. تُحترم الأسماء المستعارة في ~/.ssh/config وإعدادات IdentityFile/ProxyJump/Port الخاصة بها.\n\nالخيارات:\n  --port <n>          منفذ SSH\n  --identity <path>   مسار ملف هوية SSH\n  --name <title>      تعيين عنوان العرض المحلي لمساحة العمل المعكوسة. هذا\n                       تجميلي فقط: لا يعيد تسمية جلسة tmux البعيدة.\n                       ينطبق على أول جلسة معكوسة حديثًا عندما يكون لدى المضيف\n                       أكثر من جلسة.\n  --no-focus          عدم تحديد مساحة العمل المعكوسة أو التركيز على نافذتها\n\nمثال:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
+            "value": "الاستخدام: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]\n                         [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]\n\nعكس جلسات tmux لمضيف بعيد في الشريط الجانبي للنافذة الحالية عبر\nوضع التحكم في tmux عبر SSH (tmux -CC). تصبح كل جلسة مساحة عمل، وكل\nنافذة علامة تبويب، وكل نافذة متعددة الأجزاء تقسيمًا أصليًا. يتطلب ذلك\nالإعداد التجريبي \"Remote tmux\".\n\nإذا احتاج المضيف إلى مصادقة تفاعلية (كلمة مرور، أو تأكيد مفتاح المضيف،\nأو MFA، أو لمس مفتاح أمان)، يشغّل cmux أمر ssh داخل هذه الطرفية لتتمكن من\nالمصادقة، ثم يعكس الجلسات عبر اتصال SSH المشترك. أما المضيفات\nالتي تتم مصادقتها دون تفاعل (ssh-agent / مفتاح في ~/.ssh/config) فتُعكس\nدون مطالبة. تُحترم الأسماء المستعارة في ~/.ssh/config وإعدادات IdentityFile/ProxyJump/Port الخاصة بها.\n\nالخيارات:\n  --port <n>            منفذ SSH\n  --identity <path>     مسار ملف هوية SSH\n  --name <title>        تعيين عنوان العرض المحلي لمساحة العمل المعكوسة. هذا\n                        تجميلي فقط: لا يعيد تسمية جلسة tmux البعيدة.\n                        ينطبق على أول جلسة معكوسة حديثًا عندما يكون لدى المضيف\n                        أكثر من جلسة.\n  --transport <name>    ssh (الافتراضي) أو et. ينقل et دفق التحكم عبر EternalTerminal الذي يعيد الاتصال تلقائيًا بعد تغيّر الشبكة\n  --transport-port <n>  المنفذ الذي يتصل به النقل: منفذ sshd مع ssh ومنفذ etserver مع et (الافتراضي 22 مع ssh و2022 مع et)\n  --broker <name>       الوصول إلى المضيف عبر وسيط معرَّف ضمن remoteTmux.brokers في cmux.json (إدخال مسمّى وليس أمرًا)\n  --no-focus            عدم تحديد مساحة العمل المعكوسة أو التركيز على نافذتها\n\nمثال:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\"\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "bs": {
@@ -85321,25 +85321,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nSpiegelt die tmux-Sitzungen eines entfernten Hosts über den SSH-tmux-Steuermodus (tmux -CC)\nin die Seitenleiste des aktuellen Fensters. Jede Sitzung wird zu einem Arbeitsbereich, jedes\nFenster zu einem Tab und jedes Fenster mit mehreren Bereichen zu einer nativen Teilung. Erfordert die\nBetaeinstellung \"Remote tmux\".\n\nWenn der Host eine interaktive Authentifizierung benötigt (Passwort, Bestätigung des Host-Schlüssels,\nMFA oder Berühren eines Sicherheitsschlüssels), führt cmux ssh direkt in diesem Terminal aus, damit Sie sich\nauthentifizieren können, und spiegelt die Sitzungen dann über die gemeinsame SSH-Verbindung. Hosts,\ndie sich nicht interaktiv authentifizieren (ssh-agent / Schlüssel in ~/.ssh/config), werden\nohne Abfrage gespiegelt. Aliase aus ~/.ssh/config und deren IdentityFile/ProxyJump/Port-Einstellungen werden berücksichtigt.\n\nFlags:\n  --port <n>          SSH-Port\n  --identity <path>   Pfad zur SSH-Identitätsdatei\n  --name <title>      Legt den lokalen Anzeigetitel des gespiegelten Arbeitsbereichs fest. Dies ist\n                       rein kosmetisch: Die entfernte tmux-Sitzung wird nicht umbenannt.\n                       Gilt für die erste neu gespiegelte Sitzung, wenn der Host\n                       mehrere hat.\n  --no-focus          Spiegel-Arbeitsbereich nicht auswählen und sein Fenster nicht fokussieren\n\nBeispiel:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
+            "value": "Verwendung: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]\n                          [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]\n\nSpiegelt die tmux-Sitzungen eines entfernten Hosts über den SSH-tmux-Steuermodus (tmux -CC)\nin die Seitenleiste des aktuellen Fensters. Jede Sitzung wird zu einem Arbeitsbereich, jedes\nFenster zu einem Tab und jedes Fenster mit mehreren Bereichen zu einer nativen Teilung. Erfordert die\nBetaeinstellung \"Remote tmux\".\n\nWenn der Host eine interaktive Authentifizierung benötigt (Passwort, Bestätigung des Host-Schlüssels,\nMFA oder Berühren eines Sicherheitsschlüssels), führt cmux ssh direkt in diesem Terminal aus, damit Sie sich\nauthentifizieren können, und spiegelt die Sitzungen dann über die gemeinsame SSH-Verbindung. Hosts,\ndie sich nicht interaktiv authentifizieren (ssh-agent / Schlüssel in ~/.ssh/config), werden\nohne Abfrage gespiegelt. Aliase aus ~/.ssh/config und deren IdentityFile/ProxyJump/Port-Einstellungen werden berücksichtigt.\n\nFlags:\n  --port <n>            SSH-Port\n  --identity <path>     Pfad zur SSH-Identitätsdatei\n  --name <title>        Legt den lokalen Anzeigetitel des gespiegelten Arbeitsbereichs fest. Dies ist\n                        rein kosmetisch: Die entfernte tmux-Sitzung wird nicht umbenannt.\n                        Gilt für die erste neu gespiegelte Sitzung, wenn der Host\n                        mehrere hat.\n  --transport <name>    ssh (Standard) oder et. et überträgt den Steuerstrom über EternalTerminal, das sich nach einem Netzwerkwechsel selbst wieder verbindet\n  --transport-port <n>  Port, mit dem sich der Transport verbindet: der von sshd bei ssh, der von etserver bei et (Standard 22 bei ssh, 2022 bei et)\n  --broker <name>       Host über einen Broker erreichen, der unter remoteTmux.brokers in cmux.json deklariert ist (ein benannter Eintrag, kein Befehl)\n  --no-focus            Spiegel-Arbeitsbereich nicht auswählen und sein Fenster nicht fokussieren\n\nBeispiel:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\"\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nMirror a remote host's tmux sessions into the current window's sidebar over\nSSH tmux control mode (tmux -CC). Each session becomes a workspace, each\nwindow a tab, and each multi-pane window a native split. Requires the\n\"Remote tmux\" beta setting.\n\nIf the host needs interactive authentication (password, host-key confirmation,\nMFA, or a security-key touch), cmux runs ssh inline in this terminal so you can\nauthenticate, then mirrors the sessions over the shared SSH connection. Hosts\nthat authenticate non-interactively (ssh-agent / key in ~/.ssh/config) mirror\nwith no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.\n\nFlags:\n  --port <n>          SSH port\n  --identity <path>   SSH identity file path\n  --name <title>      Set the mirrored workspace's local display title. This is\n                       cosmetic only: it does not rename the remote tmux session.\n                       Applies to the first newly-mirrored session when the host\n                       has more than one.\n  --no-focus          Do not select the mirror workspace or focus its window\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]\n                     [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]\n\nMirror a remote host's tmux sessions into the current window's sidebar over\nSSH tmux control mode (tmux -CC). Each session becomes a workspace, each\nwindow a tab, and each multi-pane window a native split. Requires the\n\"Remote tmux\" beta setting.\n\nIf the host needs interactive authentication (password, host-key confirmation,\nMFA, or a security-key touch), cmux runs ssh inline in this terminal so you can\nauthenticate, then mirrors the sessions over the shared SSH connection. Hosts\nthat authenticate non-interactively (ssh-agent / key in ~/.ssh/config) mirror\nwith no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.\n\nFlags:\n  --port <n>            SSH port\n  --identity <path>     SSH identity file path\n  --name <title>        Set the mirrored workspace's local display title. This is\n                        cosmetic only: it does not rename the remote tmux session.\n                        Applies to the first newly-mirrored session when the host\n                        has more than one.\n  --transport <name>    ssh (default) or et. et carries the control stream over EternalTerminal, which reconnects on its own after a network change\n  --transport-port <n>  Port the transport connects to: sshd's for ssh, etserver's for et (default 22 for ssh, 2022 for et)\n  --broker <name>       Reach the host through a broker declared under remoteTmux.brokers in cmux.json (a named entry, not a command)\n  --no-focus            Do not select the mirror workspace or focus its window\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\"\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nRefleja las sesiones tmux de un host remoto en la barra lateral de la ventana actual mediante\nel modo de control de tmux por SSH (tmux -CC). Cada sesión se convierte en un espacio de trabajo, cada\nventana en una pestaña y cada ventana con varios paneles en una división nativa. Requiere el\najuste beta \"Remote tmux\".\n\nSi el host necesita autenticación interactiva (contraseña, confirmación de la clave del host,\nMFA o tocar una llave de seguridad), cmux ejecuta ssh en esta terminal para que puedas\nautenticarte y luego refleja las sesiones por la conexión SSH compartida. Los hosts\nque se autentican sin interacción (ssh-agent / clave en ~/.ssh/config) se reflejan\nsin preguntar. Se respetan los alias de ~/.ssh/config y sus ajustes IdentityFile/ProxyJump/Port.\n\nOpciones:\n  --port <n>          Puerto SSH\n  --identity <path>   Ruta del archivo de identidad SSH\n  --name <title>      Establece el título local del espacio de trabajo reflejado. Es\n                       solo estético: no cambia el nombre de la sesión tmux remota.\n                       Se aplica a la primera sesión reflejada nueva cuando el host\n                       tiene más de una.\n  --no-focus          No selecciona el espacio de trabajo reflejado ni enfoca su ventana\n\nEjemplo:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
+            "value": "Uso: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]\n                   [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]\n\nRefleja las sesiones tmux de un host remoto en la barra lateral de la ventana actual mediante\nel modo de control de tmux por SSH (tmux -CC). Cada sesión se convierte en un espacio de trabajo, cada\nventana en una pestaña y cada ventana con varios paneles en una división nativa. Requiere el\najuste beta \"Remote tmux\".\n\nSi el host necesita autenticación interactiva (contraseña, confirmación de la clave del host,\nMFA o tocar una llave de seguridad), cmux ejecuta ssh en esta terminal para que puedas\nautenticarte y luego refleja las sesiones por la conexión SSH compartida. Los hosts\nque se autentican sin interacción (ssh-agent / clave en ~/.ssh/config) se reflejan\nsin preguntar. Se respetan los alias de ~/.ssh/config y sus ajustes IdentityFile/ProxyJump/Port.\n\nOpciones:\n  --port <n>            Puerto SSH\n  --identity <path>     Ruta del archivo de identidad SSH\n  --name <title>        Establece el título local del espacio de trabajo reflejado. Es\n                        solo estético: no cambia el nombre de la sesión tmux remota.\n                        Se aplica a la primera sesión reflejada nueva cuando el host\n                        tiene más de una.\n  --transport <name>    ssh (predeterminado) o et. et transporta el flujo de control por EternalTerminal, que se reconecta por sí solo tras un cambio de red\n  --transport-port <n>  puerto al que se conecta el transporte: el de sshd para ssh, el de etserver para et (predeterminado 22 para ssh, 2022 para et)\n  --broker <name>       acceder al host a través de un broker declarado en remoteTmux.brokers de cmux.json (una entrada con nombre, no un comando)\n  --no-focus            No selecciona el espacio de trabajo reflejado ni enfoca su ventana\n\nEjemplo:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\"\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nReproduit les sessions tmux d’un hôte distant dans la barre latérale de la fenêtre actuelle via\nle mode de contrôle tmux sur SSH (tmux -CC). Chaque session devient un espace de travail, chaque\nfenêtre un onglet et chaque fenêtre à plusieurs volets une division native. Nécessite le\nréglage bêta \"Remote tmux\".\n\nSi l’hôte exige une authentification interactive (mot de passe, confirmation de la clé d’hôte,\nMFA ou contact d’une clé de sécurité), cmux exécute ssh directement dans ce terminal pour que vous puissiez\nvous authentifier, puis reproduit les sessions via la connexion SSH partagée. Les hôtes\nqui s’authentifient sans interaction (ssh-agent / clé dans ~/.ssh/config) sont reproduits\nsans invite. Les alias de ~/.ssh/config et leurs réglages IdentityFile/ProxyJump/Port sont respectés.\n\nOptions :\n  --port <n>          Port SSH\n  --identity <path>   Chemin du fichier d’identité SSH\n  --name <title>      Définit le titre d’affichage local de l’espace de travail reproduit. Ce réglage est\n                       purement cosmétique : il ne renomme pas la session tmux distante.\n                       S’applique à la première session nouvellement reproduite lorsque l’hôte\n                       en a plusieurs.\n  --no-focus          Ne pas sélectionner l’espace de travail miroir ni donner le focus à sa fenêtre\n\nExemple :\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
+            "value": "Utilisation : cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]\n                            [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]\n\nReproduit les sessions tmux d’un hôte distant dans la barre latérale de la fenêtre actuelle via\nle mode de contrôle tmux sur SSH (tmux -CC). Chaque session devient un espace de travail, chaque\nfenêtre un onglet et chaque fenêtre à plusieurs volets une division native. Nécessite le\nréglage bêta \"Remote tmux\".\n\nSi l’hôte exige une authentification interactive (mot de passe, confirmation de la clé d’hôte,\nMFA ou contact d’une clé de sécurité), cmux exécute ssh directement dans ce terminal pour que vous puissiez\nvous authentifier, puis reproduit les sessions via la connexion SSH partagée. Les hôtes\nqui s’authentifient sans interaction (ssh-agent / clé dans ~/.ssh/config) sont reproduits\nsans invite. Les alias de ~/.ssh/config et leurs réglages IdentityFile/ProxyJump/Port sont respectés.\n\nOptions :\n  --port <n>            Port SSH\n  --identity <path>     Chemin du fichier d’identité SSH\n  --name <title>        Définit le titre d’affichage local de l’espace de travail reproduit. Ce réglage est\n                        purement cosmétique : il ne renomme pas la session tmux distante.\n                        S’applique à la première session nouvellement reproduite lorsque l’hôte\n                        en a plusieurs.\n  --transport <name>    ssh (par défaut) ou et. et fait passer le flux de contrôle par EternalTerminal, qui se reconnecte de lui-même après un changement de réseau\n  --transport-port <n>  port auquel le transport se connecte : celui de sshd pour ssh, celui d’etserver pour et (par défaut 22 pour ssh, 2022 pour et)\n  --broker <name>       joindre l’hôte via un broker déclaré sous remoteTmux.brokers dans cmux.json (une entrée nommée, pas une commande)\n  --no-focus            Ne pas sélectionner l’espace de travail miroir ni donner le focus à sa fenêtre\n\nExemple :\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\"\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "it": {
@@ -85351,7 +85351,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nSSH の tmux コントロールモード（tmux -CC）で、リモートホストの tmux セッションを\n現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、各\nウィンドウはタブに、複数ペインのウィンドウはネイティブな分割になります。\n「Remote tmux」ベータ設定が必要です。\n\nホストで対話型認証（パスワード、ホストキーの確認、\nMFA、セキュリティキーのタッチ）が必要な場合、cmux はこのターミナル内で ssh を実行して\n認証できるようにし、その後共有 SSH 接続でセッションをミラーリングします。\n非対話型で認証できるホスト（ssh-agent / ~/.ssh/config の鍵）は\nプロンプトなしでミラーリングされます。~/.ssh/config のエイリアスと、その IdentityFile/ProxyJump/Port 設定も適用されます。\n\nフラグ:\n  --port <n>          SSH ポート\n  --identity <path>   SSH 識別ファイルのパス\n  --name <title>      ミラーワークスペースのローカル表示タイトルを設定します。これは\n                       表示上のみの変更で、リモートの tmux セッション名は変更しません。\n                       ホストに複数のセッションがある場合は、新しくミラーリングされる\n                       最初のセッションに適用されます。\n  --no-focus          ミラーワークスペースを選択せず、ウィンドウにもフォーカスしない\n\n例:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
+            "value": "使用法: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]\n                   [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]\n\nSSH の tmux コントロールモード（tmux -CC）で、リモートホストの tmux セッションを\n現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、各\nウィンドウはタブに、複数ペインのウィンドウはネイティブな分割になります。\n「Remote tmux」ベータ設定が必要です。\n\nホストで対話型認証（パスワード、ホストキーの確認、\nMFA、セキュリティキーのタッチ）が必要な場合、cmux はこのターミナル内で ssh を実行して\n認証できるようにし、その後共有 SSH 接続でセッションをミラーリングします。\n非対話型で認証できるホスト（ssh-agent / ~/.ssh/config の鍵）は\nプロンプトなしでミラーリングされます。~/.ssh/config のエイリアスと、その IdentityFile/ProxyJump/Port 設定も適用されます。\n\nフラグ:\n  --port <n>            SSH ポート\n  --identity <path>     SSH 識別ファイルのパス\n  --name <title>        ミラーワークスペースのローカル表示タイトルを設定します。これは\n                        表示上のみの変更で、リモートの tmux セッション名は変更しません。\n                        ホストに複数のセッションがある場合は、新しくミラーリングされる\n                        最初のセッションに適用されます。\n  --transport <name>    ssh（デフォルト）または et。et は制御ストリームを EternalTerminal 経由で送り、ネットワークが切り替わっても自動的に再接続します\n  --transport-port <n>  トランスポートの接続先ポート：ssh では sshd、et では etserver のポート（デフォルトは ssh が 22、et が 2022）\n  --broker <name>       cmux.json の remoteTmux.brokers で宣言したブローカー経由でホストに接続します（コマンドではなく、名前付きエントリを指定）\n  --no-focus            ミラーワークスペースを選択せず、ウィンドウにもフォーカスしない\n\n例:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\"\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "km": {
@@ -85363,7 +85363,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nSSH tmux 제어 모드(tmux -CC)를 통해 원격 호스트의 tmux 세션을 현재 창의\n사이드바에 미러링합니다. 각 세션은 작업 공간이 되고, 각\n창은 탭이 되며, 여러 패널이 있는 창은 네이티브 분할이 됩니다.\n\"Remote tmux\" 베타 설정이 필요합니다.\n\n호스트에 대화형 인증(비밀번호, 호스트 키 확인,\nMFA 또는 보안 키 터치)이 필요하면 cmux가 이 터미널에서 ssh를 인라인으로 실행해\n인증할 수 있게 한 뒤, 공유 SSH 연결을 통해 세션을 미러링합니다.\n비대화형으로 인증하는 호스트(ssh-agent / ~/.ssh/config의 키)는\n프롬프트 없이 미러링됩니다. ~/.ssh/config 별칭과 해당 IdentityFile/ProxyJump/Port 설정이 적용됩니다.\n\n플래그:\n  --port <n>          SSH 포트\n  --identity <path>   SSH ID 파일 경로\n  --name <title>      미러링된 작업 공간의 로컬 표시 제목을 설정합니다. 이는\n                       표시용일 뿐이며 원격 tmux 세션 이름을 바꾸지 않습니다.\n                       호스트에 세션이 여러 개이면 새로 미러링되는 첫 번째\n                       세션에 적용됩니다.\n  --no-focus          미러 작업 공간을 선택하거나 해당 창에 포커스를 주지 않음\n\n예시:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
+            "value": "사용법: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]\n                   [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]\n\nSSH tmux 제어 모드(tmux -CC)를 통해 원격 호스트의 tmux 세션을 현재 창의\n사이드바에 미러링합니다. 각 세션은 작업 공간이 되고, 각\n창은 탭이 되며, 여러 패널이 있는 창은 네이티브 분할이 됩니다.\n\"Remote tmux\" 베타 설정이 필요합니다.\n\n호스트에 대화형 인증(비밀번호, 호스트 키 확인,\nMFA 또는 보안 키 터치)이 필요하면 cmux가 이 터미널에서 ssh를 인라인으로 실행해\n인증할 수 있게 한 뒤, 공유 SSH 연결을 통해 세션을 미러링합니다.\n비대화형으로 인증하는 호스트(ssh-agent / ~/.ssh/config의 키)는\n프롬프트 없이 미러링됩니다. ~/.ssh/config 별칭과 해당 IdentityFile/ProxyJump/Port 설정이 적용됩니다.\n\n플래그:\n  --port <n>            SSH 포트\n  --identity <path>     SSH ID 파일 경로\n  --name <title>        미러링된 작업 공간의 로컬 표시 제목을 설정합니다. 이는\n                        표시용일 뿐이며 원격 tmux 세션 이름을 바꾸지 않습니다.\n                        호스트에 세션이 여러 개이면 새로 미러링되는 첫 번째\n                        세션에 적용됩니다.\n  --transport <name>    ssh(기본값) 또는 et. et는 제어 스트림을 EternalTerminal로 전달하며, 네트워크가 바뀌어도 스스로 다시 연결합니다\n  --transport-port <n>  트랜스포트가 연결할 포트: ssh는 sshd, et는 etserver의 포트(기본값은 ssh 22, et 2022)\n  --broker <name>       cmux.json의 remoteTmux.brokers에 선언된 브로커를 통해 호스트에 연결(명령이 아니라 이름이 지정된 항목)\n  --no-focus            미러 작업 공간을 선택하거나 해당 창에 포커스를 주지 않음\n\n예시:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\"\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "nb": {
@@ -85411,13 +85411,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\n通过 SSH tmux 控制模式（tmux -CC），将远程主机的 tmux 会话镜像到当前窗口的\n侧边栏中。每个会话成为一个工作区，每个窗口成为一个标签页，每个多窗格\n窗口成为一个原生分栏。需要启用“Remote tmux”测试版\n设置。\n\n如果主机需要交互式身份验证（密码、主机密钥确认、\nMFA 或触碰安全密钥），cmux 会在此终端中直接运行 ssh，以便您完成\n验证，然后通过共享的 SSH 连接镜像会话。以非交互方式完成验证的主机\n（ssh-agent / ~/.ssh/config 中的密钥）会直接镜像，\n无需提示。系统会采用 ~/.ssh/config 中的别名及其 IdentityFile/ProxyJump/Port 设置。\n\n标志：\n  --port <n>          SSH 端口\n  --identity <path>   SSH 身份文件路径\n  --name <title>      设置镜像工作区的本地显示标题。此设置\n                       仅影响显示：不会重命名远程 tmux 会话。\n                       当主机有多个会话时，仅应用于第一个\n                       新镜像的会话。\n  --no-focus          不选择镜像工作区，也不聚焦其窗口\n\n示例：\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
+            "value": "用法：cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]\n                 [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]\n\n通过 SSH tmux 控制模式（tmux -CC），将远程主机的 tmux 会话镜像到当前窗口的\n侧边栏中。每个会话成为一个工作区，每个窗口成为一个标签页，每个多窗格\n窗口成为一个原生分栏。需要启用“Remote tmux”测试版\n设置。\n\n如果主机需要交互式身份验证（密码、主机密钥确认、\nMFA 或触碰安全密钥），cmux 会在此终端中直接运行 ssh，以便您完成\n验证，然后通过共享的 SSH 连接镜像会话。以非交互方式完成验证的主机\n（ssh-agent / ~/.ssh/config 中的密钥）会直接镜像，\n无需提示。系统会采用 ~/.ssh/config 中的别名及其 IdentityFile/ProxyJump/Port 设置。\n\n标志：\n  --port <n>            SSH 端口\n  --identity <path>     SSH 身份文件路径\n  --name <title>        设置镜像工作区的本地显示标题。此设置\n                        仅影响显示：不会重命名远程 tmux 会话。\n                        当主机有多个会话时，仅应用于第一个\n                        新镜像的会话。\n  --transport <name>    ssh（默认）或 et。et 通过 EternalTerminal 传输控制流，网络切换后会自行重新连接\n  --transport-port <n>  传输所连接的端口：ssh 为 sshd 的端口，et 为 etserver 的端口（默认 ssh 为 22，et 为 2022）\n  --broker <name>       通过 cmux.json 中 remoteTmux.brokers 下声明的代理连接主机（指定的是已命名的条目，而不是命令）\n  --no-focus            不选择镜像工作区，也不聚焦其窗口\n\n示例：\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\"\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\n透過 SSH tmux 控制模式（tmux -CC），將遠端主機的 tmux 工作階段鏡像到目前視窗的\n側邊欄。每個工作階段會成為工作區，每個視窗會成為標籤頁，每個多窗格\n視窗則會成為原生分割。需要啟用「Remote tmux」測試版\n設定。\n\n若主機需要互動式驗證（密碼、主機金鑰確認、\nMFA 或觸碰安全金鑰），cmux 會在此終端機中直接執行 ssh，讓您完成\n驗證，然後透過共用的 SSH 連線鏡像工作階段。以非互動方式驗證的主機\n（ssh-agent / ~/.ssh/config 中的金鑰）會直接鏡像，\n不會出現提示。系統會採用 ~/.ssh/config 中的別名及其 IdentityFile/ProxyJump/Port 設定。\n\n旗標：\n  --port <n>          SSH 連接埠\n  --identity <path>   SSH 身分檔案路徑\n  --name <title>      設定鏡像工作區的本機顯示標題。此設定\n                       僅影響顯示：不會重新命名遠端 tmux 工作階段。\n                       當主機有多個工作階段時，僅套用於第一個\n                       新鏡像的工作階段。\n  --no-focus          不選取鏡像工作區，也不聚焦其視窗\n\n範例：\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
+            "value": "用法：cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]\n                 [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]\n\n透過 SSH tmux 控制模式（tmux -CC），將遠端主機的 tmux 工作階段鏡像到目前視窗的\n側邊欄。每個工作階段會成為工作區，每個視窗會成為標籤頁，每個多窗格\n視窗則會成為原生分割。需要啟用「Remote tmux」測試版\n設定。\n\n若主機需要互動式驗證（密碼、主機金鑰確認、\nMFA 或觸碰安全金鑰），cmux 會在此終端機中直接執行 ssh，讓您完成\n驗證，然後透過共用的 SSH 連線鏡像工作階段。以非互動方式驗證的主機\n（ssh-agent / ~/.ssh/config 中的金鑰）會直接鏡像，\n不會出現提示。系統會採用 ~/.ssh/config 中的別名及其 IdentityFile/ProxyJump/Port 設定。\n\n旗標：\n  --port <n>            SSH 連接埠\n  --identity <path>     SSH 身分檔案路徑\n  --name <title>        設定鏡像工作區的本機顯示標題。此設定\n                        僅影響顯示：不會重新命名遠端 tmux 工作階段。\n                        當主機有多個工作階段時，僅套用於第一個\n                        新鏡像的工作階段。\n  --transport <name>    ssh（預設）或 et。et 透過 EternalTerminal 傳輸控制串流，網路切換後會自行重新連線\n  --transport-port <n>  傳輸所連線的連接埠：ssh 為 sshd 的連接埠，et 為 etserver 的連接埠（預設 ssh 為 22，et 為 2022）\n  --broker <name>       透過 cmux.json 中 remoteTmux.brokers 下宣告的代理連線到主機（指定的是已命名的項目，而不是指令）\n  --no-focus            不選取鏡像工作區，也不聚焦其視窗\n\n範例：\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\"\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         }
       }
@@ -159361,6 +159361,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "យល់ព្រម"
           }
         },
         "ko": {
@@ -563888,55 +563894,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off."
+            "value": "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Turn this on to enable Cloud work; an administrator can still disable Cloud with a managed policy."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fügt Cloud-Maschinen zur rechten Seitenleiste, zu den Einstellungen, zur Befehlspalette und zum Menü für neue Arbeitsbereiche hinzu. Cloud-Maschinen erfordern außerdem ein Remote-Rollout; solange diese Option deaktiviert ist, bleiben Cloud-Tunnel und Flottenabfrage aus."
+            "value": "Fügt Cloud-Maschinen zur rechten Seitenleiste, zu den Einstellungen, zur Befehlspalette und zum Menü für neue Arbeitsbereiche hinzu. Aktiviere diese Option, um Cloud zu nutzen; ein Administrator kann Cloud weiterhin über eine verwaltete Richtlinie deaktivieren."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoute les machines cloud à la barre latérale droite, aux Réglages, à la palette de commandes et au menu de nouvel espace de travail. Les machines cloud nécessitent aussi un déploiement à distance ; si cette option est désactivée, le tunnel Cloud et l’interrogation de la flotte restent arrêtés."
+            "value": "Ajoute les machines cloud à la barre latérale droite, aux Réglages, à la palette de commandes et au menu de nouvel espace de travail. Activez cette option pour utiliser Cloud ; un administrateur peut toujours désactiver Cloud avec une règle gérée."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضيف الأجهزة السحابية إلى الشريط الجانبي الأيمن والإعدادات ولوحة الأوامر وقائمة مساحة العمل الجديدة. وتتطلب الأجهزة السحابية أيضًا طرحًا عن بُعد؛ وعند إيقاف هذا الخيار يظل نفق Cloud واستطلاع الأسطول متوقفين."
+            "value": "يضيف الأجهزة السحابية إلى الشريط الجانبي الأيمن والإعدادات ولوحة الأوامر وقائمة مساحة العمل الجديدة. فعّل هذا الخيار لاستخدام Cloud؛ ويمكن للمسؤول تعطيل Cloud من خلال سياسة مُدارة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade las máquinas en la nube a la barra lateral derecha, a Ajustes, a la paleta de comandos y al menú de nuevo espacio de trabajo. Las máquinas en la nube también requieren un despliegue remoto; con esta opción desactivada, el túnel de Cloud y el sondeo de la flota permanecen desactivados."
+            "value": "Añade las máquinas en la nube a la barra lateral derecha, a Ajustes, a la paleta de comandos y al menú de nuevo espacio de trabajo. Activa esta opción para usar Cloud; un administrador aún puede desactivar Cloud mediante una política gestionada."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在右側邊欄、設定、命令面板和新增工作區選單中加入雲端機器。雲端機器也需要遠端推出才能使用；關閉此選項時，Cloud 通道和機群輪詢都會保持停用。"
+            "value": "在右側邊欄、設定、命令面板和新增工作區選單中加入雲端機器。開啟此選項即可使用 Cloud；管理員仍可透過受管理政策停用 Cloud。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在右侧边栏、设置、命令面板和新建工作区菜单中添加云主机。云主机还需要远程推出才能使用；关闭此选项时，Cloud 隧道和机群轮询都会保持停用。"
+            "value": "在右侧边栏、设置、命令面板和新建工作区菜单中添加云主机。开启此选项即可使用 Cloud；管理员仍可通过受管理政策停用 Cloud。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바, 설정, 명령어 팔레트, 새 작업 공간 메뉴에 클라우드 머신을 추가합니다. 클라우드 머신은 원격 출시도 필요하며, 이 옵션이 꺼져 있으면 Cloud 터널과 플릿 폴링도 꺼진 상태로 유지됩니다."
+            "value": "오른쪽 사이드바, 설정, 명령어 팔레트, 새 작업 공간 메뉴에 Cloud 머신을 추가합니다. 이 옵션을 켜야 Cloud를 사용할 수 있으며, 관리자는 관리 정책으로 Cloud를 계속 비활성화할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバー、設定、コマンドパレット、新規ワークスペースメニューにクラウドマシンを追加します。クラウドマシンにはリモートでの提供開始も必要です。この設定がオフの間は、Cloud トンネルとフリートのポーリングも停止したままです。"
+            "value": "右サイドバー、設定、コマンドパレット、新規ワークスペースメニューにクラウドマシンを追加します。この設定をオンにするとCloudを使えます。管理者は管理ポリシーでCloudを引き続き無効にできます。"
           }
         }
       }
@@ -630714,55 +630720,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أضف حسابات Codex وClaude وOpenCode Go التي لديك بالفعل، وسيستخدمها الوكلاء على أجهزتك السحابية فورًا."
+            "value": "أضف حسابات Codex وClaude وOpencode التي لديك بالفعل، وسيستخدمها الوكلاء على أجهزتك السحابية فورًا."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge deine vorhandenen Codex-, Claude- und OpenCode-Go-Konten hinzu, und Agents auf deinen Cloud-Maschinen nutzen sie sofort."
+            "value": "Füge deine vorhandenen Codex-, Claude- und Opencode-Konten hinzu, und Agents auf deinen Cloud-Maschinen nutzen sie sofort."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add the Codex, Claude and OpenCode Go accounts you already have, and agents on your Cloud machines use them right away."
+            "value": "Add the Codex, Claude and Opencode accounts you already have, and agents on your Cloud machines use them right away."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade las cuentas de Codex, Claude y OpenCode Go que ya tienes y los agentes de tus máquinas en la nube las usarán de inmediato."
+            "value": "Añade las cuentas de Codex, Claude y Opencode que ya tienes y los agentes de tus máquinas en la nube las usarán de inmediato."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoutez vos comptes Codex, Claude et OpenCode Go existants : les agents de vos machines Cloud les utilisent aussitôt."
+            "value": "Ajoutez vos comptes Codex, Claude et Opencode existants : les agents de vos machines Cloud les utilisent aussitôt."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "お持ちの Codex、Claude、OpenCode Go アカウントを追加すると、Cloud マシン上のエージェントがすぐに使用します。"
+            "value": "お持ちの Codex、Claude、Opencode アカウントを追加すると、Cloud マシン上のエージェントがすぐに使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미 가진 Codex, Claude, OpenCode Go 계정을 추가하면 Cloud 머신의 에이전트가 바로 사용합니다."
+            "value": "이미 가진 Codex, Claude, Opencode 계정을 추가하면 Cloud 머신의 에이전트가 바로 사용합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "添加你已有的 Codex、Claude 和 OpenCode Go 账户，云机器上的代理即可立即使用。"
+            "value": "添加你已有的 Codex、Claude 和 Opencode 账户，云机器上的代理即可立即使用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新增你已有的 Codex、Claude 和 OpenCode Go 帳號，雲端機器上的代理程式即可立即使用。"
+            "value": "新增你已有的 Codex、Claude 和 Opencode 帳號，雲端機器上的代理程式即可立即使用。"
           }
         }
       }
@@ -630891,55 +630897,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انقر على حساب Codex أو Claude أو OpenCode Go جديد وسجّل الدخول في الطرفية التي تُفتح. يعرض كل حساب ما تبقى من حده؛ مرّر المؤشر فوقه وانقر × لإزالته. عندما يبلغ حساب حده، تنتقل الجلسات إلى حساب آخر."
+            "value": "انقر على حساب Codex أو Claude أو Opencode جديد وسجّل الدخول في الطرفية التي تُفتح. يعرض كل حساب ما تبقى من حده؛ مرّر المؤشر فوقه وانقر × لإزالته. عندما يبلغ حساب حده، تنتقل الجلسات إلى حساب آخر."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klicke auf „Neues Codex-, Claude- oder OpenCode-Go-Konto“ und melde dich im geöffneten Terminal an. Jedes Konto zeigt, wie viel vom Limit übrig ist; zeige darauf und klicke auf ×, um es zu entfernen. Erreicht ein Konto sein Limit, wechseln Sitzungen zu einem anderen."
+            "value": "Klicke auf „Neues Codex-, Claude- oder Opencode-Konto“ und melde dich im geöffneten Terminal an. Jedes Konto zeigt, wie viel vom Limit übrig ist; zeige darauf und klicke auf ×, um es zu entfernen. Erreicht ein Konto sein Limit, wechseln Sitzungen zu einem anderen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click New Codex, Claude or OpenCode Go Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
+            "value": "Click New Codex, Claude or Opencode Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Haz clic en Nueva cuenta de Codex, Claude u OpenCode Go e inicia sesión en el terminal que se abre. Cada cuenta muestra cuánto le queda de su límite; pasa el puntero y haz clic en × para eliminarla. Cuando una cuenta alcanza su límite, las sesiones pasan a otra."
+            "value": "Haz clic en Nueva cuenta de Codex, Claude u Opencode e inicia sesión en el terminal que se abre. Cada cuenta muestra cuánto le queda de su límite; pasa el puntero y haz clic en × para eliminarla. Cuando una cuenta alcanza su límite, las sesiones pasan a otra."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cliquez sur Nouveau compte Codex, Claude ou OpenCode Go et connectez-vous dans le terminal qui s’ouvre. Chaque compte indique ce qu’il reste de sa limite ; survolez-le et cliquez sur × pour le supprimer. Quand un compte atteint sa limite, les sessions passent à un autre."
+            "value": "Cliquez sur Nouveau compte Codex, Claude ou Opencode et connectez-vous dans le terminal qui s’ouvre. Chaque compte indique ce qu’il reste de sa limite ; survolez-le et cliquez sur × pour le supprimer. Quand un compte atteint sa limite, les sessions passent à un autre."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい Codex、Claude、OpenCode Go アカウントをクリックし、開いたターミナルでサインインします。各アカウントに上限の残りが表示されます。ポインタを合わせて × をクリックすると削除できます。上限に達したアカウントのセッションは別のアカウントに移ります。"
+            "value": "新しい Codex、Claude、Opencode アカウントをクリックし、開いたターミナルでサインインします。各アカウントに上限の残りが表示されます。ポインタを合わせて × をクリックすると削除できます。上限に達したアカウントのセッションは別のアカウントに移ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 Codex, Claude 또는 OpenCode Go 계정을 클릭하고 열리는 터미널에서 로그인하세요. 각 계정에 남은 한도가 표시되며, 마우스를 올리고 ×를 클릭하면 제거됩니다. 계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다."
+            "value": "새 Codex, Claude 또는 Opencode 계정을 클릭하고 열리는 터미널에서 로그인하세요. 각 계정에 남은 한도가 표시되며, 마우스를 올리고 ×를 클릭하면 제거됩니다. 계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点按“新建 Codex、Claude 或 OpenCode Go 账户”，然后在打开的终端中登录。每个账户都会显示剩余额度；悬停并点按 × 即可移除。某个账户达到上限时，会话会转到另一个账户。"
+            "value": "点按“新建 Codex、Claude 或 Opencode 账户”，然后在打开的终端中登录。每个账户都会显示剩余额度；悬停并点按 × 即可移除。某个账户达到上限时，会话会转到另一个账户。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "點按「新增 Codex、Claude 或 OpenCode Go 帳號」，然後在開啟的終端機中登入。每個帳號都會顯示剩餘額度；游標移到上方並點按 × 即可移除。某個帳號達到上限時，工作階段會轉到另一個帳號。"
+            "value": "點按「新增 Codex、Claude 或 Opencode 帳號」，然後在開啟的終端機中登入。每個帳號都會顯示剩餘額度；游標移到上方並點按 × 即可移除。某個帳號達到上限時，工作階段會轉到另一個帳號。"
           }
         }
       }
@@ -645464,7 +645470,2332 @@
           }
         }
       }
+    },
+    "mobile.agentFeed.question.answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.answerSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose an option or write an answer for each prompt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle eine Option oder schreibe eine Antwort für jede Frage."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une option ou écrivez une réponse pour chaque question."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر خيارًا أو اكتب إجابة لكل سؤال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una opción o escribe una respuesta para cada pregunta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為每個問題選擇選項或輸入回答。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个问题选择选项或输入回答。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 질문에 대한 옵션을 선택하거나 답변을 입력하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各質問の選択肢を選ぶか、回答を入力してください。"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.answerTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer questions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragen beantworten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre aux questions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجب عن الأسئلة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responde a las preguntas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答問題"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答问题"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "질문에 답하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "質問に回答"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.answeredShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answered"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beantwortet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت الإجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Respondida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已回答"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已回答"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변함"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答済み"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.pendingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs your input"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Agent benötigt eine Antwort"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre agent attend une réponse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج وكيلك إلى إجابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu agente necesita una respuesta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你的輸入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你的输入"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 답변을 기다리고 있습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが回答を待っています"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.singleSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose one"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine auswählen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une option"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر خيارًا واحدًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇一項"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择一项"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 선택"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つ選択"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.submitShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送出"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提交"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제출"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld question"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld questions"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Frage"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Fragen"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld question posée"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld questions posées"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld questions posées"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤال"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤال"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤالان"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld أسئلة"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤالًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld سؤال"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld pregunta"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld preguntas"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld preguntas"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個問題"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 个问题"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld개 질문"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld件の質問"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.pageLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "問題 %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "问题 %lld"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "질문 %lld"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "質問 %lld"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld of %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld of %lld"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld von %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Frage %lld von %lld"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld sur %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld sur %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Question %lld sur %lld"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "السؤال %lld من أصل %lld"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld de %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld de %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Pregunta %lld de %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "第 %lld 個問題，共 %lld"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "第 %lld 个问题，共 %lld"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "전체 %lld개 질문 중 %lld번째"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld問目"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mobile.agentFeed.question.progressSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld of %lld answered"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld of %lld answered"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld von %lld beantwortet"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld von %lld beantwortet"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sur %lld répondu"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sur %lld répondus"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sur %lld répondus"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تمت الإجابة عن %lld من أصل %lld"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de %lld respondida"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de %lld respondidas"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de %lld respondidas"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld 已回答"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld 已回答"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld 답변함"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld/%lld件回答済み"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "remoteTmux.error.authenticationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب %@ بيانات اعتماد ولا يوجد لدى cmux مكان لكتابتها. سجّل الدخول إلى المضيف، ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je zatražio pristupne podatke, a cmux ih nema gdje upisati. Prijavite se na host, a zatim pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bad om loginoplysninger, og cmux har ingen steder at indtaste dem. Log ind på værten, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat nach Anmeldedaten gefragt, und cmux kann sie nirgends eingeben. Melden Sie sich beim Host an, und versuchen Sie es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ asked for credentials and cmux has nowhere to type them. Log in to the host, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ solicitó credenciales y cmux no tiene dónde escribirlas. Inicia sesión en el host y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a demandé des identifiants et cmux n'a nulle part où les saisir. Connectez-vous à l'hôte, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha richiesto le credenziali e cmux non ha modo di digitarle. Accedi all'host, quindi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が認証情報を要求しましたが、cmux には入力する場所がありません。ホストにログインしてから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានស្នើសុំព័ត៌មានផ្ទៀងផ្ទាត់ ហើយ cmux គ្មានកន្លែងបញ្ចូលវាទេ។ សូមចូលទៅកាន់ម៉ាស៊ីនបម្រើ បន្ទាប់មកព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 자격 증명을 요청했지만 cmux에는 입력할 곳이 없습니다. 호스트에 로그인한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ba om påloggingsinformasjon, og cmux har ingen steder å skrive den. Logg på verten, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ poprosił o dane uwierzytelniające, a cmux nie ma gdzie ich wpisać. Zaloguj się na hoście, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ pediu credenciais e o cmux não tem onde digitá-las. Faça login no host e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ запросил учётные данные, а cmux негде их ввести. Войдите на хост, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ขอข้อมูลรับรอง แต่ cmux ไม่มีที่ให้พิมพ์ กรุณาเข้าสู่ระบบโฮสต์ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kimlik bilgileri istedi ve cmux bunları yazacak bir yer bulamıyor. Ana makinede oturum açın, ardından yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ запросив облікові дані, а cmux не має де їх увести. Увійдіть на хост, потім повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 请求了凭据，而 cmux 无处输入。请先登录该主机，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 要求了憑證，而 cmux 沒有地方輸入。請先登入該主機，然後重試。"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.failure": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل تسجيل الدخول. شغّل الأمر أعلاه مرة أخرى لإعادة المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava nije uspjela. Ponovno pokrenite naredbu iznad da pokušate opet."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Login mislykkedes. Kør kommandoen ovenfor igen for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung fehlgeschlagen. Führen Sie den Befehl oben erneut aus, um es noch einmal zu versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in failed. Run the command above again to retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar sesión. Vuelve a ejecutar el comando anterior para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la connexion. Relancez la commande ci-dessus pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso non riuscito. Esegui di nuovo il comando sopra per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインに失敗しました。上のコマンドをもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលបានបរាជ័យ។ ដំណើរការពាក្យបញ្ជាខាងលើម្តងទៀត ដើម្បីព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인에 실패했습니다. 위 명령을 다시 실행해 재시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Påloggingen mislyktes. Kjør kommandoen ovenfor på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logowanie nie udało się. Uruchom ponownie powyższe polecenie, aby spróbować jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha ao entrar. Execute o comando acima novamente para tentar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось войти. Запустите команду выше ещё раз, чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ไม่สำเร็จ เรียกใช้คำสั่งด้านบนอีกครั้งเพื่อลองใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum açılamadı. Yeniden denemek için yukarıdaki komutu tekrar çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося увійти. Запустіть команду вище ще раз, щоб повторити спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录失败。请再次运行上面的命令重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入失敗。請再次執行上方的指令重試。"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل الدخول. جارٍ إعادة توصيل المرآة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavljeni ste. Ponovno povezivanje zrcala…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er logget ind. Opretter forbindelse til spejlingen igen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angemeldet. Spiegelung wird neu verbunden…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in. Reconnecting the mirror…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión iniciada. Volviendo a conectar la duplicación…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion réussie. Reconnexion du miroir…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso effettuato. Riconnessione del mirror…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしました。ミラーを再接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចូល។ កំពុងភ្ជាប់កញ្ចក់ឡើងវិញ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인되었습니다. 미러를 다시 연결하고 있습니다…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pålogget. Kobler til speilingen igjen…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalogowano. Ponowne łączenie kopii…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão iniciada. Reconectando o espelho…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход выполнен. Переподключение зеркала…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้แล้ว กำลังเชื่อมต่อมิเรอร์อีกครั้ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum açıldı. Yansıma yeniden bağlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід виконано. Повторне підключення дзеркала…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登录。正在重新连接镜像…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登入。正在重新連線鏡像…"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.workspaceTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei %@ anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にサインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលទៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход в %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için oturum açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід у %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 %@"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.transportPortOutOfRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port must be between 1 and 65535"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون transport_port بين 1 و65535"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port muss zwischen 1 und 65535 liegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port debe estar entre 1 y 65535"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port doit être compris entre 1 et 65535"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port は 1 から 65535 の範囲で指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port는 1에서 65535 사이여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port 必须在 1 到 65535 之间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port 必須介於 1 到 65535 之間"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.transportHelperPathInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_helper_path must be an absolute path without control or hidden characters"
+          }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "يجب أن يكون transport_helper_path مسارًا مطلقًا لنقل مدعوم" } },
+        "de": { "stringUnit": { "state": "translated", "value": "transport_helper_path muss ein absoluter Pfad für einen unterstützten Transport sein" } },
+        "es": { "stringUnit": { "state": "translated", "value": "transport_helper_path debe ser una ruta absoluta para un transporte compatible" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "transport_helper_path doit être un chemin absolu pour un transport pris en charge" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "transport_helper_path は対応するトランスポートの絶対パスである必要があります" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "transport_helper_path는 지원되는 전송의 절대 경로여야 합니다" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "transport_helper_path 必须是受支持传输的绝对路径" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "transport_helper_path 必須是支援傳輸的絕對路徑" } }
+      }
+    },
+    "socket.remoteTmux.transportHelperPathUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "transport_helper_path is not supported by the selected transport" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "النقل المحدد لا يدعم transport_helper_path" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der ausgewählte Transport unterstützt transport_helper_path nicht" } },
+        "es": { "stringUnit": { "state": "translated", "value": "El transporte seleccionado no admite transport_helper_path" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le transport sélectionné ne prend pas en charge transport_helper_path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択したトランスポートは transport_helper_path に対応していません" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "선택한 전송은 transport_helper_path를 지원하지 않습니다" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "所选传输不支持 transport_helper_path" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選取的傳輸不支援 transport_helper_path" } }
+      }
+    },
+    "socket.remoteTmux.transportHelperPathBrokerConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "transport_helper_path cannot be used with a broker; the broker supplies the remote helper" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يمكن استخدام transport_helper_path مع وسيط؛ فالوسيط يوفّر المساعد البعيد" } },
+        "de": { "stringUnit": { "state": "translated", "value": "transport_helper_path kann nicht mit einem Broker verwendet werden; der Broker stellt den Remote-Helfer bereit" } },
+        "es": { "stringUnit": { "state": "translated", "value": "transport_helper_path no puede usarse con un broker; el broker proporciona el auxiliar remoto" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "transport_helper_path ne peut pas être utilisé avec un broker ; le broker fournit l’assistant distant" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "transport_helper_path はブローカーと併用できません。ブローカーがリモートヘルパーを提供します" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "transport_helper_path는 브로커와 함께 사용할 수 없습니다. 브로커가 원격 헬퍼를 제공합니다" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "transport_helper_path 不能与 broker 一起使用；broker 会提供远程辅助程序" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "transport_helper_path 不能與 broker 一起使用；broker 會提供遠端輔助程式" } }
+      }
+    },
+    "socket.remoteTmux.transportUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport is not one cmux knows; use ssh or et"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة transport ليست نقلًا يعرفه cmux؛ استخدم ssh أو et"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport ist kein Transport, den cmux kennt; verwenden Sie ssh oder et"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport no es un transporte que cmux conozca; usa ssh o et"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport n’est pas un transport connu de cmux ; utilisez ssh ou et"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport は cmux が対応していない値です。ssh または et を使用してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport가 cmux가 아는 값이 아닙니다. ssh 또는 et를 사용하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport 不是 cmux 支持的传输方式；请使用 ssh 或 et"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport 不是 cmux 支援的傳輸方式；請使用 ssh 或 et"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerMalformed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker ليس اسمًا صالحًا للاستخدام: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker ist kein verwendbarer Name: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker is not a usable name: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker no es un nombre utilizable: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker n’est pas un nom utilisable : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker は使用できる名前ではありません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker는 사용할 수 있는 이름이 아닙니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker 不是可用的名称：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker 不是可用的名稱：%@"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerNotUsedByTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستخدم النقل '%@' وسيطًا؛ مرّر --transport et للاتصال عبر وسيط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Transport '%@' verwendet keinen Broker; übergib --transport et, um über einen zu verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the '%@' transport does not use a broker; pass --transport et to connect through one"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el transporte '%@' no usa un broker; pasa --transport et para conectarte a través de uno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le transport '%@' n’utilise pas de broker ; passez --transport et pour vous connecter via un broker"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' トランスポートはブローカーを使用しません。ブローカー経由で接続するには --transport et を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 전송은 브로커를 사용하지 않습니다. 브로커를 통해 연결하려면 --transport et를 전달하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 传输不使用 broker；传入 --transport et 以通过 broker 连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 傳輸不使用 broker；傳入 --transport et 以透過 broker 連線"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد وسيط باسم '%@' مُعرّف ضمن remoteTmux.brokers في cmux.json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in cmux.json ist unter remoteTmux.brokers kein Broker namens '%@' deklariert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no broker named '%@' is declared under remoteTmux.brokers in cmux.json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no hay ningún broker llamado '%@' declarado en remoteTmux.brokers de cmux.json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aucun broker nommé '%@' n’est déclaré sous remoteTmux.brokers dans cmux.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json の remoteTmux.brokers に '%@' という名前のブローカーは宣言されていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json의 remoteTmux.brokers에 '%@'라는 이름의 브로커가 선언되어 있지 않습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 的 remoteTmux.brokers 下没有声明名为 '%@' 的 broker"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 的 remoteTmux.brokers 下沒有宣告名為 '%@' 的 broker"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerUnusable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوسيط '%@' مُعرّف لكن لا يمكن استخدامه: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Broker '%@' ist deklariert, kann aber nicht verwendet werden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' is declared but cannot be used: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el broker '%@' está declarado, pero no se puede usar: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le broker '%@' est déclaré mais ne peut pas être utilisé : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブローカー '%@' は宣言されていますが使用できません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브로커 '%@'가 선언되어 있지만 사용할 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' 已声明，但无法使用：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' 已宣告，但無法使用：%@"
+          }
+        }
+      }
+    },
+    "browser.discard.restoring": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restoring…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاستعادة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird wiederhergestellt…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restauration…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在恢复…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在還原…"
+          }
+        }
+      }
+    },
+    "cli.help.ssh-tmux.helperPath": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  Absolute path to etterminal on the remote host (direct ET only). Omit to use ET's PATH lookup; a broker supplies its own helper path."
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  Absoluter Pfad zu etterminal auf dem Remote-Host (nur direktes ET). Ohne Angabe verwendet ET seine PATH-Suche; ein Broker liefert seinen eigenen Helferpfad."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  Chemin absolu vers etterminal sur l’hôte distant (ET direct uniquement). Omettre pour utiliser la recherche PATH d’ET ; un broker fournit son propre chemin."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  المسار المطلق إلى etterminal على المضيف البعيد (ET المباشر فقط). اتركه فارغًا لاستخدام بحث ET في PATH؛ يوفّر الوسيط مساره الخاص."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  Ruta absoluta a etterminal en el host remoto (solo ET directo). Omítela para usar la búsqueda PATH de ET; un broker proporciona su propia ruta."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  遠端主機上 etterminal 的絕對路徑（僅限直接 ET）。省略即可使用 ET 的 PATH 搜尋；broker 會提供自己的輔助程式路徑。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  远程主机上 etterminal 的绝对路径（仅限直接 ET）。省略即可使用 ET 的 PATH 查找；broker 会提供自己的辅助程序路径。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  원격 호스트의 etterminal 절대 경로(직접 ET만 해당)입니다. 생략하면 ET의 PATH 검색을 사용하며, 브로커는 자체 헬퍼 경로를 제공합니다."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  リモートホスト上の etterminal の絶対パス（直接 ET のみ）。省略すると ET の PATH 検索を使い、ブローカーは独自のヘルパーパスを提供します。"
+      }
     }
+  }
+},
+    "cli.sshTmux.error.helperPathRequired": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path requires an absolute path"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path erfordert einen absoluten Pfad"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux : --transport-helper-path nécessite un chemin absolu"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: يتطلب --transport-helper-path مسارًا مطلقًا"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path requiere una ruta absoluta"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux：--transport-helper-path 必須是絕對路徑"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux：--transport-helper-path 必须是绝对路径"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path에는 절대 경로가 필요합니다"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path には絶対パスが必要です"
+      }
+    }
+  }
+},
+    "socket.remoteTmux.routeConflict": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "This host is already connected through a different route; detach it before changing the route."
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Dieser Host ist bereits über eine andere Route verbunden. Trennen Sie ihn, bevor Sie die Route ändern."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Cet hôte est déjà connecté via une autre route ; détachez-le avant de changer de route."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "هذا المضيف متصل بالفعل عبر مسار مختلف؛ افصل الاتصال قبل تغيير المسار."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Este host ya está conectado mediante otra ruta; desconéctalo antes de cambiarla."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "此主機已透過不同路由連線；請先解除連線再變更路由。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "此主机已通过其他路由连接；请先断开连接再更改路由。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "이 호스트는 이미 다른 경로로 연결되어 있습니다. 경로를 변경하기 전에 연결을 해제하세요."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "このホストはすでに別の経路で接続されています。経路を変更する前に切断してください。"
+      }
+    }
+  }
+},
+    "socket.remoteTmux.transportHelperPathConflict": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "This host is already connected with a different helper path; detach it before changing the helper path."
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Dieser Host ist bereits mit einem anderen Helferpfad verbunden. Trennen Sie ihn, bevor Sie den Helferpfad ändern."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Cet hôte est déjà connecté avec un autre chemin d’assistant ; détachez-le avant de le modifier."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "هذا المضيف متصل بالفعل بمسار مساعد مختلف؛ افصل الاتصال قبل تغيير مسار المساعد."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Este host ya está conectado con otra ruta del auxiliar; desconéctalo antes de cambiarla."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "此主機已使用不同的輔助程式路徑連線；請先解除連線再變更路徑。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "此主机已使用其他辅助程序路径连接；请先断开连接再更改路径。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "이 호스트는 이미 다른 헬퍼 경로로 연결되어 있습니다. 헬퍼 경로를 변경하기 전에 연결을 해제하세요."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "このホストはすでに別のヘルパーパスで接続されています。ヘルパーパスを変更する前に切断してください。"
+      }
+    }
+  }
+}
   },
   "version": "1.0"
 }

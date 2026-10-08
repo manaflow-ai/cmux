@@ -312,7 +312,7 @@ extension MobileShellComposite {
                 params: [:]
             )
             let data = try await client.sendRequest(request)
-            let response = try MobileAgentFeedListResponse.decode(data)
+            let response = try await Self.decodeAgentFeedSnapshot(data)
             guard !Task.isCancelled,
                   agentFeedClient(for: macDeviceID) === client else { return }
             applyAgentFeedSnapshot(
@@ -320,6 +320,8 @@ extension MobileShellComposite {
                 macDeviceID: macDeviceID,
                 displayName: displayName
             )
+        } catch is CancellationError {
+            return
         } catch {
             guard agentFeedClient(for: macDeviceID) === client else { return }
             agentFeedLog.error(
@@ -329,6 +331,23 @@ extension MobileShellComposite {
             // transient failure; leave the mac marked pending so the next
             // trigger refetches.
             agentFeedRefreshPendingMacIDs.insert(macDeviceID)
+        }
+    }
+
+    /// Date parsing in a full retained snapshot must not occupy the scrolling
+    /// thread. Forward cancellation to the worker and reject its result after
+    /// cancellation even if the synchronous decoder already finished.
+    nonisolated static func decodeAgentFeedSnapshot(_ data: Data) async throws -> MobileAgentFeedListResponse {
+        let worker = Task.detached(priority: Task.currentPriority) {
+            try Task.checkCancellation()
+            return try MobileAgentFeedListResponse.decode(data)
+        }
+        return try await withTaskCancellationHandler {
+            let response = try await worker.value
+            try Task.checkCancellation()
+            return response
+        } onCancel: {
+            worker.cancel()
         }
     }
 
@@ -451,6 +470,9 @@ extension MobileShellComposite {
     private func deduplicatedStopRows(
         _ items: [MobileAgentFeedItem]
     ) -> [MobileAgentFeedItem] {
+        agentFeedStopReasonCache.retain(reasons: Set(items.compactMap {
+            $0.kind == .stop ? $0.stopReason : nil
+        }))
         var result: [MobileAgentFeedItem] = []
         var indexByKey: [AgentFeedStopDuplicateKey: Int] = [:]
         var turnIndexByKey: [String: Int] = [:]
@@ -475,7 +497,7 @@ extension MobileShellComposite {
             if let index = turnIndexByKey[turnKey],
                abs(result[index].createdAt.timeIntervalSince(item.createdAt)) <= 120,
                let kept = result[index].stopReason, let incoming = item.stopReason,
-               Self.stopReasonsDescribeSameTurn(kept, incoming) {
+               agentFeedStopReasonCache.matches(kept, incoming) {
                 if incoming.count > kept.count {
                     let reply = result[index].userReply ?? item.userReply
                     var replacement = item
@@ -493,28 +515,6 @@ extension MobileShellComposite {
             result.append(item)
         }
         return result
-    }
-
-    /// Whether two stop reasons are the same completion, one possibly a
-    /// whitespace-collapsed preview truncated with an ellipsis.
-    static func stopReasonsDescribeSameTurn(_ lhs: String, _ rhs: String) -> Bool {
-        func normalized(_ value: String) -> String {
-            let collapsed = value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            if collapsed.hasSuffix("…") { return String(collapsed.dropLast()) }
-            return collapsed
-        }
-        func collapsed(_ value: String) -> String {
-            value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        }
-        let a = collapsed(lhs)
-        let b = collapsed(rhs)
-        guard !a.isEmpty, !b.isEmpty, a != b else { return !a.isEmpty && a == b }
-        // Only a truncated preview (marked by its ellipsis) may match the
-        // fuller text; two distinct complete reasons never merge.
-        let (shorter, longer) = a.count <= b.count ? (a, b) : (b, a)
-        guard shorter.hasSuffix("…") else { return false }
-        _ = normalized(shorter)
-        return longer.hasPrefix(String(shorter.dropLast()))
     }
 
     // MARK: - Replies

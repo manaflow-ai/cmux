@@ -16,6 +16,8 @@ import {
   vmGuestModelPlaneEnv,
 } from "../services/coderouter/vmGuestEnv";
 import {
+  ROUTE_TOKEN_HEADER,
+  VM_ID_HEADER,
   VM_AUTHORIZATION_HEADER,
   VM_PLACEHOLDER_API_KEY,
 } from "../services/coderouter/routeTokenAuth";
@@ -59,6 +61,9 @@ describe("provisionVmModelPlane", () => {
     expect(issued).toEqual([["team-1", "user-1", INPUT.cloudVmId]]);
     // The guest dials the alias; the edge forwards to this deployment's host.
     const headers = {
+      authorization: "Bearer crt_test-token",
+      [ROUTE_TOKEN_HEADER]: "crt_test-token",
+      [VM_ID_HEADER]: INPUT.cloudVmId,
       [VM_AUTHORIZATION_HEADER]: "Bearer crt_test-token",
     };
     expect(provision.edgeRules).toEqual([

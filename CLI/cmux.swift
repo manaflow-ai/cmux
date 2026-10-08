@@ -3235,7 +3235,8 @@ final class SocketClient {
     func send(
         command: String,
         responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        waitUntilCompletion: Bool = false
     ) throws -> String {
         let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
         let relativeDeadline = Date.now.addingTimeInterval(requestedResponseTimeout)
@@ -3263,15 +3264,16 @@ final class SocketClient {
             }
         }
 
-        func boundedTimeout(_ timeout: TimeInterval) throws -> TimeInterval {
-            let remaining = operationDeadline.timeIntervalSinceNow
+        func boundedTimeout(_ timeout: TimeInterval, until limit: Date?) throws -> TimeInterval {
+            guard let limit else { return timeout }
+            let remaining = limit.timeIntervalSinceNow
             guard remaining > 0 else {
                 throw CLIError(message: "Command timed out")
             }
             return min(timeout, remaining)
         }
 
-        let initialResponseTimeout = try boundedTimeout(requestedResponseTimeout)
+        let initialResponseTimeout = try boundedTimeout(requestedResponseTimeout, until: operationDeadline)
         try configureResponseReceiveTimeout(initialResponseTimeout)
         _ = try? configureSocketWriteSafety(initialResponseTimeout)
         var operation = CLISocketOperationTelemetry.State(
@@ -3298,9 +3300,14 @@ final class SocketClient {
         var sawNewline = false
         var receivedCompleteResponse = false
 
+        // Only operations with their own lifecycle deadline opt in. Connecting,
+        // authenticating and writing remain bounded, and an explicit deadline
+        // still caps the response wait.
+        let responseDeadline = waitUntilCompletion ? deadline : operationDeadline
+
         while true {
             let phaseTimeout = sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
-            let currentTimeout = try boundedTimeout(phaseTimeout)
+            let currentTimeout = try boundedTimeout(phaseTimeout, until: responseDeadline)
             operation.phase = sawNewline ? .readMultilineResponse : .waitForResponse
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
@@ -3317,6 +3324,9 @@ final class SocketClient {
                     if sawNewline {
                         receivedCompleteResponse = true
                         break
+                    }
+                    if waitUntilCompletion {
+                        continue
                     }
                     throw CLIError(message: "Command timed out")
                 }
@@ -12163,6 +12173,10 @@ struct CMUXCLI {
         var workspaceName: String?
         var focus: Bool?
         var newWindow = false
+        var transport: String?
+        var transportPort: Int?
+        var transportHelperPath: String?
+        var broker: String?
 
         // Intentional subset of parseSSHCommandOptions: ssh-tmux has no relay,
         // passthrough, --ssh-option, or --window support.
@@ -12191,6 +12205,54 @@ struct CMUXCLI {
                     throw CLIError(message: String(localized: "cli.sshTmux.error.nameRequiresTitle", defaultValue: "ssh-tmux: --name requires a workspace title"))
                 }
                 workspaceName = commandArgs[index + 1]
+                index += 2
+            case "--transport":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --transport requires a value (ssh or et)")
+                }
+                let raw = commandArgs[index + 1].lowercased()
+                guard raw == "ssh" || raw == "et" else {
+                    throw CLIError(message: "ssh-tmux: --transport must be ssh or et")
+                }
+                transport = raw
+                index += 2
+            case "--transport-port":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --transport-port requires a value")
+                }
+                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
+                    throw CLIError(message: "ssh-tmux: --transport-port must be 1-65535")
+                }
+                transportPort = parsed
+                index += 2
+            case "--transport-helper-path":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: String(
+                        localized: "cli.sshTmux.error.helperPathRequired",
+                        defaultValue: "ssh-tmux: --transport-helper-path requires an absolute path"
+                    ))
+                }
+                let path = commandArgs[index + 1]
+                guard path.hasPrefix("/") else {
+                    throw CLIError(message: String(
+                        localized: "cli.sshTmux.error.helperPathRequired",
+                        defaultValue: "ssh-tmux: --transport-helper-path requires an absolute path"
+                    ))
+                }
+                transportHelperPath = path
+                index += 2
+            case "--broker":
+                // A NAME, not a command: it selects one of the brokers declared under
+                // remoteTmux.brokers in cmux.json. Taking an executable here would let anything
+                // that can run the CLI pick what cmux launches.
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --broker requires the name of a broker declared under remoteTmux.brokers in cmux.json")
+                }
+                let name = commandArgs[index + 1].trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty, !name.hasPrefix("-") else {
+                    throw CLIError(message: "ssh-tmux: --broker requires a broker name, for example --broker corp")
+                }
+                broker = name
                 index += 2
             case _ where arg == "--no-focus" || arg == "--focus" || arg.hasPrefix("--focus="):
                 let flag = try Self.openFocusFlag(in: commandArgs, at: index, command: "ssh-tmux")
@@ -12225,24 +12287,41 @@ struct CMUXCLI {
            !trimmedWorkspaceName.isEmpty {
             params["workspace_name"] = trimmedWorkspaceName
         }
+        if let transport { params["transport"] = transport }
+        if let transportPort { params["transport_port"] = transportPort }
+        if let transportHelperPath { params["transport_helper_path"] = transportHelperPath }
+        if let broker { params["transport_broker"] = broker }
         params["activate"] = focus ?? Self.defaultFocusForUserOpen()
         if !newWindow {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
         }
-        // BatchMode discovery can take a couple of seconds; show progress.
+        // A login can take a while, and cmux waits for it as long as the connection is still
+        // working, so say that the wait is deliberate and how to end it.
         if !jsonOutput {
-            print("Connecting to \(destination)…")
+            print("Connecting to \(destination)… (waits while the login is in progress; Ctrl-C to stop)")
         }
 
         // Retry interactive authentication once; never spin on auth-required.
         let method = newWindow ? "remote.tmux.window" : "remote.tmux.mirror"
         var didAuthenticate = false
         while true {
-            let result = try client.sendV2(
-                method: method,
-                params: params,
-                responseTimeout: 75  // > the app-side 60s timeout, so the app's result/error always arrives first
-            )
+            let progress = jsonOutput
+                ? nil : RemoteTmuxAttachProgressReporter(socketPath: client.socketPath, params: params)
+            progress?.start()
+            let result: [String: Any]
+            do {
+                result = try client.sendV2(
+                    method: method,
+                    params: params,
+                    // Attach owns its inactivity deadline; ongoing login output
+                    // may legitimately keep it active without a wall-clock cap.
+                    waitUntilCompletion: true
+                )
+            } catch {
+                progress?.stop()
+                throw error
+            }
+            progress?.stop()
             if (result["mirrored"] as? Bool) == true {
                 if jsonOutput {
                     print(jsonString(result))
@@ -12264,7 +12343,7 @@ struct CMUXCLI {
                         message: "ssh-tmux: cmux did not return an ssh command for authentication"
                     )
                 }
-                try runInteractiveAuthSSH(sshArgv: sshArgv, destination: destination)
+                try runInteractiveAuthSSH(sshArgv: sshArgv, destination: destination, marksRemoteTmuxAuthentication: true)
                 didAuthenticate = true
                 // Retry while the just-opened ControlMaster is warm.
                 if !jsonOutput {
@@ -20453,7 +20532,8 @@ struct CMUXCLI {
             return Self.moshTmuxCommandUsage
         case "ssh-tmux":
             let help = String(localized: "cli.help.ssh-tmux", defaultValue: """
-            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]
+            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]
+                                 [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]
 
             Mirror a remote host's tmux sessions into the current window's sidebar over
             SSH tmux control mode (tmux -CC). Each session becomes a workspace, each
@@ -20467,18 +20547,23 @@ struct CMUXCLI {
             with no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.
 
             Flags:
-              --port <n>          SSH port
-              --identity <path>   SSH identity file path
-              --name <title>      Set the mirrored workspace's local display title. This is
-                                   cosmetic only: it does not rename the remote tmux session.
-                                   Applies to the first newly-mirrored session when the host
-                                   has more than one.
-              --no-focus          Do not select the mirror workspace or focus its window
+              --port <n>            SSH port
+              --identity <path>     SSH identity file path
+              --name <title>        Set the mirrored workspace's local display title. This is
+                                    cosmetic only: it does not rename the remote tmux session.
+                                    Applies to the first newly-mirrored session when the host
+                                    has more than one.
+              --transport <name>    ssh (default) or et. et carries the control stream over EternalTerminal, which reconnects on its own after a network change
+              --transport-port <n>  Port the transport connects to: sshd's for ssh, etserver's for et (default 22 for ssh, 2022 for et)
+              --broker <name>       Reach the host through a broker declared under remoteTmux.brokers in cmux.json (a named entry, not a command)
+              --no-focus            Do not select the mirror workspace or focus its window
 
             Example:
               cmux ssh-tmux dev@my-host
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh-tmux dev@my-host --name "prod db"
+              cmux ssh-tmux dev@my-host --transport et --transport-port 8080
+              cmux ssh-tmux my-host --transport et --broker corp
             """)
             let newWindowHelp = String(
                 localized: "cli.help.ssh-tmux.newWindow",
@@ -20487,7 +20572,11 @@ struct CMUXCLI {
                   --new-window        Open the mirror in a dedicated new window
                 """
             )
-            return "\(help)\n\n\(newWindowHelp)\n\n\(Self.openFocusFlagsHelp)"
+            let helperPathHelp = String(
+                localized: "cli.help.ssh-tmux.helperPath",
+                defaultValue: "--transport-helper-path <path>  Absolute path to etterminal on the remote host (direct ET only). Omit to use ET's PATH lookup; a broker supplies its own helper path."
+            )
+            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
         case "local-zellij":
@@ -26477,7 +26566,10 @@ struct CMUXCLI {
 
         rootCodex = try startCodexTeamsProcess(
             executablePath: codexExecutablePath,
-            arguments: codexTeamsRootArguments(appServerURL: appServerURL, commandArgs: commandArgs),
+            arguments: AgentResumeArgv().codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: commandArgs
+            ),
             environment: rootEnvironment,
             standardInput: FileHandle.standardInput,
             standardOutput: FileHandle.standardOutput,
@@ -26711,13 +26803,6 @@ struct CMUXCLI {
         let path = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return path?.isEmpty == false ? path : nil
-    }
-
-    private func codexTeamsRootArguments(appServerURL: String, commandArgs: [String]) -> [String] {
-        guard let first = commandArgs.first, first == "resume" || first == "fork" else {
-            return ["--remote", appServerURL] + commandArgs
-        }
-        return [first, "--remote", appServerURL] + Array(commandArgs.dropFirst())
     }
 
     private func codexTeamsLogURL(port: UInt16, name: String) -> URL {
