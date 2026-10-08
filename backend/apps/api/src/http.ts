@@ -37,7 +37,7 @@ import { conversationMutate, conversationRead } from "./home-routes.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
-import { approvalReader } from "./integrations/approval-route.ts"
+import { answerPrincipal, approvalReader } from "./integrations/approval-route.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -209,7 +209,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     .handle("mutate", ({ payload }) =>
       Effect.gen(function* () {
         const shape = yield* CurrentPrincipal
-        const principal = toPrincipal(shape)
+        // G8: a cross-team approval answer carries that team's SSO session (approval-route.ts answerPrincipal).
+        const principal = yield* Effect.tryPromise({ try: () => answerPrincipal(env, toPrincipal(shape), payload.op, payload.params), catch: unreachable })
         if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
