@@ -64,6 +64,10 @@ if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
     printf '{"message":"Timeout of 25m reached before processing completed.","id":"fixture-id"}\n' >&2
     exit 1
   fi
+  if [ "${CMUX_TEST_NOTARY_FAILURE:-0}" = 1 ]; then
+    printf 'network failure while uploading submission\n' >&2
+    exit 7
+  fi
   printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
 fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "log" ]; then
@@ -294,6 +298,28 @@ if ! grep -q '^xcrun notarytool log fixture-id ' "$LOG"; then
 fi
 if grep -Fq 'xcrun stapler staple' "$LOG"; then
   echo "FAIL: a timed-out DMG must not be stapled" >&2
+  exit 1
+fi
+
+# A generic submit failure must retain its diagnostics without claiming that
+# the wait deadline was reached.
+: > "$LOG"
+GENERIC_STATE="$TMP_DIR/cmux-nightly-generic.state"
+GENERIC_OUTPUT="$TMP_DIR/cmux-nightly-generic.log"
+rm -f "$GENERIC_STATE" "$GENERIC_OUTPUT"
+rm -rf "$TMP_DIR/cmux-nightly-mount"
+if CMUX_TEST_NOTARY_FAILURE=1 \
+  CMUX_NOTARY_SUBMISSION_FILE="$GENERIC_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$GENERIC_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/generic.err"; then
+  echo "FAIL: a generic notarization submit failure unexpectedly succeeded" >&2
+  exit 1
+fi
+if ! grep -q "submit exited 7" "$TMP_DIR/generic.err" \
+  || grep -q "did not finish within" "$TMP_DIR/generic.err" \
+  || ! grep -q "network failure while uploading submission" "$GENERIC_OUTPUT"; then
+  echo "FAIL: generic submit failure was mislabeled as a timeout" >&2
+  cat "$TMP_DIR/generic.err" "$GENERIC_OUTPUT" >&2
   exit 1
 fi
 

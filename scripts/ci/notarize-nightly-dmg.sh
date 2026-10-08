@@ -206,10 +206,15 @@ if [ -n "$DMG_SUBMIT_ID" ] \
 fi
 if [ "$NOTARY_SUBMIT_EXIT" -ne 0 ]; then
   save_notary_output
-  if [ -n "$DMG_SUBMIT_ID" ]; then
-    echo "DMG notarization did not finish within $NOTARY_WAIT_TIMEOUT for $DMG_RELEASE (submission $DMG_SUBMIT_ID); details: $NOTARY_OUTPUT_FILE" >&2
+  if grep -Eiq 'timeout|timed out' "$NOTARY_OUTPUT_FILE"; then
+    notary_failure="did not finish within $NOTARY_WAIT_TIMEOUT"
   else
-    echo "DMG notarization did not finish within $NOTARY_WAIT_TIMEOUT for $DMG_RELEASE; no submission id was returned; details: $NOTARY_OUTPUT_FILE" >&2
+    notary_failure="submit exited $NOTARY_SUBMIT_EXIT"
+  fi
+  if [ -n "$DMG_SUBMIT_ID" ]; then
+    echo "DMG notarization $notary_failure for $DMG_RELEASE (submission $DMG_SUBMIT_ID); details: $NOTARY_OUTPUT_FILE" >&2
+  else
+    echo "DMG notarization $notary_failure for $DMG_RELEASE; no submission id was returned; details: $NOTARY_OUTPUT_FILE" >&2
   fi
   exit 1
 fi
