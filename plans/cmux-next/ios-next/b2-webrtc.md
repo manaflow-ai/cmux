@@ -151,7 +151,11 @@ The selected pair is reported by `didChangeLocalCandidate:remoteCandidate:` (lib
 `OnIceSelectedCandidatePairChanged`), and read once more from `getStats` when ICE reaches
 `connected`. `CandidatePairClassifier`: either candidate of type `relay` gives `.turn`; host, srflx
 and prflx pairs give `.p2p`. A change of kind on a live transport emits `.pathChanged`, so the badge
-moves from p2p to TURN without a reconnect.
+moves from p2p to TURN without a reconnect. A live connection also refreshes the selected-pair RTT
+through a cancellable `rttSampleInterval` task (one second by default); setting the interval to `nil`
+retains connect/ICE-transition samples while disabling steady-state telemetry. The sampler publishes
+the same bounded `.rtt` inbox event consumed by `LinkSession`, so feature code does not depend on
+WebRTC stats APIs.
 
 ICE restart (dialer drives, host follows):
 - ICE `failed` restarts at once; `disconnected` restarts after `disconnectedGrace` (2 s, injected
@@ -282,8 +286,8 @@ one `SignalRouter(channel:)` shared by `WebRTCAcceptor(router:...)` (passed to `
 for V2, `WebRTCDatagramListener(router:...)`; map `LinkSession.peerIdentity` to `CarrierAttestation`.
 
 Open items: a `send` suspended on a full data channel resumes only when the buffer drains or the
-transport closes (not on task cancellation); RTT is sampled at connect and on ICE `connected`, not
-continuously; audio tracks are refused (voice is a later lane); the binary URL should move to
+transport closes (not on task cancellation); audio tracks are refused (voice is a later lane); the
+binary URL should move to
 `files.cmux.com` before release; the host socket's per-socket signal budget (120 per 10 s) bounds
 how many simultaneous connects one phone can start.
 

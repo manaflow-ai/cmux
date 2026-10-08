@@ -11,6 +11,10 @@ public struct WebRTCConfiguration: Sendable {
     public var disconnectedGrace: Duration
     /// How long a graceful close waits for the peer's `fin.ack`.
     public var closeTimeout: Duration
+    /// How often a live connection refreshes the selected ICE pair RTT.
+    /// `nil` disables steady-state sampling while retaining connect and ICE
+    /// transition samples. This is telemetry, not a synchronization clock.
+    public var rttSampleInterval: Duration?
     /// A data channel takes another message only while its buffered bytes
     /// are at or below this (lanes and the datagram channel).
     public var highWaterBytes: UInt64
@@ -37,6 +41,7 @@ public struct WebRTCConfiguration: Sendable {
         iceRestartTimeout: Duration = .seconds(10),
         disconnectedGrace: Duration = .seconds(2),
         closeTimeout: Duration = .seconds(2),
+        rttSampleInterval: Duration? = .seconds(1),
         highWaterBytes: UInt64 = 128 << 10,
         lowWaterBytes: UInt64 = 32 << 10,
         maxMessageBytes: Int = 8 << 10,
@@ -49,6 +54,7 @@ public struct WebRTCConfiguration: Sendable {
         self.iceRestartTimeout = iceRestartTimeout
         self.disconnectedGrace = disconnectedGrace
         self.closeTimeout = closeTimeout
+        self.rttSampleInterval = rttSampleInterval
         self.highWaterBytes = highWaterBytes
         self.lowWaterBytes = lowWaterBytes
         self.maxMessageBytes = maxMessageBytes

@@ -38,6 +38,10 @@ actor WebRTCConnection {
     private var pathKind: PathKind = .p2p
     private var forcedPath: PathKind?
     private var connectTimer: Task<Void, Never>?
+    /// Steady-state ICE stats sampling. The task is owned by this actor and
+    /// is cancelled when the connection finishes; connect and ICE transition
+    /// samples still happen even when the interval is disabled.
+    private var rttTask: Task<Void, Never>?
     private enum TimerSlot: Hashable {
         case grace
         case restart
@@ -174,9 +178,35 @@ actor WebRTCConnection {
         live = true
         connectTimer?.cancel()
         connectTimer = nil
+        startRTTMonitor()
         context.injector?.register(self)
         liveWaiter?.resume()
         liveWaiter = nil
+    }
+
+    private func startRTTMonitor() {
+        guard rttTask == nil,
+              let interval = context.configuration.rttSampleInterval,
+              interval > .zero,
+              !finished
+        else { return }
+        let clock = context.configuration.clock
+        rttTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                guard (try? await clock.sleep(for: interval)) != nil else { return }
+                guard !Task.isCancelled else { return }
+                await self.sampleRTT()
+            }
+        }
+    }
+
+    private func sampleRTT() async {
+        guard live, !finished, let stats = await peer.selectedPairStats() else { return }
+        if forcedPath == nil {
+            applyPath(CandidatePairClassifier().kind(local: stats.local, remote: stats.remote))
+        }
+        if let rtt = stats.rtt { peer.inbox.yield(.rtt(rtt)) }
     }
 
     // MARK: Signals
@@ -583,6 +613,8 @@ actor WebRTCConnection {
         }
         connectTimer?.cancel()
         connectTimer = nil
+        rttTask?.cancel()
+        rttTask = nil
         for timer in timers.values { timer.cancel() }
         timers = [:]
         liveWaiter?.resume(throwing: WebRTCCarrierError.connectFailed("\(reason)"))

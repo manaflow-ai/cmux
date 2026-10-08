@@ -32,6 +32,12 @@ struct PathTests {
         #expect(classifier.kind(localLine: "x", remoteLine: Self.lines[0].0) == nil)
     }
 
+    @Test("steady-state RTT sampling is enabled by default and explicitly disableable")
+    func rttSamplingPolicy() {
+        #expect(WebRTCConfiguration().rttSampleInterval == .seconds(1))
+        #expect(WebRTCConfiguration(rttSampleInterval: nil).rttSampleInterval == nil)
+    }
+
     @Test("lane labels round trip and clamp partial lifetimes")
     func laneLabels() {
         let lanes = [
