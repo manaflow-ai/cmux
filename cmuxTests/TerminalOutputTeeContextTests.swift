@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,7 +10,7 @@ import Testing
 
 @Suite("Terminal output tee context")
 struct TerminalOutputTeeContextTests {
-    @Test(.timeLimit(.seconds(10)))
+    @Test(.timeLimit(.minutes(1)))
     func concurrentOutputCallbacksDoNotRacePromptDetectionState() {
         let context = TerminalOutputTeeContext(
             workspaceID: UUID(),
