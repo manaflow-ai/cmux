@@ -45,6 +45,7 @@ struct ProxyHeadTests {
         #expect(WebAddress("http://project.localhost:8080/assets/app.js") == WebAddress(port: 8080, path: "/assets/app.js"))
         #expect(WebAddress.isLoopbackHost("[::1]"))
         #expect(!WebAddress.isLoopbackHost("project.example.com"))
+        #expect(WebAddress("https://localhost:8443") == nil)
         #expect(WebAddress("https://example.com") == nil)
         #expect(WebAddress("http://10.0.0.2:3000") == nil)
         #expect(WebAddress("0") == nil)

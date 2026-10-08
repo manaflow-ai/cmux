@@ -2,7 +2,11 @@ public import Foundation
 
 /// What the user typed in the tunnel browser's address field, as a remote
 /// port plus path: `5173`, `localhost:5173/app`, `http://127.0.0.1:3000/x?y`.
-/// Only loopback hosts are tunnel addresses; anything else is not.
+/// Only loopback HTTP hosts are tunnel addresses; anything else is not. The
+/// loopback proxy authenticates and parses the first request head, so it cannot
+/// safely forward an HTTPS/TLS handshake (the route has no certificate or
+/// decrypted cookie to validate). HTTPS dev servers stay an explicit follow-up
+/// instead of failing later as an opaque proxy error.
 public struct WebAddress: Hashable, Sendable {
     public var port: UInt16
     public var path: String
@@ -36,11 +40,11 @@ public struct WebAddress: Hashable, Sendable {
         self.init(url: url)
     }
 
-    /// A loopback http(s) URL as a tunnel address.
+    /// A loopback HTTP URL as a tunnel address.
     public init?(url: URL) {
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+        guard let scheme = url.scheme?.lowercased(), scheme == "http",
               let host = url.host, Self.isLoopbackHost(host) else { return nil }
-        let port = url.port ?? (scheme == "https" ? 443 : 80)
+        let port = url.port ?? 80
         guard let value = UInt16(exactly: port), value > 0 else { return nil }
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         self.init(port: value, path: url.path.isEmpty ? "/" : url.path, query: components?.percentEncodedQuery)
