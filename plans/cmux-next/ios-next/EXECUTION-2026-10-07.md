@@ -235,10 +235,10 @@ runner accepts injected V1/V2 adapters. `BenchAcceptingHost` now constructs the 
 listeners when given a HostDO-backed router, ICE provider, host identities, and paired device keys,
 matching the production `MobileHostAssembly` composition. The CLI and standalone host still reject
 those carriers without those inputs. The next implementation gate is deployed HostDO signaling and
-TURN credentials before a device manifest can be captured. No device JSON has been captured yet. The V3 direct roam measurement
-is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path that the direct
-carrier cannot actually provide; it must be omitted or replaced with an alternate direct endpoint
-before it is compared with V1/V2 roaming. F8 is implemented in the session layer. F3 blocked-send
+TURN credentials before a device manifest can be captured. No device JSON has been captured yet. The
+V3 direct rig now omits its unsupported `.turn` roam workload, and `summarize.py` rejects any direct
+result that still carries a TURN/relay roam claim; a future alternate-direct endpoint can add a
+real direct-to-direct roam before it is compared with V1/V2. F8 is implemented in the session layer. F3 blocked-send
 cancellation is implemented at the application and deterministic-test level: a real
 `WebRTCPeer.send` blocked by a full lane removes only that send's waiter, admits no frame, and leaves
 the peer open (`495f05b762f`). WAN/device evidence remains open. F7's application-side head-of-line
@@ -247,8 +247,8 @@ claimed.
 
 The post-F1/E1 results are nested in `plans/cmux-next/ios-next/bakeoff/results/e1/`. The checked-in
 `manifest.json` enumerates the ten exact result files, labels the run groups, and records source
-commit `2aebd498ca`; `summarize.py` accepts the manifest or its directory and rejects missing or
-escaping paths. The table is reproducible, but the single full-session V1 run and the absence of
+commit `2aebd498ca`; `summarize.py` accepts the manifest or its directory and rejects missing,
+escaping, or synthetic direct-relay result claims. The table is reproducible, but the single full-session V1 run and the absence of
 device/WAN results remain release limitations.
 
 ## Dependency graph for the remaining work

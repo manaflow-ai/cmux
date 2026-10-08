@@ -16,10 +16,11 @@ another client process. The CLI `client` command writes the normal `cmux-link-be
 `cmux-link-bench-manifest/1` entry. The iOS DEV Link bench screen is implemented and provenance-safe;
 the V1/V2 signaling adapters are now landed, so no `bakeoff/device/` result set is claimed until
 real HostDO signaling and TURN credentials are exercised. The
-device pass bars in section 6 therefore remain release gates. V3's loopback `roam` row is also
-synthetic: the direct carrier has no TURN alternate, so forcing `.turn` after a direct TCP drop does
-not model a reachable path. Treat that row as unsupported until the rig has two real direct
-endpoints (or omit it from carrier comparisons).
+device pass bars in section 6 therefore remain release gates. V3's loopback `roam` workload is
+unsupported: the direct carrier has no TURN alternate, so forcing `.turn` after a direct TCP drop does
+not model a reachable path. The harness now omits that workload, and the summarizer rejects any
+direct result that still carries a TURN/relay roam claim. A future rig with two real direct endpoints
+can add a direct-to-direct roam measurement.
 
 The B5 signaling adapter library gate is closed at `da1d07e41d320b8c083aa5a493f220b3c46897bf`.
 `BenchSignalingAdapters` retains one `SignalRouter` for the V1 and V2 sessions, accepts the real
@@ -151,7 +152,7 @@ Machine: Apple M4 Pro (14 cores), macOS 27.0.1, release build, load average 23 t
 | Rig | first byte p50 ms | echo p50/p99 ms | under bulk p50/p99 ms | flood Mbit/s (CPU ms/MiB) | bulk Mbit/s (CPU ms/MiB) | raw Mbit/s | reconnect ms | roam ms (session kept) | max RSS MiB |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ref (A3 loopback) | 0.1 | 0.03/0.05 | 0.4/2.7 | 4686 (4) | 48637 (0) | 340322 | 0.1 | 0.1 (no) | 69 |
-| V3 direct | 1.3 | 0.13/0.21 | 4.7/11.9 | 726 (31) | 2871 (6) | 2604 | 1.3 | 1.3 (no) | 25 |
+| V3 direct | 1.3 | 0.13/0.21 | 4.7/11.9 | 726 (31) | 2871 (6) | 2604 | 1.3 | n/a (n/a) | 25 |
 | V1 webrtc, 64 KiB bulk (F1 fix) | 7.4 | 0.22/0.30 | 0.9/1.4 | 334 (72) | 595 (32) | 662 | 5.2 | 4.8 (no) | 858 (a) |
 | V1 webrtc, 8 KiB bulk (F1 fix) | n/a | 0.23/0.39 | 0.5/1.1 | n/a | 327 (63) | 353 | n/a | n/a | 309 (a) |
 | V1 webrtc, 64 KiB bulk (before F1) | 11.4 | 0.27/0.92 | 12.5/3944 | 184 (86) | 10 (44) | 7 | 5.3 | 5.2 (no) | 68 |
@@ -277,7 +278,8 @@ top-level historical results directory, which has no manifest and is intentional
 
 Any new device or WAN comparison must add a manifest beside its result files with the same schema,
 source commit, and run labels before it is used as release evidence. A manifest rejects missing files,
-schema mismatches, and paths that escape its directory.
+schema mismatches, and paths that escape its directory; result validation also rejects synthetic
+direct-to-relay roam claims.
 
 F8 implementation (`5e1af976a5`, `1cd8a1e0e6`): `LinkSession` now sizes reliable render credit from the latest path
 RTT (`LinkConfiguration.renderCreditBudget`). The baseline remains 256 KiB until an RTT sample

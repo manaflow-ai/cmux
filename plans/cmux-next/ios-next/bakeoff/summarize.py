@@ -28,6 +28,21 @@ def checked_result(path):
     value = load_json(path)
     if not isinstance(value, dict) or value.get("schema") != RESULT_SCHEMA:
         raise ValueError("{} is not a {} result".format(path, RESULT_SCHEMA))
+    # The direct rig has no alternate TURN endpoint.  Older in-process runs
+    # forced ``roam(to: .turn)`` on a TCP socket and consequently emitted a
+    # convincing-looking recovery row without a reachable relay endpoint.
+    # Failing closed here prevents that synthetic relay claim from entering a table;
+    # a future direct rig with two real endpoints can report a direct-to-direct
+    # roam without tripping this guard.
+    if value.get("carrier") == "direct":
+        roam = value.get("roam")
+        if isinstance(roam, dict):
+            paths = roam.get("pathAfter")
+            if isinstance(paths, list) and any(path in {"turn", "relay"} for path in paths):
+                raise ValueError(
+                    "{} reports a synthetic direct-relay roam claim; omit roam until "
+                    "the rig supplies a real alternate direct endpoint".format(path)
+                )
     return value
 
 

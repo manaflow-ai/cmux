@@ -96,34 +96,6 @@
     ]
   },
   "rig" : "v3-direct-localhost",
-  "roam" : {
-    "failures" : 0,
-    "fault" : "roam",
-    "pathAfter" : [
-      "turn",
-      "turn",
-      "turn"
-    ],
-    "recovered" : {
-      "count" : 3,
-      "max" : 3.787125,
-      "mean" : 3.3950416666666663,
-      "min" : 2.917417,
-      "p50" : 3.480583,
-      "p95" : 3.787125,
-      "p99" : 3.787125
-    },
-    "samples" : [
-      2.917417,
-      3.480583,
-      3.787125
-    ],
-    "sessionReconnected" : [
-      true,
-      true,
-      true
-    ]
-  },
   "rttIdle" : {
     "count" : 1000,
     "max" : 0.822375,

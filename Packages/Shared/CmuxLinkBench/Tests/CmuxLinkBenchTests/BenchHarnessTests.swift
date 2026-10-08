@@ -102,6 +102,12 @@ struct BenchHarnessTests {
         #expect(Distribution(milliseconds: []).count == 0)
     }
 
+    @Test("direct rig does not claim an unsupported relay roam")
+    func directRigRoamCapability() {
+        #expect(BenchRigKind.v3.supportsRoam == false)
+        #expect(BenchRigKind.v1.supportsRoam)
+    }
+
     @Test("every workload runs on the loopback reference")
     func loopback() async {
         let report = await BenchRunner(spec: BenchSpec(rig: .reference, quick: true)).run()

@@ -102,7 +102,9 @@ public struct BenchRunner: Sendable {
         if fixtureFactory == nil {
             report.rawTransport = await attempt(.rawTransport) { try await rawDownload(recordBytes: spec.bulkRecordBytes) }
             report.reconnect = await attempt(.reconnect) { try await recovery(.drop) }
-            report.roam = await attempt(.roam) { try await recovery(.roam) }
+            if spec.rig.supportsRoam {
+                report.roam = await attempt(.roam) { try await recovery(.roam) }
+            }
         }
         let final = ProcessUsage()
         report.memory = MemoryResult(

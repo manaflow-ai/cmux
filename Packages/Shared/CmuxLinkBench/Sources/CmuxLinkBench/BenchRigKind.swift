@@ -22,4 +22,10 @@ public enum BenchRigKind: String, Sendable, CaseIterable, Codable {
 
     /// Whether the rig can inject delay and loss itself.
     var shapeable: Bool { self == .v2Memory || self == .reference }
+
+    /// Whether the harness has a real alternate path for the roam workload.
+    /// V3's local direct rig only owns one TCP endpoint; forcing `.turn` on it
+    /// would create a synthetic relay result, so that workload is omitted
+    /// until a split rig supplies a second authenticated direct endpoint.
+    var supportsRoam: Bool { self != .v3 }
 }

@@ -16,6 +16,29 @@ SCRIPT = BAKEOFF / "summarize.py"
 
 
 class BakeoffSummaryTests(unittest.TestCase):
+    def test_direct_relay_roam_claim_fails_closed(self):
+        # The historical V3 loopback harness forced a TURN target despite
+        # having no alternate endpoint.  A result carrying that claim must not
+        # be usable as comparison evidence.
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            result = directory / "direct.json"
+            shutil.copyfile(BAKEOFF / "results" / "v3-direct-r1.json", result)
+            payload = json.loads(result.read_text(encoding="utf-8"))
+            payload["roam"] = {"pathAfter": ["turn"]}
+            result.write_text(json.dumps(payload), encoding="utf-8")
+            manifest = directory / "manifest.json"
+            manifest.write_text(json.dumps({
+                "schema": "cmux-link-bench-manifest/1",
+                "results": [{"path": result.name}],
+            }), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT), str(manifest)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("synthetic direct-relay roam claim", completed.stderr)
+
     def test_string_entries_group_by_filename_like_path_objects(self):
         # All three results have the same rig, but inbox-only is a separate
         # experiment. Only the two raw repeats should contribute to one row.
