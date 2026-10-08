@@ -66,11 +66,12 @@
 # nothing transmits on it by itself: the owner's Mac then dials a listening
 # daemon and every SYN vanishes (web/services/vms/images/network.ts has the
 # measurement). announce_network sends a gratuitous ARP burst from every
-# global IPv4 address; it runs detached when a clone is detected and every
+# global IPv4 address; it runs synchronously when a clone is detected and every
 # 30 s for the life of the supervisor so an idle machine never ages out of
 # the fabric's table. On a clone the announce is the FIRST action, before
-# the daemon, SSH, or state work: arping -U puts its first frame on the wire
-# at once, and until that frame the Mac's SYNs are dropped by the fabric.
+# the daemon, SSH, or state work: the daemon is not started until arping has
+# put its frame on the wire, so the VPC has learned the clone before the Mac
+# can observe a listener.
 # The command line is devboxNetworkAnnounceCommand() in
 # network.ts; vm-devbox-identity.test.ts pins the equality. The attach path
 # announces on its own (freestyleNetworkAnnouncement.ts).
@@ -280,8 +281,10 @@ while true; do
       tick=$PARKED_TICK
     else
       if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
-        # Announce first: the fabric drops the Mac's SYNs until it sees a frame.
-        ( announce_network & )
+        # Announce first and wait for the bounded ARP burst: the fabric drops
+        # the Mac's SYNs until it sees a frame, so a listener before this point
+        # would advertise false readiness.
+        announce_network
         # Starts the template shell's bounded wait for the bound file.
         mkdir -p "$TEMPLATE_RUN_DIR" 2>/dev/null && : > "$TEMPLATE_RUN_DIR/clone-started" 2>/dev/null
         reseed_kernel_rng "$id"
