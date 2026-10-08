@@ -45,7 +45,7 @@ struct CloudWelcomeTests {
 
     @Test("feature clips keep their stable product order")
     func featureClipIDsAreStable() {
-        #expect(CloudWelcomeSlide.all.map(\.id) == ["spin-up", "keeps-running", "displays", "team", "invite"])
+        #expect(CloudWelcomeSlide.all.map(\.id) == ["spin-up", "keeps-running", "displays", "invite", "team"])
         #expect(Set(CloudWelcomeSlide.all.map(\.id)).count == CloudWelcomeSlide.all.count)
     }
 
