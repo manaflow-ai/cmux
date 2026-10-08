@@ -481,7 +481,7 @@ const agentPaneActions: LatencyAction[] = [
     async prepare(page) {
       await page.waitForSelector(".acpmux-model .acpmux-picker-button");
       await page.keyboard.press("Escape");
-      return `document.querySelector(".acpmux-model .acpmux-menu") === null`;
+      return `document.querySelector(".acpmux-model .acpmux-menu") !== null`;
     },
     async input(page) {
       await page.click(".acpmux-model .acpmux-picker-button");
@@ -500,7 +500,7 @@ const agentPaneActions: LatencyAction[] = [
       await page.keyboard.press("ControlOrMeta+A");
       await page.keyboard.press("Backspace");
       await page.keyboard.press("Escape");
-      return `document.querySelector(".acpmux-slash-menu") === null`;
+      return `document.querySelector(".acpmux-slash-menu") !== null`;
     },
     async input(page) {
       await page.keyboard.press("/");
@@ -514,7 +514,7 @@ const agentPaneActions: LatencyAction[] = [
 
 export const AGENT_PANE_PAGE: LatencyPageSpec = {
   name: "agent pane",
-  path: "/latency-agent-pane.html",
+  path: "/test/latency/agent-pane.html?mock",
   ready:
     `document.querySelector(".acpmux-model .acpmux-picker-button") !== null && ` +
     `document.querySelector(".acpmux-composer [contenteditable='true']") !== null`,
