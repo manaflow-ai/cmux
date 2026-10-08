@@ -78,7 +78,7 @@ class BrokenPipeWritesTests(unittest.TestCase):
         normal = self.run_cli(*args)
         self.assertEqual(normal.returncode, 0, normal.stderr)
         self.assertTrue(normal.stdout.endswith(b"\0"), normal.stdout)
-        self.assertIn(b"hooks", normal.stdout.split(b"\0"))
+        self.assertIn(b"codex_hooks", normal.stdout.split(b"\0"))
         closed = self.run_cli(*args, closed="stdout")
         self.assertEqual(closed.returncode, 0, closed.stderr)
         self.assertEqual(closed.stderr, b"")

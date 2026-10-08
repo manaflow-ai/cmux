@@ -361,7 +361,7 @@ struct CodexHookInjectionStrippingTests {
         ))
         #expect(resume.contains("--dangerously-bypass-hook-trust"))
         #expect(resume.contains("--enable"))
-        #expect(resume.contains("hooks"))
+        #expect(resume.contains("codex_hooks"))
         #expect(resume.contains { $0.contains("cmux-codex-hook") })
         #expect(resume.first == codexExecutable)
         #expect(resume.contains("--dangerously-bypass-approvals-and-sandbox"))
