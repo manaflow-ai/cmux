@@ -3347,6 +3347,58 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace-group set-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.setIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "title" : "Set Workspace Group Icon…",
+      "title_key" : "action.workspaceGroup.setIcon",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group clear-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.clearIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "title" : "Remove Workspace Group Icon",
+      "title_key" : "action.workspaceGroup.clearIcon",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace-group collapse",
       "context_menu" : "familyMember",
       "context_menus" : [
@@ -30088,12 +30140,144 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "workspaceGroup.togglePin",
+          "kind" : "action",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "children" : [
             {
-              "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.color.grey",
-              "kind" : "action",
+              "children" : [
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspaceGroup.color.grey",
+                  "kind" : "action",
+                  "order" : 0,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspaceGroup.color.blue",
+                  "kind" : "action",
+                  "order" : 1,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspaceGroup.color.red",
+                  "kind" : "action",
+                  "order" : 2,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspaceGroup.color.yellow",
+                  "kind" : "action",
+                  "order" : 3,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspaceGroup.color.green",
+                  "kind" : "action",
+                  "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspaceGroup.color.pink",
+                  "kind" : "action",
+                  "order" : 5,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspaceGroup.color.purple",
+                  "kind" : "action",
+                  "order" : 6,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspaceGroup.color.cyan",
+                  "kind" : "action",
+                  "order" : 7,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspaceGroup.color.orange",
+                  "kind" : "action",
+                  "order" : 8,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                }
+              ],
+              "id" : "workspaceGroup.setColor",
+              "kind" : "submenu",
               "order" : 0,
+              "title_from" : "action",
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30104,7 +30288,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.color.blue",
+              "id" : "workspaceGroup.setIcon",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -30117,7 +30301,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.color.red",
+              "id" : "workspaceGroup.clearIcon",
               "kind" : "action",
               "order" : 2,
               "visible_when" : {
@@ -30127,110 +30311,14 @@
 
                 ]
               }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.color.yellow",
-              "kind" : "action",
-              "order" : 3,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.color.green",
-              "kind" : "action",
-              "order" : 4,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.color.pink",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.color.purple",
-              "kind" : "action",
-              "order" : 6,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.color.cyan",
-              "kind" : "action",
-              "order" : 7,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.color.orange",
-              "kind" : "action",
-              "order" : 8,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
             }
           ],
-          "id" : "workspaceGroup.setColor",
-          "kind" : "submenu",
-          "order" : 3,
-          "title_from" : "action",
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "workspaceGroup.togglePin",
-          "kind" : "action",
+          "folder" : "appearance",
+          "kind" : "folder",
           "order" : 4,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "title" : "Appearance",
+          "title_key" : "menu.folder.appearance",
+          "title_table" : "Localizable"
         },
         {
           "children" : [
