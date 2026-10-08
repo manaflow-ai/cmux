@@ -2261,6 +2261,7 @@ def linux_preflight_needs(
     job_results = {
         "changes": "success",
         "static-preflight": "success",
+        "fast-guards": "success",
         "guards": "success",
         "ghosttykit-release-check": "success",
         "web": "success",
@@ -2279,6 +2280,9 @@ def run_guard_status(
     results: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = dict.fromkeys(GUARD_ROUTE_JOBS, "true") if inputs is None else dict(inputs)
+    route_inputs.setdefault(
+        "linux_guard_test_groups", json.dumps(["ci", "quality-determinism"])
+    )
     job_results = {
         **dict.fromkeys(GUARD_ROUTE_JOBS.values(), "success"),
         **dict.fromkeys(GUARD_ALWAYS_JOBS, "success"),
@@ -3790,6 +3794,7 @@ def _gate_needs(**overrides: str) -> dict:
     results = {
         "changes": "success",
         "static-preflight": "success",
+        "fast-guards": "success",
         "suite-coverage": "skipped",
         "ghosttykit-release-check": "success",
         "browser": "skipped",
@@ -3850,6 +3855,7 @@ def platform_gate_needs(
             },
         },
         "linux-preflight": {"result": "success"},
+        "fast-guards": {"result": "success"},
         "macos": {"result": macos_result},
         "web": {"result": web_result},
     }
@@ -6942,7 +6948,7 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     # the venv.
     # preflight needs YAML traversal for the macOS runner identity guard.
     assert (
-        "if: ${{ matrix.group == 'preflight' || (matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true') || matrix.group == 'app-host-execution' || "
+        "if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
         "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block

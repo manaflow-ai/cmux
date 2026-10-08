@@ -1056,6 +1056,26 @@ jobs:
             --files-from /tmp/cmux-ci-changed-files.txt \
             --github-output "$GITHUB_OUTPUT"
 
+  fast-guards:
+    name: CI fast guards
+    # Keep the authoritative fast guard in this DAG. It starts beside routing
+    # and static checks, so macOS admission can depend on its real result
+    # without a second runner polling another workflow.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run the fast guard tests
+        env:
+          CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
+        run: scripts/ci/guards-local.sh --no-stamp --jobs 8
+
   # Report only. choose_ci_suite.py in `changes` already adds the suites
   # reverse_test_impact.py names to the changed-suites run; this job records
   # the full answer, what was considered and what it would cost, in the step
@@ -1171,10 +1191,8 @@ jobs:
     # decline ~25 s sooner without admitting macOS on a rejected diff.
     needs: [changes]
     if: ${{ needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false' }}
-    # The reusable workflow's ci matrix leg reads the fast-guards check.
     permissions:
       contents: read
-      checks: read
     uses: ./.github/workflows/ci-guards.yml
     with:
       linux_guard_tests: ${{ needs.changes.outputs.linux_guard_tests }}
@@ -1323,6 +1341,7 @@ jobs:
     name: macOS admission gate
     needs:
       - changes
+      - fast-guards
       - static-preflight
       - suite-coverage
       - ghosttykit-release-check
@@ -1408,6 +1427,7 @@ jobs:
     needs:
       - changes
       - static-preflight
+      - fast-guards
       - guards
       - ghosttykit-release-check
       - web
@@ -1432,6 +1452,7 @@ jobs:
           required = (
               "changes",
               "static-preflight",
+              "fast-guards",
           )
           allowed_routed = {
               "ghosttykit-release-check",
@@ -1698,6 +1719,7 @@ jobs:
   ci-status:
     needs:
       - changes
+      - fast-guards
       - claude-wrapper
       - suite-coverage
       - ui-tests
@@ -1845,6 +1867,7 @@ jobs:
     name: CI timing
     needs:
       - changes
+      - fast-guards
       - claude-wrapper
       - suite-coverage
       - ui-tests

@@ -1,25 +1,22 @@
 name: CI fast guards
 
 # The workflow, scripts/ci and repository-variable guard tests (ci-guards.yml's
-# `ci` group), reported as their own check within about a minute of a push.
+# `ci` group), reported as their own check within about a minute of a push to
+# main. Pull requests run this same group as the first-class `CI fast guards`
+# job in ci.yml, so they do not pay for a second copy of the suite.
 #
-# ci.yml runs the same tests inside `guards`, but only after `changes` routes
-# them, on a Blacksmith runner, and its verdict reaches the required check only
-# through ci-status at the end of the run. On 2026-09-25, 10 of 28 merged pull
-# requests merged before `guards / Guard status` reported, four of them with it
-# red (#14723 and #14724 broke main that way). This check exists so there is a
-# guard result on the head within a minute, whatever else is still queued.
+# On pull requests, ci.yml runs this same group as its first-class
+# `CI fast guards` job beside routing and static checks. Its result feeds the
+# admission and required-status jobs directly, so a red guard remains visible
+# even when the routed matrix is skipped.
 #
-# It runs on every pull request, with no path filter: a required check that a
-# path filter skips waits forever. For a change outside CI it passes in about
-# the same time and costs one GitHub-hosted minute.
+# The main-push route remains independent because merge-main uses its verdict
+# to select a known-green base commit.
 #
 # scripts/ci/guards-local.sh is the same command a dev machine runs; a clean
 # local pass stamps the head for the agent merge guard in cmuxterm-hq.
 
 on:
-  pull_request:
-  merge_group:
   push:
     branches: [main]
   workflow_dispatch:

@@ -205,14 +205,12 @@ class PortableSubstitutes(unittest.TestCase):
         self.assertIn("unrecognized line", result.stderr)
 
 
-class FastWorkflowReportsOnEveryPullRequest(unittest.TestCase):
-    def test_no_path_filter_and_the_shared_command(self) -> None:
+class FastWorkflowReportsOnMainPush(unittest.TestCase):
+    def test_main_push_keeps_the_standalone_last_green_guard(self) -> None:
         workflow = run_ci_guards.load_yaml(FAST_WORKFLOW)
         triggers = workflow.get("on") or workflow.get(True)
-        # A required check that a path filter skips never reports.
-        self.assertIn("pull_request", triggers)
-        self.assertFalse((triggers.get("pull_request") or {}).get("paths"))
-        self.assertIn("merge_group", triggers)
+        self.assertNotIn("pull_request", triggers)
+        self.assertNotIn("merge_group", triggers)
         self.assertEqual(triggers["push"]["branches"], ["main"])
         job = workflow["jobs"]["fast-guards"]
         self.assertEqual(job["name"], "CI fast guards")

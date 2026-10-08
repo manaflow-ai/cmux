@@ -329,6 +329,20 @@ class Comments(unittest.TestCase):
 
 
 class Robustness(unittest.TestCase):
+    def test_fast_guard_log_selection_excludes_unrelated_failed_jobs(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        gh.get = lambda path: {  # type: ignore[method-assign]
+            "jobs": [
+                {"id": 1, "name": ga.FAST_WORKFLOW, "conclusion": "failure"},
+                {"id": 2, "name": "Fast static checks", "conclusion": "failure"},
+            ]
+        }
+        gh.request = lambda method, path, text=False: f"log:{path}"  # type: ignore[method-assign]
+        self.assertEqual(
+            gh.failed_log(9, job_name=ga.FAST_WORKFLOW),
+            "log:repos/manaflow-ai/cmux/actions/jobs/1/logs",
+        )
+
     def test_an_older_checkout_the_runner_cannot_plan_counts_as_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             runner = Path(temp) / "runner"
@@ -459,7 +473,10 @@ class WorkflowTrust(unittest.TestCase):
 
     def test_follows_both_guard_workflows(self) -> None:
         on = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(sorted(on["workflow_run"]["workflows"]), sorted([ga.FAST_WORKFLOW, ga.VARS_WORKFLOW]))
+        self.assertEqual(
+            sorted(on["workflow_run"]["workflows"]),
+            sorted(["CI", ga.FAST_WORKFLOW, ga.VARS_WORKFLOW]),
+        )
         self.assertEqual(on["workflow_run"]["types"], ["completed"])
 
     def test_only_report_writes_and_nothing_checks_out_the_pr(self) -> None:

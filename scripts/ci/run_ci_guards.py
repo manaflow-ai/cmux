@@ -6,7 +6,7 @@ ci-guards.yml stays the one list of guard steps. This reads it and runs every
 group, steps in file order within a group. The same runner backs:
 
   scripts/ci/guards-local.sh           a dev Mac, seconds, no build
-  .github/workflows/ci-fast-guards.yml the "CI fast guards" check
+  ci.yml and ci-fast-guards.yml        the "CI fast guards" checks
 
 A `uses:` step is not run. Checkout is the working tree itself, and the two
 Python dependency steps are replaced by one shared virtualenv (PYTHON_PACKAGES
@@ -62,24 +62,12 @@ PYTHON_PACKAGES = ("PyYAML==6.0.3", "bashlex==0.18")
 # other condition beyond `matrix.group == '...'` fails the plan rather than
 # silently dropping a step.
 EVENT_CONDITION_STEPS = {
-    # Actions-only checkouts are not part of the portable local plan. The fast
-    # guard leg first fetches only its status helper, then materializes the
-    # repository only when its duplicate-suite fallback is needed.
-    "Checkout fast guard status helper",
-    "Checkout guard sources",
-    "Materialize fallback guard sources",
     # The history job binds the synthetic merge base; run_steps binds it
     # directly (PACKAGE_RESOLVED_POLICY_BASE_REF).
     "Bind package policy to synthetic merge base",
     # A manual dispatch's shallow checkout fetches main's history; a local
     # checkout already has it, so a local run is never a dispatch.
     "Fetch main history for a manual dispatch",
-    # The Actions-only poll gates the duplicated `ci` group. Local runs should
-    # execute the group directly, so the planner omits this step.
-    "Check independent fast guard result",
-    # The Actions-only propagation step has no independent check result in a
-    # local run; the local guard invocation is the source of truth.
-    "Propagate failed independent fast guard",
 }
 # The groups the "CI fast guards" check and a default local run cover: the
 # workflow, scripts/ci and repository-variable contracts. `--all` runs every
@@ -98,7 +86,6 @@ PORTABLE_SUBSTITUTES = {
     "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
-FAST_GUARD_CONDITION = re.compile(r"\s*&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
@@ -164,8 +151,7 @@ def load_yaml(path: Path):
 def step_groups(condition: str) -> tuple[set[str], bool]:
     """Groups named by a step `if:`, and whether anything else is in it."""
     groups = set(GROUP_CONDITION.findall(condition))
-    rest = FAST_GUARD_CONDITION.sub("", condition)
-    rest = GROUP_CONDITION.sub("", rest)
+    rest = GROUP_CONDITION.sub("", condition)
     rest = re.sub(r"[\s${}()|]", "", rest)
     return groups, bool(rest)
 

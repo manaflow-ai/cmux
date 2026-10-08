@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Name the change behind a red guard, show the failing assertion, and say how to fix it.
 
-Guards never block a merge. "CI fast guards" (ci-fast-guards.yml) runs on every
-pull request and every push to main, and "CI repository variables"
+Guards never block a merge. Pull requests run the "CI fast guards" job inside
+ci.yml; the standalone ci-fast-guards.yml workflow runs the same group on every
+push to main. "CI repository variables"
 (ci-repo-variables.yml) checks the live repository variables every 15 minutes.
 When one goes red, this makes the failure actionable instead of just red.
-ci-guard-attribution.yml runs it on each completed run of either workflow,
-under GITHUB_TOKEN, with no polling:
+ci-guard-attribution.yml runs it on completion of the containing CI workflow or
+the standalone guard/variable workflow, under GITHUB_TOKEN, with no polling:
 
   analyze   read-only. It reads the run's failed job log and parses each failed
             guard step with its failing tests and assertion messages.
@@ -546,11 +547,11 @@ class GitHub:
     def run(self, run_id: int) -> dict:
         return self.get(f"repos/{self.repo}/actions/runs/{run_id}")  # type: ignore[return-value]
 
-    def failed_log(self, run_id: int) -> str:
+    def failed_log(self, run_id: int, *, job_name: str | None = None) -> str:
         jobs = self.get(f"repos/{self.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=20")
         texts = []
         for job in (jobs or {}).get("jobs", []):  # type: ignore[union-attr]
-            if job.get("conclusion") in RED:
+            if job.get("conclusion") in RED and (job_name is None or job.get("name") == job_name):
                 texts.append(self.request("GET", f"repos/{self.repo}/actions/jobs/{job['id']}/logs", text=True))
         return "\n".join(str(t) for t in texts)
 
@@ -654,7 +655,7 @@ def baselines(runs: list[dict], gh: GitHub | None, root: Path, red_sha: str, ste
         if run["conclusion"] == "success":
             failed: set[str] = set()
         else:
-            failed = failed_steps_summary(gh.failed_log(run["id"])) or set(pending)
+            failed = failed_steps_summary(gh.failed_log(run["id"], job_name=FAST_WORKFLOW)) or set(pending)
         for step in list(pending):
             if step not in failed:
                 found[step] = run["head_sha"]
@@ -1243,11 +1244,17 @@ def command_analyze(args: argparse.Namespace) -> int:
     name, event = run.get("name"), run.get("event")
     log = Path(args.log).read_text(errors="replace") if args.log else ""
     head = git(root, "rev-parse", args.head or "HEAD")
-    if run.get("conclusion") not in RED | {"success"}:
+    accepted = RED | {"success"}
+    # A newer PR run can cancel this workflow after the fast guard has already
+    # failed. The workflow_run event is still useful in that case, but a
+    # cancelled repository-variable run is not a guard verdict.
+    if run.get("conclusion") == "cancelled" and run.get("name") in {"CI", FAST_WORKFLOW}:
+        accepted = accepted | {"cancelled"}
+    if run.get("conclusion") not in accepted:
         report: dict = {"state": "skipped", "reason": f"conclusion {run.get('conclusion')}"}
     elif event == "pull_request":
         if run.get("conclusion") != "success" and not log and gh:
-            log = gh.failed_log(int(run["id"]))
+            log = gh.failed_log(int(run["id"]), job_name=FAST_WORKFLOW)
         report = analyze_pr(gh, run, root, log)
     elif name == VARS_WORKFLOW:
         green_log, green_run = None, None
@@ -1265,7 +1272,7 @@ def command_analyze(args: argparse.Namespace) -> int:
         report = analyze_vars_main(gh, run, root, log, green_log, green_run)
     elif run.get("head_branch") == "main" and event in ("push", "workflow_dispatch"):
         if run.get("conclusion") != "success" and not log and gh:
-            log = gh.failed_log(int(run["id"]))
+            log = gh.failed_log(int(run["id"]), job_name=FAST_WORKFLOW)
         report = analyze_fast_main(gh, run, root, log, head, baseline=args.baseline)
     else:
         report = {"state": "skipped", "reason": f"{name} on {event} {run.get('head_branch')}"}
