@@ -245,6 +245,44 @@ class Excusing(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
 
 
+class SiblingBaseWorkflow(unittest.TestCase):
+    """A PR's `web / ...` jobs run in ci.yml, which never runs on feat-cmux-next; the base's run
+    them in cmux-next-web.yml (#18234). The excusal reads that workflow's runs for them."""
+
+    WEB = "web / react-apps-check"
+    BUDGET = "error: diff surface evaluates 1549515 bytes on open, budget is 1500000 bytes"
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=self.WEB, step="Check diff budget"),
+                        2: failed_job(2, 30, BASE_SHA, name=self.WEB, step="Check diff budget")}
+        self.gh.logs = {1: log(self.WEB, "Check diff budget", self.BUDGET),
+                        2: log(self.WEB, "Check diff budget", self.BUDGET)}
+        sibling_runs = [{"id": 30, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                         "conclusion": "failure", "head_sha": BASE_SHA}]
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/cmux-next-web.yml/runs?" in route:
+                assert "branch=feat-cmux-next" in route and "status=completed" in route, route
+                return {"workflow_runs": copy.deepcopy(sibling_runs)}
+            if route.endswith("/actions/runs/10"):
+                return {"id": 10, "workflow_id": 7, "path": ".github/workflows/ci.yml"}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def test_a_web_red_is_compared_with_the_base_web_workflow(self):
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+        self.assertIn("run 30", "\n".join(lines))
+
+    def test_only_web_jobs_look_at_the_sibling_workflow(self):
+        for job in self.gh.jobs.values():
+            job["name"] = SWIFT
+        with self.assertRaisesRegex(excuse.Refused, "no completed feat-cmux-next run"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+
 class Script(unittest.TestCase):
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()

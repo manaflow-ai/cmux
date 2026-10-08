@@ -32,6 +32,9 @@ SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 AGGREGATES = frozenset({"ci-status"})
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
 VERDICTS = frozenset({"success", "failure"})
+# Workflows whose jobs the base runs elsewhere under the same names, by job-name prefix: ci.yml has
+# no feat-cmux-next runs, and cmux-next-web.yml (#18234) runs ci-web's `web / ...` jobs there.
+SIBLING_BASE_WORKFLOWS = {".github/workflows/ci.yml": (("web / ", "cmux-next-web.yml"),)}
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
@@ -125,15 +128,21 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         head_log = github.log(repo, job)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
-        workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
-        if workflow not in base_runs:
-            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed&per_page=20")
-            base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
-                                   if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
+        head_run = github.json(f"repos/{repo}/actions/runs/{job['run_id']}")
+        workflows = [head_run.get("workflow_id")]
+        for prefix, sibling in SIBLING_BASE_WORKFLOWS.get(str(head_run.get("path", "")).split("@")[0], ()):
+            if name.startswith(prefix):
+                workflows.append(sibling)
+        for workflow in workflows:
+            if workflow not in base_runs:
+                listed = github.json(
+                    f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed&per_page=20")
+                base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
+                                       if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
         # The newest base run where this job has a verdict decides: a base push
         # run's Mac job is often cancelled by the next push, or refused by a mini.
         base_run = base_job = None
-        for candidate_run in base_runs[workflow]:
+        for candidate_run in (run for workflow in workflows for run in base_runs[workflow]):
             if candidate_run["id"] not in base_jobs:
                 base_jobs[candidate_run["id"]] = [found for page in github.json(
                     f"repos/{repo}/actions/runs/{candidate_run['id']}/jobs?filter=latest&per_page=100", paginate=True)
