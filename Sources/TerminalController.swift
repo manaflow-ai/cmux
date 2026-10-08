@@ -392,6 +392,7 @@ class TerminalController {
         "workspace.group.focus",
         "workspace.cloud_vm_open",
         "surface.focus",
+        "command_palette.toggle",
         "pane.focus",
         "pane.last",
         "file.open", "workspace.todo.open",

@@ -1,14 +1,12 @@
 public import Foundation
 
-/// The debug/test-only-domain slice of the control-command seam (a constituent
-/// of the ``ControlCommandContext`` umbrella).
+/// The debug and command-palette slice of the control-command seam (a
+/// constituent of the ``ControlCommandContext`` umbrella).
 ///
-/// Every `debug.*` method this domain serves was compiled only into DEBUG
-/// builds (the legacy dispatch cases sat inside `#if DEBUG`), so all
-/// requirements are `#if DEBUG`-gated: in release builds this is an empty
-/// marker protocol, the coordinator's `handleDebug` returns `nil`, and the
-/// methods fall through to the legacy dispatcher's `method_not_found` — the
-/// exact release-build behavior the `#if DEBUG` switch cases produced.
+/// The production `command_palette.toggle` method is always available. Every
+/// `debug.*` method this domain serves is compiled only into DEBUG builds (the
+/// legacy dispatch cases sat inside `#if DEBUG`), so those requirements remain
+/// gated and release builds preserve their `method_not_found` behavior.
 ///
 /// Many witnesses forward to the v1 string-command bodies that the v1
 /// `processCommand` dispatch still shares (`set_shortcut`, `read_text`,
@@ -16,6 +14,21 @@ public import Foundation
 /// coordinator owns the legacy v2 wrapper's parsing of it.
 @MainActor
 public protocol ControlDebugContext: AnyObject {
+    /// Toggles the command palette for the requested window.
+    ///
+    /// This is the production agent-surface seam. The remaining requirements
+    /// stay DEBUG-gated because they expose test-only state and interactions.
+    func controlCommandPaletteToggle(windowID: UUID?) -> Bool
+
+    /// Returns the target window and current palette visibility for the
+    /// production `command_palette.toggle` receipt.
+    ///
+    /// - Parameter windowID: The explicit target window, or `nil` for the key
+    ///   or main window.
+    /// - Returns: The resolved window and visibility, or `nil` when no target
+    ///   window exists.
+    func controlCommandPaletteState(windowID: UUID?) -> (windowID: UUID, visible: Bool)?
+
 #if DEBUG
     // MARK: - Session-snapshot benchmarks
 

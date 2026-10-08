@@ -4938,5 +4938,18 @@
     "identityLocales": {
       "fr": "Question has the same spelling in this locale; the placeholder is invariant."
     }
+  },
+  "cli.help.agents": {
+    "source": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio.",
+    "identityLocales": {
+      "de": "Command-line help syntax and agent tool names are invariant across locales; the translated catalog entry is intentionally identical.",
+      "fr": "Command-line help syntax and agent tool names are invariant across locales; the translated catalog entry is intentionally identical.",
+      "ar": "Command-line help syntax and agent tool names are invariant across locales; the translated catalog entry is intentionally identical.",
+      "es": "Command-line help syntax and agent tool names are invariant across locales; the translated catalog entry is intentionally identical.",
+      "zh-Hant": "Command-line help syntax and agent tool names are invariant across locales; the translated catalog entry is intentionally identical.",
+      "zh-Hans": "Command-line help syntax and agent tool names are invariant across locales; the translated catalog entry is intentionally identical.",
+      "ko": "Command-line help syntax and agent tool names are invariant across locales; the translated catalog entry is intentionally identical.",
+      "ja": "Command-line help syntax and agent tool names are invariant across locales; the translated catalog entry is intentionally identical."
+    }
   }
 }

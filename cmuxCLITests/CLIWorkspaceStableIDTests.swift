@@ -149,10 +149,101 @@ struct CLIWorkspaceStableIDTests {
         }
     }
 
+    @Test("Agent snapshot is structured and keeps stable IDs")
+    func agentSnapshotKeepsStableIDs() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
+        let execution = try await runAndCollect(
+            command: ["agents", "snapshot", "--window", Self.windowID, "--json"],
+            cliPath: cliPath
+        )
+        #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+        #expect(execution.result.status == 0, Comment(rawValue: execution.result.stderr))
+        let root = try responseObject(in: execution.result.stdout)
+        #expect(root["schema_version"] as? Int == 1)
+        let state = try #require(root["state"] as? [String: Any])
+        let workspace = try workspaceRow(in: state)
+        #expect(workspace["id"] as? String == Self.workspaceID)
+        #expect(workspace["ref"] as? String == "workspace:1")
+        #expect(execution.requests.count == 1)
+    }
+
+    @Test("Agent mutations return the post-action topology")
+    func agentWorkspaceSelectReturnsReceipt() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
+        let execution = try await runAndCollect(
+            command: ["agents", "workspace", "select", "workspace:1", "--window", Self.windowID, "--json"],
+            cliPath: cliPath
+        )
+        #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+        #expect(execution.result.status == 0, Comment(rawValue: execution.result.stderr))
+        let root = try responseObject(in: execution.result.stdout)
+        #expect(root["action"] as? String == "workspace.select")
+        let state = try #require(root["state"] as? [String: Any])
+        #expect((try workspaceRow(in: state))["id"] as? String == Self.workspaceID)
+        let methods = execution.requests.compactMap { line in
+            (try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])?["method"] as? String
+        }
+        #expect(methods.contains("workspace.select"))
+        #expect(methods.contains("system.tree"))
+    }
+
+    @Test("Agent palette toggle uses the production socket method")
+    func agentPaletteToggleReturnsReceipt() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
+        let execution = try await runAndCollect(
+            command: ["agents", "palette", "toggle", "--window", Self.windowID],
+            cliPath: cliPath
+        )
+        #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+        #expect(execution.result.status == 0, Comment(rawValue: execution.result.stderr))
+        let root = try responseObject(in: execution.result.stdout)
+        #expect(root["action"] as? String == "palette.toggle")
+        let methods = execution.requests.compactMap { line in
+            (try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])?["method"] as? String
+        }
+        #expect(methods == ["command_palette.toggle", "system.tree"])
+    }
+
+    @Test("Agent question answers preserve repeatable selections")
+    func agentDialogAnswerPreservesSelections() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
+        let execution = try await runAndCollect(
+            command: [
+                "agents", "dialog", "answer", "question-1",
+                "--selection", "first",
+                "--selection", "second",
+            ],
+            cliPath: cliPath
+        )
+        #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+        #expect(execution.result.status == 0, Comment(rawValue: execution.result.stderr))
+        let root = try responseObject(in: execution.result.stdout)
+        #expect(root["action"] as? String == "dialog.answer")
+        let reply = try #require(
+            execution.requests
+                .compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                .first { $0["method"] as? String == "feed.question.reply" }
+        )
+        let params = try #require(reply["params"] as? [String: Any])
+        #expect(params["selections"] as? [String] == ["first", "second"])
+    }
+
     private func run(
         command: [String],
         cliPath: String
     ) async throws -> (status: Int32, stdout: String, stderr: String, timedOut: Bool) {
+        let execution = try await runAndCollect(command: command, cliPath: cliPath)
+        let commandRequests = execution.requests.count == 2 && Self.isWorkspaceRefResolution(execution.requests[0])
+            ? Array(execution.requests.dropFirst())
+            : execution.requests
+        #expect(commandRequests.count == 1, Comment(rawValue: "command=\(command) requests=\(execution.requests)"))
+        return execution.result
+    }
+
+    private func runAndCollect(
+        command: [String],
+        cliPath: String
+    ) async throws -> (result: (status: Int32, stdout: String, stderr: String, timedOut: Bool), requests: [String]) {
         let socketPath = Self.socketPath()
         let server = try CLIWorkspaceStableIDMockServer(
             socketPath: socketPath,
@@ -174,13 +265,7 @@ struct CLIWorkspaceStableIDTests {
             environment: environment
         )
         let received = await requests.value
-        // A `workspace:N` selector is resolved client-side first (#13964): one
-        // parameterless `workspace.list` read ahead of the command's own request.
-        let commandRequests = received.count == 2 && Self.isWorkspaceRefResolution(received[0])
-            ? Array(received.dropFirst())
-            : received
-        #expect(commandRequests.count == 1, Comment(rawValue: "command=\(command) requests=\(received)"))
-        return result
+        return (result, received)
     }
 
     private static func isWorkspaceRefResolution(_ line: String) -> Bool {

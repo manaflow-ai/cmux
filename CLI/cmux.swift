@@ -5737,6 +5737,19 @@ struct CMUXCLI {
                 }
             }
 
+        case "agents":
+            guard try runAgentSurfaceCommandIfMatched(
+                commandArgs: ["agents"] + commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                // Agent receipts are a scripting boundary: expose UUIDs and
+                // refs together unless the caller explicitly requests a mode.
+                idFormat: idFormatArg == nil ? .both : idFormat,
+                windowOverride: windowId
+            ) else {
+                throw CLIError(message: "Unknown agents command")
+            }
+
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
             let rest = Array(commandArgs.dropFirst())
@@ -19386,6 +19399,8 @@ struct CMUXCLI {
               cmux agent wake <surface>        Resume a hibernated agent in place
             See `cmux agent-hibernation --help`.
             """
+        case "agents":
+            return Self.agentSurfaceHelp
         case "remotes", "remote":
             return Self.remotesUsage
         case "todo":

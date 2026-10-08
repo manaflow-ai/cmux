@@ -208,6 +208,7 @@ extension CMUXCLI {
         \(String(localized: "cli.help.agents.messages", defaultValue: "agent messages [on|off|status] [<target>] [--workspace]"))
         agent-hibernation <on|off>
         agent-hibernation <hibernate|wake> <surface>
+        agents snapshot|workspace|tab|surface|palette|dialog|mcp
         claude-teams [claude-args...]
         codex-teams [codex-args...]
         omo [opencode-args...]

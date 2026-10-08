@@ -38,12 +38,61 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
 }
 
 @MainActor
+private final class FakeCommandPaletteControlContext: ControlCommandContext {
+    let windowID = UUID()
+    var visible = false
+    var toggleCalls = 0
+
+    func controlCommandPaletteState(windowID: UUID?) -> (windowID: UUID, visible: Bool)? {
+        guard windowID == nil || windowID == self.windowID else { return nil }
+        return (self.windowID, visible)
+    }
+
+    func controlCommandPaletteToggle(windowID: UUID?) -> Bool {
+        guard windowID == nil || windowID == self.windowID else { return false }
+        toggleCalls += 1
+        visible.toggle()
+        return true
+    }
+}
+
+@MainActor
 @Suite("ControlCommandCoordinator debug v1 dispatch")
 struct ControlCommandCoordinatorDebugV1Tests {
     private func makeCoordinator() -> (ControlCommandCoordinator, FakeDebugV1ControlCommandContext) {
         let context = FakeDebugV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
         return (coordinator, context)
+    }
+
+    @Test func paletteRejectsMalformedWindowID() {
+        let context = FakeCommandPaletteControlContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let request = ControlRequest(
+            id: .int(1),
+            method: "command_palette.toggle",
+            params: ["window_id": .string("not-a-window")]
+        )
+        #expect(coordinator.handle(request) == .err(
+            code: "invalid_params",
+            message: "Missing or invalid window_id",
+            data: nil
+        ))
+        #expect(context.toggleCalls == 0)
+    }
+
+    @Test func paletteReceiptIncludesResolvedVisibility() {
+        let context = FakeCommandPaletteControlContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let request = ControlRequest(id: .int(1), method: "command_palette.toggle", params: [:])
+        let reply = coordinator.handle(request)
+        guard case .ok(.object(let payload)) = reply else {
+            Issue.record("command_palette.toggle did not return an object receipt: \(String(describing: reply))")
+            return
+        }
+        #expect(payload["window_id"] == .string(context.windowID.uuidString))
+        #expect(payload["visible"] == .bool(true))
+        #expect(context.toggleCalls == 1)
     }
 
     @Test func forwardsSetShortcutArgumentsVerbatim() {

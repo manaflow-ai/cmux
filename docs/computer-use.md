@@ -59,6 +59,28 @@ cmux-launched agent then connects through the authenticated, variant-scoped
 socket and can perceive the desktop through screenshots and accessibility
 trees and act with click, type, scroll, hotkey, drag, app, window, cursor, and
 diagnostic tools.
+
+## Agent surface
+
+Agents that need to drive cmux itself can use the stable CLI and MCP surface:
+
+```sh
+cmux agents snapshot --json
+cmux agents workspace select workspace:2
+cmux agents surface split right --command "npm test"
+```
+
+`cmux agents snapshot` returns windows, workspaces, panes, tabs and surfaces
+with both stable UUIDs and human-readable refs, plus focus and selection
+markers. Every mutating command returns a receipt with the socket result and a
+fresh snapshot. `cmux agents dialog list` and `cmux agents dialog answer` route
+permission, question and plan responses through the same Feed coordinator as
+the native UI. `cmux agents mcp` serves these operations as stdio MCP tools for
+agents that can start a local MCP server.
+
+The command-palette toggle uses the production `command_palette.toggle` socket
+method. The topology and dialog operations use the stable v2 socket methods
+listed by `cmux capabilities`.
 cmux's injection disables the upstream cmux-cua engine's telemetry and self-update
 checks; cmux manages application updates through Sparkle.
 

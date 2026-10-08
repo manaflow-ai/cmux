@@ -9,6 +9,42 @@ internal import Foundation
 /// This file carries the dispatch plus the session-snapshot, shortcut, input,
 /// text-box, and command-palette methods; the rest live in `+Debug2.swift` (500-line budget).
 extension ControlCommandCoordinator {
+    /// Handles the production command-palette toggle used by agent receipts.
+    func handleCommandPalette(_ request: ControlRequest) -> ControlCallResult? {
+        guard request.method == "command_palette.toggle" else { return nil }
+        if let rawWindow = request.params["window_id"] {
+            guard case .string(let value) = rawWindow,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  uuid(request.params, "window_id") != nil else {
+                return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+            }
+        }
+        let requestedWindowID = uuid(request.params, "window_id")
+        guard let debugContext = context as? any ControlDebugContext else {
+            return .err(code: "not_found", message: "No target window", data: nil)
+        }
+        guard debugContext.controlCommandPaletteState(windowID: requestedWindowID) != nil else {
+            if let requestedWindowID {
+                return .err(code: "not_found", message: "Window not found", data: .object([
+                    "window_id": .string(requestedWindowID.uuidString),
+                    "window_ref": ref(.window, requestedWindowID),
+                ]))
+            }
+            return .err(code: "not_found", message: "No target window", data: nil)
+        }
+        guard debugContext.controlCommandPaletteToggle(windowID: requestedWindowID),
+              let state = debugContext.controlCommandPaletteState(windowID: requestedWindowID) else {
+            return .err(code: "not_found", message: "No target window", data: nil)
+        }
+        return .ok(.object([
+            "window_id": .string(state.windowID.uuidString),
+            "window_ref": ref(.window, state.windowID),
+            "visible": .bool(state.visible),
+        ]))
+    }
+}
+
+extension ControlCommandCoordinator {
     /// Runs one decoded request (`request` = the decoded envelope) if it belongs to
     /// the debug domain, returning the typed result; returns `nil` otherwise — including
     /// in release builds, where the domain does not exist — so the caller can fall

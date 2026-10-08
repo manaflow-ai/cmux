@@ -10,6 +10,9 @@ extension CMUXCLI {
         if normalizedCommand == "window" {
             return false
         }
+        if normalizedCommand == "agents" {
+            return false
+        }
         if normalizedCommand == "surface-resume" || normalizedCommand == "pr" {
             return false
         }
