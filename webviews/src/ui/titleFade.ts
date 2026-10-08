@@ -60,13 +60,17 @@ export function marqueeTiming(travel: number, reducedMotion: boolean): MarqueeTi
 }
 
 /** One marquee pass on `translate` from 0 to -travel and back (the delay is the animation's). */
-export function marqueeKeyframes(travel: number, timing: MarqueeTiming): { keyframes: Keyframe[]; duration: number } {
+export function marqueeKeyframes(
+  travel: number,
+  timing: MarqueeTiming,
+  scrollEasing = "ease-in-out",
+): { keyframes: Keyframe[]; duration: number } {
   const duration = timing.scrollMs + timing.holdMs + timing.backMs;
   const end = `${-travel}px 0`;
   return {
     duration,
     keyframes: [
-      { offset: 0, translate: "0px 0", easing: "ease-in-out" },
+      { offset: 0, translate: "0px 0", easing: scrollEasing },
       { offset: timing.scrollMs / duration, translate: end, easing: "linear" },
       { offset: (timing.scrollMs + timing.holdMs) / duration, translate: end, easing: "ease-out" },
       { offset: 1, translate: "0px 0" },

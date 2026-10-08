@@ -934,6 +934,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1043,6 +1044,7 @@ dependencies = [
  "anyhow",
  "libc",
  "portable-pty",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1164,6 +1166,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "uds_windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1350,6 +1354,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-pty",
  "cmux-remote-protocol",
+ "cmux-sdk",
  "cmux-terminal-iface",
  "cmux-tui-cdp",
  "cmux-unix-socket",
