@@ -152,7 +152,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
  * active and what its grant allows, and carries the classes on the principal.
  * Undefined means refuse (revoked, unknown, or expired grant).
  */
-type GrantAnswer = { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string } | { ok: false }
+type GrantAnswer = { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }
 
 /**
  * Instant revocation (Lawrence Q2): every request of an install asks its UserDO, which answers from
@@ -182,8 +182,21 @@ export const withGrantClasses = async (env: Env, p: Principal): Promise<Principa
   if (!p.user || !p.install || !p.grant) return undefined
   const r = await askGrant(env, p.user, p.install, p.grant, p.agent)
   if (!r.ok) return undefined
-  const { bound_machine: _ignored, ...base } = p
-  return { ...base, grant_classes: [...r.op_classes], install_kind: r.kind, email: r.email, email_verified: r.email_verified, ...(r.bound_machine ? { bound_machine: r.bound_machine } : {}) }
+  // The install's SSO team as UserDO holds it now (a team removal drops it), never the token's older claim.
+  const { bound_machine: _ignored, sso_team: _claimed, ...base } = p
+  return { ...base, grant_classes: [...r.op_classes], install_kind: r.kind, email: r.email, email_verified: r.email_verified, ...(r.bound_machine ? { bound_machine: r.bound_machine } : {}), ...(r.sso_team ? { sso_team: r.sso_team } : {}) }
+}
+
+/**
+ * An install token's sso_team claim checked against UserDO before any SSO gate (cx-44j.49): a
+ * removal from that team drops the install's SSO team at once, while the token lives on for minutes.
+ * Other principals pass through unchanged.
+ */
+export const withLiveSsoTeam = async (env: Env, p: Principal): Promise<Principal> => {
+  if (p.kind !== "install" || !p.sso_team || !p.user || !p.install || !p.grant) return p
+  const r = await askGrant(env, p.user, p.install, p.grant, p.agent)
+  const { sso_team: _claimed, ...base } = p
+  return r.ok && r.sso_team ? { ...base, sso_team: r.sso_team } : base
 }
 
 /** Resolves the bearer token: our install JWT, else a Stack session token. */

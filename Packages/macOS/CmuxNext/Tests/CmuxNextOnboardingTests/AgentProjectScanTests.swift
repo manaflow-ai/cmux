@@ -133,6 +133,23 @@ import Testing
         #expect(Set(scan.complete(query: "Projects", hints: [hinted])) == Set([repo, nestedRepo]))
     }
 
+    /// A folderless workspace's chats run in cmux's private agent-home folder
+    /// (`<workspace-uuid>` under Application Support): never a project to pick.
+    @Test func leavesOutCmuxAgentHomeFolders() throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let app = folder("code/app")
+        let chat = folder("Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481")
+        let other = folder("Library/Application Support/cmux/agent-home/home")
+        for path in [chat, other] {
+            try FileManager.default.createDirectory(at: URL(fileURLWithPath: path), withIntermediateDirectories: true)
+        }
+        try write(".claude/projects/-chat/s.jsonl", [["cwd": chat]], age: 0)
+        try write(".claude/projects/-app/s.jsonl", [["cwd": app]], age: 1)
+        let scan = RecentProjectScan(projects: AgentProjectScan(home: home), roots: [], maxProjects: 20)
+        #expect(scan.run(hints: [other, chat], now: now).map(\.id) == [app])
+        #expect(scan.complete(query: "", hints: [other, chat]) == [app])
+    }
+
     @Test func recentScanKeepsPrivacyGuardedHintsWithoutReadingThem() throws {
         defer { try? FileManager.default.removeItem(at: home) }
         let desktop = folder("Desktop/hidden-project")

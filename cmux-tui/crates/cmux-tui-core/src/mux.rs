@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+mod agent_roster_restore;
 mod browser_tab_create;
 mod closed_workspace_replay;
 pub(crate) use browser_tab_create::{
@@ -348,6 +349,8 @@ type WorkspaceDeltaBeforeEmitHook = Arc<dyn Fn(u64) + Send + Sync>;
 type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
+/// Startup diagnostics kept until the frontend installs its sink.
+const MAX_PENDING_DIAGNOSTICS: usize = 8;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
@@ -1419,62 +1422,6 @@ fn parse_projection_agent_state(value: &str) -> AgentState {
 struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
-}
-
-/// Restore the roster from its persisted snapshot and fold the journal tail
-/// committed after the cursor. A reducer-version mismatch discards the
-/// snapshot and re-folds from the journal head. Deltas produced here are
-/// dropped deliberately: their projection commits and change broadcasts
-/// already happened when the events first committed, and the durable
-/// projection restores itself independently.
-fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
-    use crate::journal_reducers::{
-        AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
-    };
-    let (mut host, mut needs_repair) =
-        match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
-            Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
-                match AgentRoster::restore(&snapshot) {
-                    Some(roster) => (AgentRosterHost { roster, cursor }, false),
-                    // The cursor is meaningful only with the snapshot that was
-                    // captured at the same fold boundary. Replaying from zero
-                    // is the safe recovery path for malformed persisted state.
-                    None => (AgentRosterHost::default(), true),
-                }
-            }
-            Some(_) => (AgentRosterHost::default(), true),
-            None => (AgentRosterHost::default(), false),
-        };
-    // A cursor beyond the current journal head cannot describe a retained
-    // snapshot boundary. Treat it like any other rejected checkpoint so a
-    // metadata write or journal repair cannot make startup fail permanently.
-    if host.cursor > 0 {
-        let journal_head = registry.session_journal_head()?;
-        if host.cursor > journal_head {
-            host = AgentRosterHost::default();
-            needs_repair = true;
-        }
-    }
-    let started_at = host.cursor;
-    loop {
-        let page = registry.session_journal_after(host.cursor, 512)?;
-        if page.records.is_empty() {
-            break;
-        }
-        for record in &page.records {
-            host.roster.apply(&RosterEvent::from_record(record));
-            host.cursor = host.cursor.max(record.sequence);
-        }
-    }
-    if needs_repair || host.cursor != started_at {
-        registry.put_journal_reducer_state(
-            AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION,
-            host.cursor,
-            &host.roster.snapshot().to_string(),
-        )?;
-    }
-    Ok(host)
 }
 
 fn agent_provider_identity(ingress: &crate::JournalIngress) -> Option<String> {
@@ -2686,10 +2633,10 @@ pub struct Mux {
     /// Frontend-owned sink for diagnostics emitted by background core work.
     /// `OnceLock` keeps the callback immutable after startup and avoids a
     /// mutex on the reconnect hot path. Startup can adopt a hosted surface
-    /// before the frontend installs the sink, so one diagnostic is retained
-    /// in a per-mux slot until the first reporter arrives.
+    /// before the frontend installs the sink, so the first diagnostics are
+    /// retained per mux until the first reporter arrives.
     diagnostic_reporter: OnceLock<DiagnosticReporter>,
-    pending_diagnostic: Mutex<Option<String>>,
+    pending_diagnostics: Mutex<Vec<String>>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -3001,7 +2948,10 @@ impl Mux {
             notification_ledger,
             notification_reads,
         } = restore_public_projections(&state, registry.public_projections()?)?;
-        let agent_roster = restore_agent_roster(&registry)?;
+        let agent_roster_restore::RestoredAgentRoster {
+            host: agent_roster,
+            diagnostic: agent_roster_diagnostic,
+        } = agent_roster_restore::restore_agent_roster(&registry)?;
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
@@ -3143,7 +3093,7 @@ impl Mux {
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
             diagnostic_reporter: OnceLock::new(),
-            pending_diagnostic: Mutex::new(None),
+            pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -3226,6 +3176,9 @@ impl Mux {
         // after restored surfaces exist, and repeat at the end of asynchronous
         // terminal adoption for hosts that were not available yet.
         mux.reconcile_agent_roster_projections();
+        if let Some(diagnostic) = agent_roster_diagnostic {
+            mux.report_internal_diagnostic(diagnostic);
+        }
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
             if Instant::now() >= recovery_deadline {
@@ -6393,6 +6346,11 @@ impl Mux {
         self.workspace_registry.lock().unwrap().resource_events_after(revision)
     }
 
+    /// The journal head without decoding any record or sealed segment.
+    pub(crate) fn session_journal_head(&self) -> anyhow::Result<u64> {
+        self.workspace_registry.lock().unwrap().session_journal_head()
+    }
+
     pub(crate) fn session_journal_after(
         &self,
         sequence: u64,
@@ -7076,8 +7034,9 @@ impl Mux {
     }
 
     /// Sends a diagnostic to the frontend-owned sink without writing to a
-    /// frontend terminal. One message is retained when startup races sink
-    /// installation.
+    /// frontend terminal. The first messages are retained when startup races
+    /// sink installation, so a later startup message cannot replace an
+    /// earlier one (the agent roster restore reports before hook retries).
     pub(crate) fn report_internal_diagnostic(&self, message: impl Into<String>) {
         let message = message.into();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
@@ -7089,12 +7048,12 @@ impl Mux {
         // frontend has a chance to install its reporter. Recheck under the
         // pending slot lock so a concurrent setter cannot leave this message
         // stranded between the initial lookup and the store.
-        let mut pending = self.pending_diagnostic.lock().unwrap();
+        let mut pending = self.pending_diagnostics.lock().unwrap();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             drop(pending);
             reporter(&message);
-        } else {
-            *pending = Some(message);
+        } else if pending.len() < MAX_PENDING_DIAGNOSTICS {
+            pending.push(message);
         }
     }
 
@@ -7128,8 +7087,8 @@ impl Mux {
         if self.diagnostic_reporter.set(reporter).is_err() {
             return false;
         }
-        let pending = self.pending_diagnostic.lock().unwrap().take();
-        if let Some(message) = pending {
+        let pending = std::mem::take(&mut *self.pending_diagnostics.lock().unwrap());
+        for message in pending {
             pending_reporter(&message);
         }
         true
@@ -19899,6 +19858,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    mod agent_roster_restore;
     mod column_update;
     mod dock_columns;
     mod kitty_reservation;

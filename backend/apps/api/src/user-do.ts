@@ -202,7 +202,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   private async deliverKrlNotices(now: number): Promise<void> {
-    await deliverKrlNotices(this.env, this.existing()?.currentState, this.krlRetry, now, (install, at) => this.submitSystem("install.ssh_revoke_done", { install }, `ssh-revoke-done:${install}:${at}`))
+    await deliverKrlNotices(this.env, this.existing()?.currentState, this.krlRetry, now, (install, at, teams) => this.submitSystem("install.ssh_revoke_done", { install, teams }, `ssh-revoke-done:${install}:${at}:${[...teams].sort().join(",")}`))
   }
 
   protected override onPrune(): void {
@@ -374,14 +374,13 @@ export class UserDO extends OwnerDO<UserState> {
       if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
       return
     }
-    if (op !== "install.revoke" && op !== "install.revoke_by_team") return
-    const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
-    if (!revoked) return
-    this.closeSockets((p) => p.install === revoked, "install revoked")
-    // Every other owner with a socket of this install closes it now; failures retry from the alarm.
-    if (markInstallClosing(this.ctx.storage.sql, revoked, Date.now()) > 0) {
-      this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
-    }
+    if (op !== "install.revoke" && op !== "install.revoke_by_team" && op !== "user.team_left") return
+    const v = result && result.t === "result" ? (result.value as { id?: string; revoked?: Array<string>; sso_dropped?: Array<string> }) : undefined
+    // One install, or every install bound to a team the user left (cx-44j.47), and the ones that lost its SSO: their sockets
+    // carry the old principal, so they close and reconnect through the gate. Other owners' sockets close too; failures retry.
+    let marked = 0
+    for (const revoked of [...(v?.revoked ?? (v?.id ? [v.id] : [])), ...(v?.sso_dropped ?? [])]) [this.closeSockets((p) => p.install === revoked, "install revoked"), (marked += markInstallClosing(this.ctx.storage.sql, revoked, Date.now()))]
+    if (marked > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
   }
 
   /**
@@ -445,7 +444,7 @@ export class UserDO extends OwnerDO<UserState> {
 
   async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
-  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string } | { ok: false }> {
+  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false }
     const state = engine.currentState
@@ -454,7 +453,7 @@ export class UserDO extends OwnerDO<UserState> {
     if (!inst || inst.revoked_at !== null || inst.grant !== grant || !g || g.revoked_at !== null || (g.expires_at !== null && g.expires_at <= Date.now())) return { ok: false }
     const op_classes = agent === undefined ? g.op_classes : await placedChiefClasses(state, inst, install, agent, g.op_classes, (team, host) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).serverPlacementActive(team, host, install), () => engine.currentState)
     if (!op_classes) return { ok: false } // unknown or archived chief, or a placed server TeamDO no longer confirms (G8, revoke race)
-    return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}) }
+    return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
   }
 
   async challenge(entity: string, install: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
