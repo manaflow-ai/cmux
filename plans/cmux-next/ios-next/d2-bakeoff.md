@@ -13,8 +13,9 @@ current DEV path policy only. F2 now has a real direct split service and client 
 `cmux-link-bench serve` command prints a pinned `cmux-link-bench-serve/1` descriptor, and
 `BenchSplitClient` runs the shared connect/echo/flood/bulk workloads over `LinkSession` from iOS or
 another client process. The CLI `client` command writes the normal `cmux-link-bench/1` report plus a
-`cmux-link-bench-manifest/1` entry. V1/V2 signaling adapters and the iOS DEV Link bench screen are
-still open; no `bakeoff/device/` result set is claimed until those app integrations land. The
+`cmux-link-bench-manifest/1` entry. The iOS DEV Link bench screen is implemented and provenance-safe;
+only the V1/V2 signaling adapters remain open, so no `bakeoff/device/` result set is claimed until
+those app integrations land. The
 device pass bars in section 6 therefore remain release gates. V3's loopback `roam` row is also
 synthetic: the direct carrier has no TURN alternate, so forcing `.turn` after a direct TCP drop does
 not model a reachable path. Treat that row as unsupported until the rig has two real direct
@@ -270,14 +271,15 @@ F8 still needs WAN/device evidence before the default path policy is promoted be
 
 ## 6. Re-measure on device
 
-Needs F2 (split mode) for the bench workloads; the app-level numbers need D1/D3 builds with B5 serving
-V1, V2 and V3 on the Mac.
+F2 direct split mode is implemented, including the Mac service, client library and iOS DEV Link bench
+screen. The app-level numbers still need a tagged D1/D3 pair with B5 serving V1, V2 and V3 on the Mac;
+V1/V2 signaling adapters and Mac provenance stamping are the remaining implementation gates.
 
 1. Build one tagged pair from this branch merged into D1: `./scripts/reload-cloud.sh --tag nxd2 --launch`
    then `./ios/scripts/reload-cloud.sh --tag nxd2 --device-id <iphone> --wait` (same account, trusted
    pairing, `auth status` verified, per the hq CLAUDE.md dogfood rules).
-2. On the Mac run `cmux-link-bench serve --rig all` (F2) next to the tagged app; on the phone open
-   DEV > Link bench, pick the Mac, carrier V1, V2 or V3, and run all workloads; results upload as the
+2. On the Mac run `cmux-link-bench serve --rig direct` (or omit `--rig`) next to the tagged app; on the
+   phone open DEV > Link bench, pick the Mac, carrier V1, V2 or V3, and run all workloads; results upload as the
    same JSON schema to `plans/cmux-next/ios-next/bakeoff/device/<date>-<network>-<carrier>.json`.
 3. Networks, each with all three carriers where reachable: same Wi-Fi (V1 p2p host pair, V3 LAN);
    phone on cellular, Mac at home (V1 p2p srflx or TURN); DEV "Force TURN" (`iceTransportPolicy
@@ -324,9 +326,9 @@ and needs no pfctl; on the iPhone it is Settings > Developer > Network Link Cond
   `LargeFrameTests` (64 B echo p99 under 16 MiB of 256 KiB frames: 4 to 11 s before, 1 to 80 ms
   typical after; rare outliers to 1.2 s at load 35, bound 2 s). Still open: confirm on device, tune
   the window for WAN RTTs (256 KiB caps one association at 40 Mbit/s at 50 ms), SCTP stats in `rtt`.
-- F2 (D2/D3): bench split mode: `cmux-link-bench serve` hosting the acceptors and an echo/source
-  service over B5's signaling, plus an iOS DEV "Link bench" screen running the same workloads, so the
-  same JSON comes from device runs.
+- F2 (D2/D3): direct bench split mode and the iOS DEV "Link bench" screen are implemented. The
+  remaining work is B5's V1/V2 signaling integration and device manifests so the same JSON comes from
+  real carrier runs.
 - F3 (B2): steady-state `getStats` RTT sampling is wired into the bounded path event inbox
   (`a22b7f7327`), and reliable sends suspended on a full channel now have ID-keyed cancellation,
   pre-cancel registration guards and a post-wake cancellation check. Focused room-waiter tests are

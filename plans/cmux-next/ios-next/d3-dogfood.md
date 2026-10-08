@@ -1,17 +1,15 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
 Status: parity refresh on `feat-cmux-next-ios` implementation baseline
-`8189a7fad29`, including the C9 pane-composition seam, direct and WebRTC cancellation tests, the
+`0d3abbed092507e96cb337eb328854717f84aa0c`, including the C9 pane-composition seam, direct and WebRTC cancellation tests, the
 split link benchmark harness, cancellation-safe teardown, and provenance-safe report artifacts.
 Plan: [PLAN.md](PLAN.md) D3.
-The exact-head fleet archive job `a439f2f1083073248164673e` produced tag
-`nxios-cff-c9-d2-v1` with artifact digest
-`sha256:ad26dc3b97ae13418b2038028cabf9783710c57456c48d1ec6abf6eaf22fd7a7`. This is device-archive
-and simulator-compile evidence only: no install, simulator run, real-phone run, or tagged Mac/iOS
-runtime pair is recorded. Focused hosted checks at this head passed: DirectWriter cancellation
-(`08cb4b4404254ee8982135f1`), WebRTC room-waiter cancellation (`b8eea654f3041653d09df898`, 3 tests),
-and CmuxLinkBench (`1f1ccda7d15a2458512e588e`, 4 tests). These tests do not substitute for runtime
-evidence. The older archive at `dd344fa661ac766511d5da0f02f70dfa7e10a42a` remains historical only.
+The exact-head fleet archive job `b5a0506b68222d56cbb8481c` produced tag `nxios-0d3` with artifact
+digest `sha256:ce5afff5ab742f9a94f4dc71655f0f64a383ce55579de45592ff2c6fceb54999` at the current
+head. It proves device-archive and simulator compilation only: no install, simulator run, real-phone
+run, or tagged Mac/iOS runtime pair is recorded. The current focused hosted CmuxLinkBench job
+`993065dcad475643bc24aedf` passed all 8 tests at this SHA. Earlier checks remain ancestor evidence
+only and do not substitute for runtime evidence.
 
 The first-pass matrix was recorded at `afbc8c69b3b` and is retained in
 [research-and-scope-2026-10.md](research-and-scope-2026-10.md) as historical context. This refresh
@@ -232,10 +230,10 @@ comes from. Steps run on the tagged pair `nxd3` (section 6).
 
 ### 2.7 Measurements (D2)
 
-33. The D2 device re-measure plan (d2-bakeoff.md 6): needs F2 split mode (`cmux-link-bench serve` and
-    the iOS DEV Link bench screen), which is not built. Until then, record C1 `TerminalLatencyReport`
-    (echo p50/p95, frame age) idle and under `yes | head -c 500M`, and a 10 min Power Profiler trace
-    per carrier (section 6.5).
+33. The D2 device re-measure plan (d2-bakeoff.md 6): F2 direct split mode and the iOS DEV Link bench
+    screen are implemented. The remaining implementation dependency is B5 V1/V2 signaling adapters;
+    after those land, record C1 `TerminalLatencyReport` (echo p50/p95, frame age) idle and under
+    `yes | head -c 500M`, and a 10 min Power Profiler trace per carrier (section 6.5).
 
 ## 3. UI tests
 
@@ -372,24 +370,27 @@ below; compile/archive and focused test results remain separate from runtime evi
 | CmuxMobileFiles | 12 | pass |
 | CmuxTerminalLink | 33 | pass |
 | CmuxLinkWebRTC | 37 | pass (includes `LargeFrameTests`) |
-| CmuxLinkBench | 2 | pass |
+| CmuxLinkBench | 2 (historical; 8 in current focused run) | pass |
 | CmuxMobileConnect | 8 | pass |
 | **Total** | **460** | **16/16 packages, 0 failures** |
 
 Not run here: the `ios/CmuxiOS` test targets (iOS-only package; lanes ran them on macOS through
 scratch packages), native CmuxMobileTunnel tests (the local CLT lacks TestingMacros), and Rust
 (no cargo on this Mac). The current exact-head backend slice has 37 focused Vitest tests and a clean
-TypeScript typecheck. Focused hosted checks at `cff9e2e9cff22df187c664b542c8047deba34d8b` passed:
+TypeScript typecheck. Focused hosted checks at ancestor `cff9e2e9cff22df187c664b542c8047deba34d8b` passed:
 DirectWriter cancellation job `08cb4b4404254ee8982135f1`, WebRTC room-waiter cancellation job
 `b8eea654f3041653d09df898` (3 tests), and CmuxLinkBench job `1f1ccda7d15a2458512e588e` (4 tests).
+The current head's CmuxLinkBench job `993065dcad475643bc24aedf` passed 8 tests.
 
 Current-head static evidence includes Swift syntax parsing, scoped iOS package-convention lint,
 `git diff --check`, `check-concurrency.sh`, and `check-crash-safety.sh`. Archive job
-`a439f2f1083073248164673e` compiled the device and simulator targets at the exact head and produced
-tag `nxios-cff-c9-d2-v1` with digest
-`sha256:ad26dc3b97ae13418b2038028cabf9783710c57456c48d1ec6abf6eaf22fd7a7`; this is compile/archive
+`b5a0506b68222d56cbb8481c` compiled the device and simulator targets at the exact head and produced
+tag `nxios-0d3` with digest
+`sha256:ce5afff5ab742f9a94f4dc71655f0f64a383ce55579de45592ff2c6fceb54999`; this is compile/archive
 evidence only. Native Swift/UI tests, install, tagged-pair behavior, and live network/device journeys
-remain unverified; do not read the historical 460-test total or the archive as runtime evidence.
+remain unverified; do not read the historical 460-test total or the archive as runtime evidence. The
+exact-head receipt gate also requires matching SHA/tag metadata in the installed iOS bundle and Mac
+`Info.plist`; missing Mac provenance stamping fails closed.
 
 ## 6. Runbook: tagged pair `nxd3`
 
@@ -495,7 +496,8 @@ the protocol vitest run on every pull request that touches them (`.github/workfl
 
 ### 6.5 D2 device re-measure
 
-Follow d2-bakeoff.md section 6 on the `nxd3` pair once F2 exists; until then:
+Follow d2-bakeoff.md section 6 on the `nxd3` pair once B5 V1/V2 adapters and Mac provenance stamping
+exist; F2 direct split mode and the DEV Link bench screen are already landed. Until then:
 
 ```bash
 # Power and memory, 10 min per carrier, phone on battery, screen on:

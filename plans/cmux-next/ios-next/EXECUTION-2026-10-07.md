@@ -27,7 +27,7 @@ silently queue.
 ## Current evidence and selected work
 
 The refreshed D3 matrix at the current implementation baseline
-`8189a7fad29` reports 86 of 98 parity rows done, with one
+`0d3abbed092507e96cb337eb328854717f84aa0c` reports 86 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), three seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
@@ -43,8 +43,8 @@ The remaining work separates independent implementation from shared runtime depe
 
 | Workstream | Depends on | First deliverable | Verification gate |
 | --- | --- | --- | --- |
-| Hosted verification and D3 | current committed iOS/Mac tree; shared dev backend capacity | exact-head archives, native package/UI tests, same-tag pair | terminal, feed, onboarding, media and composer runtime evidence |
-| D2 carrier measurement | B2/B3/B4; implemented F7 scheduling and F8 render credit | F2 split Mac/iOS benchmark harness; finish F3 blocked-send cancellation | real latency/throughput/roam results with manifests; power results require an authorized device run |
+| Hosted verification and D3 | current committed iOS/Mac tree; shared dev backend capacity; Mac provenance stamping | exact-head archives, native package/UI tests, same-tag pair, receipt gate | terminal, feed, onboarding, media and composer runtime evidence |
+| D2 carrier measurement | B2/B3/B4; F2 direct split path and screen; implemented F3/F7/F8 seams | B5 V1/V2 signaling adapters, then tagged device manifests | real latency/throughput/roam results with manifests; power results require an authorized device run |
 | C8 task attachments | landed C4 picker/uploader and C8 shell integration | native tests and PhotosUI/camera/document upload, cancellation and dispatch verification | tagged pair; no further picker seam is missing |
 | C12 VM host | A0/A3 vectors, C12 connect-info and one-shot token contract | Rust link session and services, VM underlay, HostDO admission and token verifier | end-to-end VM terminal/files attach before enabling `cloudWorkspaces` |
 | C9 SSH workspace parity | landed discovery, single-pane hydration, layout metadata, partial pane composition and lifecycle wire contract | complete multi-pane renderer/parser-state parity; owner-backed lifecycle adapter | hosted tests and live SSH verification |
@@ -153,6 +153,13 @@ targets. Job `f900b76613afdfd5d143380b` (`nxios-5c1-ssh-v1`) finished on `cmuxs-
 artifact digest `sha256:2616159e4636285cdade07d8f19ecadb3518230f6d4d4d9447cd4c927c2fc756`. Its device archive
 took 175.64 seconds and its simulator build took 42.16 seconds. This is compile/archive evidence only;
 it does not claim package tests, installation, or runtime behavior.
+The current exact-head archive job `b5a0506b68222d56cbb8481c`, tag `nxios-0d3`,
+compiled both the iOS device archive and simulator at
+`0d3abbed092507e96cb337eb328854717f84aa0c`; its artifact digest is
+`sha256:ce5afff5ab742f9a94f4dc71655f0f64a383ce55579de45592ff2c6fceb54999`.
+This is compile/archive evidence only. The receipt validator additionally requires
+the installed iOS bundle and tagged Mac `Info.plist` to carry the same source SHA and
+tag, so Mac provenance stamping remains a prerequisite to a passing paired receipt.
 The older exact fleet archives also prove the iOS device and simulator targets compile:
 the latest job `22d44de4793805270a52cbff`, tag `nxd3-dd344-ios-v4`, exact head
 `dd344fa661ac766511d5da0f02f70dfa7e10a42a`, artifact digest
@@ -165,10 +172,12 @@ C8/C12/C16 slices add static and focused contract evidence; the backend slice ha
 tests and a clean TypeScript typecheck. The next gate is tagged Mac/iOS pairing and D3 runtime
 evidence; no simulator, real-phone, or live SSH/browser result is claimed.
 
-Focused hosted checks at this exact head also passed: DirectWriter cancellation job
+Focused hosted checks on ancestor commits also passed: DirectWriter cancellation job
 `08cb4b4404254ee8982135f1`, WebRTC room-waiter cancellation job
-`b8eea654f3041653d09df898` (3 tests), and CmuxLinkBench job
-`1f1ccda7d15a2458512e588e` (4 tests). These jobs provide deterministic application/test evidence;
+`b8eea654f3041653d09df898` (3 tests), and the earlier CmuxLinkBench job
+`1f1ccda7d15a2458512e588e` (4 tests). At the current head, CmuxLinkBench job
+`993065dcad475643bc24aedf` ran 8 tests and passed at
+`0d3abbed092507e96cb337eb328854717f84aa0c`. These jobs provide deterministic application/test evidence;
 they do not substitute for a tagged pair, device install, WAN run, or live SSH/browser verification.
 
 ### D2 carrier audit
@@ -176,8 +185,9 @@ they do not substitute for a tagged pair, device install, WAN run, or live SSH/b
 The local bakeoff records a DEV-only loopback decision. F2's first split slice now has a real direct
 `cmux-link-bench serve`/`client` path and the shared `BenchSplitClient` library: it exchanges a
 pinned descriptor, runs the shared connect/echo/flood/bulk workloads through `LinkSession`, and
-writes the regular report plus a checked manifest. The iOS DEV Link bench screen and B5 signaling
-adapters for V1/V2 remain open, so no device JSON has been captured. The V3 direct roam measurement
+writes the regular report plus a checked manifest. The iOS DEV Link bench screen is implemented and
+provenance-safe; only the B5 signaling adapters for V1/V2 remain open, so no device JSON has been
+captured. The V3 direct roam measurement
 is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path that the direct
 carrier cannot actually provide; it must be omitted or replaced with an alternate direct endpoint
 before it is compared with V1/V2 roaming. F8 is implemented in the session layer. F3 blocked-send
