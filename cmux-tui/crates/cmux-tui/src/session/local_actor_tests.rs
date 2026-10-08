@@ -43,7 +43,7 @@ fn local_workspace_ops_record_the_local_user() {
     let mux = Mux::open_persistent("tui-actor", SurfaceOptions::default(), root.path()).unwrap();
     let first = mux.create_empty_workspace(Some("one".into()), None, None).unwrap().workspace;
     mux.create_empty_workspace(Some("two".into()), None, None).unwrap();
-    let session = Session::Local(mux.clone());
+    let session = Session::Local(mux);
     session.rename_workspace(first, "renamed".into()).unwrap();
     session.move_workspace(first, 2).unwrap();
     session.close_workspace(first).unwrap();

@@ -5,9 +5,10 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cmux_tui_core::{Actor, Mux, PaneId, RunPlacement, Surface, SurfaceId};
+use cmux_tui_core::{Actor, Mux, PaneId, RunPlacement, Surface, SurfaceId, WorkspaceId};
 
 pub trait DaemonMuxOps {
+    fn close_workspace(&self, target: WorkspaceId) -> bool;
     #[allow(clippy::too_many_arguments)]
     fn run_command_surface(
         &self,
@@ -39,6 +40,10 @@ pub trait DaemonMuxOps {
 }
 
 impl DaemonMuxOps for Arc<Mux> {
+    fn close_workspace(&self, target: WorkspaceId) -> bool {
+        self.close_workspace_as(&Actor::Daemon, target)
+    }
+
     fn run_command_surface(
         &self,
         argv: Vec<String>,
