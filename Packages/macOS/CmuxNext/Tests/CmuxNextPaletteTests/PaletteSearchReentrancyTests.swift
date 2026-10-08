@@ -6,7 +6,8 @@ import Testing
 /// state-audit P2: a palette search installs its page's index and ranks the
 /// query in one searcher turn. Another caller of the shared searcher (a
 /// `palette.query` for another scope, a superseded search) used to install
-/// its own index between the two calls, so the search ranked the wrong page.
+/// its own index between the two calls, so the search ranked the wrong page. The searcher's
+/// between-calls hook runs that other caller deterministically.
 @MainActor
 @Suite struct PaletteSearchReentrancyTests {
     func item(_ id: String, _ title: String) -> PaletteItem {
@@ -18,12 +19,11 @@ import Testing
         model.reset(to: PalettePageSpec(id: "root", title: "Commands", placeholder: "Search", providers: [
             StaticPaletteProvider(id: "static", items: [item("alpha", "Alpha Lamp"), item("beta", "Beta Desk")]),
         ]))
+        // Another caller of the shared searcher (palette.query for another scope) gets the actor
+        // the moment the model's first searcher call returns, and installs its own index.
+        let other = PaletteSearchIndex(items: (0..<8).map { item("other.\($0)", "Zebra \($0)") })
+        await model.searcher.setBetweenCalls { searcher in searcher.install(other, version: 1_000_000) }
         model.query = "alpha"
-        // The search starts and goes to the searcher.
-        await Task.yield()
-        // Another page's index lands on the shared searcher meanwhile.
-        let other = (0..<8).map { item("other.\($0)", "Zebra \($0)") }
-        await model.searcher.install(PaletteSearchIndex(items: other), version: 1_000_000)
         await model.settle()
         #expect(model.rows.map(\.id) == ["alpha"])
     }
