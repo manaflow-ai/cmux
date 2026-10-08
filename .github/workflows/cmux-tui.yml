@@ -724,15 +724,15 @@ jobs:
   # The chatmux-relay crate's tests on macOS. 9f4acf5b2787 (#17051) dropped
   # the `test (macos)` matrix entry, which was their only macOS run. The
   # relay builds no Ghostty or Zig code, so this job needs only Rust.
-  # Attempt 1 takes the owned side lane through CI_SIDE_LANE_RUNNER, like the
-  # macos job (workflow text never names an owned pool label; see
-  # tests/test_ci_self_hosted_guard.sh); a rerun goes back to the background
-  # lane.
+  # Attempt 1 takes the owned AWS minis through CI_AWS_SIDE_RUNNER
+  # (CI_SIDE_LANE_RUNNER when it is empty); workflow text never names an owned
+  # pool label (tests/test_ci_self_hosted_guard.sh). A rerun goes back to the
+  # background lane.
   macos-relay:
     name: chatmux-relay tests (macOS)
     needs: validate-inputs
     if: inputs.mode == 'full' || inputs.test_filter == 'chatmux_relay' || inputs.test_filter == 'chatmux-relay'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1031,6 +1031,61 @@ jobs:
           cargo test -p cmux-tui-core --lib --locked \
             --target x86_64-pc-windows-gnu \
             platform::tests:: -- --test-threads=1
+          # Windows process data: reads only processes in this daemon's
+          # terminal jobs (plans/cmux-next/windows-daemon.md, section 2).
+          cargo test -p cmux-tui-core --lib --locked \
+            --target x86_64-pc-windows-gnu \
+            windows_processes:: -- --test-threads=1
+          # The SDK's local_socket transport (shared with the daemon) and the
+          # clients over it (plans/cmux-next/windows-daemon.md): same-user,
+          # owner-only directory and sandbox refusals; mock-daemon tests.
+          cargo test --locked --target x86_64-pc-windows-gnu \
+            -p cmux-sdk -p cmux-daemon-client
+
+      # A peer of another user is refused by cmux::local_socket's accept.
+      # The peer runs as LocalService (another SID, no new account) through
+      # a scheduled task on this throwaway runner; the next step deletes the
+      # task whatever happens.
+      - name: Refuse a local-socket peer of another user (LocalService)
+        working-directory: cmux-tui
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = 'C:\cls-peer'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          icacls $dir /grant '*S-1-1-0:(OI)(CI)F' | Out-Null
+          $exe = cargo test --locked --target x86_64-pc-windows-gnu -p cmux-sdk `
+              --test local_socket_windows --no-run --message-format=json |
+            ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.reason -eq 'compiler-artifact' -and $_.executable -and $_.target.name -eq 'local_socket_windows' } |
+            Select-Object -Last 1 -ExpandProperty executable
+          if (-not $exe) { throw 'no local_socket_windows test executable' }
+          Copy-Item $exe "$dir\peer.exe"
+          $parent = Start-Process -PassThru -NoNewWindow -FilePath $exe `
+            -ArgumentList '--ignored','--exact','other_user_peer_is_refused','--nocapture','--test-threads','1' `
+            -RedirectStandardOutput "$dir\parent.out" -RedirectStandardError "$dir\parent.err"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Test-Path "$dir\ready")) {
+            if ((Get-Date) -gt $deadline) { throw 'the listener never got ready' }
+            Start-Sleep -Milliseconds 200
+          }
+          $action = New-ScheduledTaskAction -Execute "$dir\peer.exe" -Argument '--ignored --exact other_user_child --test-threads 1'
+          $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\LOCAL SERVICE' -LogonType ServiceAccount
+          Register-ScheduledTask -TaskName 'cmux-local-socket-peer' -Action $action -Principal $principal | Out-Null
+          Start-ScheduledTask -TaskName 'cmux-local-socket-peer'
+          if (-not $parent.WaitForExit(120000)) { $parent.Kill(); throw 'the listener test timed out' }
+          Get-Content "$dir\parent.out", "$dir\parent.err" -ErrorAction SilentlyContinue
+          $peer = Get-Content "$dir\child-user" -ErrorAction SilentlyContinue
+          "peer user: $peer"
+          if ($peer -ne 'S-1-5-19') { throw "the peer did not run as LocalService ($peer)" }
+          if ($parent.ExitCode -ne 0) { throw "other_user_peer_is_refused failed ($($parent.ExitCode))" }
+
+      - name: Delete the LocalService peer task
+        if: always()
+        shell: pwsh
+        run: |
+          Unregister-ScheduledTask -TaskName 'cmux-local-socket-peer' -Confirm:$false -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force 'C:\cls-peer' -ErrorAction SilentlyContinue
 
   cdp-browser-smoke:
     name: CDP browser smoke (${{ matrix.os }})

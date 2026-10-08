@@ -135,13 +135,15 @@ final class AppOnboardingServices: OnboardingServices {
         if plan.items.contains(where: { $0.kinds.contains(.passwords) }), await cef.canImportPasswords() {
             passwords = PasswordImporter(keys: keys, destination: AppPasswordDestination(available: true) { rows, profile in
                 try await cef.importPasswords(rows, into: profile)
-            })
+            }, primaryPassword: { profile in await FirefoxPrimaryPassword.prompt(profile) })
         }
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies, passwords: passwords)
-        return try await importer.run(plan, into: destination) { step in
+        let summary = try await importer.run(plan, into: destination) { step in
             Task { @MainActor in progress(step) }
         }
+        owner.cookiePrompt.importFinished(summary)
+        return summary
     }
 
     func canImportPasswords() async -> Bool {
@@ -187,6 +189,11 @@ final class AppOnboardingServices: OnboardingServices {
             return resolvedComputerUseSource
         }
         #endif
+        if ComputerUseHelperDaemon.shared.state == .unavailable {
+            // Computer Use is on, but no Developer ID signed helper is
+            // installed: the step shows, and Allow says it is unavailable.
+            return AppComputerUsePermissionSource(configuration: owner.computerUseConfiguration)
+        }
         resolvedComputerUseSource = AppComputerUsePermissionSource.local(owner.computerUseConfiguration)
         return resolvedComputerUseSource
     }
@@ -216,7 +223,11 @@ final class AppOnboardingServices: OnboardingServices {
         owner.didEnd(completed: completed)
     }
 
-    func onboardingDidReach(_ step: OnboardingModel.Step) {
-        owner.recordProgress(step)
+    func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool) {
+        owner.recordProgress(step, interacted: interacted)
+    }
+
+    func onboardingDidLeave(notNow: Bool) {
+        if notNow { owner.recordNotNow() }
     }
 }

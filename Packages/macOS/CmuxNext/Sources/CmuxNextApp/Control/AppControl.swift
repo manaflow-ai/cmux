@@ -241,6 +241,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
             },
+            .mainActor("debug.omnibar_type") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugOmnibar.type(call.params, services: services))
+            },
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
@@ -305,6 +309,10 @@ final class AppControl {
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },
+            // The cookie import card on browser pages (cx-367y).
+            .mainActor("debug.cookie_prompt") { [weak services] call in
+                .value(services.map { DebugCookiePrompt.run(call.params, services: $0) } ?? .null)
+            },
             .mainActor("debug.onboarding") { [weak services] call in
                 .value(services.map { DebugOnboarding.run(call.params, services: $0) } ?? .null)
             },
@@ -341,6 +349,7 @@ final class AppControl {
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },
             .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
+            .mainActor("debug.crash.exception") { _ in .value(DebugCrashes.raiseException()) },
             // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
             // macOS (no sudo needed), `enabled: null` follows macOS again.
             .mainActor("debug.low_power_mode") { call in
@@ -348,6 +357,14 @@ final class AppControl {
                 if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
                 return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
                                "system": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)])
+            },
+            // Reduce Transparency as overlays follow it (toasts, menus): `enabled: bool`
+            // overrides macOS for this app only, `enabled: null` follows macOS again.
+            .mainActor("debug.reduce_transparency") { call in
+                let mode = ReduceTransparency.shared
+                if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
+                return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
+                               "system": .bool(NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)])
             },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)

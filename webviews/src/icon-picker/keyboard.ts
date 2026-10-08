@@ -1,6 +1,7 @@
 // Picker keys, as data. Focus stays in the search field; these keys drive the grid. Ctrl-N/J
 // move down and Ctrl-P/K move up (the palette's list keys); arrows move in the grid; Return picks;
-// Escape cancels; Ctrl-Tab and Ctrl-Shift-Tab change the tab. Cmd chords are never read here
+// Escape cancels; Ctrl-Tab and Ctrl-Shift-Tab change the tab; Alt-Down and Alt-Up jump between
+// sections. Cmd chords are never read here
 // (the app's key dispatcher owns them, react-pages.md 1.2).
 import type { GridMove } from "./gridModel";
 
@@ -8,7 +9,8 @@ export type PickerKeyAction =
   | { readonly kind: "move"; readonly move: GridMove }
   | { readonly kind: "pick" }
   | { readonly kind: "cancel" }
-  | { readonly kind: "tab"; readonly step: 1 | -1 };
+  | { readonly kind: "tab"; readonly step: 1 | -1 }
+  | { readonly kind: "section"; readonly step: 1 | -1 };
 
 export interface KeyLike {
   readonly key: string;
@@ -37,6 +39,10 @@ export function pickerKeyAction(event: KeyLike): PickerKeyAction | null {
     if (event.key === "Tab") return { kind: "tab", step: event.shiftKey ? -1 : 1 };
     const move = CTRL_MOVES[event.key.toLowerCase()];
     return move && !event.shiftKey ? { kind: "move", move } : null;
+  }
+  // Alt-Down and Alt-Up jump to the next or previous section (the category bar's keys).
+  if (event.altKey && !event.ctrlKey && !event.shiftKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    return { kind: "section", step: event.key === "ArrowDown" ? 1 : -1 };
   }
   if (event.altKey || event.ctrlKey) return null;
   if (event.key === "Enter") return { kind: "pick" };

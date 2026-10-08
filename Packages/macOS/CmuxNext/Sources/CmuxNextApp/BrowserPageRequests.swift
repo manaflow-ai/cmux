@@ -37,6 +37,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private var closedBeforeAdoption: [WeakPage] = []
     /// Daemon tabs to close when they appear: their page closed first.
     private var closeOnArrival: Set<SurfaceID> = []
+    /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
+    let proxiedTabs = ProxiedBrowserTabs()
 
     /// Site settings of `site`, a site whose automatic-downloads setting
     /// blocked a download in tab `tab` (its profile's store). One path for
@@ -106,7 +108,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
                                                          entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
             let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
-                                                     services: services) + host.items
+                                                     services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
             services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
         case .notice(let text):
@@ -225,8 +227,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
                       opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
         if let controller = services.paneController(for: pane) {
-            return controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
-                                            opener: opener)
+            controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
+                                     opener: opener)
+            return
         }
         // The opener's pane is not on screen (its page is kept alive).
         let browserTabs = services.cache.browserTabs!

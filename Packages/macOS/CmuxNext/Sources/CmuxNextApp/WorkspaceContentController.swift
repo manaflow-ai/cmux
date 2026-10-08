@@ -220,6 +220,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             let settings = services.settingsWindow
             Task { settings.windowDidShowContent() }
         }
+        // So does the App Store (S22: never a window of its own).
+        if panes.count == 1, services.apps.isStoreWaiting {
+            let apps = services.apps
+            Task { apps.windowDidShowContent() }
+        }
         return controller.view
     }
 

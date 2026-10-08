@@ -64,8 +64,10 @@ struct MiscActionBindingCoverageTests {
 
     @Test func splitBrowserNeedsFrontendBrowserTabs() {
         let services = ActionBindingCoverageTests.boundServices()
-        #expect(ActionBindingCoverageTests.run(services, "splitBrowserRight") == .refused("needs daemon capability frontend-browser-tabs-v1"))
-        #expect(ActionBindingCoverageTests.run(services, "markAllNotificationsRead") == .refused("needs daemon capability notification-ack-v1"))
+        for id in ["splitBrowserRight", "markAllNotificationsRead"] {
+            let outcome = ActionBindingCoverageTests.run(services, id)
+            #expect(CapabilityRefusalTests.refusedByGate(outcome), "\(id): \(outcome)")
+        }
     }
 
     @Test func cloudExecRequiresAndTrimsItsCommand() throws {

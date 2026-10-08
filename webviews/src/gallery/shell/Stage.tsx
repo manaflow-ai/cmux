@@ -114,6 +114,7 @@ export function Stage({
   entry,
   state,
   env,
+  tune,
   label,
   available,
   thumbnail,
@@ -121,11 +122,13 @@ export function Stage({
   entry: GalleryEntry;
   state: string;
   env: GalleryEnv;
+  /** The edited tunables (router.tsx ShellSearch `tune`). */
+  tune?: string;
   label?: string;
   available: { width: number; height: number };
   thumbnail: boolean;
 }) {
-  const query = frameQuery({ entry: entry.id, variant: state }, env);
+  const query = frameQuery({ entry: entry.id, variant: state, tune }, env);
   // Replay mounts the stage again, so its play steps run from the start.
   const [run, setRun] = useState(0);
   const [report, setReport] = useState<PlayReport | undefined>();

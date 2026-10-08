@@ -802,3 +802,106 @@ fn the_account_is_the_tokens_sub_read_without_verification() {
         assert_eq!(token_account(&unreadable), None, "{unreadable}");
     }
 }
+
+// G9: the chief's MuxDO wake queue (plans/cmux-next/cloud-chief-vm.md).
+
+const CHIEF: &str = "agent_chief01";
+
+/// A chief token: `sub` the owner, `agt` the chief.
+fn chief_jwt(agent: &str) -> String {
+    use base64::Engine;
+    let encode = |value: Value| {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value.to_string().as_bytes())
+    };
+    format!(
+        "{}.{}.signature",
+        encode(json!({"alg": "ES256", "typ": "JWT"})),
+        encode(json!({"sub": ME, "agt": agent, "exp": 1}))
+    )
+}
+
+fn wake_row(conversation: &str, seq: u64) -> Value {
+    json!({"conversation": conversation, "seq": seq, "reason": "mention", "at": 1})
+}
+
+fn mux_snapshot(seq: u64, pending: &[Value]) -> Value {
+    let rows: Vec<Value> = pending
+        .iter()
+        .enumerate()
+        .map(|(n, row)| json!({"key": format!("{}:{}", row["conversation"].as_str().unwrap(), row["seq"]), "n": n + 1, "row": row}))
+        .collect();
+    json!({"t": "snapshot", "stream": format!("mux:{CHIEF}"), "seq": seq,
+           "state": {"agent": CHIEF, "pending": pending.len(), "queues": {}},
+           "rows": {"table": "wake", "rows": rows}})
+}
+
+fn mux_event(seq: u64, op: &str, writes: Value) -> Value {
+    json!({"t": "event", "stream": format!("mux:{CHIEF}"), "seq": seq, "tx": format!("tx{seq}"),
+           "op": op, "params": {}, "actor": {"identity": "system", "kind": "system"}, "at": 1,
+           "effects": {"state": {"agent": CHIEF}, "writes": writes}})
+}
+
+/// The wake stream: a snapshot names the pending wakes (one missed while
+/// down), each `mux.wake` event names its new wake by ids only, an ack event
+/// emits nothing, and no wake carries message text.
+#[test]
+fn the_mux_stream_relays_wakes_by_id_and_resyncs_the_pending_ones() {
+    let mut stream = StreamState::new(Target::Mux(CHIEF.into()));
+    stream.on_connect();
+    let actions = stream.on_text(&welcome());
+    assert_eq!(sent(&actions[0]), json!({"t": "subscribe"}));
+    let actions = stream.on_text(&mux_snapshot(7, &[wake_row(CONV, 3)]).to_string());
+    let [StreamAction::Emit(resynced)] = actions.as_slice() else { panic!("{actions:?}") };
+    assert_eq!(
+        resynced.wire_json(),
+        json!({"event": "cloud-mux-resynced", "seq": 7, "pending": [{"conversation": CONV, "seq": 3, "reason": "mention"}]})
+    );
+    let mut row = wake_row(CONV, 4);
+    row["text"] = json!("secret words");
+    let wake = mux_event(
+        8,
+        "mux.wake",
+        json!([{"table": "wake", "op": "upsert", "key": "k", "n": 2, "row": row}]),
+    );
+    let actions = stream.on_text(&wake.to_string());
+    let [StreamAction::Emit(event)] = actions.as_slice() else { panic!("{actions:?}") };
+    let json = event.wire_json();
+    assert_eq!(json["event"], "cloud-mux-wake");
+    assert_eq!(json["wakes"], json!([{"conversation": CONV, "seq": 4, "reason": "mention"}]));
+    assert!(!json.to_string().contains("secret words"), "a wake never carries text");
+    let ack = mux_event(9, "mux.ack", json!([{"table": "wake", "op": "delete", "key": "k"}]));
+    assert!(stream.on_text(&ack.to_string()).is_empty(), "an ack emits nothing");
+    assert_eq!(stream.last_seq(), Some(9));
+}
+
+/// The queue is the lease's own chief's: its agent comes from the chief
+/// token, the socket opens `/v1/wire/mux/<agt>`, a person's token is refused,
+/// and an ack names the wake row in its idempotency key.
+#[test]
+fn the_mux_queue_and_its_acks_belong_to_the_leased_chief_only() {
+    let backend = Arc::new(FakeBackend::default());
+    let (service, _events, _) = service(&backend);
+    service.set_session(lease_for(&jwt(ME))).unwrap();
+    assert_eq!(
+        service.mux_target().unwrap_err().reason().as_deref(),
+        Some("mux_needs_chief"),
+        "a person's session has no wake queue"
+    );
+    service.set_session(lease_for(&chief_jwt(CHIEF))).unwrap();
+    let target = service.mux_target().unwrap();
+    assert_eq!(target, Target::Mux(CHIEF.into()));
+    let wire = backend.wire();
+    wire.push_text(welcome());
+    service.subscribe(1, target).unwrap();
+    wait_until("the mux socket", || !backend.connected().is_empty());
+    assert_eq!(backend.connected()[0].url, format!("wss://api.cmux.test/v1/wire/mux/{CHIEF}"));
+    backend.reply("/v1/ops", 200, json!({"ok": true, "op": "mux.ack", "value": {"cursor": 4}, "revision": "1", "transaction": "t", "idempotency_key": "k", "replayed": false, "stream": "mux", "sequence": 1}));
+    service.mux_ack(CONV, 4).unwrap();
+    let posted = backend.posted();
+    let body = posted.last().unwrap().body.clone();
+    assert_eq!(body["op"], "mux.ack");
+    assert_eq!(body["params"], json!({"agent": CHIEF, "conversation": CONV, "seq": 4}));
+    assert_eq!(body["idempotency_key"], format!("mux-ack:{CONV}:4"));
+    service.client_closed(1);
+    service.shutdown();
+}

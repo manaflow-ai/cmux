@@ -15,7 +15,14 @@ use crate::daemon::OpError;
 use crate::pacing;
 
 impl Brain {
+    /// Sends what the outbox holds, then acks the wakes nothing waits for
+    /// any more (G9: a woken message is acked after its reply is taken).
     pub(super) fn flush_outbox(&mut self) {
+        self.flush_entries();
+        self.settle_acks();
+    }
+
+    fn flush_entries(&mut self) {
         loop {
             if self.daemon.is_none() {
                 return;

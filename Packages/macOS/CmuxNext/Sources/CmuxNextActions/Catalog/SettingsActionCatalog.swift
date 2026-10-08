@@ -167,6 +167,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu], cliName: "settings onboarding", mainMenu: .app
             ),
             ActionDescriptor(
+                id: "onboarding.continueSetup",
+                title: String(localized: "action.onboarding.continueSetup", defaultValue: "Continue Setup…", bundle: .module),
+                keywords: ["onboarding", "setup", "continue", "resume", "first run", "getting started"],
+                category: .settings, symbol: "arrow.forward.circle",
+                surfaces: [.palette, .menu], cliName: "settings continue-setup", mainMenu: .help
+            ),
+            ActionDescriptor(
                 id: "palette.importClassicSessions",
                 title: String(localized: "action.palette.importClassicSessions", defaultValue: "Import Classic cmux Sessions…", bundle: .module),
                 keywords: ["classic", "session", "workspace", "restore", "import"], category: .settings, symbol: "arrow.down.doc",

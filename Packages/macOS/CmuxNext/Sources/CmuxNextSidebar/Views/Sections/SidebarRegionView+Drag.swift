@@ -11,6 +11,8 @@ final class SidebarRegionDrag {
     let followsBothAxes: Bool
     /// The subject's own views, hidden under the card until it lands.
     let hidden: [NSView]
+    /// A workspace item over the workspace list: the drop takes it out of the band.
+    var dropsToList = false
 
     init(subject: SidebarRegionDragSubject, lift: DragLiftView, grab: CGPoint, followsBothAxes: Bool, hidden: [NSView]) {
         self.subject = subject
@@ -40,6 +42,7 @@ extension SidebarRegionView {
 
     /// A press moved (window points). True once a drag runs.
     func dragMoved(_ subject: SidebarRegionDragSubject, from start: NSPoint, _ event: NSEvent) -> Bool {
+        guard allowsDrag else { return false }
         let point = convert(event.locationInWindow, from: nil)
         if reorder == nil {
             let origin = convert(start, from: nil)
@@ -73,6 +76,14 @@ extension SidebarRegionView {
         } else {
             SidebarReorderLift.follow(drag.lift, top: origin.y, visible: host.visibleRect)
         }
+        if isWorkspaceItem(drag.subject), let probe = dropToListProbe {
+            drag.dropsToList = probe(convert(point, to: nil))
+            if drag.dropsToList {
+                // Over the list the band keeps its order: the tile leaves it on the drop.
+                if reorderSections != content?.sections { reorderSections = content?.sections; relayout(animated: true) }
+                return
+            }
+        }
         let card = convert(drag.lift.frame, from: host)
         // The card's middle decides (as the list, nxdog30): what it covers more than half of makes way.
         // Sideways, the card's middle decides too, so a tile makes way when the card covers half of it.
@@ -85,6 +96,11 @@ extension SidebarRegionView {
     func finishDrag() {
         guard let drag = reorder else { return }
         reorder = nil
+        _ = dropToListProbe?(nil)
+        if drag.dropsToList, case let .item(id) = drag.subject {
+            onDropToList?(id)
+            return land(drag)
+        }
         if let sections = reorderSections, sections != content?.sections { onReorder?(drag.subject, sections) }
         land(drag)
     }
@@ -92,6 +108,7 @@ extension SidebarRegionView {
     func cancelDrag() {
         guard let drag = reorder else { return }
         reorder = nil
+        _ = dropToListProbe?(nil)
         reorderSections = nil
         relayout(animated: true)
         land(drag)
@@ -107,6 +124,12 @@ extension SidebarRegionView {
             self.reorderSections = nil
             self.relayout(animated: true)
         }
+    }
+
+    /// A workspace tile or top row (drop-to-list unpins it); other items stay in the band.
+    private func isWorkspaceItem(_ subject: SidebarRegionDragSubject) -> Bool {
+        guard case let .item(id) = subject else { return false }
+        return content?.sections.lazy.flatMap(\.items).first { $0.id == id }?.ref.kind == LayoutItemRef.workspaceKind
     }
 
     private func frame(of subject: SidebarRegionDragSubject) -> CGRect? {

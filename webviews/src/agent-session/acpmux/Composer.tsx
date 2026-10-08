@@ -95,6 +95,8 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
+  onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
   localName?: string;
   /// The folder a started chat moved to (shell/chatMoves.ts).
@@ -138,6 +140,7 @@ export function Composer({
   onProject,
   projectChoices,
   onBrowseProject,
+  onConnect,
   localName,
   movedTo,
   onMove,
@@ -740,33 +743,35 @@ export function Composer({
             ) : null}
           </span>
         </div>
+        {/* The location row is the card's footer: one fill, one edge, a hairline above it. */}
+        <ComposerContext
+          projectChoices={projectChoices}
+          onBrowseProject={onBrowseProject}
+          onConnect={onConnect}
+          summary={snapshot.summary}
+          sessions={snapshot.sessions}
+          peers={snapshot.peers}
+          started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
+          onProject={
+            onProject &&
+            ((cwd, peer) => {
+              onProject(cwd, peer);
+              field.current?.focus();
+            })
+          }
+          localName={localName}
+          movedTo={movedTo}
+          busy={snapshot.isWorking}
+          onMove={
+            onMove &&
+            ((cwd) => {
+              const move = onMove(cwd);
+              setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
+              field.current?.focus();
+            })
+          }
+        />
       </div>
-      <ComposerContext
-        projectChoices={projectChoices}
-        onBrowseProject={onBrowseProject}
-        summary={snapshot.summary}
-        sessions={snapshot.sessions}
-        peers={snapshot.peers}
-        started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
-        onProject={
-          onProject &&
-          ((cwd, peer) => {
-            onProject(cwd, peer);
-            field.current?.focus();
-          })
-        }
-        localName={localName}
-        movedTo={movedTo}
-        busy={snapshot.isWorking}
-        onMove={
-          onMove &&
-          ((cwd) => {
-            const move = onMove(cwd);
-            setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
-            field.current?.focus();
-          })
-        }
-      />
     </form>
   );
 }

@@ -441,3 +441,103 @@ main .gallery-entry-error {
   font: 11px ui-monospace, monospace;
   color: var(--g-muted);
 }
+/* Tunables (Tunables.tsx): one curve editor per tunable, under the controls. */
+.gallery-tunables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+}
+.gallery-tunable {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  padding: 2px 10px 8px;
+  margin: 0;
+}
+.gallery-tunable legend {
+  font-size: 11px;
+  color: var(--g-muted);
+  cursor: help;
+}
+.gallery-tunable-plot {
+  touch-action: none;
+  user-select: none;
+}
+.gallery-tunable-box {
+  fill: var(--g-current);
+}
+.gallery-tunable-diagonal {
+  stroke: var(--g-line);
+  stroke-dasharray: 3 3;
+}
+.gallery-tunable-arm {
+  stroke: var(--g-muted);
+}
+.gallery-tunable-curve {
+  fill: none;
+  stroke: var(--g-text);
+  stroke-width: 2;
+}
+.gallery-tunable-handle {
+  fill: var(--g-panel);
+  stroke: var(--g-text);
+  stroke-width: 1.5;
+  cursor: grab;
+}
+.gallery-tunable-handle[data-held] {
+  fill: var(--g-text);
+  cursor: grabbing;
+}
+.gallery-tunable-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 170px;
+}
+.gallery-tunable-side label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-tunable-side select,
+.gallery-tunable-side input {
+  font: inherit;
+  color: var(--g-text);
+}
+.gallery-tunable-css {
+  font-size: 11px;
+  color: var(--g-muted);
+  white-space: nowrap;
+}
+.gallery-tunable-track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--g-current);
+}
+.gallery-tunable-track span {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--g-text);
+  animation: gallery-tunable-run 1.4s infinite;
+}
+@keyframes gallery-tunable-run {
+  0% {
+    left: 1px;
+  }
+  65%,
+  100% {
+    left: calc(100% - 9px);
+  }
+}
+.gallery-tunable-side button {
+  align-self: start;
+}

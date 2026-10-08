@@ -11,13 +11,38 @@ import rawEmoji from "../../icon-picker/generated/emoji-data.json";
 import { encodeIcon, type IconValue } from "../../icon-picker/iconValue";
 import { IconPicker } from "../../icon-picker/IconPicker";
 import { PickerStore } from "../../icon-picker/store";
+import type { SymbolMode } from "../../icon-picker/symbols";
 import table from "./generated/strings.json";
-import { hostAssets, hostPrefs, IconPickerOps, type PickerSession } from "./host";
+import { hostAssets, hostPrefs, IconPickerOps, sessionCatalog, type PickerSession } from "./host";
 
 export interface MountedPicker {
   readonly store: PickerStore;
   /** Starts a session (the host's stream calls this; the bench calls it directly). */
   open(session: PickerSession): void;
+}
+
+/**
+ * A section title: emoji groups and fixed sections (`iconPicker.section.<id>`), system symbol
+ * categories (`iconPicker.symbolCategory.<key>`). A category a newer system adds and this page
+ * has no string for shows its key, capitalized.
+ */
+export function sectionTitle(strings: Strings, id: string): string {
+  const category = id.startsWith("symbolCategory.") ? id.slice("symbolCategory.".length) : null;
+  const key = category === null ? `iconPicker.section.${id}` : `iconPicker.symbolCategory.${category}`;
+  const title = strings.t(key);
+  if (title !== key || category === null) return title;
+  return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+/**
+ * The host's image of a symbol: `__symbol/<name>.png` is the template (monochrome);
+ * `__symbol/<mode>/<name>.png` is drawn in that mode. `style` (light or dark) is in the query so a
+ * changed appearance never reuses a cached image.
+ */
+export function symbolImageURL(name: string, mode: SymbolMode, style = ""): string {
+  const file = `${encodeURIComponent(name)}.png`;
+  if (mode === "monochrome") return `./__symbol/${file}`;
+  return `./__symbol/${mode}/${file}?style=${encodeURIComponent(style)}`;
 }
 
 export function mountIconPicker(
@@ -31,11 +56,19 @@ export function mountIconPicker(
     emoji,
     prefs: client ? hostPrefs(client) : undefined,
     language: strings.language,
-    titles: (id) => strings.t(`iconPicker.section.${id}`),
+    titles: (id) => sectionTitle(strings, id),
   });
   let session: PickerSession = { id: "" };
+  // A refused finish (an unknown session, an icon the host rejects) is shown and logged, never
+  // dropped: the picker stays open so the person sees that the icon did not change.
+  let failure: string | undefined;
   const finish = (result: { value?: string; clear?: true; cancel?: true }) =>
-    void client?.call(IconPickerOps.finish, { session: session.id, ...result }).catch(() => undefined);
+    void client?.call(IconPickerOps.finish, { session: session.id, ...result }).catch((error: unknown) => {
+      console.error("icon picker: the host refused the pick", error);
+      if (result.cancel) return;
+      failure = strings.t("iconPicker.finishFailed");
+      flushSync(render);
+    });
   const reactRoot = makeRoot(root);
   const render = () =>
     reactRoot.render(
@@ -47,12 +80,15 @@ export function mountIconPicker(
         onCancel={() => finish({ cancel: true })}
         onClear={session.canClear ? () => finish({ clear: true }) : undefined}
         assets={client && session.assets ? hostAssets(client) : undefined}
-        symbolImageURL={(name) => `./__symbol/${encodeURIComponent(name)}.png`}
+        symbolImageURL={(name, mode) => symbolImageURL(name, mode, session.symbolStyle)}
+        error={failure}
       />,
     );
   const open = (next: PickerSession) => {
-    if (next.symbols) store.configure(next.symbols, next.maxEmojiVersion);
+    const catalog = sessionCatalog(next);
+    if (catalog) store.configure(catalog, next.maxEmojiVersion);
     session = next;
+    failure = undefined;
     store.reset(next.tab ?? "emoji");
     // Synchronous so the host can show the popover right after this event without a stale frame.
     flushSync(render);

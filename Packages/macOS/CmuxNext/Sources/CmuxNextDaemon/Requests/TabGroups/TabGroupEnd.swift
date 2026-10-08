@@ -4,6 +4,7 @@ import Foundation
 public struct UngroupTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "ungroup-tab-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
     public var group: TabGroupID
     public init(group: TabGroupID) { self.group = group }
 
@@ -18,6 +19,7 @@ public struct UngroupTabGroupRequest: DaemonRequest {
 public struct CloseTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "close-tab-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
     public var group: TabGroupID
     public var endTerminals: Bool
     public init(group: TabGroupID, endTerminals: Bool = false) {

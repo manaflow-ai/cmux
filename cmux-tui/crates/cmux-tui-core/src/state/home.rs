@@ -33,7 +33,7 @@ impl Mux {
             return Ok(EnsuredHome { workspace_id, revision, replayed: true });
         }
         let personal_before = self.read_registry_state(personal_revision)?;
-        let mutation = WorkspaceMutation::new(HOME_CREATION_KEY, HOME_MUTATION_ORIGIN)?;
+        let mutation = WorkspaceMutation::daemon(HOME_CREATION_KEY, HOME_MUTATION_ORIGIN)?;
         let commit = self.resource_create_empty_workspace_selected(
             Self::ordinary_resource_selectors(),
             Some(HOME_DEFAULT_NAME.to_string()),

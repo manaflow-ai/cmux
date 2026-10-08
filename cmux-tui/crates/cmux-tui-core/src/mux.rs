@@ -49,7 +49,10 @@ mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_reap;
+#[cfg(unix)]
+mod terminal_rehost;
 mod terminal_relaunch;
+mod terminal_respawn;
 mod terminal_work;
 mod topology_result;
 
@@ -268,13 +271,13 @@ impl<T> SignaledMutex<T> {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                anyhow::bail!("mutex deadline expired");
+                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
             let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
             epoch = next;
             if result.timed_out() && *epoch == observed {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                anyhow::bail!("mutex deadline expired");
+                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
         }
     }
@@ -2718,6 +2721,7 @@ pub struct Mux {
     /// Detaches of live signal exits that wait out the session shutdown
     /// lead (`session-shutdown`, logout race).
     exit_settles: Arc<exit_settle::ExitSettleTimer>,
+    terminal_respawns: terminal_respawn::TerminalRespawns,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -2971,7 +2975,7 @@ impl Mux {
 
     pub(crate) fn from_workspace_registry(
         session: String,
-        mut surface_options: SurfaceOptions,
+        surface_options: SurfaceOptions,
         registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
@@ -3009,7 +3013,6 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
-        surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
             workspace_registry: SignaledMutex::new(registry),
@@ -3169,6 +3172,7 @@ impl Mux {
             shutting_down: AtomicBool::new(false),
             session_shutdown,
             exit_settles: Arc::default(),
+            terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             activity: Default::default(),
@@ -3523,6 +3527,9 @@ impl Mux {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_exit_records(root)?,
             None => Vec::new(),
         };
+        if let Some(root) = options.terminal_host_root.as_deref() {
+            crate::terminal_host_runtime::sweep_released_pty_locks(root);
+        }
         let records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_records(root)?,
             None => Vec::new(),
@@ -3954,6 +3961,9 @@ impl Mux {
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
         self.clear_pending_terminal(terminal_id);
+        if self.terminal_is_respawning(terminal_id) {
+            return Ok(());
+        }
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         let Some(terminal) = terminal else { return Ok(()) };
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
@@ -4734,7 +4744,7 @@ impl Mux {
             selectors,
             fields,
             None,
-            &WorkspaceMutation::local("cmux-tui"),
+            &WorkspaceMutation::daemon_local("cmux-tui"),
         )
     }
 
@@ -5567,15 +5577,15 @@ impl Mux {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_resource_effect(
         &self,
-        idempotency_key: &str,
+        mutation: &WorkspaceMutation,
         operation: &str,
         fingerprint: &Value,
         intent: &Value,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<ResourceEffectPreparation> {
-        self.workspace_registry.lock().unwrap().prepare_resource_effect(
-            idempotency_key,
+        self.workspace_registry.lock().unwrap().prepare_resource_effect_for(
+            mutation,
             operation,
             fingerprint,
             intent,
@@ -5682,7 +5692,7 @@ impl Mux {
         operation: &'static str,
         result: Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let fingerprint = serde_json::json!({"operation":operation,"result":result});
         self.commit_full_resource_projection_with_mutation(
             &mutation,
@@ -6239,7 +6249,7 @@ impl Mux {
         let commit_from = Instant::now();
         let remaining = deadline.saturating_duration_since(Instant::now());
         let commits = if remaining.is_zero() {
-            Err(anyhow::anyhow!("session journal commit deadline expired"))
+            Err(crate::JournalContention::COMMIT_DEADLINE.into())
         } else {
             registry.append_journal_ingress_events_with_deadline(
                 events,
@@ -6680,6 +6690,8 @@ impl Mux {
         } else {
             format!("cmux-hook-sequence:{sequence}")
         };
+        let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
+        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended);
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
@@ -6887,7 +6899,7 @@ impl Mux {
         };
         let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
-        let mutation = match WorkspaceMutation::new(
+        let mutation = match WorkspaceMutation::daemon(
             format!("roster-{}", crate::workspace_registry::new_uuid_v4()),
             "journal-reducer",
         ) {
@@ -10626,7 +10638,7 @@ impl Mux {
             Some(terminal_incarnation),
             None,
             None,
-            &WorkspaceMutation::local("cmux-tui"),
+            &WorkspaceMutation::daemon_local("cmux-tui"),
         )
     }
 
@@ -11320,7 +11332,7 @@ impl Mux {
                     "source": source.as_str(),
                 });
                 self.prepare_resource_effect(
-                    idempotency_key,
+                    &WorkspaceMutation::daemon(idempotency_key, "resource-api")?,
                     OPERATION,
                     &fingerprint,
                     &intent,
@@ -11633,7 +11645,7 @@ impl Mux {
         origin: AgentReportOrigin,
         agent_adapter: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
-        let mutation = WorkspaceMutation::new(
+        let mutation = WorkspaceMutation::daemon(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
             "raw-control",
         )?;
@@ -12326,7 +12338,6 @@ impl Mux {
     pub fn update_surface_options(&self, update: impl FnOnce(&mut SurfaceOptions)) {
         let mut options = self.surface_options.lock().unwrap();
         update(&mut options);
-        options.browser_session_name = self.session.clone();
     }
 
     /// The latest machine-level model spend readout, or `None` when the
@@ -13910,7 +13921,7 @@ impl Mux {
         key: Option<String>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<WorkspacePlacement> {
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         self.create_empty_workspace_with_mutation(name, key, None, expected_revision, &mutation)
     }
 
@@ -15698,7 +15709,7 @@ impl Mux {
         let Some((resolved_target, _)) = resolved else {
             return Ok(None);
         };
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let result = self.close_workspace_with_mutation_inner(
             id,
             key,
@@ -15994,7 +16005,7 @@ impl Mux {
         let Some((resolved_target, _)) = resolved else {
             return Ok(None);
         };
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let result = self.rename_workspace_with_mutation_inner(
             id,
             key,
@@ -17208,7 +17219,7 @@ impl Mux {
                     None,
                     None,
                     WorkspacePublicId::random()?,
-                    &WorkspaceMutation::local("cmux-tui-layout-workspace"),
+                    &WorkspaceMutation::daemon_local("cmux-tui-layout-workspace"),
                     false,
                 )?
                 .workspace,
@@ -17363,7 +17374,7 @@ impl Mux {
                 }
                 let terminal_id = TerminalId::random()?;
                 let terminal_hex = terminal_id.to_hex();
-                let mutation = WorkspaceMutation::local("cmux-tui-layout-terminal");
+                let mutation = WorkspaceMutation::daemon_local("cmux-tui-layout-terminal");
                 let reservation = TerminalReservationRequest {
                     terminal_id,
                     mutation,
@@ -17455,7 +17466,7 @@ impl Mux {
             |closed_public_ids| {
                 registry
                     .close_terminals_atomically(
-                        &WorkspaceMutation::local("cmux-tui-layout-discard"),
+                        &WorkspaceMutation::daemon_local("cmux-tui-layout-discard"),
                         &hosted,
                     )
                     .map(|batch| (batch, closed_public_ids))
@@ -17858,7 +17869,7 @@ impl Mux {
                 return Ok(Some((state.workspace_revision, false)));
             }
         }
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let result = self.move_workspace_with_mutation(
             Some(workspace),
             None,
@@ -18296,7 +18307,7 @@ fn commit_terminal_transition(
     operation: &str,
     terminal: &RegistryTerminal,
 ) -> anyhow::Result<u64> {
-    let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
     let commit = registry.commit_terminal(
         &mutation,
         &serde_json::json!({
@@ -18342,7 +18353,7 @@ fn commit_terminal_lifecycle(
         terminal.incarnation = Some(incarnation.to_string());
     }
     terminal.exit = exit;
-    let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
     let commit = registry.commit_terminal(
         &mutation,
         &serde_json::json!({
@@ -18379,7 +18390,7 @@ fn commit_terminal_workspace(
         anyhow::bail!("terminal is already closed");
     }
     terminal.workspace_key = workspace_key.to_string();
-    let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
     let commit = registry.commit_terminal(
         &mutation,
         &serde_json::json!({
@@ -20551,7 +20562,7 @@ mod tests {
             usize::MAX,
             Some("second view".into()),
             None,
-            &WorkspaceMutation::local("selector-multiview"),
+            &WorkspaceMutation::daemon_local("selector-multiview"),
         )
         .unwrap();
 
@@ -20608,7 +20619,7 @@ mod tests {
             0,
             Some("projected".into()),
             None,
-            &WorkspaceMutation::local("projection-complete-delta"),
+            &WorkspaceMutation::daemon_local("projection-complete-delta"),
         )
         .unwrap();
 
@@ -20773,7 +20784,7 @@ mod tests {
                 Some("target".into()),
                 None,
                 Some(0),
-                &WorkspaceMutation::new("selector-race-first", "test").unwrap(),
+                &WorkspaceMutation::daemon("selector-race-first", "test").unwrap(),
             )
             .unwrap();
         let second = mux
@@ -20781,7 +20792,7 @@ mod tests {
                 Some("other".into()),
                 None,
                 Some(1),
-                &WorkspaceMutation::new("selector-race-second", "test").unwrap(),
+                &WorkspaceMutation::daemon("selector-race-second", "test").unwrap(),
             )
             .unwrap();
         let first_id =
@@ -20812,7 +20823,7 @@ mod tests {
                     "renamed".into(),
                     None,
                     Some(2),
-                    &WorkspaceMutation::new("selector-race-selected", "test").unwrap(),
+                    &WorkspaceMutation::daemon("selector-race-selected", "test").unwrap(),
                 )
             })
         };
@@ -20827,7 +20838,7 @@ mod tests {
                     "target".into(),
                     None,
                     None,
-                    &WorkspaceMutation::new("selector-race-direct", "test").unwrap(),
+                    &WorkspaceMutation::daemon("selector-race-direct", "test").unwrap(),
                 )
             })
         };
@@ -21106,7 +21117,7 @@ mod tests {
     #[test]
     fn resource_state_patch_commits_before_infallible_projection_and_replays_once() {
         let mux = test_mux();
-        let mutation = WorkspaceMutation::new("create-once", "test-client").unwrap();
+        let mutation = WorkspaceMutation::daemon("create-once", "test-client").unwrap();
         let first = mux
             .resource_create_empty_workspace(Some("API".into()), None, Some(0), &mutation)
             .unwrap();
@@ -21145,7 +21156,7 @@ mod tests {
                 Some("Never visible".into()),
                 None,
                 Some(0),
-                &WorkspaceMutation::new("fail-create", "test-client").unwrap(),
+                &WorkspaceMutation::daemon("fail-create", "test-client").unwrap(),
             )
             .unwrap_err();
         assert!(error.to_string().contains("forced resource patch failure"));
@@ -21167,7 +21178,7 @@ mod tests {
         let expected_revision = mux.with_state(|state| state.resource_revision);
         assert!(matches!(
             mux.prepare_resource_effect(
-                idempotency_key,
+                &WorkspaceMutation::daemon(idempotency_key, "test").unwrap(),
                 operation,
                 &fingerprint,
                 &serde_json::json!({}),
@@ -21586,9 +21597,9 @@ mod tests {
     #[test]
     fn resource_idempotency_is_session_global_and_rejects_changed_input() {
         let mux = test_mux();
-        let first = WorkspaceMutation::new("global-key", "client-a").unwrap();
+        let first = WorkspaceMutation::daemon("global-key", "client-a").unwrap();
         mux.resource_create_empty_workspace(Some("One".into()), None, Some(0), &first).unwrap();
-        let reused = WorkspaceMutation::new("global-key", "client-b").unwrap();
+        let reused = WorkspaceMutation::daemon("global-key", "client-b").unwrap();
         let error = mux
             .resource_create_empty_workspace(Some("Two".into()), None, Some(1), &reused)
             .unwrap_err();
@@ -21607,7 +21618,7 @@ mod tests {
                 Some("Public".into()),
                 None,
                 Some(0),
-                &WorkspaceMutation::new("public-only", "test").unwrap(),
+                &WorkspaceMutation::daemon("public-only", "test").unwrap(),
             )
             .unwrap()
             .result;
@@ -21662,7 +21673,7 @@ mod tests {
             let mut registry = mux.workspace_registry.lock().unwrap();
             let commit = registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-thousand", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-thousand", "test").unwrap(),
                     "session.seed",
                     &serde_json::json!({"count":WORKSPACE_COUNT}),
                     None,
@@ -21692,7 +21703,7 @@ mod tests {
                 "Renamed".into(),
                 None,
                 Some(1),
-                &WorkspaceMutation::new("rename-thousand", "test").unwrap(),
+                &WorkspaceMutation::daemon("rename-thousand", "test").unwrap(),
             )
             .unwrap();
         assert_eq!(renamed.revision, 2);
@@ -21715,7 +21726,7 @@ mod tests {
                 WORKSPACE_COUNT - 1,
                 None,
                 Some(2),
-                &WorkspaceMutation::new("move-thousand", "test").unwrap(),
+                &WorkspaceMutation::daemon("move-thousand", "test").unwrap(),
             )
             .unwrap();
         assert_eq!(moved.revision, 3);
@@ -21848,7 +21859,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "restart").unwrap();
             registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-restart", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-restart", "test").unwrap(),
                     "session.restore_fixture",
                     &serde_json::json!({"fixture":"nested-columns"}),
                     None,
@@ -22286,7 +22297,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "undo-restart").unwrap();
             registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-undo-restart", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-undo-restart", "test").unwrap(),
                     "session.restore_fixture",
                     &serde_json::json!({"fixture":"layout-undo-restart"}),
                     None,
@@ -22344,7 +22355,7 @@ mod tests {
                 selectors.clone(),
                 preview_fields,
                 Some(durable_before.revision),
-                &WorkspaceMutation::new("restart-undo-preview", "test").unwrap(),
+                &WorkspaceMutation::daemon("restart-undo-preview", "test").unwrap(),
             )
             .unwrap_err();
         let preview_revision = preview_error
@@ -22404,7 +22415,7 @@ mod tests {
             "selectors":selectors,
             "fields":confirm_fields,
         });
-        let confirm_mutation = WorkspaceMutation::new("restart-undo-confirm", "test").unwrap();
+        let confirm_mutation = WorkspaceMutation::daemon("restart-undo-confirm", "test").unwrap();
 
         let error = reopened
             .resource_topology_operation(
@@ -22502,7 +22513,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "secret-test").unwrap();
             registry
                 .commit(
-                    &WorkspaceMutation::new("workspace", "test").unwrap(),
+                    &WorkspaceMutation::daemon("workspace", "test").unwrap(),
                     &serde_json::json!({"op":"create-workspace"}),
                     None,
                     Some(0),
@@ -22520,7 +22531,7 @@ mod tests {
                 .unwrap();
             registry
                 .commit_terminal(
-                    &WorkspaceMutation::new("create", "browser").unwrap(),
+                    &WorkspaceMutation::daemon("create", "browser").unwrap(),
                     &fingerprint,
                     None,
                     Some(0),
@@ -22680,7 +22691,7 @@ mod tests {
         let terminal_hex = terminal_id.to_hex();
         let reservation = TerminalReservationRequest {
             terminal_id,
-            mutation: WorkspaceMutation::new("cell-pixel-failure", "test").unwrap(),
+            mutation: WorkspaceMutation::daemon("cell-pixel-failure", "test").unwrap(),
             fingerprint: serde_json::json!({"test":"cell-pixel-failure"}),
             expected_generation: None,
             expected_revision: None,
@@ -24081,7 +24092,7 @@ mod tests {
             usize::MAX,
             None,
             None,
-            &WorkspaceMutation::local("test-terminal-projection"),
+            &WorkspaceMutation::daemon_local("test-terminal-projection"),
         )
         .unwrap();
         mux.with_state(|state| {
@@ -24423,7 +24434,7 @@ mod tests {
         ];
         assert!(mux.close_pane(primary_pane).unwrap());
 
-        let mutation = WorkspaceMutation::new(
+        let mutation = WorkspaceMutation::daemon(
             "selector-fallback-receipt-00000001".to_string(),
             "selector-fallback-test".to_string(),
         )
@@ -24465,7 +24476,7 @@ mod tests {
             session: pane_selectors.session.clone(),
             ..crate::ResourceSelectors::default()
         };
-        let mutation = WorkspaceMutation::new(
+        let mutation = WorkspaceMutation::daemon(
             "selector-fallback-receipt-00000002".to_string(),
             "selector-fallback-test".to_string(),
         )
@@ -24956,7 +24967,7 @@ mod tests {
                     AgentSource::Hook,
                     Some("racing-hook".into()),
                     None,
-                    &WorkspaceMutation::new("racing-hook", "resource-test").unwrap(),
+                    &WorkspaceMutation::daemon("racing-hook", "resource-test").unwrap(),
                 )
                 .unwrap()
             })
@@ -25531,7 +25542,7 @@ mod tests {
         let revision_before = mux.with_state(|state| state.resource_revision);
         let epoch_before = mux.resource_event_epoch();
 
-        let mutation = WorkspaceMutation::new("ack-a-1", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("ack-a-1", "test").unwrap();
         let ack =
             mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&oldest)).unwrap();
         assert!(!ack.replayed);
@@ -25553,7 +25564,7 @@ mod tests {
         assert_eq!(mux.with_state(|state| state.resource_revision), revision_before + 1);
 
         // A second client keeps its own state and sees the merged set.
-        let mutation_b = WorkspaceMutation::new("ack-b-1", "test").unwrap();
+        let mutation_b = WorkspaceMutation::daemon("ack-b-1", "test").unwrap();
         let unknown = NotificationPublicId::random().unwrap();
         let ack_b = mux
             .ack_notifications(
@@ -25595,7 +25606,7 @@ mod tests {
                     .contains(&serde_json::json!("mac-b"))
         }));
 
-        let bad = WorkspaceMutation::new("ack-bad", "test").unwrap();
+        let bad = WorkspaceMutation::daemon("ack-bad", "test").unwrap();
         assert!(mux.ack_notifications(&bad, None, "has space", &[oldest]).is_err());
     }
 
@@ -25658,14 +25669,14 @@ mod tests {
             .cloned()
             .unwrap();
         assert_eq!(row_a["subtitle"], "sub", "subtitle rides the row");
-        let mutation = WorkspaceMutation::new("ack-a", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("ack-a", "test").unwrap();
         let ledger = mux.resource_notifications(8);
         let id_b = ledger.iter().find(|entry| entry.title == "b").unwrap().id.clone();
         mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&id_b)).unwrap();
         let revision_before = mux.with_state(|state| state.resource_revision);
 
         // Clear one terminal: its two rows go, the other terminal's row stays.
-        let clear = WorkspaceMutation::new("clear-first", "test").unwrap();
+        let clear = WorkspaceMutation::daemon("clear-first", "test").unwrap();
         let commit = mux.clear_notifications(&clear, None, Some(&first_terminal)).unwrap();
         assert!(!commit.replayed);
         assert_eq!(commit.result["cleared"].as_array().unwrap().len(), 2);
@@ -25703,7 +25714,7 @@ mod tests {
         assert_eq!(titles, vec!["b"], "cleared rows must not come back from the receipts");
         assert_eq!(mux.notification_read_by(&id_b), vec!["mac-a".to_string()]);
         // Clear everything.
-        let all = WorkspaceMutation::new("clear-all", "test").unwrap();
+        let all = WorkspaceMutation::daemon("clear-all", "test").unwrap();
         mux.clear_notifications(&all, None, None).unwrap();
         assert!(mux.resource_notifications(8).is_empty());
         assert!(mux.notification_read_by(&id_b).is_empty());
@@ -25735,7 +25746,7 @@ mod tests {
         mux.post_notification("kept".into(), "".into(), NotificationLevel::Info, Some(surface_id))
             .unwrap();
         let kept = mux.resource_notifications(1)[0].id.clone();
-        let mutation = WorkspaceMutation::new("ack-restart", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("ack-restart", "test").unwrap();
         mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&kept)).unwrap();
         drop(mux);
 
@@ -25774,7 +25785,7 @@ mod tests {
         // The prune rides the committed create that evicted `kept`, not an
         // acknowledgement, and only once the receipts no longer retain it.
         let newest = mux.resource_notifications(1)[0].id.clone();
-        let prune = WorkspaceMutation::new("ack-newest", "test").unwrap();
+        let prune = WorkspaceMutation::daemon("ack-newest", "test").unwrap();
         mux.ack_notifications(&prune, None, "mac-a", std::slice::from_ref(&newest)).unwrap();
         let stale_rows = mux
             .workspace_registry
@@ -25851,7 +25862,8 @@ mod tests {
                         .collect::<Vec<_>>();
                     ack_counter += 1;
                     let mutation =
-                        WorkspaceMutation::new(format!("fuzz-ack-{ack_counter}"), "test").unwrap();
+                        WorkspaceMutation::daemon(format!("fuzz-ack-{ack_counter}"), "test")
+                            .unwrap();
                     mux.ack_notifications(&mutation, None, client, &ids).unwrap();
                     for id in &ids {
                         expected.get_mut(id).unwrap().insert(client.to_string());
@@ -27845,7 +27857,7 @@ mod tests {
             ContentPublicId::Terminal(public_id) => public_id.clone(),
             ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
         };
-        let mutation = WorkspaceMutation::new("lost-host-close-reply", "legacy-client").unwrap();
+        let mutation = WorkspaceMutation::daemon("lost-host-close-reply", "legacy-client").unwrap();
         let resource_revision = mux.with_state(|state| state.resource_revision);
 
         let host_close = mux
@@ -27895,7 +27907,7 @@ mod tests {
             .lock()
             .unwrap()
             .close_terminal(
-                &WorkspaceMutation::new("closed-host", "legacy-client").unwrap(),
+                &WorkspaceMutation::daemon("closed-host", "legacy-client").unwrap(),
                 None,
                 None,
                 &host.terminal_id,
@@ -27903,7 +27915,7 @@ mod tests {
             )
             .unwrap();
         let mutation =
-            WorkspaceMutation::new("lost-resource-close-reply", "resource-client").unwrap();
+            WorkspaceMutation::daemon("lost-resource-close-reply", "resource-client").unwrap();
         let fingerprint = serde_json::json!({
             "op":"close-terminal",
             "terminal_id":host.terminal_id,
@@ -28981,7 +28993,7 @@ mod tests {
             "selectors":selectors,
             "fields":fields,
         });
-        let mutation = WorkspaceMutation::new("read-only-undo-preview", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("read-only-undo-preview", "test").unwrap();
         let before_registry =
             mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
 
@@ -29030,7 +29042,7 @@ mod tests {
             "fields":missing_token_fields,
         });
         let missing_token_mutation =
-            WorkspaceMutation::new("missing-token-undo-confirm", "test").unwrap();
+            WorkspaceMutation::daemon("missing-token-undo-confirm", "test").unwrap();
         let missing_token = mux
             .resource_topology_operation(
                 ResourceOperation::ScreenLayoutUndo,
@@ -29057,7 +29069,7 @@ mod tests {
             "fields":missing_revision_fields,
         });
         let missing_revision_mutation =
-            WorkspaceMutation::new("missing-revision-undo-confirm", "test").unwrap();
+            WorkspaceMutation::daemon("missing-revision-undo-confirm", "test").unwrap();
         let missing_revision = mux
             .resource_topology_operation(
                 ResourceOperation::ScreenLayoutUndo,
@@ -29110,7 +29122,7 @@ mod tests {
             "selectors":selectors,
             "fields":stale_fields,
         });
-        let stale_mutation = WorkspaceMutation::new("stale-undo-confirm", "test").unwrap();
+        let stale_mutation = WorkspaceMutation::daemon("stale-undo-confirm", "test").unwrap();
         let stale = mux
             .resource_topology_operation(
                 ResourceOperation::ScreenLayoutUndo,
@@ -29155,7 +29167,7 @@ mod tests {
                 selectors,
                 confirmed_fields,
                 Some(refreshed_revision),
-                &WorkspaceMutation::new("fresh-undo-confirm", "test").unwrap(),
+                &WorkspaceMutation::daemon("fresh-undo-confirm", "test").unwrap(),
             )
             .unwrap();
         assert!(!committed.replayed);
@@ -31227,7 +31239,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "recover-terminal").unwrap();
             registry
                 .commit(
-                    &WorkspaceMutation::new("workspace", "test").unwrap(),
+                    &WorkspaceMutation::daemon("workspace", "test").unwrap(),
                     &serde_json::json!({"op":"create-workspace"}),
                     None,
                     Some(0),
@@ -31245,7 +31257,7 @@ mod tests {
                 .unwrap();
             registry
                 .commit_terminal(
-                    &WorkspaceMutation::new("reserve", "test").unwrap(),
+                    &WorkspaceMutation::daemon("reserve", "test").unwrap(),
                     &serde_json::json!({"op":"create-terminal","terminal_id":TERMINAL}),
                     None,
                     Some(0),
@@ -31380,7 +31392,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
             registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-terminal-exit", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-terminal-exit", "test").unwrap(),
                     "workspace.create",
                     &serde_json::json!({"fixture":"terminal-exit"}),
                     None,
@@ -31593,7 +31605,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
             registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-keep-exit", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-keep-exit", "test").unwrap(),
                     "workspace.create",
                     &serde_json::json!({"fixture":"keep-exit"}),
                     None,
@@ -31735,7 +31747,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "recover-exited").unwrap();
             registry
                 .commit(
-                    &WorkspaceMutation::new("workspace", "test").unwrap(),
+                    &WorkspaceMutation::daemon("workspace", "test").unwrap(),
                     &serde_json::json!({"op":"create-workspace"}),
                     None,
                     Some(0),
@@ -32124,7 +32136,7 @@ mod tests {
                 None,
                 None,
                 Some(1),
-                &WorkspaceMutation::new("move-during-launch", "browser").unwrap(),
+                &WorkspaceMutation::daemon("move-during-launch", "browser").unwrap(),
             )
             .unwrap();
         assert_eq!(moved.placement, None);
@@ -32540,7 +32552,7 @@ mod tests {
             .unwrap();
         }
         let events = mux.subscribe();
-        let first_move = WorkspaceMutation::new("move-one", "browser").unwrap();
+        let first_move = WorkspaceMutation::daemon("move-one", "browser").unwrap();
         let moved = mux
             .move_terminal_with_mutation(TERMINAL, &second.key, None, None, Some(1), &first_move)
             .unwrap();
@@ -32556,7 +32568,7 @@ mod tests {
             None,
             None,
             Some(2),
-            &WorkspaceMutation::new("move-two", "browser").unwrap(),
+            &WorkspaceMutation::daemon("move-two", "browser").unwrap(),
         )
         .unwrap();
         let replay = mux
@@ -32609,7 +32621,7 @@ mod tests {
                     None,
                     None,
                     Some(2),
-                    &WorkspaceMutation::new("move-race-one", "browser").unwrap(),
+                    &WorkspaceMutation::daemon("move-race-one", "browser").unwrap(),
                 )
             })
         };
@@ -32627,7 +32639,7 @@ mod tests {
                     None,
                     None,
                     None,
-                    &WorkspaceMutation::new("move-race-two", "browser").unwrap(),
+                    &WorkspaceMutation::daemon("move-race-two", "browser").unwrap(),
                 );
                 second_done_tx.send(result).unwrap();
             })
@@ -32681,7 +32693,7 @@ mod tests {
                     None,
                     None,
                     Some(2),
-                    &WorkspaceMutation::new("move-before-close", "browser").unwrap(),
+                    &WorkspaceMutation::daemon("move-before-close", "browser").unwrap(),
                 )
             })
         };
@@ -32751,7 +32763,7 @@ mod tests {
                 None,
                 None,
                 Some(1),
-                &WorkspaceMutation::new("move-missing", "browser").unwrap(),
+                &WorkspaceMutation::daemon("move-missing", "browser").unwrap(),
             )
             .unwrap_err();
         assert!(error.to_string().contains("workspace is missing or closed"));
@@ -33019,7 +33031,7 @@ mod tests {
 
         let (close_started_tx, close_started_rx) = std::sync::mpsc::sync_channel(1);
         let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
-        let close_mutation = WorkspaceMutation::new("close-target", "browser").unwrap();
+        let close_mutation = WorkspaceMutation::daemon("close-target", "browser").unwrap();
         let close = std::thread::spawn({
             let mux = mux.clone();
             let close_mutation = close_mutation.clone();

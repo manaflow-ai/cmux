@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b.
+// cmux-tui mux protocol 12, IR cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -309,6 +309,24 @@ pub type BrowserWheelGuardedResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefInspectRequest {
+    pub path: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub query: Option<BTreeMap<String, String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefInspectResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub body: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub error: Optional<String>,
+    pub status: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClearHistoryRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub fallback_key: Optional<T::TerminalKeyInput>,
@@ -554,6 +572,32 @@ pub struct CloudInboxUnsubscribeRequest {
 
 #[rustfmt::skip]
 pub type CloudInboxUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudMuxAckRequest {
+    pub conversation: String,
+    pub seq: u64,
+}
+
+#[rustfmt::skip]
+pub type CloudMuxAckResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudMuxSubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudMuxSubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudMuxUnsubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudMuxUnsubscribeResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -2560,6 +2604,8 @@ pub struct SetColumnDockRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub permanent: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub role: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<u64>,
 }
 
@@ -3381,6 +3427,10 @@ impl CmuxClient {
         self.execute(&BROWSER_WHEEL_GUARDED_METADATA, &request)
     }
 
+    pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {
+        self.execute(&CHIEF_INSPECT_METADATA, &request)
+    }
+
     pub fn clear_history(&mut self, request: ClearHistoryRequest) -> Result<ClearHistoryResult> {
         if !request.fallback_key.is_missing() {
             self.require_protocol_field("clear-history", 9)?;
@@ -3498,6 +3548,18 @@ impl CmuxClient {
 
     pub fn cloud_inbox_unsubscribe(&mut self, request: CloudInboxUnsubscribeRequest) -> Result<CloudInboxUnsubscribeResult> {
         self.execute(&CLOUD_INBOX_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_mux_ack(&mut self, request: CloudMuxAckRequest) -> Result<CloudMuxAckResult> {
+        self.execute(&CLOUD_MUX_ACK_METADATA, &request)
+    }
+
+    pub fn cloud_mux_subscribe(&mut self, request: CloudMuxSubscribeRequest) -> Result<CloudMuxSubscribeResult> {
+        self.execute(&CLOUD_MUX_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_mux_unsubscribe(&mut self, request: CloudMuxUnsubscribeRequest) -> Result<CloudMuxUnsubscribeResult> {
+        self.execute(&CLOUD_MUX_UNSUBSCRIBE_METADATA, &request)
     }
 
     pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {
@@ -4261,6 +4323,10 @@ impl CmuxClient {
     }
 
     pub fn set_column_dock(&mut self, request: SetColumnDockRequest) -> Result<SetColumnDockResult> {
+        if !request.role.is_missing() {
+            self.require_protocol_field("set-column-dock", 12)?;
+            self.require_capability_field("set-column-dock", "dock-column-role-v1")?;
+        }
         self.execute(&SET_COLUMN_DOCK_METADATA, &request)
     }
 

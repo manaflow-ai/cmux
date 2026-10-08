@@ -19,17 +19,16 @@ import Testing
 
     // MARK: Bands
 
-    @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
+    @Test func defaultBandsAreHomeAboveAndTheAccountBelow() {
         let bands = defaults.bands(room: nil)
         #expect(bands.above.flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
-        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.account), .builtIn(.settings)])
+        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.account)])
     }
 
     @Test func bandsSplitAtTheWorkspacesSectionWhereverItIs() throws {
         let moved = try SidebarLayoutReducer.reduce(defaults, .sectionMove(SidebarLayoutDocument.workspacesSectionID, region: .bottom, index: 1)).get()
         let bands = moved.bands(room: nil)
-        #expect(bands.above.map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.recentsSectionID,
-                                           SidebarLayoutDocument.bottomSectionID])
+        #expect(bands.above.map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.bottomSectionID])
         #expect(bands.below.isEmpty)
     }
 
@@ -158,12 +157,13 @@ import Testing
         let home = try #require(view.aboveRegion.itemView(LayoutItemID("itm_home")))
         #expect(home.info.title == SidebarBuiltIn.home.title)
         #expect(view.aboveRegion.layoutResult.height > 0)
-        #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) != nil)
+        #expect(view.footerRegion.itemView(LayoutItemID("itm_account")) != nil)
         let aboveTop = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.minY
         let aboveBottom = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.maxY
         let belowTop = try #require(view.belowRegion.enclosingScrollView?.superview).frame.minY
         let list = try #require(view.list.enclosingScrollView?.superview).frame
-        #expect(list.minY == aboveBottom && list.maxY == belowTop - SidebarStyle.footerHeight)
+        // The dots share the footer band's row (amendment 3): no dots row between.
+        #expect(list.minY == aboveBottom && list.maxY == belowTop)
 
         model.layout = try SidebarLayoutReducer.reduce(model.layout, .sectionRemove(SidebarLayoutDocument.topSectionID)).get()
         view.needsLayout = true
@@ -179,9 +179,9 @@ import Testing
         let view = SidebarView(model: model)
         view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
         view.layoutSubtreeIfNeeded()
-        let settings = try #require(view.belowRegion.itemView(LayoutItemID("itm_settings")))
-        #expect(settings.accessibilityPerformPress())
-        #expect(sent == [.activateItem(LayoutItemID("itm_settings"))])
+        let account = try #require(view.footerRegion.itemView(LayoutItemID("itm_account")))
+        #expect(account.accessibilityPerformPress())
+        #expect(sent == [.activateItem(LayoutItemID("itm_account"))])
     }
 
     // MARK: Hidden apps (D55)

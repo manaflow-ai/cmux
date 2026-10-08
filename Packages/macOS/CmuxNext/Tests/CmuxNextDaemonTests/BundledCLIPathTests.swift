@@ -13,16 +13,19 @@ import Testing
 
     @Test func bundledCLIBinDirGoesFirst() {
         let integration = GhosttyShellIntegration(resourcesDirectory: resources, ghosttyBinary: binary)
-        let env = integration.apply(
-            to: ["PATH": "\(oldApp):/usr/bin:/App/Contents/Resources/bin", "CMUX_BUNDLED_CLI_PATH": "\(oldApp)/cmux"],
-            isDirectory: dirs, isExecutable: { $0 == "/App/Contents/Resources/bin/cmux" })
+        let cli = BundledCLIEnvironment(binDirectory: "/App/Contents/Resources/bin", pathIntegration: nil)
+        let env = cli.apply(
+            to: integration.apply(
+                to: ["PATH": "\(oldApp):/usr/bin:/App/Contents/Resources/bin", "CMUX_BUNDLED_CLI_PATH": "\(oldApp)/cmux"],
+                isDirectory: dirs),
+            isExecutable: { $0 == "/App/Contents/Resources/bin/cmux" })
         #expect(env["PATH"] == "/App/Contents/Resources/bin:\(oldApp):/usr/bin")
         #expect(env["CMUX_BUNDLED_CLI_PATH"] == "/App/Contents/Resources/bin/cmux")
     }
 
     @Test func withoutABundledCLIThePathIsAppendedAsGhosttyDoes() {
         let integration = GhosttyShellIntegration(resourcesDirectory: resources, ghosttyBinary: binary)
-        let env = integration.apply(to: ["PATH": "/usr/bin"], isDirectory: dirs, isExecutable: { _ in false })
+        let env = integration.apply(to: ["PATH": "/usr/bin"], isDirectory: dirs)
         #expect(env["PATH"] == "/usr/bin:/App/Contents/Resources/bin")
         #expect(env["CMUX_BUNDLED_CLI_PATH"] == nil)
     }

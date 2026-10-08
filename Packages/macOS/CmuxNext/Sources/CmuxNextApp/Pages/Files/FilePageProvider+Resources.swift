@@ -11,8 +11,6 @@ extension FilePageProvider {
         "svg": "image/svg+xml", "avif": "image/avif", "ico": "image/x-icon", "bmp": "image/bmp",
     ]
     nonisolated static let localImageLimit = 50 * 1024 * 1024
-    /// `__lib/<name>`: the classic viewer's bundles, concatenated in load order.
-    nonisolated static let libraryFiles: [String: [String]] = ["mermaid.js": ["mermaid.min.js"], "vega.js": ["vega.min.js", "vega-lite.min.js"]]
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
         guard kind == .markdown, !isClosed else { return nil }
@@ -22,8 +20,9 @@ extension FilePageProvider {
             let folder = file.deletingLastPathComponent()
             return await Self.localImage(folder: folder, relative: request.path.dropFirst().joined(separator: "/"))
         case MarkdownPageResource.library:
-            guard let libraries, request.path.count == 1, let names = Self.libraryFiles[request.path[0]] else { return nil }
-            return await Self.library(names.map { libraries.appending(path: $0) })
+            guard let libraries, request.path.count == 1,
+                  let data = await MarkdownPageResource.library(request.path[0], in: libraries) else { return nil }
+            return PageResource(data: data, mimeType: "text/javascript; charset=utf-8")
         case MarkdownPageResource.remoteImage:
             guard host?.remoteImages == true, request.path.count == 1, let url = RemoteImagePolicy.decode(request.path[0]),
                   RemoteImagePolicy.allows(url) else { return nil }
@@ -42,15 +41,5 @@ extension FilePageProvider {
               // concurrency-allow: @concurrent, off the main actor
               let data = try? Data(contentsOf: real) else { return nil }
         return PageResource(data: data, mimeType: type)
-    }
-
-    @concurrent private static func library(_ files: [URL]) async -> PageResource? {
-        var parts: [Data] = []
-        for file in files {
-            // concurrency-allow: @concurrent, off the main actor
-            guard let data = try? Data(contentsOf: file) else { return nil }
-            parts.append(data)
-        }
-        return PageResource(data: Data(parts.joined(separator: Data("\n;\n".utf8))), mimeType: "text/javascript; charset=utf-8")
     }
 }
