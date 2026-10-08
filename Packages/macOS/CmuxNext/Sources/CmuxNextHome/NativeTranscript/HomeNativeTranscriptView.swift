@@ -231,6 +231,12 @@ public final class HomeNativeTranscriptView: NSView {
         let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
         transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
+        // The header's band: a light fade of the window background, shown only
+        // near the top; the design system's fades, none under Reduce Motion.
+        let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
+        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in
+            Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
+        }
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary,
                                  fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator)

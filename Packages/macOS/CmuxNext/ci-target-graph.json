@@ -5,6 +5,7 @@
     "CMUXMobileCore": "Packages/Shared/CMUXMobileCore",
     "CmuxAgentBrands": "Packages/Shared/CmuxAgentBrands",
     "CmuxAgentCursor": "Packages/Shared/CmuxAgentCursor",
+    "CmuxAgentQuestion": "Packages/Shared/CmuxAgentQuestion",
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
@@ -156,8 +157,31 @@
       ],
       "packages": [],
       "reads": [
+        "cmux-tui/crates/cmux-agent-pane-policy/",
         "webviews/test/fixtures/agent-page-csp.txt"
       ]
+    },
+    "CmuxNextAgentQuestion": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion",
+      "targets": [
+        "CmuxNextDesign"
+      ],
+      "packages": [
+        "CmuxAgentQuestion"
+      ]
+    },
+    "CmuxNextAgentQuestionTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentQuestionTests",
+      "targets": [
+        "CmuxNextAgentQuestion",
+        "CmuxNextDesign"
+      ],
+      "packages": [
+        "CmuxAgentQuestion"
+      ],
+      "reads": []
     },
     "CmuxNextApp": {
       "kind": "regular",
@@ -169,6 +193,7 @@
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
         "CmuxNextAgentPane",
+        "CmuxNextAgentQuestion",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
@@ -191,7 +216,9 @@
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
+        "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
+        "CmuxNextRemoteBrowser",
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteView",
         "CmuxNextResources",
@@ -210,6 +237,7 @@
       "packages": [
         "CmuxAgentBrands",
         "CmuxAgentCursor",
+        "CmuxAgentQuestion",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ]
@@ -245,9 +273,11 @@
         "CmuxNextDaemon",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextProcessEnvironment",
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxAgentQuestion",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ],
@@ -396,7 +426,8 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h",
-        "schemas/agent-url-policy/vectors.json"
+        "schemas/agent-url-policy/vectors.json",
+        "schemas/local-file-handoff/vectors.json"
       ]
     },
     "CmuxNextCloud": {
@@ -442,6 +473,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextDaemon",
+        "CmuxNextProcessEnvironment",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -491,6 +523,7 @@
       ],
       "packages": [],
       "reads": [
+        "Resources/bin/",
         "cmux-tui/spec/fixtures/terminal-snapshot-dogfood-png.jsonl",
         "plans/cmux-next/daemon-capabilities.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
@@ -516,7 +549,10 @@
         "CMUXMobileCore",
         "CmuxTheme"
       ],
-      "reads": []
+      "reads": [
+        "Resources/ghostty/themes/",
+        "schemas/theme/app-theme-vectors.json"
+      ]
     },
     "CmuxNextDictation": {
       "kind": "regular",
@@ -599,7 +635,8 @@
       "packages": [
         "CmuxHomeCore",
         "CmuxHomeRender",
-        "CmuxMessagesLab"
+        "CmuxMessagesLab",
+        "CmuxTheme"
       ],
       "reads": []
     },
@@ -734,6 +771,21 @@
       "reads": [
         "cmux-tui/crates/cmux-app-host/app-test/palette-nav-vectors.json"
       ]
+    },
+    "CmuxNextProcessEnvironment": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextProcessEnvironment",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextProcessEnvironmentTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextProcessEnvironmentTests",
+      "targets": [
+        "CmuxNextProcessEnvironment"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextRemote": {
       "kind": "regular",
@@ -1003,6 +1055,7 @@
       "targets": [
         "CmuxNextCopyMode",
         "CmuxNextDesign",
+        "CmuxNextProcessEnvironment",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
         "CmuxNextWakeups"

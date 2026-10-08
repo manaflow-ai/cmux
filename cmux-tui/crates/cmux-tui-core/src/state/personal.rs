@@ -7,12 +7,22 @@ use rusqlite::Transaction;
 use serde::Serialize;
 
 use crate::mux::*;
+use crate::state::closed_history_store::{flush_pending_group, new_closed_id, pend_group};
 use crate::state::commit::{StateEffects, state_not_found, workspace_identity};
 use crate::state::personal_state_store as personal;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 use crate::state::values::local_registry_id;
+use crate::workspace_registry::personal_mutations::group_archive;
 use crate::workspace_registry::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
+
+/// Advertises `icon` on `workspace_group.update`, `WorkspaceGroupSnapshot`
+/// and `list-personal` groups.
+pub(crate) const WORKSPACE_GROUP_ICON_CAPABILITY: &str = "workspace-group-icon-v1";
+
+/// Advertises `pinned` on `workspace_group.update`, `WorkspaceGroupSnapshot`
+/// and `list-personal` groups.
+pub(crate) const WORKSPACE_GROUP_PIN_CAPABILITY: &str = "workspace-group-pin-v1";
 
 /// One personal state mutation.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -36,6 +46,14 @@ pub(crate) enum PersonalChange {
         /// when absent, so older mutation fingerprints keep their shape.
         #[serde(skip_serializing_if = "Option::is_none")]
         top_index: Option<Option<usize>>,
+        /// The group's icon (`workspace-group-icon-v1`); `Some(None)`
+        /// clears it. Omitted when absent, like `top_index`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        icon: Option<Option<String>>,
+        /// Pin (save) or unpin the group (`workspace-group-pin-v1`).
+        /// Omitted when absent, like `top_index`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pinned: Option<bool>,
     },
     GroupDelete {
         group: String,
@@ -158,7 +176,7 @@ impl Mux {
         });
         // Delete Space closes its workspaces (SPACE-DELETE-CLOSES-ITS-WORKSPACES).
         if let PersonalChange::RoomDelete { room, move_to: None } = &change {
-            let closed_id = crate::state::closed_history_store::new_closed_id();
+            let closed_id = new_closed_id();
             return self
                 .state_room_delete(
                     mutation,
@@ -212,7 +230,16 @@ fn apply_personal(
                 .context("created group vanished")?;
             Ok(StateChanges::new(value, all_groups(tx)?))
         }
-        PersonalChange::GroupUpdate { group, name, color, collapsed, room, top_index } => {
+        PersonalChange::GroupUpdate {
+            group,
+            name,
+            color,
+            collapsed,
+            room,
+            top_index,
+            icon,
+            pinned,
+        } => {
             personal::update_group(
                 tx,
                 &group,
@@ -226,6 +253,14 @@ fn apply_personal(
                 personal::set_group_top(tx, &group, top_index)
                     .map_err(|error| typed(error, "workspace_group", &group))?;
             }
+            if let Some(icon) = &icon {
+                personal::set_group_icon(tx, &group, icon.as_deref())
+                    .map_err(|error| typed(error, "workspace_group", &group))?;
+            }
+            if let Some(pinned) = pinned {
+                personal::set_group_pinned(tx, &group, pinned)
+                    .map_err(|error| typed(error, "workspace_group", &group))?;
+            }
             let value = personal::workspace_group_snapshot(tx, &group)?
                 .context("updated group vanished")?;
             let mut changes = vec![state_upsert("workspace_group", &group, value.clone())];
@@ -236,8 +271,17 @@ fn apply_personal(
             Ok(StateChanges::new(value, changes))
         }
         PersonalChange::GroupDelete { group } => {
+            // RECOVERABLE-BY-DEFAULT: the group is one closed-history record
+            // with no member (its workspaces stay open), so Reopen Closed
+            // forms it again, also after a restart.
+            if personal::workspace_group_snapshot(tx, &group)?.is_none() {
+                return Err(state_not_found("workspace_group", &group));
+            }
+            let archive = group_archive::snapshot_group(tx, &group)?;
+            pend_group(tx, &new_closed_id(), &serde_json::json!({"group": archive}))?;
             let ungrouped = personal::delete_group(tx, &group)
                 .map_err(|error| typed(error, "workspace_group", &group))?;
+            flush_pending_group(tx)?;
             let mut changes = vec![state_delete("workspace_group", &group)];
             changes.extend(all_groups(tx)?);
             changes.extend(all_placements(tx)?);

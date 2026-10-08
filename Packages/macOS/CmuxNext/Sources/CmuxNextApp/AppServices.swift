@@ -32,8 +32,7 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
-    /// The app's key window. Tests and `debug.key` replace it: a window
-    /// only becomes key in a running, active app.
+    /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
     private(set) var cloud: CloudService!
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
@@ -64,12 +63,8 @@ final class AppServices {
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
-    /// Input invariants and desync reports (plans/cmux-next/input-spec.md).
-    var inputMonitor: InputInvariantMonitor!
-    var inputGeometryObservers: [any NSObjectProtocol] = []
-    /// No-activate mode only: gives back a keyboard the user did not give.
-    var keyboardGuard: NoActivateKeyboardGuard?
-    var keyboardGuardObservers: [any NSObjectProtocol] = []
+    /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
+    let input = InputVerificationService()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
@@ -100,8 +95,8 @@ final class AppServices {
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
-    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md).
-    private(set) lazy var sidebarLayout: SidebarLayoutService = {
+    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md); tests may set a fake owner.
+    lazy var sidebarLayout: SidebarLayoutService = {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
@@ -162,8 +157,10 @@ final class AppServices {
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
-    /// The sidebar's Recents (nil without acpmux), watched once for every window.
-    private(set) lazy var agentRecents: AgentRecentsFeed? = QuitAgents.environment(self).map { AgentRecentsFeed(socketPath: $0.socketPath) }
+    /// The device-wide Chats index (nil without acpmux), watched once for every window.
+    private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
+    /// Shared Open Chat path for sidebar clicks and palette Return.
+    private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
@@ -204,8 +201,8 @@ final class AppServices {
         cache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: contextMenus))
         themes = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))
         remoteLocalhost = RemoteLocalhostService(machines: machines)
-        cache.configureBrowser = { [weak self] tab, url, base in
-            await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
+        cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
+            await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
         cache.onRelease = { [weak self] key in
@@ -266,6 +263,7 @@ final class AppServices {
             CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
+            onboarding.cookiePrompt.attach(entry)
         }
         cache.onSuggestionEngineCreated = { [unowned self] in BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0) }
         cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
@@ -277,10 +275,8 @@ final class AppServices {
         }
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
-        cache.onPresentationChange = { [weak self] in
-            self?.surfaceInvariant.noteChange()
-            self?.browserHost?.provider.refreshTabs()
-        }
+        cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
+        cache.presentationChanges.subscribe("browser-host") { [weak self] in self?.browserHost?.provider.refreshTabs() }
         resources = AppResourceSource(services: self)
         windows = WindowManager(services: self)
         windows.incognitoHistoryReset = { [weak cache, weak self] in
@@ -306,8 +302,7 @@ final class AppServices {
             }
         }
         observePaletteForFocus()
-        startInputVerification()
-        startNoActivateGuard()
+        input.start(services: self)
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()

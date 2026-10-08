@@ -194,18 +194,25 @@ fn run_show(flags: &Flags) -> anyhow::Result<()> {
 }
 
 fn run_show_state(state: &LinkState) -> anyhow::Result<()> {
+    print_json(&show_json(state)?);
+    Ok(())
+}
+
+/// `cmux link show`: the install, key and state, the live link's socket,
+/// and the pairing file the app watches for peer changes (`peers_file`).
+fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     let config = state.config()?;
     let public_key = state::public_key(&*state.private_key()?);
     let live = registration::read_live(&state.registration_dir());
-    print_json(&json!({
+    Ok(json!({
         "install": config.install,
         "public_key": STANDARD.encode(public_key),
         "overlay_address": overlay_address(&config.install).to_string(),
         "port": config.port,
         "running": live.is_some(),
         "socket": live.map(|registration| registration.socket),
-    }));
-    Ok(())
+        "peers_file": state.peers_path(),
+    }))
 }
 
 fn run_peer(args: &[String]) -> anyhow::Result<()> {

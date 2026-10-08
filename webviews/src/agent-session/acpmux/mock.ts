@@ -29,6 +29,19 @@ const harnesses = [
   { id: "claude", name: "Claude Code", models: claudeModels },
   { id: "codex", name: "Codex", models: codexModels },
 ];
+/// The seeded project's own harness profiles (`<folder>/.cmux/harnesses/<id>.toml`), one in each
+/// state a folder profile can be in. Acme waits for the user's Enable.
+const MOCK_PROFILE_FOLDER = "~/code/cmux";
+const mockFolderProfiles = [
+  { id: "acme", displayName: "Acme Agent", state: "needs-enable" },
+  { id: "lint-bot", displayName: "Lint Bot", state: "needs-trust" },
+  {
+    id: "broken",
+    displayName: "Broken Agent",
+    state: "error",
+    diagnostics: [{ message: "command not found: broken-agent" }],
+  },
+] as const;
 /// A recorded MockScript replays against the catalog and session it was recorded with.
 const scriptHarnesses = [
   { id: "claude", name: "Claude Code", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] },
@@ -162,6 +175,8 @@ export class MockAcpmuxSocket {
   ]);
   /// acpmux's own record, which `acp.trust.set` writes; the agents' files never change.
   private trust = new Map<string, TrustLevel>([["~/code/atlas-web", "trusted"]]);
+  /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
+  private enabledProfiles = new Set<string>();
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -309,7 +324,20 @@ export class MockAcpmuxSocket {
       case "_acpmux/watch":
         return { sessions: this.sessions };
       case "_acpmux/harnesses":
-        return { harnesses: this.script ? scriptHarnesses : harnesses };
+        return {
+          harnesses: this.script ? scriptHarnesses : harnesses,
+          ...(typeof params.cwd === "string" && this.profileFolder(params.cwd)
+            ? { folderProfiles: this.folderProfiles() }
+            : {}),
+        };
+      // The host confirms with the user and adds the hash; the pane never sends one.
+      case "_acpmux/harness_enable": {
+        const profile = mockFolderProfiles.find((entry) => entry.id === params.id);
+        if (params.sha256 !== undefined || params.folder !== MOCK_PROFILE_FOLDER || profile?.state !== "needs-enable")
+          throw Object.assign(new Error("enable refused"), { code: "transport.harness_not_confirmed" });
+        this.enabledProfiles.add(profile.id);
+        return { enabled: { id: profile.id, folder: MOCK_PROFILE_FOLDER } };
+      }
       case "_acpmux/attach": {
         this.attached = target;
         // Opening a session reads it; it keeps its place in the list.
@@ -331,6 +359,15 @@ export class MockAcpmuxSocket {
       case "session/new": {
         // A new chat opens in the project of the session it was started from.
         const from = this.sessions.find((entry) => entry.sessionId === this.attached) ?? this.sessions[0];
+        const profile = mockFolderProfiles.find((entry) => entry.id === params._meta?.acpmux?.harness);
+        if (profile && !this.enabledProfiles.has(profile.id))
+          throw Object.assign(new Error(`${profile.displayName} is not enabled in this folder`), {
+            data: {
+              reason: profile.state === "needs-trust" ? "harness.needs_trust" : "harness.needs_enable",
+              harness: profile.id,
+              folder: MOCK_PROFILE_FOLDER,
+            },
+          });
         const created = newSessionSummary(
           `mock-session-${this.sessions.length + 1}`,
           String(params.cwd ?? from?.cwd ?? "~/code/cmux"),
@@ -420,6 +457,20 @@ export class MockAcpmuxSocket {
       default:
         return {};
     }
+  }
+
+  /// Whether `cwd` is the seeded project's folder or inside it (its profiles apply there).
+  private profileFolder(cwd: string): boolean {
+    return cwd === MOCK_PROFILE_FOLDER || cwd.startsWith(`${MOCK_PROFILE_FOLDER}/`);
+  }
+
+  private folderProfiles() {
+    return mockFolderProfiles.map((profile) => ({
+      ...profile,
+      folder: MOCK_PROFILE_FOLDER,
+      path: `${MOCK_PROFILE_FOLDER}/.cmux/harnesses/${profile.id}.toml`,
+      state: this.enabledProfiles.has(profile.id) ? "enabled" : profile.state,
+    }));
   }
 
   /// A new session holding `target`'s events through `throughSeq`, under its own sequence.

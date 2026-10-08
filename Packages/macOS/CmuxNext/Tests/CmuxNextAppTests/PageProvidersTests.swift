@@ -100,4 +100,30 @@ struct PageProvidersTests {
         #expect(PageDescriptor.history.admits(PageNativeOp.actionRun))
         #expect(!PageDescriptor.history.admits("cmux.settings.set"))
     }
+
+    /// The Passwords page's Import buttons run the person-only import actions through the
+    /// registry (PASSWORDS-IMPORT-ANY-BROWSER): only those two, and only on a real click or key in
+    /// the page. Page script alone cannot put the import window or the file picker in front of
+    /// the person.
+    @Test func thePasswordsPageRunsTheImportActionsOnlyOnAGesture() async throws {
+        #expect(PageDescriptor.passwords.actions == ["importFromBrowser", "password.importCSV"])
+        #expect(PageDescriptor.passwords.admits(PageNativeOp.actionRun))
+        let native = AppPageNativeProvider(services: ActionBindingCoverageTests.boundServices(), page: .passwords)
+        for action in ["importFromBrowser", "password.importCSV"] {
+            do {
+                _ = try await native.call(PageNativeOp.actionRun, params: ["action": .string(action)],
+                                          context: PageCallContext(page: PageDescriptor.passwords.id))
+                Issue.record("\(action) ran without a gesture")
+            } catch let error as PageError {
+                #expect(error.code == "cmux.app.user_only", "\(action)")
+            }
+        }
+        do {
+            _ = try await native.call(PageNativeOp.actionRun, params: ["action": "passwords.open"],
+                                      context: PageCallContext(page: PageDescriptor.passwords.id, userGesture: true))
+            Issue.record("passwords.open is not an action of the Passwords page")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.app.action_refused")
+        }
+    }
 }

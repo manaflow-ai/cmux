@@ -148,4 +148,34 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
         encoder.flush()
     }
 }
+/// The mock host accepts every granted upstream request at once (the
+/// status reports it active), so the pane's share buttons, indicator and
+/// Stop work without a real host. It captures nothing.
+extension MockRemoteStreamSource: RemoteUpstreamControl {
+    /// The status the mock reports now.
+    public var currentStatus: RemoteViewStatus { state.withLock { $0.status } }
+
+    public func requestUpstream(_ kind: RemoteUpstreamKind, permissionGranted: Bool) {
+        updateUpstream { upstream, state in
+            guard permissionGranted, upstream.offered, state == .streaming else { return }
+            upstream.active.insert(kind)
+        }
+    }
+
+    public func stopUpstream(_ kind: RemoteUpstreamKind) {
+        updateUpstream { upstream, _ in upstream.active.remove(kind) }
+    }
+
+    public func stopAllUpstreams() {
+        updateUpstream { upstream, _ in upstream.active.removeAll() }
+    }
+
+    private func updateUpstream(_ change: (inout RemoteUpstreamStatus, RemoteSessionState) -> Void) {
+        let (status, continuation) = state.withLock { state in
+            change(&state.status.upstream, state.status.state)
+            return (state.status, state.statuses)
+        }
+        continuation?.yield(status)
+    }
+}
 #endif

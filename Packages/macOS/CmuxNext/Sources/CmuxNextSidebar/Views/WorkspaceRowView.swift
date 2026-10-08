@@ -43,6 +43,9 @@ final class WorkspaceRowView: SidebarRowView {
     private var progress: SidebarProgress?
     private var hasSubtitle = false
     private var grouped = false
+    /// The group band's frame (`GroupLabelBandTests`).
+    var groupBandFrame: NSRect { groupRail.frame }
+    var isGroupBandHidden: Bool { groupRail.isHidden }
     private var groupColor: GroupColor?
     private var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
@@ -253,21 +256,23 @@ final class WorkspaceRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        // The group rail sits at the shared leading edge. Kind icons provide
-        // the only visual inset for grouped project rows.
-        let indent: CGFloat = 0
-        let railWidth = max(Metrics.dividerThickness * 2, 2)
+        // Option B band (Lawrence 2026-10-07): a member indents past its
+        // header's caret, and one band in the group color runs under the
+        // caret through every member row (full height, so rows join);
+        // a neutral band for a group without a color.
+        let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
+        let railWidth = max(Metrics.dividerThickness * 3, 3)
         groupRail.frame = NSRect(
-            x: SidebarStyle.horizontalInset - Metrics.space2,
-            y: Metrics.space1,
+            x: SidebarStyle.titleLeading + (Metrics.smallIconSize - railWidth) / 2,
+            y: 0,
             width: railWidth,
-            height: max(0, b.height - Metrics.space2)
+            height: b.height
         )
         groupRail.isHidden = !grouped
         performWithTheme {
-            let color = groupColor.flatMap { $0.swatch.blended(withFraction: 0.25, of: Palette.accent) }
-            groupRail.backgroundColor = color?.cgColor
-            groupRail.cornerRadius = railWidth / 2
+            let color = groupColor.map { $0 == .grey ? Palette.badgeFill : $0.swatch } ?? Palette.badgeFill
+            groupRail.backgroundColor = color.cgColor
+            groupRail.cornerRadius = 0
         }
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).

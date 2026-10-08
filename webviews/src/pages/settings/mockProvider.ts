@@ -26,8 +26,11 @@ import {
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { validate } from "./validate";
+import { mockThemeColors } from "./mockThemes";
+import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
 export type MockOptions = {
+  chatFolders?: ListRow["folders"];
   managed?: Record<string, { value: unknown } & ManagedInfo>;
   values?: Record<string, unknown>;
   diagnostics?: Diagnostic[];
@@ -41,7 +44,16 @@ export type MockOptions = {
 };
 
 export const mockDomains: Domains = {
-  themes: ["Catppuccin Mocha", "Dracula", "GitHub Light", "Gruvbox Dark", "Solarized Light", "Tokyo Night"],
+  themes: [
+    "Apple System Colors",
+    "Apple System Colors Light",
+    "Catppuccin Mocha",
+    "Dracula",
+    "GitHub Light",
+    "Gruvbox Dark",
+    "Solarized Light",
+    "Tokyo Night",
+  ],
   font_families: ["Berkeley Mono", "Iosevka", "JetBrains Mono", "Menlo", "SF Mono"],
   sounds: ["default", "Basso", "Funk", "Glass", "Ping", "Submarine", "none"],
 };
@@ -53,9 +65,12 @@ type Params = Record<string, unknown>;
 
 export class MockSettingsProvider {
   readonly log: Array<{ op: string; params: unknown }> = [];
+  /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
+  themeColors: GhosttyTheme[] = mockThemeColors;
   revision = 1;
   diagnostics: Diagnostic[];
   readonly domains: Domains | null;
+  private readonly chatFolders: ListRow["folders"];
   private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
@@ -66,6 +81,7 @@ export class MockSettingsProvider {
   private connected: boolean;
 
   constructor(options: MockOptions = {}) {
+    this.chatFolders = options.chatFolders;
     this.managed = new Map(
       Object.entries(
         options.managed ?? {
@@ -100,6 +116,7 @@ export class MockSettingsProvider {
         this.setHost({ ...this.host, theme: { ...theme, current: { ...theme.current, [level]: spec } } });
         return {};
       },
+      "cmux.settings.theme.colors": () => ({ themes: this.themeColors }),
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
@@ -143,6 +160,7 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.theme.set",
+      "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
@@ -186,9 +204,14 @@ export class MockSettingsProvider {
       { name: "green", swatch: "#5E9A6A", fill: "#B5D6BB" },
       { name: "orange", swatch: "#B07A45", fill: "#E0C3A3" },
     ],
-    theme: { levels: ["room", "workspace", "terminal"], current: { room: null, workspace: "Dracula", terminal: null } },
+    theme: {
+      levels: ["room", "workspace", "terminal"],
+      current: { room: null, workspace: "Dracula", terminal: null },
+      config: { ...mockThemeColors.find((theme) => theme.name === "Apple System Colors")!, name: "" },
+    },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
     ghostty_diagnostics: [],
+    computer_use: { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" },
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
     backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" }],
   };
@@ -363,6 +386,9 @@ export class MockSettingsProvider {
     const managed = this.managed.get(key);
     return {
       key,
+      ...(key === "agents.chats.roots"
+        ? { folders: this.chatFolders, user_roots: this.values.get(key) as string[] | undefined }
+        : {}),
       value: managed ? managed.value : this.values.has(key) ? this.values.get(key) : row.default,
       default: row.default,
       customized: this.values.has(key),

@@ -212,7 +212,7 @@ impl Mux {
                         None,
                         None,
                         None,
-                        &WorkspaceMutation::local("cmux-tui-ephemeral"),
+                        &WorkspaceMutation::daemon_local("cmux-tui-ephemeral"),
                     )
                 {
                     eprintln!(

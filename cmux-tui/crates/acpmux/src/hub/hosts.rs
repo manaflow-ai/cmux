@@ -583,8 +583,11 @@ impl Hub {
         child: &Arc<ChildAgent>,
         agent_request_id: Value,
         permission_id: String,
-        request: Value,
+        mut request: Value,
     ) {
+        // A record from a daemon without question normalization gets it here,
+        // so its answers are checked like a new ask's.
+        super::questions::normalize(&mut request);
         let (tx, rx) = oneshot::channel();
         session
             .permissions

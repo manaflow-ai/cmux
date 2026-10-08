@@ -6,7 +6,7 @@ import Testing
 /// The picker's save mode, type filters and ranking (R89): the name field
 /// with path navigation, the overwrite confirmation, Save As, All Files,
 /// prefix-first ranking and `name/` jumps.
-@MainActor @Suite struct PickerSaveAndFilterTests {
+@MainActor @Suite(.paletteRanker) struct PickerSaveAndFilterTests {
     typealias Answer = PickerNavigationTests.Answer
     let root: URL
 

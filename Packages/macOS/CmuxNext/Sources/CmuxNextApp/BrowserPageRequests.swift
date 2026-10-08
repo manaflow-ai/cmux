@@ -37,6 +37,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private var closedBeforeAdoption: [WeakPage] = []
     /// Daemon tabs to close when they appear: their page closed first.
     private var closeOnArrival: Set<SurfaceID> = []
+    /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
+    let proxiedTabs = ProxiedBrowserTabs()
 
     /// Site settings of `site`, a site whose automatic-downloads setting
     /// blocked a download in tab `tab` (its profile's store). One path for
@@ -106,7 +108,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
                                                          entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
             let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
-                                                     services: services) + host.items
+                                                     services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
             services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
         case .notice(let text):
@@ -124,6 +126,12 @@ final class BrowserPageRequests: BrowserTabDelegate {
             }
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
+        case .openLocalFile(let url):
+            // A page's navigation is not the user choosing the file: it shows
+            // read only outside the roots the user chose.
+            if let reason = services.viewers.openFile(url, in: services.paneController(for: pane), userChose: false) {
+                services.cache.existingBrowser(key)?.chrome.showNotice(reason)
+            }
         case .openPopup(let child, let request):
             openPopup(child, request: request, openerKey: key, pane: pane)
         case .unhandledKey(let pageKey):

@@ -1,6 +1,6 @@
 // Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and
 // submenus. Base UI owns roles, focus, arrows (direction-aware), typeahead and Escape per level.
-import { createContext, use, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { createContext, use, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
@@ -137,6 +137,16 @@ export function MenuButton({
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       disabled={disabled}
+      onKeyUp={(event) => {
+        if (event.key !== " ") return;
+        const active =
+          event.currentTarget.ownerDocument.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]') ??
+          event.currentTarget.ownerDocument.activeElement?.closest<HTMLElement>('[role^="menuitem"]');
+        if (!active) return;
+        event.preventDefault();
+        event.stopPropagation();
+        active.click();
+      }}
       onPointerDown={(event) => {
         context?.beginPointer(event);
         if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
@@ -157,14 +167,22 @@ export interface MenuPopupProps {
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   align?: "start" | "center" | "end";
+  /** What the menu is placed against (default: the menu button). */
+  anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
   children: ReactNode;
 }
 
-export function MenuPopup({ className, side = "bottom", align = "start", children }: MenuPopupProps) {
+export function MenuPopup({ className, side = "bottom", align = "start", anchor, children }: MenuPopupProps) {
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>
-      <BaseMenu.Positioner className="ui-positioner" side={side} align={align} sideOffset={UI_ANCHOR_GAP}>
+      <BaseMenu.Positioner
+        className="ui-positioner"
+        anchor={anchor}
+        side={side}
+        align={align}
+        sideOffset={UI_ANCHOR_GAP}
+      >
         <BaseMenu.Popup className={cx("ui-popup ui-menu", className)}>{children}</BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>

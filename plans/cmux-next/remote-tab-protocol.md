@@ -60,6 +60,7 @@ Direction: V = viewer to host, H = host to viewer.
 | `rb.menu.cancel` | H | `token` | the page or host closed the menu |
 | `rb.dialog.show` | H | `token`, `dialog` (`alert`, `confirm`, `prompt`, `beforeunload` with `origin`, `message`, `default_text`, `is_reload`) | JS dialog as a native sheet |
 | `rb.dialog.result` | V | `token`, `accept`, `text` | |
+| `rb.dialog.cancel` | H | `token` | the page closed the dialog itself (it navigated away or closed; Chromium reset its dialog state): the viewer closes the sheet and sends no answer |
 | `rb.file_chooser.show` | H | `token`, `mode` (`open`, `open_multiple`, `folder`, `save`), `accept`, `default_name` | |
 | `rb.file_chooser.result` | V | `token`, `files` (null = cancel; else `{upload, name, size, mime}` per file) | bytes follow as bulk frames under each `upload` id |
 | `rb.upload.end` | V | `upload`, `sha256` | upload complete; the host verifies and gives the file to the page |
@@ -118,7 +119,9 @@ Effects come in this order: `start_page`, `apply_screen`, capture change, `notif
 - `page_cancel {token}`: token open → close, `viewer_cancel {token}`. Otherwise no effect (`stale`).
 - `viewer_gone`: an open menu is cancelled (`chrome_continue {token, cancel}`).
 
-The same lifecycle serves dialogs, file choosers and permission prompts (one open per kind); r4 adds those vectors.
+The same lifecycle serves dialogs, file choosers and permission prompts (one open per kind); r4 adds those vectors. Dialogs today: tokens start at 1 per session; a new dialog cancels one still open on the viewers; when Chromium resets its dialog state (navigation, close) the host drops the callback and sends `rb.dialog.cancel {token}`, and a later `rb.dialog.result` for that token does nothing.
+
+The viewer checks its own answers too (client vectors, `client.json`): a menu choice the shown menu did not offer is refused as `invalid_choice` and is never sent, and the menu stays open. The viewer makes a new client for each rb session (each `rb.open`), because tokens and screen seqs restart per session.
 
 ### 5.3 Scroll-offset writer handoff (r9) — `scroll-writer.json`
 

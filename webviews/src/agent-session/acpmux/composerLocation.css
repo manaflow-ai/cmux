@@ -1,8 +1,13 @@
-/* The location tray below the composer (ComposerContext.tsx): folder and branch controls, one quiet
-   row of text menu buttons that all look alike. A control is a plain text button (no native bezel,
-   no fill, no weight change); hover and an open menu lay a soft rounded wash from the theme under
+/* The location row (ComposerContext.tsx): the composer card's footer, folder and computer on the
+   left, branch on the right. It sits inside the card (Composer.tsx), so it shares the card's one
+   fill, edge and radius; a hairline in the card's edge color separates it from the prompt bar, and
+   it paints no fill or border of its own. Nothing stacks, so it reads the same over a background
+   image, on a plain page, in light and dark and with Reduce Transparency. Its 12px inset is the
+   prompt bar's, so the controls' washes line up with the + and Send buttons above. Each control
+   hugs its name, so the computer sits right after the folder. A control is a plain text button
+   (no bezel, no fill, no weight change); hover and an open menu lay the bar's own wash under
    it, and keyboard focus draws a ring in the theme's text color. The padding is always there, so
-   neither hover nor a new name moves the text vertically or changes the row's height. */
+   neither hover nor a new name moves the text or changes the row's height. */
 .acpmux-composer-context {
   display: flex;
   align-items: center;
@@ -10,20 +15,19 @@
   gap: 8px;
   min-width: 0;
   height: 36px;
-  margin: -12px 0 16px;
-  padding: 0 14px;
+  margin: 0;
+  padding: 0 12px;
   box-sizing: border-box;
-  border: 1px solid var(--acpmux-composer-edge);
-  border-top: 0;
-  border-radius: 0 0 20px 20px;
-  background: var(--acpmux-composer-tray);
+  border: 0;
+  background: none;
+  box-shadow: inset 0 .5px 0 var(--acpmux-composer-edge);
   color: var(--agent-muted);
   font-size: 12px;
   line-height: 16px;
 }
 .acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; flex: 1 1 0; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
-.acpmux-composer-context > .acpmux-location-picker { flex: 1 1 0; min-width: 0; }
+.acpmux-composer-context > .acpmux-location-picker { flex: 0 1 auto; min-width: 0; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;
@@ -83,26 +87,18 @@
    Base UI's positioner places them (portaled to the body, which is why styles.css gives
    .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. */
 .acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: 13px; }
-/* The recent folders scroll; Choose folder… stays in view under them. */
-.acpmux-location-folders { max-height: min(260px, 45vh); overflow: auto; }
+/* The recent folders scroll; Choose folder… stays in view under them. The menu opens above the
+   card (ComposerContext.tsx useCardAnchor), so the list also fits the room the positioner reports
+   above the card, less Choose folder… and the menu's padding, but never under two rows. */
+.acpmux-location-folders {
+  max-height: max(88px, min(260px, 45vh, calc(var(--available-height, 100vh) - 60px)));
+  overflow: auto;
+}
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 
-/* The shelf sits behind the composer edge instead of reading as a second full row. The composer
-   owns the shadow and the shelf keeps a stable inset, so opening a menu never moves the transcript. */
-.acpmux-composer-box { z-index: 2; }
-.acpmux-composer-context {
-  position: relative;
-  z-index: 1;
-  height: 40px;
-  margin: -14px 2px 12px;
-  padding: 10px 10px 0;
-  border-top: 0;
-  border-radius: 0 0 18px 18px;
-  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 4px 10px color-mix(in srgb, var(--agent-text) 6%, transparent);
-}
 .acpmux-composer-bar {
   min-height: 52px;
   height: auto;
@@ -118,5 +114,53 @@
 .acpmux-mode .acpmux-picker-button .acpmux-icon:last-child { display: none; }
 .acpmux-mode .acpmux-picker-button[aria-expanded="true"],
 .acpmux-mode .acpmux-picker-button:hover { color: var(--agent-text); }
+.acpmux-mode .acpmux-access-trigger {
+  width: 34px;
+  gap: 1px;
+  padding: 0 3px;
+}
+.acpmux-mode .acpmux-access-trigger .acpmux-icon:last-child { display: block; width: 12px; height: 12px; }
+.acpmux-access-trigger { color: var(--agent-muted); }
+.acpmux-access-trigger:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+.acpmux-access-menu {
+  width: min(286px, calc(100vw - 24px));
+  min-width: 0;
+  padding: 5px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--acpmux-menu-bg);
+  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 10px 30px var(--agent-shadow, rgb(0 0 0 / .35));
+  color: var(--agent-text);
+}
+.ui-menu-item.acpmux-access-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: var(--agent-text);
+}
+.ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-access-item .ui-menu-check { order: 3; margin-inline-start: 4px; color: var(--agent-text); }
+.acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
+.acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
+.acpmux-access-item .acpmux-menu-text { order: 2; min-width: 0; }
+.acpmux-access-item .acpmux-menu-label { font-size: 13px; font-weight: 500; }
+.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; overflow: hidden; color: var(--agent-muted); font-size: 11.5px; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
 .acpmux-send { width: 32px; height: 32px; }
 .acpmux-context-ring { width: 32px; height: 32px; }
+
+/* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
+   opaque base at 72% instead of into the clear page, so the prompt, the chips and the footer stay
+   legible over a busy painting while the backdrop still shows through. On an opaque page the base is
+   the page color, so the card looks as before. Reduce Transparency makes the card opaque. */
+.acpmux-composer-box {
+  --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-composer-glass));
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-composer-box { --acpmux-composer-glass: var(--acpmux-base); }
+}

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxTheme
 
 /// Chrome colors, all derived from the terminal theme (`ThemeTokens`).
 ///
@@ -33,12 +34,21 @@ public struct Palette {
     /// What a page or tab view (Home, Feed, History, Tasks, Bookmarks)
     /// gives a background it must paint: the surface background, opaque,
     /// in an opaque window, and clear over a see-through one, where the
-    /// window's one backdrop is the background (`WindowBackdrop`). A page
-    /// host's own layer paints nothing: the pane paints under it.
+    /// window's one backdrop is the background (`WindowBackdrop`). A
+    /// background image makes the window see-through at any opacity, so
+    /// the backdrop is read with the scope's image. A page host's own layer
+    /// paints nothing: the pane paints under it.
     public static var paneFill: NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
+        let backdrop = WindowBackdrop(tokens, selection: ThemeContext.activeBackdropSelection)
+        return backdrop.panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
     }
+    /// A translucent scrim of the surface background for text over the
+    /// window's backdrop (``ThemeTokens/legibilityScrim``).
+    public static var legibilityScrim: NSColor { color(\.legibilityScrim, dynamic: PaletteDynamic.legibilityScrim) }
+    /// The scrim's alpha: the most a translucent band over the window's
+    /// backdrop may cover (the Home header's top fade peaks there).
+    public static var legibilityScrimOpacity: CGFloat { CGFloat(ThemeTokens.legibilityScrimOpacity) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.

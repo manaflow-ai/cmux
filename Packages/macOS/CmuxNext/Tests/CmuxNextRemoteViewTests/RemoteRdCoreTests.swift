@@ -24,7 +24,8 @@ struct RemoteRdCoreTests {
     /// A frame body (`u32 au_len, u64 t_capture_us, u32 ref_frame`, access
     /// unit) split into `shardLen`-byte data shards, the last zero-padded.
     static func datagrams(
-        frame: UInt32, keyframe: Bool, accessUnit: [UInt8], tCapture: UInt64, shardLen: Int, firstSeq: UInt16
+        frame: UInt32, keyframe: Bool, accessUnit: [UInt8], tCapture: UInt64, shardLen: Int, firstSeq: UInt16,
+        stream: UInt16 = 0
     ) -> [Data] {
         let ref: UInt32 = keyframe ? UInt32.max : frame - 1
         var body = le(UInt32(accessUnit.count)) + le(tCapture) + le(ref) + accessUnit
@@ -32,7 +33,7 @@ struct RemoteRdCoreTests {
         body += [UInt8](repeating: 0, count: count * shardLen - body.count)
         return (0..<count).map { i in
             let h = header(
-                flags: keyframe ? 0x01 : 0, frame: frame, index: UInt16(i), count: UInt16(count),
+                flags: keyframe ? 0x01 : 0, stream: stream, frame: frame, index: UInt16(i), count: UInt16(count),
                 transportSeq: firstSeq &+ UInt16(i)
             )
             return Data(h + body[(i * shardLen)..<((i + 1) * shardLen)])

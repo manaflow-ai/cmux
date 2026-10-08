@@ -2,6 +2,8 @@
 //! `tests/byte_attachment.rs` pattern): the fake reads the exact request
 //! lines and answers with v12 replies and attach events, so these tests pin
 //! what the attacher sends and what the sink receives, in order.
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
