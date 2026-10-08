@@ -9,9 +9,14 @@
  * The VM it creates is always deleted by its exact id, also when a step fails,
  * and is created with idleTimeoutSeconds 60 and autoDeleteSeconds 3600 as
  * backstops. The key is read from the environment and never printed.
+ *
+ * With CMUX_VM_SMOKE_API_KEY_B (a key of a second tenant, same scopes) it checks that
+ * the second tenant gets 404 for every read and mutation on the first
+ * tenant's VM, and that the VM is absent from the second tenant's list.
  */
 const base = process.env["CMUX_VM_SMOKE_URL"];
 const key = process.env["CMUX_VM_SMOKE_API_KEY"];
+const keyB = process.env["CMUX_VM_SMOKE_API_KEY_B"] ?? "";
 if (base === undefined || base === "" || key === undefined || key === "") {
   console.error("CMUX_VM_SMOKE_URL and CMUX_VM_SMOKE_API_KEY are required");
   process.exit(2);
@@ -25,11 +30,11 @@ if (origin.protocol !== "https:" || origin.pathname !== "/") {
 const runId = process.env["GITHUB_RUN_ID"] ?? `local-${Date.now()}`;
 const STEP_TIMEOUT_MS = 120_000;
 
-const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
+const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}, bearer: string = key) => {
   const response = await fetch(new URL(path, origin), {
     method,
     headers: {
-      authorization: `Bearer ${key}`,
+      authorization: `Bearer ${bearer}`,
       ...(body === undefined ? {} : { "content-type": "application/json" }),
       ...headers,
     },
@@ -85,6 +90,28 @@ try {
   console.log(`    created ${vmId}`);
 
   await waitForState(vmId, "running");
+
+  if (keyB !== "") {
+    // Another tenant must not learn that the VM exists: every call is 404.
+    const foreign: ReadonlyArray<readonly [string, string, unknown]> = [
+      ["GET", `/v1/vms/${vmId}`, undefined],
+      ["POST", `/v1/vms/${vmId}/exec`, { command: "echo leaked", timeoutMs: 10_000 }],
+      ["POST", `/v1/vms/${vmId}/pause`, undefined],
+      ["POST", `/v1/vms/${vmId}/stop`, undefined],
+      ["POST", `/v1/vms/${vmId}/fork`, {}],
+      ["DELETE", `/v1/vms/${vmId}`, undefined],
+    ];
+    for (const [method, path, body] of foreign) {
+      const response = await call(method, path, body, {}, keyB);
+      expectStatus(`tenant B ${method} ${path.replace(vmId, "<vm>")}`, response.status, 404, response.body);
+    }
+    const listB = await call("GET", "/v1/vms", undefined, {}, keyB);
+    expectStatus("tenant B list", listB.status, 200, listB.body);
+    if (JSON.stringify(listB.body).includes(vmId)) throw new Error("tenant B list shows tenant A's VM");
+    console.log("ok  tenant B list does not show the VM");
+    // The VM is untouched by the refused calls.
+    await waitForState(vmId, "running");
+  }
 
   const exec = await call("POST", `/v1/vms/${vmId}/exec`, { command: "echo cmux-vm-smoke", timeoutMs: 30_000 });
   expectStatus("exec", exec.status, 200, exec.body);

@@ -10,7 +10,7 @@ import WebKit
     private func makeTab(html: String) throws -> WebKitTab {
         let engine = WebKitEngine(profileStore: WebKitProfileStore(factory: FakeDataStoreFactory()), applicationNameForUserAgent: nil)
         let url = try #require(URL(string: "data:text/html;charset=utf-8," + html.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!))
-        return engine.makeWebKitTab(BrowserTabConfiguration(initialURL: url))
+        return engine.makeWebKitTab(initialURL: url)
     }
 
     private func waitForLoad(_ tab: WebKitTab) async throws {

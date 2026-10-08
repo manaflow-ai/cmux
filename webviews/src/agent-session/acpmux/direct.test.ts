@@ -1435,6 +1435,53 @@ describe("direct client session state", () => {
     expect(latest().connection).toBe("connected");
   });
 
+  /// A sender that holds its prompt (the composer, `accepted`) learns when acpmux took it; a
+  /// refusal before that (remote guard, sandbox, a missing gesture) leaves no failed bubble,
+  /// because the prompt is still in the composer, and the transcript says why it did not go.
+  test("a held prompt refused before acpmux took it leaves no bubble and says why", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    let accepted = 0;
+    const sending = client.send("held", [], undefined, () => (accepted += 1)).catch(() => "refused");
+    await settle();
+    ScriptedSocket.current.fail("session/prompt", {
+      code: -32602,
+      message: "remote.mode_not_asking: this chat does not ask",
+      data: { reason: "remote.mode_not_asking" },
+    });
+    expect(await sending).toBe("refused");
+    expect(accepted).toBe(0);
+    expect(latest().rows.some((row) => row.kind === "user" && row.text === "held")).toBe(false);
+    expect(latest().rows.some((row) => row.kind === "notice" && row.text?.includes("remote.mode_not_asking"))).toBe(
+      true,
+    );
+    expect(latest().connection).toBe("connected");
+  });
+
+  /// A prompt acpmux held for the trust answer goes after Trust with the gesture its send kept: the
+  /// ticket rides beside its promptId (`_meta.cmuxGesture`), which the host strips.
+  test("a held prompt carries its kept gesture ticket beside its promptId", async () => {
+    const client = await connect();
+    void client.send("after trust", [], "p-held", undefined, "ticket-1").catch(() => undefined);
+    await settle();
+    const prompt = ScriptedSocket.current.sent.find((request) => request.method === "session/prompt");
+    expect(prompt?.params?._meta).toEqual({ acpmux: { promptId: "p-held" }, cmuxGesture: "ticket-1" });
+  });
+
+  /// A trust refusal names the folder acpmux asks about, so the pane can ask about it.
+  test("a trust refusal carries the folder acpmux named", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    const sending = client.send("before trust").catch((error: { cwd?: unknown }) => error.cwd);
+    await settle();
+    ScriptedSocket.current.fail("session/prompt", {
+      code: -32602,
+      message: "trust.pending: answer the trust question for the folder first (/agent-home/w)",
+      data: { reason: "trust.pending", cwd: "/agent-home/w" },
+    });
+    expect(await sending).toBe("/agent-home/w");
+  });
+
   /// Any other failure names its reason on the bubble.
   test("a prompt that fails for another reason names it on its bubble", async () => {
     const client = await connect();

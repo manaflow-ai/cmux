@@ -13,7 +13,7 @@ impl Mux {
         state: &mut State,
         operation: &str,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let mut projection =
             self.resource_effect_projection_locked(registry, state, serde_json::json!({}))?;
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;

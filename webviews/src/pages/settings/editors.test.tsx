@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mockManagedKey } from "./mockProvider";
-import { schema, sections, type SchemaRow } from "./schema";
+import { categories } from "./categories";
+import type { SchemaRow } from "./schema";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -16,7 +17,9 @@ afterEach(() => {
 
 /** What the editor of each kind must contain; returns a failure description or null. */
 function editorProblem(row: SchemaRow, control: Element): string | null {
-  const has = (selector: string, count = 1) => control.querySelectorAll(selector).length === count;
+  // The editor's own controls, not the Reset control in the slot every row reserves.
+  const has = (selector: string, count = 1) =>
+    [...control.querySelectorAll(selector)].filter((element) => !element.closest(".reset-slot")).length === count;
   const choices = row.choices?.length ?? 0;
   switch (row.kind) {
     case "toggle":
@@ -59,9 +62,14 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
 describe("editors", () => {
   test("every schema row renders the editor for its kind", async () => {
     const failures: string[] = [];
-    for (const section of sections) {
-      page = await renderPage({ path: `/settings/${section.id}` });
-      for (const row of schema.rows.filter((item) => item.section === section.id)) {
+    for (const category of categories) {
+      page = await renderPage({ path: `/settings/${category.id}` });
+      for (const row of category.groups.flatMap((group) => group.rows)) {
+        // The Theme section draws appearance.theme as its theme picker.
+        if (row.key === "appearance.theme" || row.key === "appearance.appTheme") {
+          if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
+          continue;
+        }
         const element = page.container.querySelector(`[data-row-key="${row.key}"] .row-control`);
         const problem = element ? editorProblem(row, element) : "row not rendered";
         if (problem) failures.push(`${row.key} (${row.kind}): ${problem}`);
@@ -134,7 +142,7 @@ describe("editors", () => {
   });
 
   test("a number field commits on Return, clamped to the range", async () => {
-    page = await renderPage({ path: "/settings/terminal" });
+    page = await renderPage({ path: "/settings/appearance" });
     const field = rowElement(page.container, "terminal.fontSize").querySelector<HTMLInputElement>("input.number")!;
     await changeValue(field, "500");
     await fire(field, "keydown", { key: "Enter" });
@@ -153,7 +161,7 @@ describe("editors", () => {
   });
 
   test("the reset button appears only when the row is customized", async () => {
-    page = await renderPage({ path: "/settings/general" });
+    page = await renderPage({ path: "/settings/privacy" });
     const row = () => rowElement(page!.container, "history.terminalCommands");
     expect(row().querySelector("[data-reset]")).toBeNull();
     await click(row().querySelector("[role=switch]")!);
@@ -162,6 +170,27 @@ describe("editors", () => {
     await click(row().querySelector("[data-reset]")!);
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "history.terminalCommands" }]);
     expect(row().querySelector("[data-reset]")).toBeNull();
+  });
+
+  test("every row reserves its Reset slot, so showing Reset moves no other control", async () => {
+    page = await renderPage({ path: "/settings/privacy" });
+    for (const element of page.container.querySelectorAll("[data-row-key]")) {
+      const slot = element.querySelector(".row-control > .reset-slot");
+      expect({ key: element.getAttribute("data-row-key"), slot: slot !== null }).toEqual({
+        key: element.getAttribute("data-row-key"),
+        slot: true,
+      });
+      // At the default the control is in place but inert and hidden from assistive technology.
+      const button = slot!.querySelector("button")!;
+      expect(button.hasAttribute("inert")).toBe(true);
+      expect(button.getAttribute("aria-hidden")).toBe("true");
+    }
+    const row = () => rowElement(page!.container, "history.terminalCommands");
+    const before = [...row().querySelector(".row-control")!.children].map((child) => child.className);
+    await click(row().querySelector("[role=switch]")!);
+    const after = [...row().querySelector(".row-control")!.children].map((child) => child.className);
+    expect(after).toEqual(before);
+    expect(row().querySelector(".reset-slot button")!.hasAttribute("inert")).toBe(false);
   });
 
   test("a refused value shows a localized error on the row, the daemon's text as detail", async () => {
@@ -199,7 +228,7 @@ describe("editors", () => {
 
   test("a team-managed row names the team; a write the daemon refuses as managed is localized", async () => {
     page = await renderPage({
-      path: "/settings/general",
+      path: "/settings/privacy",
       mock: { managed: { "history.terminalCommands": { value: false, source: "team", reason: "x", team: "Acme" } } },
     });
     const row = rowElement(page.container, "history.terminalCommands");
@@ -208,7 +237,7 @@ describe("editors", () => {
 
   test("a first read that fails keeps every editor read only and says why", async () => {
     page = await renderPage({
-      path: "/settings/general",
+      path: "/settings/privacy",
       mock: { failing: { "cmux.settings.list": "cmux.protocol.unknown_op" } },
     });
     expect(page.container.querySelector('[data-read-only="loadFailed"]')).not.toBeNull();
@@ -236,7 +265,7 @@ describe("editors", () => {
   });
 
   test("with no published domains, theme and font rows are text fields", async () => {
-    page = await renderPage({ path: "/settings/appearance", mock: { domains: null } });
+    page = await renderPage({ path: "/settings/theme", mock: { domains: null } });
     const theme = rowElement(page.container, "appearance.theme");
     expect(theme.querySelector("button.domain-button")).toBeNull();
     expect(theme.querySelector("input.text")).not.toBeNull();
@@ -245,17 +274,17 @@ describe("editors", () => {
   test("a diagnostic shows an inline notice and a warning badge", async () => {
     page = await renderPage({
       mock: { diagnostics: [{ path: "terminal.fontSize", message: "fontSize must be a number" }] },
-      path: "/settings/terminal",
+      path: "/settings/appearance",
     });
     const notice = rowElement(page.container, "terminal.fontSize").querySelector("[data-notice]")!;
     expect(notice.textContent).toContain("fontSize must be a number");
     await click([...notice.querySelectorAll("button")][0]!);
     expect(ops(page.provider, "cmux.app.action.run")).toEqual([{ action: "palette.openCmuxSettingsFile" }]);
-    expect(page.container.querySelector('[data-section-link="terminal"] [data-badge="warning"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-section-link="appearance"] [data-badge="warning"]')).not.toBeNull();
   });
 
   test("unavailable: read-only banner, disabled controls, writes refused and not queued", async () => {
-    page = await renderPage({ path: "/settings/general" });
+    page = await renderPage({ path: "/settings/privacy" });
     await run(() => page!.provider.setConnected(false));
     expect(page.container.querySelector("[data-read-only]")?.textContent).toContain("read only");
     const toggle = rowElement(page.container, "history.terminalCommands").querySelector<HTMLButtonElement>(
@@ -271,7 +300,7 @@ describe("editors", () => {
   });
 
   test("a write from another client (CLI, hand edit) shows up live through cmux.settings.changed", async () => {
-    page = await renderPage({ path: "/settings/terminal" });
+    page = await renderPage({ path: "/settings/appearance" });
     const field = () =>
       rowElement(page!.container, "terminal.fontSize").querySelector<HTMLInputElement>("input.number")!;
     expect(field().value).not.toBe("19");

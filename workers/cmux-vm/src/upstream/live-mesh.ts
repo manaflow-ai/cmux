@@ -6,11 +6,14 @@
  */
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
+import type { Environment } from "../policy.ts";
+import { signedKeysOf } from "../proofs/device-holds-key.ts";
 import { endpointOf, ruleIdOf } from "../proofs/same-mesh.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
+import { upstreamName } from "./naming.ts";
 import { type CreatedNetwork, type CreatedTunnel, type TunnelInfo, UpstreamMesh, type UpstreamMeshService } from "./mesh.ts";
 
 const NetworkBody = Schema.Struct({ id: UpstreamId, cidr: Schema.optional(Schema.NullOr(Schema.String)) });
@@ -109,7 +112,7 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
   return {
     createNetwork: (mesh, _proofs, options) =>
       http
-        .json("createNetwork", "POST", "/v5/vpcs", { displayName: `cmux ${options.tenantId} ${mesh.value}`, cidr: options.cidr })
+        .json("createNetwork", "POST", "/v5/vpcs", { displayName: upstreamName(config.environment, options.tenantId, mesh.value), cidr: options.cidr })
         .pipe(
           Effect.flatMap(decodeAs(NetworkBody, "createNetwork")),
           Effect.map((body) => {
@@ -124,13 +127,19 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
         : Effect.fail(new UpstreamError({ operation: "discardCreatedNetwork", status: null })),
     deleteNetwork: (_mesh, { owns }) => http.json("deleteNetwork", "DELETE", `/v5/vpcs/${proofSegment(owns)}`).pipe(Effect.asVoid),
 
-    createTunnel: (_mesh, { owns }, options) =>
+    createTunnel: (_mesh, { owns, holds }, options) =>
       Effect.gen(function* () {
+        // The provider refuses a tunnel whose routes miss any range of the network,
+        // and every network also has an IPv6 /64 (assigned by the provider).
+        const network = yield* http
+          .json("getNetwork", "GET", `/v5/vpcs/${proofSegment(owns)}`)
+          .pipe(Effect.flatMap(decodeAs(Schema.Struct({ cidrV6: Schema.optional(Schema.NullOr(Schema.String)) }), "getNetwork")));
+        const routes = network.cidrV6 ? [...options.routes, network.cidrV6] : [...options.routes];
         const raw = yield* http.json("createTunnel", "POST", "/v5/tunnels", {
           // Always our key: omitting it would make the provider mint one, and that key would leave the device boundary.
-          clientPublicKey: options.clientPublicKey,
-          displayName: `cmux ${options.tenantId} ${options.deviceId}`,
-          routes: [...options.routes],
+          clientPublicKey: signedKeysOf(holds).wgPublicKey,
+          displayName: upstreamName(config.environment, options.tenantId, options.deviceId),
+          routes,
           vpcs: [{ vpc: upstreamIdOf(owns) }],
         });
         const body = yield* decodeAs(TunnelBody, "createTunnel")(raw);
@@ -157,6 +166,17 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
       http
         .json("getTunnel", "GET", `/v5/tunnels/${proofSegment(owns)}`)
         .pipe(Effect.flatMap(decodeAs(TunnelBody, "getTunnel")), Effect.map(infoOf), Effect.flatMap(withAddress)),
+    rotateTunnelKey: (_device, { owns, holds }) =>
+      Effect.gen(function* () {
+        const raw = yield* http.json("rotateTunnelKey", "POST", `/v5/tunnels/${proofSegment(owns)}/rotate-key`, {
+          // Always the signed key: without one the provider would mint a key pair and hold the private half.
+          clientPublicKey: signedKeysOf(holds).wgPublicKey,
+        });
+        const body = yield* decodeAs(TunnelBody, "rotateTunnelKey")(raw);
+        // Fail closed: a minted private key is dropped here and never returned.
+        if (carriesPrivateKey(body)) return yield* Effect.fail(new UpstreamError({ operation: "rotateTunnelKey.mintedKey", status: null }));
+        return yield* withAddress(infoOf(body));
+      }),
     deleteDeviceTunnel: (_device, { owns }) => http.json("deleteTunnel", "DELETE", `/v5/tunnels/${proofSegment(owns)}`).pipe(Effect.asVoid),
 
     attachVm: (_mesh, _vm, { ownsMesh, ownsVm }) =>
@@ -189,5 +209,5 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
   };
 }
 
-export const upstreamMeshLayer = (config: { readonly baseUrl: string; readonly apiKey: string }): Layer.Layer<UpstreamMesh> =>
-  Layer.succeed(UpstreamMesh, makeUpstreamMesh({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey) }));
+export const upstreamMeshLayer = (config: { readonly baseUrl: string; readonly apiKey: string; readonly environment: Environment }): Layer.Layer<UpstreamMesh> =>
+  Layer.succeed(UpstreamMesh, makeUpstreamMesh({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey), environment: config.environment }));

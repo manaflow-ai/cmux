@@ -68,6 +68,22 @@ pub(super) async fn route(
                 if let Some(generation) = service.watch_on(&conn.id) {
                     forward(service.clone(), conn.clone(), generation);
                 }
+            } else if on {
+                // The index has not started (the app connects at launch):
+                // subscribe when it does, and ask the client to list again.
+                let conn = conn.clone();
+                hub.when_chats_ready(Box::new(move |service| {
+                    if conn.out.is_closed() {
+                        return;
+                    }
+                    if let Some(generation) = service.watch_on(&conn.id) {
+                        forward(service.clone(), conn.clone(), generation);
+                    }
+                    conn.send(&Message::notification(
+                        "_acpmux/chats_lagged",
+                        json!({"dropped": 0}),
+                    ));
+                }));
             }
             page(service, query).await
         }

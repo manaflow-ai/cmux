@@ -64,7 +64,7 @@ const Row = Schema.Struct({
 });
 
 /** text[] parameters travel as JSON and are unpacked in SQL, since SqlParam has no arrays. */
-const textArray = (index: number) => `ARRAY(SELECT jsonb_array_elements_text($${index}::jsonb))`;
+const textArray = (index: number) => `ARRAY(SELECT jsonb_array_elements_text($${index}::text::jsonb))`;
 
 export const sqlApiKeyAdminStoreLayer: Layer.Layer<ApiKeyAdminStore, never, SqlClient> = Layer.effect(
   ApiKeyAdminStore,
@@ -76,7 +76,7 @@ export const sqlApiKeyAdminStoreLayer: Layer.Layer<ApiKeyAdminStore, never, SqlC
           `INSERT INTO cmux_vm.api_keys
              (id, tenant_id, name, key_hash, scopes, resource_allowlist, created_by, created_at, expires_at)
            VALUES ($1, $2, $3, $4, ${textArray(5)},
-                   CASE WHEN $6::jsonb IS NULL THEN NULL ELSE ${textArray(6)} END,
+                   CASE WHEN $6::text::jsonb IS NULL THEN NULL ELSE ${textArray(6)} END,
                    $7, $8::timestamptz, $9::timestamptz)`,
           [
             key.id,

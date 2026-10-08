@@ -161,8 +161,13 @@ fn tunnel_from_raw(raw: RawTunnel) -> Result<TunnelConfig, ConfigError> {
             text.parse().map_err(|_| ConfigError(format!("meshAddress is not IPv4: {text:?}")))?,
         ),
     };
-    let allowed_ips =
-        raw.allowed_ips.iter().map(|entry| entry.parse()).collect::<Result<Vec<Cidr>, _>>()?;
+    // IPv4 only inside the tunnel: the mesh's IPv6 range is listed too and skipped here.
+    let allowed_ips = raw
+        .allowed_ips
+        .iter()
+        .filter(|entry| !entry.contains(':'))
+        .map(|entry| entry.parse())
+        .collect::<Result<Vec<Cidr>, _>>()?;
     if allowed_ips.is_empty() {
         return Err(ConfigError("allowedIps is empty".into()));
     }
@@ -232,4 +237,44 @@ pub fn load(path: &Path) -> Result<AgentConfig, ConfigError> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| ConfigError(format!("read {}: {error}", path.display())))?;
     parse_agent_config(&text)
+}
+
+/// The saved config after a key rotation: `saved_text` with its tunnel
+/// replaced by the rotate-key response `tunnel_json`, and the device record's
+/// `wgPublicKey` set to the new key. Other fields are kept. A bare tunnel
+/// config becomes the response. The response must be for the same device and
+/// mesh.
+pub fn rotated_config(
+    saved_text: &str,
+    tunnel_json: &str,
+    new_wg_public_key: &str,
+) -> Result<String, ConfigError> {
+    let saved = parse_agent_config(saved_text)?;
+    let tunnel = parse_tunnel(tunnel_json)?;
+    if tunnel.device_id != saved.device_id || tunnel.mesh_id != saved.mesh_id {
+        return Err(ConfigError(format!(
+            "the rotated tunnel is for {}/{}, not {}/{}",
+            tunnel.mesh_id, tunnel.device_id, saved.mesh_id, saved.device_id
+        )));
+    }
+    let parse = |text: &str| {
+        serde_json::from_str::<serde_json::Value>(text)
+            .map_err(|error| ConfigError(format!("config: {error}")))
+    };
+    let response = parse(tunnel_json)?;
+    let mut value = parse(saved_text)?;
+    if value.get("tunnel").is_some() {
+        value["tunnel"] = response;
+        if let Some(device) = value.get_mut("device").and_then(serde_json::Value::as_object_mut) {
+            device.insert("wgPublicKey".into(), new_wg_public_key.into());
+            if device.contains_key("tunnelId") {
+                device.insert("tunnelId".into(), tunnel.id.clone().into());
+            }
+        }
+    } else {
+        value = response;
+    }
+    let text = value.to_string();
+    parse_agent_config(&text)?;
+    Ok(text)
 }

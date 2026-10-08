@@ -7,7 +7,7 @@ public import Foundation
 /// ``AgentPageProvider/hostEvents``. Each kind replaces a script the old host evaluated; the
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
-    /// `theme`, `shortcuts`, `preview`, `customization`, `registry`, `dictation`, `revealTurn`,
+    /// `theme`, `shortcuts`, `preview`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
     /// `command`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue

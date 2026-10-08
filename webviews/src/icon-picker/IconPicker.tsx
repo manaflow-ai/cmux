@@ -2,11 +2,13 @@
 // CLDR keywords and aliases in English and Japanese; recents first; remembered skin tone; a
 // virtualized grid; keyboard driven from the search field. Hosts: the icon picker page (a native
 // popover around a prewarmed web view) and any React page that embeds the component directly.
-import { useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type KeyboardEvent } from "react";
 import type { Strings } from "../pages/shared/i18n";
 import { AssetTab, type IconAssetSink } from "./AssetTab";
 import type { SkinTone } from "./emojiData";
 import type { IconValue } from "./iconValue";
+import { SYMBOL_MODES, symbolRendering, type SymbolMode } from "./symbols";
+import { JumpBar } from "./JumpBar";
 import { pickerKeyAction } from "./keyboard";
 import { CELL_SIZE, PickerStore, type PickerCell, type PickerTab } from "./store";
 import { GridViewport, VirtualGrid } from "./VirtualGrid";
@@ -23,18 +25,33 @@ export interface IconPickerProps {
   /** Clears the icon; the Remove button shows only when given. */
   onClear?: () => void;
   assets?: IconAssetSink;
-  /** The host's URL for a rendered SF Symbol (template image; the page tints it). */
-  symbolImageURL?: (name: string) => string;
+  /**
+   * The host's URL for a rendered SF Symbol: monochrome and hierarchical are template images the
+   * page tints with its theme color (CSS mask); multicolor is a finished image.
+   */
+  symbolImageURL?: (name: string, mode: SymbolMode) => string;
+  /** Why the last pick did not apply (the host refused it); shown until the next session. */
+  error?: string;
 }
 
-export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, symbolImageURL }: IconPickerProps) {
+export function IconPicker({
+  store,
+  strings,
+  onPick,
+  onCancel,
+  onClear,
+  assets,
+  symbolImageURL,
+  error,
+}: IconPickerProps) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [viewport] = useState(() => {
     const view = new GridViewport(CELL_SIZE);
     view.onWidth = (width) => store.setColumns((width - GRID_PADDING * 2) / CELL_SIZE);
     return view;
   });
-  const [toneOpen, setToneOpen] = useState(false);
+  // The open popover menu in the search row: skin tone (Emoji) or rendering mode (Symbols).
+  const [menu, setMenu] = useState<"tone" | "mode" | null>(null);
   const { t } = strings;
   const gridTab = snap.tab === "emoji" || snap.tab === "symbol";
   const active = snap.layout.items[snap.active];
@@ -42,6 +59,19 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
   const pick = (cell: PickerCell | undefined) => {
     if (cell) onPick(store.pick(cell));
   };
+  const jump = (top: number | null) => {
+    if (top !== null) viewport.scrollTo(top);
+  };
+  /** A symbol's style: a mask in the theme color, except multicolor (the symbol's own colors). */
+  const symbolStyle = (name: string, multicolor = false): CSSProperties | undefined => {
+    if (!symbolImageURL) return undefined;
+    const mode = symbolRendering(snap.symbolMode, multicolor);
+    const url = `url("${symbolImageURL(name, mode)}")`;
+    return mode === "multicolor" ? { backgroundImage: url, backgroundColor: "transparent" } : { maskImage: url };
+  };
+  /** Chrome glyphs (the jump bar) stay monochrome in every mode. */
+  const symbolMask = (name: string) =>
+    symbolImageURL ? { maskImage: `url("${symbolImageURL(name, "monochrome")}")` } : undefined;
   const switchTab = (tab: PickerTab) => {
     store.setTab(tab);
     viewport.scrollToTop();
@@ -70,7 +100,9 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
       case "pick":
         return pick(store.activeCell() ?? undefined);
       case "cancel":
-        return toneOpen ? setToneOpen(false) : onCancel();
+        return menu ? setMenu(null) : onCancel();
+      case "section":
+        return jump(store.jumpBy(action.step));
       case "tab": {
         const next = (PICKER_TABS.indexOf(snap.tab) + action.step + PICKER_TABS.length) % PICKER_TABS.length;
         return switchTab(PICKER_TABS[next]);
@@ -79,7 +111,11 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
   };
   const chooseTone = (tone: SkinTone) => {
     store.setTone(tone);
-    setToneOpen(false);
+    setMenu(null);
+  };
+  const chooseMode = (mode: SymbolMode) => {
+    store.setSymbolMode(mode);
+    setMenu(null);
   };
 
   return (
@@ -105,6 +141,11 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
           </button>
         )}
       </div>
+      {error && (
+        <p className="icon-picker-error" role="alert">
+          {error}
+        </p>
+      )}
       {gridTab ? (
         <>
           <div className="icon-picker-search-row">
@@ -131,13 +172,13 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
                   type="button"
                   className="icon-tone-button"
                   aria-label={t("iconPicker.skinTone")}
-                  aria-expanded={toneOpen}
+                  aria-expanded={menu === "tone"}
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => setToneOpen(!toneOpen)}
+                  onClick={() => setMenu(menu === "tone" ? null : "tone")}
                 >
                   {TONE_SAMPLES[snap.tone]}
                 </button>
-                {toneOpen && (
+                {menu === "tone" && (
                   <div className="icon-tone-menu" aria-label={t("iconPicker.skinTone")}>
                     {TONE_SAMPLES.map((sample, tone) => (
                       <button
@@ -155,7 +196,47 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
                 )}
               </div>
             )}
+            {snap.tab === "symbol" && symbolImageURL && (
+              <div className="icon-tone">
+                <button
+                  type="button"
+                  className="icon-tone-button icon-mode-button"
+                  aria-label={t("iconPicker.symbolMode")}
+                  title={t(`iconPicker.symbolMode.${snap.symbolMode}`)}
+                  aria-expanded={menu === "mode"}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => setMenu(menu === "mode" ? null : "mode")}
+                >
+                  <span className="icon-symbol icon-mode-symbol" style={symbolStyle("paintpalette", true)} />
+                </button>
+                {menu === "mode" && (
+                  <div className="icon-tone-menu icon-mode-menu" aria-label={t("iconPicker.symbolMode")}>
+                    {SYMBOL_MODES.map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={mode === snap.symbolMode}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => chooseMode(mode)}
+                      >
+                        {t(`iconPicker.symbolMode.${mode}`)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+          {snap.jumps.length > 0 && (
+            <JumpBar
+              jumps={snap.jumps}
+              layout={snap.layout}
+              viewport={viewport}
+              label={t("iconPicker.categories")}
+              onJump={(id) => jump(store.jump(id))}
+              symbolStyle={symbolMask}
+            />
+          )}
           <VirtualGrid
             layout={snap.layout}
             viewport={viewport}
@@ -175,9 +256,7 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
                 <span
                   className="icon-symbol"
                   aria-label={cell.label}
-                  style={
-                    symbolImageURL && cell.symbol ? { maskImage: `url("${symbolImageURL(cell.symbol)}")` } : undefined
-                  }
+                  style={cell.symbol ? symbolStyle(cell.symbol, cell.multicolor) : undefined}
                 />
               )
             }
@@ -190,11 +269,7 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
                 ) : (
                   <span
                     className="icon-symbol icon-footer-symbol"
-                    style={
-                      symbolImageURL && active.symbol
-                        ? { maskImage: `url("${symbolImageURL(active.symbol)}")` }
-                        : undefined
-                    }
+                    style={active.symbol ? symbolStyle(active.symbol, active.multicolor) : undefined}
                   />
                 )}
                 <span className="icon-footer-text">

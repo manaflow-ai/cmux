@@ -8,7 +8,9 @@ import { vmScopeVerificationEnvironment, cleanupVmScopeVerification } from "./vm
 
 const { origin, sqlHost, sqlContainer } = vmScopeVerificationEnvironment(process.env);
 const app = new StackServerApp({ tokenStore: "memory", projectId: required("NEXT_PUBLIC_STACK_PROJECT_ID"),
-  publishableClientKey: required("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"), secretServerKey: required("STACK_SECRET_SERVER_KEY") });
+  // Optional: the production project requires no publishable key.
+  ...(process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim() ? { publishableClientKey: process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY.trim() } : {}),
+  secretServerKey: required("STACK_SECRET_SERVER_KEY") });
 const q = (value: string) => "'" + value.replaceAll("'", "''") + "'";
 function sql(statement: string) {
   return execFileSync("ssh", ["-o", "BatchMode=yes", sqlHost, "docker", "exec", "-i", sqlContainer,

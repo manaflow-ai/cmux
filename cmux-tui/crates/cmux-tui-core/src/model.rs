@@ -16,7 +16,7 @@ mod layout_rows;
 
 #[cfg(test)]
 pub(crate) use layout_columns::normalize_dock_columns;
-pub use layout_columns::{ColumnDock, DockEdge, DockMode, ViewportColumn};
+pub use layout_columns::{ColumnDock, DockEdge, DockMode, DockRole, ViewportColumn};
 pub(crate) use layout_columns::{
     ColumnProjection, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
     dock_columns_are_consistent, dock_flags_are_consistent, project_layout_columns,

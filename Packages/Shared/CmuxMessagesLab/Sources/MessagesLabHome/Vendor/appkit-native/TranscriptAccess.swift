@@ -52,6 +52,7 @@ extension ChatController {
         case let .link(url, title, site, _, _): return [title, site ?? url].compactMap { $0 }.joined(separator: ", ")
         case let .attachment(a): return String(format: NativeStrings.attachmentFormat, a.fileName)
         case let .location(_, _, title, subtitle): return [title, subtitle].compactMap { $0 }.joined(separator: ", ")
+        case let .custom(c): return CustomRows.plainText(c)  // cmux: d5d6a18's custom parts (this file stays at bd65bbf)
         }
     }
 

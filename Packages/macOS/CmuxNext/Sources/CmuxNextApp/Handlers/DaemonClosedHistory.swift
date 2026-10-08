@@ -43,6 +43,12 @@ enum DaemonClosedHistory {
         entries([.tab, .screen, .workspace], in: services).first { $0.item.id == id }
     }
 
+    /// The newest recorded delete of personal workspace group `id`, if a
+    /// daemon serves one (Ungroup and Delete Group record the group).
+    static func groupEntry(_ id: String, in services: AppServices) -> Entry? {
+        entries([.workspace], in: services).first { $0.item.group?.id == id }
+    }
+
     /// Reopens `entry` on its daemon and shows it: a tab selected in its
     /// pane, a screen selected in its workspace, a workspace in the active
     /// window. The failure (if any) is the tracked work's result.
@@ -78,6 +84,8 @@ enum DaemonClosedHistory {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
                 return "closed.reopen: \(error)"
             }
+            // A reopened workspace group forms again in the sidebar; no window changes what it shows.
+            if item.group != nil { return nil }
             if item.kind == .tab, let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
                 controller.selectWhenReported(tab: tab.rawValue)
                 return nil

@@ -143,6 +143,39 @@ const variants: Record<string, AgentPaneVariant> = {
       summary(5.2, { status: "completed", toolCount: 1 }),
     ]),
   },
+  "write-without-diff": {
+    note: "Calls with no diff: the fleet Write (content before file_path), a Codex apply_patch, an opencode write, and one with no path (Unknown file).",
+    snapshot: chat([
+      user("Render the build fleet status", 6),
+      activity(
+        [
+          tool("Write", "edit", "completed", {
+            inputSummary: JSON.stringify({
+              content:
+                'import json, sys, urllib.request, html, datetime\n\nURL = "http://fleet.example.test/v1/status"\n',
+              file_path: "/tmp/fleetviz/gen.py",
+            }),
+          }),
+          tool("apply_patch", "edit", "completed", {
+            inputSummary: JSON.stringify({
+              patch:
+                "*** Begin Patch\n*** Update File: src/net/client.ts\n@@\n-a\n+b\n*** Add File: src/net/retry.ts\n+x\n*** End Patch",
+            }),
+          }),
+          tool("write", "edit", "completed", {
+            inputSummary: JSON.stringify({
+              content: "# Networking\n",
+              filePath: "/Users/you/src/atlas-web/docs/networking.md",
+            }),
+          }),
+          tool("Edit", "edit", "completed", { inputSummary: "{}" }),
+        ],
+        5.9,
+      ),
+      assistant("Wrote the generator and updated the client.", 5.2),
+      summary(5.2, { status: "completed", toolCount: 4 }),
+    ]),
+  },
   collapsed: {
     note: "agentPane.editedFiles.show = collapsed: the header only; its chevron shows the rows.",
     snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),

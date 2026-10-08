@@ -77,6 +77,7 @@ export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
         "firewallRule.perResource",
         "firewallRule.account",
         "aclApply.perMeshPerMinute",
+        "enrollmentCode.perMeshPerHour",
       ),
     ),
   },

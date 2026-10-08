@@ -20,6 +20,7 @@ public struct SidebarMapping {
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
+                                muted: Set<String> = [],
                                 statusLine: (String) -> String? = { _ in nil },
                                 selectedTab: (PaneModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], newTabTitle: String = "") -> [SidebarRowSection] {
@@ -29,14 +30,16 @@ public struct SidebarMapping {
             // top section shows; it is not also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
-                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, selectedTab: selectedTab,
-                           newTabPages: newTabPages, newTabTitle: newTabTitle) }
+                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, muted: muted.contains($0.id),
+                           selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
                     name: group.name,
                     color: color(group.color) ?? .grey,
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
+                    isPinned: group.pinned,
+                    icon: group.icon.flatMap { WorkspaceIcon.parse($0) },
                     workspaces: rows
                 )))
             } else {
@@ -50,8 +53,9 @@ public struct SidebarMapping {
     /// `selectedTab` is the window's tab selection in a pane (a `TabModel.id`), nil for the
     /// daemon's default tab. `newTabPages` are the ids of tabs still on the New Tab page,
     /// listed as `newTabTitle` when it is not empty.
+    /// `muted`: the workspace is in `notifications.mutedWorkspaces`.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
-                    selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
+                    muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "") -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
@@ -73,7 +77,7 @@ public struct SidebarMapping {
             pullRequest: Self.entry(Self.pullRequestKey, in: entries),
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
-            agentWorking: tabs.contains { $0.agent?.state == .working },
+            agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
             icon: Self.icon(color: workspace.color, icon: workspace.icon),
             kind: kind(front),
             kindBrand: AgentBrandCatalog.brand(for: front?.agentSession?.harness ?? front?.agent?.agent)?.rawValue,
@@ -86,7 +90,10 @@ public struct SidebarMapping {
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread)
-            }
+            },
+            muted: muted,
+            // The store refuses every close of its home workspace (`home_not_closable`).
+            isClosable: workspace.kind != Self.homeKind
         )
     }
 
