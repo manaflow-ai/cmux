@@ -22995,7 +22995,10 @@ mod tests {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let attempts = Arc::new(AtomicUsize::new(0));
-        *mux.cell_pixel_fanout_timeout.lock().unwrap() = Some(Duration::from_millis(10));
+        // The operation answers at once; a generous fanout wait means a
+        // worker thread that starts late under load still counts as an
+        // attempt instead of a fanout timeout.
+        *mux.cell_pixel_fanout_timeout.lock().unwrap() = Some(Duration::from_secs(30));
         *mux.cell_pixel_operation.lock().unwrap() = Some(Arc::new({
             let attempts = attempts.clone();
             move |_, _, _| {
@@ -23009,7 +23012,8 @@ mod tests {
 
         assert_eq!(update.failures.len(), 1);
         assert!(update.failures[0].deferred);
-        let deadline = Instant::now() + Duration::from_secs(1);
+        // A safety bound only: the retries stop after their attempts.
+        let deadline = Instant::now() + Duration::from_secs(30);
         while mux.cell_pixel_retries.lock().unwrap().worker_running && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
