@@ -184,9 +184,11 @@ export const cloudApprovalsDueAt = (sql: SqlStorage, now: number): number | null
 export const wakeCloudApprovals = async (h: CloudApprovalHost, now: number, submit: Submit, audit: (e: Record<string, unknown>) => void): Promise<void> => {
   if (!hasTable(h.sql)) return
   expireDue(h.sql, now)
-  for (const request of stuck(h.sql, now)) {
+  // At most one settle per wake: each can wait REQUEST_WAIT_MS, and the revoke drain and cost backstop run after.
+  for (const request of stuck(h.sql, now).slice(0, 1)) {
     const row = approvalByRequest(h.sql, request)
-    if (!row) continue
+    // Read again: a redelivery may have taken it meanwhile.
+    if (!row || row.state !== "running" || isInFlight(h.sql, request)) continue
     try {
       await execute(h, row, submit, audit)
     } catch (e) {
