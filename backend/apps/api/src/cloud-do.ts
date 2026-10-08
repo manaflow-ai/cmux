@@ -33,7 +33,12 @@ export class CloudDO extends CloudIdle {
    * not a link-token check; the daemon still authenticates every link hello.
    */
   async cloudHostAccess(entity: string, host: string, principal: Principal, role: "host" | "device"): Promise<HostAccess | null> {
-    if (!this.isBound(entity) || principal.team !== entity || principal.agent !== undefined || !principal.user) return null
+    // TeamDO calls the device branch only after checking membership in the
+    // target team. A signed-in member may have a personal `principal.team`
+    // while reaching this CloudDO through `?team=...`; requiring equality here
+    // would deny legitimate shared-team device sockets. VM host admission below
+    // remains strict because the install must be bound to this same entity.
+    if (!this.isBound(entity) || principal.agent !== undefined || !principal.user) return null
     const machine = this.bind(entity).rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }).find((r) => r.row.host === host)?.row
     if (!machine || !machine.host || machine.status === "deleting" || machine.status === "failed") return null
     const summary = {
@@ -44,7 +49,7 @@ export class CloudDO extends CloudIdle {
       enrolled_by: machine.vm_install ?? ""
     }
     if (role === "host") {
-      if (principal.kind !== "install" || principal.install_kind !== "vm" || !principal.install || principal.bound_machine !== machine.id || machine.vm_install !== principal.install) return null
+      if (principal.team !== entity || principal.kind !== "install" || principal.install_kind !== "vm" || !principal.install || principal.bound_machine !== machine.id || machine.vm_install !== principal.install) return null
       return { role, host: summary }
     }
     if (principal.kind !== "session" && principal.kind !== "install") return null

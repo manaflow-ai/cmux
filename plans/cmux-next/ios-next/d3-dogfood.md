@@ -1,15 +1,18 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh on `feat-cmux-next-ios` implementation baseline
-`0d3abbed092507e96cb337eb328854717f84aa0c`, including the C9 pane-composition seam, direct and WebRTC cancellation tests, the
-split link benchmark harness, cancellation-safe teardown, and provenance-safe report artifacts.
+Status: parity refresh on `feat-cmux-next-ios` implementation head
+`05b230b2c337faa2021d3e934ab3d369222fc91a`, including the C9 durable lifecycle owner adapter,
+C12 HostDO VM admission, D1b serialized mobile-link teardown, the direct and WebRTC cancellation
+tests, the split link benchmark harness, cancellation-safe teardown, and provenance-safe report
+artifacts. These additions close contract seams only; they do not claim tagged-pair runtime evidence.
 Plan: [PLAN.md](PLAN.md) D3.
-The exact-head fleet archive job `b5a0506b68222d56cbb8481c` produced tag `nxios-0d3` with artifact
-digest `sha256:ce5afff5ab742f9a94f4dc71655f0f64a383ce55579de45592ff2c6fceb54999` at the current
-head. It proves device-archive and simulator compilation only: no install, simulator run, real-phone
-run, or tagged Mac/iOS runtime pair is recorded. The current focused hosted CmuxLinkBench job
-`993065dcad475643bc24aedf` passed all 8 tests at this SHA. Earlier checks remain ancestor evidence
-only and do not substitute for runtime evidence.
+The last exact-head fleet archive job `b5a0506b68222d56cbb8481c` produced tag `nxios-0d3` at the
+ancestor `0d3abbed092507e96cb337eb328854717f84aa0c`, with artifact digest
+`sha256:ce5afff5ab742f9a94f4dc71655f0f64a383ce55579de45592ff2c6fceb54999`. It proves device-archive
+and simulator compilation only: no install, simulator run, real-phone run, or tagged Mac/iOS runtime
+pair is recorded. The latest wave has no new fleet archive yet. The current focused hosted
+CmuxLinkBench job `993065dcad475643bc24aedf` remains ancestor evidence and does not substitute for
+runtime evidence.
 
 The first-pass matrix was recorded at `afbc8c69b3b` and is retained in
 [research-and-scope-2026-10.md](research-and-scope-2026-10.md) as historical context. This refresh
@@ -67,7 +70,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.8 | Row actions read, rename, close | C5 | done |
 | 1.8 | Customize sheet (color, icon) | E3 | done (name, nine palette colors, SF Symbol icon) |
 | 1.8 | SSH computers and their workspaces in the list | C9, C5, E3 | done (E3: tmux sessions and windows, screen, cmux-tui sessions; attach only; no create/kill) |
-| 1.8 | Cloud machines in the list | C12 | seam only (`cloudWorkspaces` flag off until the VM Rust host, c12 4) |
+| 1.8 | Cloud machines in the list | C12 | seam only (`cloudWorkspaces` flag off until the VM Rust host; HostDO admission is now landed) |
 | 1.8 | Presence announce of the viewed workspace | C5 | done |
 | 1.9 | Detail container, title menu, terminal picker | C5, D1 | done |
 | 1.9 | Terminal surface | A2, C1, D1 | done (D1b host wiring is landed; tagged-pair verification is pending) |
@@ -98,11 +101,11 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.14 | Push coordinator, readiness, repair, Allow Push, DEBUG diagnostics | C7, C11 | done |
 | 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
 | 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
-| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (tmux control-mode hydration, safe attach, bounded split-layout metadata, and a partial pane-composition seam are landed for single-pane and matching-grid windows; full renderer composition, multi-pane/history/parser-state parity and lifecycle mutations remain) |
+| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (tmux control-mode hydration, safe attach, bounded split-layout metadata, partial pane composition, and a durable lifecycle owner adapter are landed; full renderer composition, multi-pane/history/parser-state parity, live owner execution and lifecycle verification remain) |
 | 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
 | 1.15 | SOCKS proxy and local port forward | C14 | done (credentialed generic SOCKS route is wired into `WebRoute`; loopback uses the route tunnel, non-loopback is default-deny with an explicit direct-backend seam; live device/reconnect verification pending) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
-| 1.16 | Cloud VM terminal and files attach | C12 | seam only (phone preflight and one-shot token mint are implemented with concurrency/reconnect guards; Rust VM host, HostDO VM admission, underlay and live token gates remain) |
+| 1.16 | Cloud VM terminal and files attach | C12 | seam only (phone preflight, one-shot token mint, and HostDO VM admission are implemented; Rust VM host, underlay, verifier and live attach gates remain) |
 | 1.16 | StoreKit plans, purchase, restore | C16 | mocked (`MockBillingStore`, `PlansView` stub) |
 | 1.17 | Account, sign out, delete account, team | C11 | done |
 | 1.17 | What's New archive and post-update sheet | C16 | done |
@@ -134,9 +137,11 @@ Open implementation gaps, grouped by owner:
   layout metadata. The pane-composition seam preserves pane-id renderer/parser identity, maps grid
   input to pane-local coordinates, and reconciles add/remove/update operations deterministically.
   The renderer-independent on-demand history request/page contract is landed with bounded,
-  epoch-checked cursor assembly, but its host adapter is not. Multi-pane renderer composition,
-  complete parser-state restore, and SSH create/rename/kill remain explicit gaps; E3 still supplies
-  the screen and cmux-tui paths.
+  epoch-checked cursor assembly, but its host adapter is not. The durable lifecycle owner adapter now
+  protects create/rename/kill intents with pending barriers and applied replay receipts; it does not
+  execute SSH commands. Multi-pane renderer composition, complete parser-state restore, live owner
+  execution, and SSH lifecycle verification remain explicit gaps; E3 still supplies the screen and
+  cmux-tui paths.
 - C14: local port forwarding, simulator/browser seams and the credentialed generic SOCKS route are
   landed. `CmuxMobileTunnel` is now a direct `CmuxiOSWebCore` dependency; `WebRoute.startSocks` keeps
   loopback routing on the authenticated machine tunnel and requires an explicit direct backend for
@@ -147,8 +152,8 @@ Open implementation gaps, grouped by owner:
 - C8: task attachments are wired through C4. Native package execution, picker permissions,
   upload cancellation/retry, and live task dispatch still need hosted/runtime evidence.
 - Seam-only rows: Cloud machines in the workspace list, Cloud VM terminal/files attach, and analytics
-  upload. C12's phone credential seam is implemented; it does not supply the Rust VM session host,
-  HostDO VM admission, underlay, or link-token verifier gates.
+  upload. C12's phone credential seam and HostDO VM admission boundary are implemented; they do not
+  supply the Rust VM session host, underlay, one-shot link-token verifier, or live attach gates.
 
 ## 2. Device verification checklist
 

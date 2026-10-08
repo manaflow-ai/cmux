@@ -35,6 +35,12 @@ public actor MobileLinkHostRunner {
     private var publishTask: Task<Void, Never>?
     private var started = false
     private var stopped = false
+    /// Bumped by every start and stop. A runner start checks it after each
+    /// suspension so sign-out or account replacement cannot resurrect a
+    /// listener after teardown has returned.
+    private var lifetime: UInt64 = 0
+
+    private struct Superseded: Error {}
 
     public init(account: any MobileLinkHostAccount, options: MobileLinkHostOptions,
                 endpointProvider: @escaping DaemonConnection.EndpointProvider) {
@@ -50,13 +56,30 @@ public actor MobileLinkHostRunner {
     public func start() async throws -> UInt16 {
         guard !started, !stopped else { throw CancellationError() }
         started = true
+        lifetime &+= 1
+        let run = lifetime
+        do {
+            return try await start(run: run)
+        } catch is Superseded {
+            throw CancellationError()
+        }
+    }
+
+    private func start(run: UInt64) async throws -> UInt16 {
         let principal = try await account.principal()
+        try ensureCurrent(run)
         let keys = MobileLinkKeyStore(directory: options.keyDirectory)
         let direct = try DirectIdentity(privateKeyRepresentation: keys.privateKey(.direct))
         // The `wg` key is published either way, so phones pin it before the
         // B3 DEV switch turns the acceptor on (the assembly gates the acceptor).
         let wireGuard = try WireGuardPrivateKey(rawRepresentation: keys.privateKey(.wireGuard))
         let daemon = try await DaemonMobileDaemon.connect(hostID: principal.hostID, endpointProvider: endpointProvider)
+        do {
+            try ensureCurrent(run)
+        } catch {
+            await daemon.close()
+            throw error
+        }
         self.daemon = daemon
 
         let account = account
@@ -67,8 +90,23 @@ public actor MobileLinkHostRunner {
             transport: URLSessionControlPlaneTransport(),
             tokenProvider: { try await account.installToken() })
         await client.start()
+        do {
+            try ensureCurrent(run)
+        } catch {
+            await client.stop()
+            await daemon.close()
+            throw error
+        }
         let mirror = TrustStoreMirror()
         await mirror.start(client: client, user: principal.accountUserID)
+        do {
+            try ensureCurrent(run)
+        } catch {
+            await mirror.stop()
+            await client.stop()
+            await daemon.close()
+            throw error
+        }
         userClient = client
         self.mirror = mirror
 
@@ -93,7 +131,16 @@ public actor MobileLinkHostRunner {
                                                wireGuardOverWebRTC: options.wireGuardOverWebRTC),
             features: features)
         self.assembly = assembly
-        let port = try await assembly.start()
+        let port: UInt16
+        do {
+            port = try await assembly.start()
+            try ensureCurrent(run)
+        } catch {
+            if run != lifetime {
+                await closeResources(daemon: daemon, client: client, mirror: mirror, assembly: assembly)
+            }
+            throw error
+        }
         logger.info("phone link: listening on \(port, privacy: .public)")
 
         uplinkTask = Task { [logger, appVersion = options.appVersion] in
@@ -111,10 +158,23 @@ public actor MobileLinkHostRunner {
         return port
     }
 
+    private func ensureCurrent(_ run: UInt64) throws {
+        guard !stopped, run == lifetime else { throw Superseded() }
+    }
+
+    private func closeResources(daemon: DaemonMobileDaemon, client: ControlPlaneClient,
+                                mirror: TrustStoreMirror, assembly: MobileHostAssembly) async {
+        await assembly.stop()
+        await mirror.stop()
+        await client.stop()
+        await daemon.close()
+    }
+
     /// Stops serving and closes every socket. Final.
     public func stop() async {
         guard !stopped else { return }
         stopped = true
+        lifetime &+= 1
         uplinkTask?.cancel()
         publishTask?.cancel()
         uplinkTask = nil

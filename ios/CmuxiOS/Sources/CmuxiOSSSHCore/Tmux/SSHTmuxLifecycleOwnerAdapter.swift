@@ -30,36 +30,40 @@ public actor SSHTmuxLifecycleOwnerAdapter: SSHTmuxLifecycleMutating {
         self.executor = executor
     }
 
+    private func replay(_ existing: SSHTmuxLifecycleRecord, mutation: SSHTmuxLifecycleMutation,
+                        idempotencyKey: String) throws -> SSHTmuxLifecycleReceipt {
+        guard existing.idempotencyKey == idempotencyKey,
+              existing.op == mutation.op,
+              existing.params == mutation.params else {
+            throw SSHTmuxLifecycleOwnerError.idempotencyConflict
+        }
+        switch existing.phase {
+        case .pending:
+            throw SSHTmuxLifecycleOwnerError.indeterminate
+        case .applied:
+            guard existing.isComplete, let value = existing.value, let revision = existing.revision,
+                  let recordedMutation = existing.mutation else {
+                throw SSHTmuxLifecycleOwnerError.malformedRecord
+            }
+            return SSHTmuxLifecycleReceipt(idempotencyKey: idempotencyKey, mutation: recordedMutation,
+                                           value: value, revision: revision, replayed: true)
+        }
+    }
+
     public func submit(_ mutation: SSHTmuxLifecycleMutation, idempotencyKey: String) async throws -> SSHTmuxLifecycleReceipt {
         guard SSHTmuxLifecycleMutation.validIdempotencyKey(idempotencyKey), mutation.isValid else {
             throw SSHTmuxLifecycleOwnerError.invalidRequest
         }
 
-        if let existing = try await store.record(for: idempotencyKey) {
-            guard existing.idempotencyKey == idempotencyKey,
-                  existing.op == mutation.op,
-                  existing.params == mutation.params else {
-                throw SSHTmuxLifecycleOwnerError.idempotencyConflict
-            }
-            switch existing.phase {
-            case .pending:
-                throw SSHTmuxLifecycleOwnerError.indeterminate
-            case .applied:
-                guard existing.isComplete, let value = existing.value, let revision = existing.revision,
-                      let recordedMutation = existing.mutation else {
-                    throw SSHTmuxLifecycleOwnerError.malformedRecord
-                }
-                return SSHTmuxLifecycleReceipt(idempotencyKey: idempotencyKey, mutation: recordedMutation,
-                                               value: value, revision: revision, replayed: true)
-            }
-        }
-
         guard let pending = SSHTmuxLifecycleRecord(pending: idempotencyKey, mutation: mutation) else {
             throw SSHTmuxLifecycleOwnerError.invalidRequest
         }
-        // This write is the replay barrier. If it cannot be made durable, no
-        // command is attempted because a reconnect could otherwise duplicate it.
-        try await store.put(pending)
+        // This conditional write is the replay barrier. It must be atomic in
+        // the durable ledger so two host processes cannot both observe an
+        // absent key and issue the same SSH command.
+        if let existing = try await store.reserve(pending) {
+            return try replay(existing, mutation: mutation, idempotencyKey: idempotencyKey)
+        }
 
         // An executor error intentionally leaves `pending` in the store. The
         // caller receives the original error; a later retry gets `.indeterminate`.

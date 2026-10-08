@@ -80,6 +80,12 @@ The user-visible states are `starting` (no phone service yet), `ready` (direct a
 available), `degraded` (control socket or TURN unavailable; direct may still work), `signedOut`/`disabled`,
 and `failed` with a retryable log/refusal. The app must not claim `ready` from a returned port alone: the
 control-plane registration, trust mirror and certificate publication are separate readiness gates.
+The shared `SignalRouter` is terminal after `stop()`, so a WebRTC acceptor or datagram listener
+that resumes after assembly teardown receives a finished stream and cannot reopen signaling.
 
-The replacement ordering above is implemented in `MobileLinkService`; the remaining evidence is a hosted
-`CmuxNextApp` compile and a tagged Mac/iOS pair run. No local Swift or Rust build is used for this lane.
+The replacement ordering above is implemented in `MobileLinkService`. `MobileLinkHostRunner`,
+`MobileHostAssembly`, and `MobileHost` also carry lifetime generations and check them after every
+startup suspension, so a stop during account lookup, daemon/control-plane setup, acceptor startup,
+or session subscription cannot resurrect a stale listener or task. The remaining evidence is a
+hosted `CmuxNextApp` compile and a tagged Mac/iOS pair run. No local Swift or Rust build is used for
+this lane.

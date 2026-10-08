@@ -19,6 +19,7 @@ final class MobileLinkService {
     /// Teardown is retained so a rapid disable/enable or account switch
     /// cannot start a second listener before the first one has closed.
     private var teardown: Task<Void, Never>?
+    private var teardownGeneration = 0
     /// Bumped by every start and stop; a start that lost the race drops out.
     private var generation = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.mobile-link")
@@ -36,9 +37,12 @@ final class MobileLinkService {
         let previous = runner
         runner = nil
         let priorTeardown = teardown
-        let replacementTeardown: Task<Void, Never> = Task { [previous] in
+        teardownGeneration += 1
+        let teardownID = teardownGeneration
+        let replacementTeardown: Task<Void, Never> = Task { [weak self, previous, priorTeardown] in
             if let priorTeardown { await priorTeardown.value }
             if let previous { await previous.stop() }
+            self?.clearTeardown(id: teardownID)
         }
         teardown = replacementTeardown
         let current = generation
@@ -94,9 +98,17 @@ final class MobileLinkService {
         self.runner = nil
         // task-owner: teardown hop; MobileLinkHostRunner.stop() is idempotent
         let priorTeardown = teardown
-        teardown = Task {
+        teardownGeneration += 1
+        let teardownID = teardownGeneration
+        teardown = Task { [weak self, runner, priorTeardown] in
             if let priorTeardown { await priorTeardown.value }
             if let runner { await runner.stop() }
+            self?.clearTeardown(id: teardownID)
         }
+    }
+
+    private func clearTeardown(id: Int) {
+        guard teardownGeneration == id else { return }
+        teardown = nil
     }
 }

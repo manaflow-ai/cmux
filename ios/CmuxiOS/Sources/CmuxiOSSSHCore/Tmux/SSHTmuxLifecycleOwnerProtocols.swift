@@ -8,6 +8,13 @@ import Foundation
 /// SSH command from being replayed automatically.
 public protocol SSHTmuxLifecycleRecordStore: Sendable {
     func record(for idempotencyKey: String) async throws -> SSHTmuxLifecycleRecord?
+    /// Atomically installs a pending record when the key is absent.
+    ///
+    /// The return value is the record already owned by another caller, or
+    /// `nil` when this call installed `record`. Implementations must make the
+    /// check-and-insert one durable transaction; an actor-local check followed
+    /// by `put` is insufficient when two host processes share the ledger.
+    func reserve(_ record: SSHTmuxLifecycleRecord) async throws -> SSHTmuxLifecycleRecord?
     func put(_ record: SSHTmuxLifecycleRecord) async throws
 }
 

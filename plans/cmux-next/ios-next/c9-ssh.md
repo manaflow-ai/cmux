@@ -302,16 +302,18 @@ Research against the tmux 3.3a control-mode protocol and the cmux ownership rule
 echoes a committed revision for each idempotent intent) showed that a raw SSH command cannot be
 retried safely after its channel drops: the command may have reached tmux while its result was still
 in flight. `SSHTmuxLifecycleOwnerAdapter` therefore separates the durable host record store from a
-host command executor. It writes a canonical operation fingerprint in a `pending` record before
-execution, leaves that record in place when execution fails, and refuses a later retry as
+host command executor. It atomically reserves a canonical operation fingerprint in a `pending`
+record before execution, leaves that record in place when execution fails, and refuses a later retry as
 indeterminate. A successful command is committed as an `applied` record with its owner revision
 and value; the same key and fingerprint then returns a replay receipt without running tmux again,
 while a different fingerprint is an idempotency conflict. The executor remains responsible for
 checking the server PID/start epoch immediately before issuing the command. This is a host-side
 contract and has no D1b app wiring or SSH I/O.
 
-Four focused tests cover applied replay, key reuse conflict, the pending barrier after an uncertain
-executor failure, and invalid input refusal. Swift parsing and source-level checks pass; native
+Five focused tests cover applied replay, key reuse conflict, the pending barrier after an uncertain
+executor failure, concurrent two-owner reservation, and invalid input refusal. The store contract
+requires a durable conditional insert (`reserve`) so a SQLite/DO implementation cannot fall back to
+a racy read-then-write. Swift parsing and source-level checks pass; native
 package execution, durable store integration, live tmux create/rename/kill, and simulator/device
 verification remain unverified. The adapter intentionally does not clear a pending record: an
 owner needs an explicit reconciliation/readback operation before it can safely resolve an unknown

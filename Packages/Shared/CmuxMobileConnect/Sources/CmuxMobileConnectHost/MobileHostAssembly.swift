@@ -23,6 +23,11 @@ public actor MobileHostAssembly {
     private let devices: any MobileTrustStore
     private var port: UInt16?
     private var stopped = false
+    /// Bumped whenever a start or stop takes ownership. Checks after every
+    /// suspension keep a stop from being undone by an in-flight start.
+    private var lifetime: UInt64 = 0
+
+    private struct Superseded: Error {}
 
     public init(credentials: MobileHostCredentials, trust: MobileHostTrust, daemon: any MobileDaemon,
                 signaling: MobileHostSignaling?, options: MobileHostAssemblyOptions = MobileHostAssemblyOptions(),
@@ -79,19 +84,43 @@ public actor MobileHostAssembly {
     public func start() async throws -> UInt16 {
         if let port { return port }
         guard !stopped else { throw CancellationError() }
-        let bound = try await direct.start()
-        await webrtc?.start()
-        await datagrams?.start()
-        await wireGuard?.start()
-        await host.start()
-        port = bound
-        return bound
+        lifetime &+= 1
+        let run = lifetime
+        do {
+            let bound = try await direct.start()
+            try ensureCurrent(run)
+            await webrtc?.start()
+            try ensureCurrent(run)
+            await datagrams?.start()
+            try ensureCurrent(run)
+            await wireGuard?.start()
+            try ensureCurrent(run)
+            await host.start()
+            try ensureCurrent(run)
+            port = bound
+            return bound
+        } catch is Superseded {
+            await stopResources()
+            throw CancellationError()
+        } catch {
+            if run != lifetime { await stopResources() }
+            throw error
+        }
     }
 
     /// Stops accepting and closes every session. Final.
     public func stop() async {
         guard !stopped else { return }
         stopped = true
+        lifetime &+= 1
+        await stopResources()
+    }
+
+    private func ensureCurrent(_ run: UInt64) throws {
+        guard !stopped, run == lifetime else { throw Superseded() }
+    }
+
+    private func stopResources() async {
         await host.stop()
         await direct.stop()
         await webrtc?.stop()

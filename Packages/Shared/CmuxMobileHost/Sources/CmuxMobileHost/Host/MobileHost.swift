@@ -30,6 +30,9 @@ public actor MobileHost {
     private var servers: [ObjectIdentifier: MobileSessionServer] = [:]
     private var started = false
     private var stopped = false
+    /// Bumped on each start/stop so an actor suspension during revocation
+    /// setup cannot install a reader after the host has been closed.
+    private var lifetime: UInt64 = 0
 
     public init(configuration: MobileHostConfiguration, acceptor: any LinkAcceptor, daemon: any MobileDaemon,
                 authorizer: any MobileDeviceAuthorizer, handlers: MobileChannelHandlers = MobileChannelHandlers(),
@@ -76,7 +79,10 @@ public actor MobileHost {
     public func start() async {
         guard !started, !stopped else { return }
         started = true
+        lifetime &+= 1
+        let run = lifetime
         let revocations = await authorizer.revocations()
+        guard !stopped, run == lifetime else { return }
         revocationTask = Task { [weak self] in
             for await install in revocations {
                 guard let self else { return }
@@ -84,7 +90,15 @@ public actor MobileHost {
             }
         }
         await linkHost.start()
+        guard !stopped, run == lifetime else {
+            await linkHost.close()
+            return
+        }
         let sessions = await linkHost.sessions()
+        guard !stopped, run == lifetime else {
+            await linkHost.close()
+            return
+        }
         sessionsTask = Task { [weak self] in
             for await session in sessions {
                 guard let self else { return }
@@ -97,6 +111,7 @@ public actor MobileHost {
     public func stop() async {
         guard !stopped else { return }
         stopped = true
+        lifetime &+= 1
         sessionsTask?.cancel()
         revocationTask?.cancel()
         sessionsTask = nil

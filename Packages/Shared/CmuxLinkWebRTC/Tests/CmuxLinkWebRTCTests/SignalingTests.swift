@@ -145,6 +145,22 @@ struct SignalingTests {
         withExtendedLifetime(unread) {}
     }
 
+    @Test("stopping the router permanently finishes new sessions")
+    func routerStopIsTerminal() async throws {
+        let router = SignalRouter(channel: InMemorySignalingHub().endpoint(id: "h_mac"))
+        let before = await router.register("sess_before")
+        await router.stop()
+        #expect(await router.liveSessions == 0)
+        let after = await router.register("sess_after")
+        let sessions = await router.newSessions(for: .webrtc)
+        var beforeIterator = before.makeAsyncIterator()
+        var afterIterator = after.makeAsyncIterator()
+        var sessionIterator = sessions.makeAsyncIterator()
+        #expect(await beforeIterator.next() == nil)
+        #expect(await afterIterator.next() == nil)
+        #expect(await sessionIterator.next() == nil)
+    }
+
     @Test("the raw-frame channel decodes relayed frames and never sends from")
     func frameChannel() async throws {
         let sent = SentFrames()

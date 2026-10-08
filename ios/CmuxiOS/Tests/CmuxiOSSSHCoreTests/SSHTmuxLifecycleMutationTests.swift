@@ -59,6 +59,8 @@ import Testing
 
     @Test func ownerKeysArePrintableAndBounded() {
         #expect(SSHTmuxLifecycleMutation.validIdempotencyKey("ssh-create-1"))
+        #expect(SSHTmuxLifecycleMutation.validIdempotencyKey(String(repeating: "k", count: 128)))
+        #expect(!SSHTmuxLifecycleMutation.validIdempotencyKey(String(repeating: "k", count: 129)))
         #expect(!SSHTmuxLifecycleMutation.validIdempotencyKey(""))
         #expect(!SSHTmuxLifecycleMutation.validIdempotencyKey("has space"))
         #expect(!SSHTmuxLifecycleMutation.validIdempotencyKey(String(repeating: "k", count: 257)))

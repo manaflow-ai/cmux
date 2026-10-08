@@ -13,6 +13,12 @@ import Testing
             records[idempotencyKey]
         }
 
+        func reserve(_ record: SSHTmuxLifecycleRecord) async throws -> SSHTmuxLifecycleRecord? {
+            if let existing = records[record.idempotencyKey] { return existing }
+            records[record.idempotencyKey] = record
+            return nil
+        }
+
         func put(_ record: SSHTmuxLifecycleRecord) async throws {
             records[record.idempotencyKey] = record
         }
@@ -40,6 +46,39 @@ import Testing
 
         func callCount() -> Int { calls }
         func failNext() { shouldFail = true }
+    }
+
+    private actor BlockingExecutor: SSHTmuxLifecycleExecutor {
+        let result: SSHTmuxLifecycleExecution
+        var calls = 0
+        var released = false
+        var waiter: CheckedContinuation<Void, Never>?
+
+        init(result: SSHTmuxLifecycleExecution) {
+            self.result = result
+        }
+
+        func execute(_ mutation: SSHTmuxLifecycleMutation) async throws -> SSHTmuxLifecycleExecution {
+            calls += 1
+            if !released {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    waiter = continuation
+                }
+            }
+            return result
+        }
+
+        func waitUntilCalled() async {
+            while calls == 0 { await Task.yield() }
+        }
+
+        func release() {
+            released = true
+            waiter?.resume()
+            waiter = nil
+        }
+
+        func callCount() -> Int { calls }
     }
 
     private func mutation() -> SSHTmuxLifecycleMutation {
@@ -91,6 +130,23 @@ import Testing
         #expect(throws: SSHTmuxLifecycleOwnerError.indeterminate) {
             try await owner.submit(mutation(), idempotencyKey: "rename-3")
         }
+        #expect(await executor.callCount() == 1)
+    }
+
+    @Test func atomicReservationPreventsTwoOwnersExecutingTheSameKey() async throws {
+        let store = Store()
+        let execution = try #require(SSHTmuxLifecycleExecution(value: .null, revision: "r-race"))
+        let executor = BlockingExecutor(result: execution)
+        let firstOwner = SSHTmuxLifecycleOwnerAdapter(store: store, executor: executor)
+        let secondOwner = SSHTmuxLifecycleOwnerAdapter(store: store, executor: executor)
+        let first = Task { try await firstOwner.submit(mutation(), idempotencyKey: "rename-race") }
+
+        await executor.waitUntilCalled()
+        #expect(throws: SSHTmuxLifecycleOwnerError.indeterminate) {
+            try await secondOwner.submit(mutation(), idempotencyKey: "rename-race")
+        }
+        await executor.release()
+        _ = try await first.value
         #expect(await executor.callCount() == 1)
     }
 

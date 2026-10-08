@@ -26,8 +26,25 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at the current implementation baseline
-`0d3abbed092507e96cb337eb328854717f84aa0c` reports 86 of 98 parity rows done, with one
+The current implementation head is `05b230b2c337faa2021d3e934ab3d369222fc91a`. The latest
+wave closes three contract gaps without claiming runtime parity: D1b now retains a serialized
+mobile-link teardown chain across disable/account replacement, clears partially started hosts, and
+guards runner/assembly/session startup with lifetime checks;
+C9 now has a durable tmux lifecycle owner adapter with pending replay barriers and applied receipts;
+and C12's backend now admits a Cloud VM only as the host of its own CloudDO-bound machine while
+allowing confirmed team members as devices. The D1b and C9 focused source checks pass. Backend
+`bun run typecheck`, `cloud-vm-isolation.test.ts` (5 tests), and `host-control.test.ts` (19 tests)
+pass at this head. No native Swift/Rust build, tagged pair, device install, live SSH lifecycle,
+VM session host, carrier underlay, or app-FFI release pin is claimed.
+
+`scripts/cmux-next/check-app-ffi-pin.sh --verify-release` still fails because the pinned release
+source is `51ced0d4ee783fb6bd7bacbe26c6eec801eb73ae` while the remote-browser and remote-desktop
+FFI inputs are newer. Per `docs/ci/app-ffi-release.md`, the owning lanes must publish an
+exact-source artifact after the source lands on `feat-cmux-next`; the protected release and
+`Package.swift` checksum must not be changed from this branch.
+
+The full D3 parity matrix, last refreshed at
+`0d3abbed092507e96cb337eb328854717f84aa0c`, reports 86 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), three seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
@@ -39,7 +56,7 @@ evidence remain open.
 The existing A0/A1/A2/A3 and B1-B6 contracts are present, and the V1 WebRTC, V2
 WireGuard-over-WebRTC, and V3 direct-address implementations remain separate behind `CmuxLink`.
 
-The last verified implementation head is `da1d07e41d320b8c083aa5a493f220b3c46897bf`, which
+The last tagged/archived implementation head is `da1d07e41d320b8c083aa5a493f220b3c46897bf`, which
 supersedes the baseline above. B5's split V1/V2 signaling adapters are now landed in
 `CmuxLinkBench`: descriptors carry pinned WebRTC and WireGuard host keys, one retained
 `SignalRouter` consumes either B1 control-plane signaling or an in-memory endpoint, and
@@ -64,8 +81,8 @@ The remaining work separates independent implementation from shared runtime depe
 | Hosted verification and D3 | current committed iOS/Mac tree; shared dev backend capacity; Mac provenance stamping | exact-head archives, native package/UI tests, same-tag pair, receipt gate | terminal, feed, onboarding, media and composer runtime evidence |
 | D2 carrier measurement | B2/B3/B4; F2 direct split path and screen; implemented F3/F7/F8 seams | tagged device manifests through the landed B5 V1/V2 signaling adapters | real latency/throughput/roam results with manifests; power results require an authorized device run |
 | C8 task attachments | landed C4 picker/uploader and C8 shell integration | native tests and PhotosUI/camera/document upload, cancellation and dispatch verification | tagged pair; no further picker seam is missing |
-| C12 VM host | A0/A3 vectors, C12 connect-info and one-shot token contract | Rust link session and services, VM underlay, HostDO admission and token verifier | end-to-end VM terminal/files attach before enabling `cloudWorkspaces` |
-| C9 SSH workspace parity | landed discovery, single-pane hydration, layout metadata, partial pane composition and lifecycle wire contract | complete multi-pane renderer/parser-state parity; owner-backed lifecycle adapter | hosted tests and live SSH verification |
+| C12 VM host | A0/A3 vectors, C12 connect-info and one-shot token contract, HostDO VM admission | Rust link session and services, VM underlay, one-shot token verifier | end-to-end VM terminal/files attach before enabling `cloudWorkspaces` |
+| C9 SSH workspace parity | landed discovery, single-pane hydration, layout metadata, partial pane composition, lifecycle wire contract, and durable owner adapter | complete multi-pane renderer/parser-state parity and live SSH execution | hosted tests and live SSH verification |
 | C14 browser and other landed feature paths | existing feature seams and Mac adapters | WKWebView/SSH/direct-host, simulator and media verification | tagged pair, permissions and reconnect evidence |
 
 ## Completed in this wave

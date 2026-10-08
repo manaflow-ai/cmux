@@ -29,7 +29,10 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
     case killWindow(server: SSHTmuxServerEpoch, windowID: String)
 
     public static let maximumNameBytes = 200
-    public static let maximumKeyBytes = 256
+    /// The mobile owner wire accepts printable idempotency keys up to 128
+    /// bytes. Keep the host-side seam at that boundary so a mutation cannot
+    /// pass this layer and then be refused by cmux.mobile/1.
+    public static let maximumKeyBytes = 128
 
     /// Parses the wire operation used by a future workspace owner adapter.
     /// Unknown fields and malformed host-issued ids are refused.

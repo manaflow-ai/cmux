@@ -11,7 +11,9 @@ public import CmuxLink
 /// session that outruns its reader is ended (its inbox finishes, so the
 /// handshake fails and is retried) instead of losing a signal from the middle
 /// of the exchange. An acceptor holds `pendingSessionLimit` new sessions; an
-/// offer past that is refused (its inbox is never registered).
+/// offer past that is refused (its inbox is never registered). `stop()` is
+/// terminal: a late acceptor or dialer receives a finished stream instead of
+/// reopening the channel after its owner has torn down.
 public actor SignalRouter {
     /// Signals queued for one session before the session is ended.
     public static let inboxLimit = 256
@@ -28,6 +30,7 @@ public actor SignalRouter {
     private var acceptors: [CarrierKind: AsyncStream<Incoming>.Continuation] = [:]
     private var inboxes: [String: AsyncStream<SignalMessage>.Continuation] = [:]
     private var reader: Task<Void, Never>?
+    private var closed = false
 
     public init(channel: any SignalingChannel) {
         self.channel = channel
@@ -36,6 +39,7 @@ public actor SignalRouter {
     /// Offers for `carrier` that start a new session. One acceptor per
     /// carrier; a second call replaces the first.
     public func newSessions(for carrier: CarrierKind) -> AsyncStream<Incoming> {
+        guard !closed else { return Self.finishedStream() }
         start()
         let (stream, sink) = AsyncStream.makeStream(of: Incoming.self, bufferingPolicy: .bufferingOldest(Self.pendingSessionLimit))
         acceptors[carrier]?.finish()
@@ -45,7 +49,7 @@ public actor SignalRouter {
 
     /// Starts reading the channel (idempotent).
     public func start() {
-        guard reader == nil else { return }
+        guard reader == nil, !closed else { return }
         let incoming = channel.incoming
         reader = Task { [weak self] in
             for await message in incoming {
@@ -58,6 +62,7 @@ public actor SignalRouter {
 
     /// Registers a session this side started; its messages go to the inbox.
     public func register(_ session: String) -> AsyncStream<SignalMessage> {
+        guard !closed else { return Self.finishedStream() }
         start()
         let (stream, sink) = Self.makeInbox()
         inboxes[session]?.finish()
@@ -72,6 +77,7 @@ public actor SignalRouter {
     public var liveSessions: Int { inboxes.count }
 
     func route(_ message: SignalMessage) {
+        guard !closed else { return }
         if let sink = inboxes[message.session] {
             if case .dropped = sink.yield(message) { unregister(message.session) }
             return
@@ -93,6 +99,12 @@ public actor SignalRouter {
         AsyncStream.makeStream(of: SignalMessage.self, bufferingPolicy: .bufferingOldest(inboxLimit))
     }
 
+    private static func finishedStream<Element>() -> AsyncStream<Element> {
+        let (stream, sink) = AsyncStream<Element>.makeStream()
+        sink.finish()
+        return stream
+    }
+
     private func finishAll() {
         for sink in inboxes.values { sink.finish() }
         inboxes = [:]
@@ -101,6 +113,8 @@ public actor SignalRouter {
     }
 
     public func stop() {
+        guard !closed else { return }
+        closed = true
         reader?.cancel()
         reader = nil
         finishAll()
