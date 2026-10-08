@@ -1404,7 +1404,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 14
 
       - name: Strip unsigned nightly app before transfer
         run: |
@@ -1508,6 +1508,8 @@ jobs:
       fail-fast: false
       matrix:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
+    outputs:
+      notarization_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -2022,13 +2024,16 @@ jobs:
       - name: Notarize app ticket through final DMG
         id: notarize-nightly
         if: needs.decide.outputs.fast_build != 'true'
+        # Computer Use helper propagation can still take about 20 minutes;
+        # this budget covers that work and DMG validation, not Apple's outer
+        # notarization queue, which is asynchronous now.
         timeout-minutes: 50
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CMUX_NOTARY_WAIT_TIMEOUT: 40m
+          CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
           CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
         run: |
@@ -2037,12 +2042,11 @@ jobs:
             "$NIGHTLY_DMG_RELEASE" \
             "$NIGHTLY_DMG_IMMUTABLE"
 
-      # A timed-out Apple submission remains usable, but only with the exact
-      # signed DMG that produced its ID. Retain that image, app, and sidecars
-      # for a follow-up workflow; this source artifact is never published directly.
+      # Submit the exact signed DMG and hand Apple processing to the trusted
+      # workflow_run continuation. The build lane never waits on Apple's queue.
       - name: Prepare pending notarization recovery artifact
         id: prepare-notarization-recovery
-        if: failure() && steps.notarize-nightly.outcome == 'failure'
+        if: always() && (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure')
         run: |
           set -euo pipefail
           for required in \
@@ -2089,6 +2093,8 @@ jobs:
               state[key] = value
           if state.get("dmg_sha256") != actual_sha:
               raise SystemExit("notarization state SHA-256 does not match the signed DMG")
+          if state.get("submit_exit", "0") != "0":
+              raise SystemExit("notarization submit exited nonzero; refusing automatic continuation")
           submission_id = state.get("submission_id", "")
           if not submission_id or not all(character.isalnum() or character in "._-" for character in submission_id):
               raise SystemExit("notarization state has no valid Apple submission id")
@@ -2103,17 +2109,19 @@ jobs:
               json.dumps({
                   "schema": 1,
                   "source_run_id": "${{ github.run_id }}",
+                  "source_run_attempt": "${{ github.run_attempt }}",
+                  "should_publish": ${{ needs.decide.outputs.should_publish == 'true' }},
                   "channel": channel,
                   "variant": variant,
                   "release_tag": release_tag,
                   "build": build,
                   "head_sha": head_sha,
                   "short_sha": short_sha,
-                  "dmg_path": dmg_path,
+                  "dmg_path": pathlib.Path(dmg_path).name,
                   "app_path": f"cmux-nightly-notarization-recovery-app/{pathlib.Path(app_path).name}",
                   "app_archive_path": "cmux-nightly-notarization-recovery-app.tar.gz",
-                  "state_path": state_path,
-                  "log_path": f"{dmg_path}.notarization.log",
+                  "state_path": pathlib.Path(state_path).name,
+                  "log_path": f"{pathlib.Path(dmg_path).name}.notarization.log",
                   "immutable_path": state.get("immutable_path", ""),
                   "dmg_prefix": state.get("dmg_prefix", ""),
                   "dmg_sha256": actual_sha,
@@ -2135,7 +2143,7 @@ jobs:
             cmux-nightly-notarization-recovery-app.tar.gz
             cmux-nightly-notarization-recovery.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 14
 
       - name: Package signed fast dogfood DMG
         if: needs.decide.outputs.fast_build == 'true'
@@ -2150,11 +2158,11 @@ jobs:
             "$NIGHTLY_DMG_IMMUTABLE"
 
       - name: Gate distribution with syspolicy_check
-        if: needs.decide.outputs.fast_build != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.should_publish != 'true'
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
 
       - name: Generate Sparkle appcasts (nightly)
-        if: needs.decide.outputs.fast_build != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.should_publish != 'true'
         env:
           NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
           CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -2173,7 +2181,7 @@ jobs:
           fi
 
       - name: Upload nightly variant artifacts
-        if: needs.decide.outputs.fast_build != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.should_publish != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-${{ matrix.variant }}
@@ -2219,7 +2227,7 @@ jobs:
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.build-sign-notarize-nightly.outputs.notarization_pending != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:

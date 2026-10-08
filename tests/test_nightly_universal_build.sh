@@ -452,10 +452,12 @@ assert "if:" not in smoke and "if:" not in cli_smoke
 notarize = step("Notarize app ticket through final DMG")
 assert "if: needs.decide.outputs.fast_build != 'true'" in notarize
 assert "id: notarize-nightly" in notarize
+assert "notarization_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}" in workflow
+assert "needs.build-sign-notarize-nightly.outputs.notarization_pending != 'true'" in workflow
 
 recovery = step("Upload pending notarization recovery artifact")
 prepare_recovery = step("Prepare pending notarization recovery artifact")
-assert "failure() && steps.notarize-nightly.outcome == 'failure'" in prepare_recovery
+assert "steps.notarize-nightly.outputs.submission_pending == 'true'" in prepare_recovery
 assert "submission_id" in prepare_recovery and "dmg_sha256" in prepare_recovery
 assert "always() && steps.prepare-notarization-recovery.outcome == 'success'" in recovery
 assert "NIGHTLY_DMG_RELEASE" in recovery
@@ -473,7 +475,8 @@ notarize_timeout = re.search(
 )
 assert notarize_timeout, "missing notarization step"
 assert "timeout-minutes: 50" in notarize_timeout.group(1)
-assert "CMUX_NOTARY_WAIT_TIMEOUT: 40m" in notarize_timeout.group(1)
+assert "CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
+assert "CMUX_NOTARY_WAIT_TIMEOUT" not in notarize_timeout.group(1)
 
 fast_package = step("Package signed fast dogfood DMG")
 assert "if: needs.decide.outputs.fast_build == 'true'" in fast_package
@@ -481,24 +484,34 @@ assert 'CMUX_SKIP_NOTARIZATION: "true"' in fast_package
 assert "NIGHTLY_DMG_IMMUTABLE" in fast_package
 
 syspolicy = step("Gate distribution with syspolicy_check")
-assert "if: needs.decide.outputs.fast_build != 'true'" in syspolicy
+assert "if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.should_publish != 'true'" in syspolicy
 
 resume = Path(sys.argv[1]).with_name("resume-nightly-notarization.yml").read_text(encoding="utf-8")
 assert "workflow_dispatch:" in resume
 assert "gh run download \"$SOURCE_RUN_ID\"" in resume
 assert "Verify trusted source workflow run" in resume
 assert "SOURCE_HEAD_SHA" in resume
-assert "app_archive_path" in resume
-assert "release-publish-${{ inputs.channel }}" in resume
-assert "immutable_path" in resume and "release_tag" in resume and "variant" in resume
-assert "if: inputs.publish" in resume
-assert "--release-id \"$RELEASE_ID\"" in resume and "--alias \"recovery/$ALIAS_NAME\"" in resume
+assert "resolve-notarization-recovery.py" in resume
+assert "--extract-app" in resume
 assert "scripts/ci/resume-nightly-notarization.sh" in resume
 resume_script = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-nightly-notarization.sh").read_text(encoding="utf-8")
 assert "notarytool submit" not in resume_script
 assert "LOG_STATUS" in resume_script and "LOG_EXIT" in resume_script
 assert "SYSPOLICY_TOOL" in resume_script
 assert "refusing to staple or publish" in resume_script
+resolver = (Path(sys.argv[1]).parents[2] / "scripts/ci/resolve-notarization-recovery.py").read_text(encoding="utf-8")
+assert "SHA-256 mismatch" in resolver and "submission_id" in resolver
+assert "immutable_path" in resolver and "release_tag" in resolver and "variant" in resolver
+auto = Path(sys.argv[1]).with_name("auto-resume-nightly-notarization.yml").read_text(encoding="utf-8")
+assert "workflow_run:" in auto
+assert "wait-and-staple:" in auto
+assert "matrix:" in auto and "[arm64, x86_64, universal]" in auto
+assert "needs.wait-and-staple.result == 'success'" in auto
+assert "publish-release-assets.py" in auto
+assert "--replace-feeds" in auto
+assert "resolve-notarization-recovery.py" in auto
+assert "Reject stale continuation before publication" in auto
+assert "cmux-published-build" in auto
 PY
 then
   echo "FAIL: fast dogfood must skip notarization and distribution policy only after retaining signing and smoke"
@@ -790,7 +803,7 @@ if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-sign-notarize-nightly)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.build-sign-notarize-nightly.outputs.notarization_pending != 'true' && $PUBLISH_SCHEDULE" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
