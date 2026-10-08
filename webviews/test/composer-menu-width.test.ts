@@ -43,6 +43,8 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
   const ANCHORED = "position:absolute;left:0px;top:-260px;right:auto;bottom:auto;visibility:visible";
   const row = (label: string) =>
     `<div class="acpmux-menu-item"><span class="acpmux-menu-text"><span class="acpmux-menu-label">${label}</span></span></div>`;
+  const harness = (label: string) => `<button type="button" class="acpmux-mp-harness">${label}</button>`;
+  const model = (label: string) => `<button type="button" class="acpmux-mp-row"><span class="acpmux-menu-label">${label}</span></button>`;
   const PAGE = `<!doctype html><html><head><style>
 :root{--agent-text:rgb(205,214,244);--agent-accent-text:rgb(30,30,46);--agent-page-bg:rgb(30,30,46);--agent-muted:rgb(166,173,200)}
 ${css}
@@ -50,8 +52,12 @@ ${css}
 <div class="acpmux-shell"><div class="acpmux-composer" style="margin-top:320px">
   <span class="acpmux-picker acpmux-model" style="position:relative">
     <button class="acpmux-picker-button" style="width:120px">GPT-6-Astra</button>
-    <div class="acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-cascade" style="${ANCHORED}">
-      <div class="acpmux-menu-search">Type to search models</div>${row("Codex")}${row("GPT-5.6-Sol")}${row("GPT-6-Astra")}
+    <div class="acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-t3" style="${ANCHORED}">
+      <div class="acpmux-mp-search">Type to search models</div>
+      <div class="acpmux-mp-columns">
+        <div class="acpmux-mp-harnesses"><div class="acpmux-mp-harness-list"><div class="acpmux-mp-harness-list-inner">${harness("Claude Code")}${harness("Codex")}</div></div></div>
+        <div class="acpmux-mp-models">${model("GPT-5.6-Sol")}${model("GPT-6-Astra")}</div>
+      </div>
     </div>
   </span>
   <span class="acpmux-picker acpmux-effort" style="position:relative">
@@ -91,7 +97,7 @@ ${css}
         const page = await open(1000);
         const menu = await box(page, ".acpmux-model .acpmux-menu");
         expect(menu.width).toBeGreaterThanOrEqual(220);
-        expect(menu.width).toBeLessThanOrEqual(420);
+        expect(menu.width).toBeLessThanOrEqual(520);
         await page.close();
       });
 
