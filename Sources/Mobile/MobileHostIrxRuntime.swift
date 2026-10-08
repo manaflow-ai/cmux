@@ -304,7 +304,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         accountAdmission?.invalidate()
         generationToken = UUID()
         listenerState = MobileHostListenerState()
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeIroh() }
     }
 
     func stopHost() async {
@@ -319,7 +319,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         generationToken = UUID()
         wantsHost = false
         listenerState = MobileHostListenerState()
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeIroh() }
         let token = generationToken
         shutdownTask?.cancel()
         shutdownTask = Task { @MainActor [weak self] in
@@ -442,7 +442,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         lastLoggedControlState = nil
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeIroh() }
         await outgoingDeviceClient?.enforce(nil, releaseAll: true)
         await outgoingDeviceClient?.enforceAccount(nil)
         // Leave the account directory while the old ticket still authenticates,
