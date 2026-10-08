@@ -8,10 +8,14 @@ Raw results: [bakeoff/results](bakeoff/results), reproduced by [bakeoff/run-loca
 tables by [bakeoff/summarize.py](bakeoff/summarize.py). Checked-in comparisons use a
 `cmux-link-bench-manifest/1` file so a table names its exact result files and source commit.
 
-Audit note (2026-10-07): the loopback harness and carrier conformance results are evidence for the
-current DEV path policy only. The split Mac/iPhone harness (F2) is not implemented: there is no
-`cmux-link-bench serve` command, no iOS DEV Link bench screen, and no `bakeoff/device/` result set.
-The device pass bars in section 6 therefore remain release gates. V3's loopback `roam` row is also
+Audit note (2026-10-08): the loopback harness and carrier conformance results are evidence for the
+current DEV path policy only. F2 now has a real direct split service and client library: the Mac
+`cmux-link-bench serve` command prints a pinned `cmux-link-bench-serve/1` descriptor, and
+`BenchSplitClient` runs the shared connect/echo/flood/bulk workloads over `LinkSession` from iOS or
+another client process. The CLI `client` command writes the normal `cmux-link-bench/1` report plus a
+`cmux-link-bench-manifest/1` entry. V1/V2 signaling adapters and the iOS DEV Link bench screen are
+still open; no `bakeoff/device/` result set is claimed until those app integrations land. The
+device pass bars in section 6 therefore remain release gates. V3's loopback `roam` row is also
 synthetic: the direct carrier has no TURN alternate, so forcing `.turn` after a direct TCP drop does
 not model a reachable path. Treat that row as unsupported until the rig has two real direct
 endpoints (or omit it from carrier comparisons).
@@ -74,6 +78,31 @@ python3 plans/cmux-next/ios-next/bakeoff/summarize.py
 python3 plans/cmux-next/ios-next/bakeoff/summarize.py \
   plans/cmux-next/ios-next/bakeoff/results/e1/manifest.json
 ```
+
+### F2 split direct run
+
+The standalone Mac service is intentionally development-only. Pairing is still enforced by the
+Noise identity: pass the phone's pinned X25519 public key, or use `--allow-any` only on an isolated
+test network. `--address` is the address written into the descriptor; `--bind` controls the local
+listener.
+
+```bash
+# Mac, keep the descriptor next to the eventual results:
+cmux-link-bench serve --address 192.0.2.10 --bind 0.0.0.0 --port 0 \
+  --device-key <phone-direct-public-key> --descriptor-out /tmp/cmux-bench/serve.json
+
+# Any client process (the iOS DEV screen uses BenchSplitClient directly):
+cmux-link-bench client --descriptor /tmp/cmux-bench/serve.json \
+  --out /tmp/cmux-bench/v3-direct-device.json \
+  --manifest /tmp/cmux-bench/manifest.json --source-commit "$(git rev-parse HEAD)" --quick
+python3 plans/cmux-next/ios-next/bakeoff/summarize.py /tmp/cmux-bench/manifest.json
+```
+
+The first split slice supports `connect`, `rtt`, `rtt-bulk`, `flood` and `bulk`, and advertises the
+bulk record size in the descriptor so the report cannot silently measure a different payload. Raw
+transport and injected reconnect/roam remain process-local until the split control protocol adds
+explicit fault operations. The service accepts `--rig direct`/`--rig v3`; V1/V2 require their B5
+signaling adapters before they can be exposed by `serve`.
 
 ## 3. Results on loopback
 
@@ -229,10 +258,11 @@ drop-when-busy and partial frames still expire at their declared lifetime. `Dire
 covers priority/FIFO behavior and bulk-byte accounting. This is a scheduling and admission fix, not
 device or WAN evidence; the D2 measurement gate remains open.
 
-F3 is partially implemented: `a22b7f7327` adds configurable steady-state V1 RTT sampling through
-the bounded transport inbox and cancels the monitor when the connection closes. Cancellation of
-an individual send waiting on a full channel remains open, as does device verification of the RTT
-badge and telemetry.
+F3's steady-state V1 RTT sampling is implemented: `a22b7f7327` adds configurable sampling through
+the bounded transport inbox and cancels the monitor when the connection closes. B2 reliable sends
+now use ID-keyed room waiters with cancellation-safe registration/removal and a post-wake cancellation
+check; focused tests cover pre-cancelled and concurrent same-lane waiters. Device verification of the
+RTT badge and telemetry remains open.
 F8 still needs WAN/device evidence before the default path policy is promoted beyond DEV dogfood.
 
 ## 6. Re-measure on device
@@ -294,9 +324,10 @@ and needs no pfctl; on the iPhone it is Settings > Developer > Network Link Cond
 - F2 (D2/D3): bench split mode: `cmux-link-bench serve` hosting the acceptors and an echo/source
   service over B5's signaling, plus an iOS DEV "Link bench" screen running the same workloads, so the
   same JSON comes from device runs.
-- F3 (B2, partly implemented): steady-state `getStats` RTT sampling is wired into the bounded path
-  event inbox (`a22b7f7327`). Cancellation for a `send` suspended on a full channel and live RTT
-  verification remain open.
+- F3 (B2): steady-state `getStats` RTT sampling is wired into the bounded path event inbox
+  (`a22b7f7327`), and reliable sends suspended on a full channel now have ID-keyed cancellation,
+  pre-cancel registration guards and a post-wake cancellation check. Focused room-waiter tests are
+  added; live RTT verification remains open.
 - F4 (B3, only if V2 stays): congestion control (cwnd with pacing; NewReno or BBR-style) instead of the
   fixed 1 MiB window; SACK ranges instead of a 64-bit bitmap; acks and retransmissions for `input`
   ahead of bulk retransmissions in the pump.

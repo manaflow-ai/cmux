@@ -30,8 +30,11 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         var closeOnControlClose = false
         /// Lane messages waiting for the scheduler, by lane label.
         var laneQueues: [String: LaneQueue] = [:]
-        /// `send` callers waiting for room in their lane's queue.
-        var roomWaiters: [String: [CheckedContinuation<Void, any Error>]] = [:]
+        /// `send` callers waiting for room in their lane's queue. The waiter
+        /// id lets cancellation remove exactly its own continuation even when
+        /// another send for the same lane wakes first.
+        var roomWaiters: [String: [UInt64: CheckedContinuation<Void, any Error>]] = [:]
+        var nextRoomWaiterID: UInt64 = 0
         /// `waitFlushed` callers (graceful close).
         var flushWaiters: [CheckedContinuation<Void, Never>] = []
         var nextFrameID: UInt32 = 0
@@ -137,11 +140,19 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
     /// WebRTCPeer+LaneScheduler). Reliable lanes suspend while their queue
     /// is over `laneBudget`; unordered and partial lanes drop instead.
     func send(_ frame: TransportFrame) async throws {
+        try Task.checkCancellation()
         let label = LaneLabel(lane: frame.lane)
         _ = try sendChannel(for: label)
         let reliable = frame.lane.reliability.isReliable
-        if reliable { try await waitForRoom(label.label) }
+        if reliable {
+            try await waitForRoom(label.label)
+            // A room wake and cancellation can race. Do not admit a frame
+            // after cancellation won between the continuation resume and
+            // the queue mutation below.
+            try Task.checkCancellation()
+        }
         let accepted = try state.withLockUnchecked { state -> Bool in
+            try Task.checkCancellation()
             guard !state.closed else { throw WebRTCPeerError.closed }
             var queue = state.laneQueues.removeValue(forKey: label.label) ?? LaneQueue(label: label)
             if !reliable, queue.queuedBytes + frame.bytes.count > limits.laneBudget {
@@ -439,7 +450,7 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
             guard !state.closed else { return nil }
             state.closed = true
             let waiters = state.openWaiters.values.flatMap { $0 } + state.drainWaiters.values.flatMap { $0 }
-                + state.roomWaiters.values.flatMap { $0 }
+                + state.roomWaiters.values.flatMap { $0.values }
             for waiter in state.flushWaiters { waiter.resume() }
             state.flushWaiters = []
             state.roomWaiters = [:]

@@ -64,7 +64,7 @@ extension WebRTCPeer {
             }
             var room: [CheckedContinuation<Void, any Error>] = []
             if (state.laneQueues[pick.key]?.queuedBytes ?? 0) < limits.laneBudget {
-                room = state.roomWaiters.removeValue(forKey: pick.key) ?? []
+                room = state.roomWaiters.removeValue(forKey: pick.key)?.sorted { $0.key < $1.key }.map(\.value) ?? []
             }
             var flushed: [CheckedContinuation<Void, Never>] = []
             if Self.reliableQueuesEmpty(state) {
@@ -114,19 +114,43 @@ extension WebRTCPeer {
 
     /// Suspends while `key`'s queue is at or over the lane budget.
     func waitForRoom(_ key: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            let outcome = state.withLockUnchecked { state -> Result<Bool, WebRTCPeerError> in
-                if state.closed { return .failure(.closed) }
-                if (state.laneQueues[key]?.queuedBytes ?? 0) < limits.laneBudget { return .success(true) }
-                state.roomWaiters[key, default: []].append(continuation)
-                return .success(false)
-            }
-            switch outcome {
-            case .success(true): continuation.resume()
-            case .success(false): break
-            case let .failure(error): continuation.resume(throwing: error)
-            }
+        let waiterID = state.withLockUnchecked { state -> UInt64 in
+            defer { state.nextRoomWaiterID &+= 1 }
+            return state.nextRoomWaiterID
         }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let outcome = state.withLockUnchecked { state -> Result<Bool, any Error> in
+                    if Task.isCancelled { return .failure(CancellationError()) }
+                    if state.closed { return .failure(WebRTCPeerError.closed) }
+                    if (state.laneQueues[key]?.queuedBytes ?? 0) < limits.laneBudget { return .success(true) }
+                    state.roomWaiters[key, default: [:]][waiterID] = continuation
+                    return .success(false)
+                }
+                switch outcome {
+                case .success(true): continuation.resume()
+                case .success(false): break
+                case let .failure(error): continuation.resume(throwing: error)
+                }
+            }
+        } onCancel: {
+            self.cancelRoomWaiter(key: key, id: waiterID)
+        }
+    }
+
+    private func cancelRoomWaiter(key: String, id: UInt64) {
+        let waiter = state.withLockUnchecked { state -> CheckedContinuation<Void, any Error>? in
+            guard var waiters = state.roomWaiters[key], let continuation = waiters.removeValue(forKey: id) else {
+                return nil
+            }
+            if waiters.isEmpty {
+                state.roomWaiters.removeValue(forKey: key)
+            } else {
+                state.roomWaiters[key] = waiters
+            }
+            return continuation
+        }
+        waiter?.resume(throwing: CancellationError())
     }
 
     /// Returns once every reliable lane message queued so far was handed to
