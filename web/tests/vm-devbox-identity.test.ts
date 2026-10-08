@@ -237,16 +237,17 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     expect(devboxBoot).toContain("announce_loop() {\n  while true; do announce_network; sleep 30; done\n}");
     expect(devboxBoot.indexOf("\nannounce_loop &\n")).toBeGreaterThan(-1);
     expect(devboxBoot.indexOf("\nannounce_loop &\n")).toBeLessThan(devboxBoot.indexOf("\nwhile true; do\n"));
-    // On a clone: the very first action, detached, before the daemon stop,
-    // the state refresh, the SSH rekey, and the bind. The Mac is already
-    // dialing; the fabric drops its SYNs until this frame goes out.
+    // On a clone: the very first action, before the daemon stop, the state
+    // refresh, the SSH rekey, and the bind. The Mac is already dialing; the
+    // fabric drops its SYNs until this frame goes out.
     const cloneBranch = devboxBoot.indexOf('if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then');
-    const announce = devboxBoot.indexOf("( announce_network & )");
+    const announce = devboxBoot.indexOf("\n        announce_network\n", cloneBranch);
     const stop = devboxBoot.indexOf("stop_daemon", cloneBranch);
     const rekey = devboxBoot.indexOf("( rekey_ssh_host & )");
     const bound = devboxBoot.indexOf(`printf '%s\\n' "$id" > "$BOUND_INSTANCE_FILE"`);
     expect(cloneBranch).toBeGreaterThan(-1);
     expect(announce).toBeGreaterThan(cloneBranch);
+    expect(devboxBoot).not.toContain("( announce_network & )");
     expect(stop).toBeGreaterThan(announce);
     expect(bound).toBeGreaterThan(stop);
     expect(rekey).toBeGreaterThan(bound);
@@ -351,7 +352,7 @@ describe("devbox warm template terminal", () => {
     expect(devboxBoot).toContain('export CMUX_TUI_TEMPLATE_BOUND_FILE="$TEMPLATE_RUN_DIR/bound"');
     expect(devboxBoot).toContain("export CMUX_TUI_TEMPLATE_WORKSPACE_NAME=workspace-1");
     const cloneBranch = devboxBoot.indexOf('if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then');
-    const announce = devboxBoot.indexOf("( announce_network & )", cloneBranch);
+    const announce = devboxBoot.indexOf("\n        announce_network\n", cloneBranch);
     const cloneStarted = devboxBoot.indexOf('"$TEMPLATE_RUN_DIR/clone-started"', cloneBranch);
     const reseed = devboxBoot.indexOf('reseed_kernel_rng "$id"', cloneBranch);
     const daemon = devboxBoot.indexOf("start_daemon", reseed);
