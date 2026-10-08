@@ -41,7 +41,7 @@ from claude_teams_test_utils import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-codex-wrapper"
-ACTIVATION_PREFIX = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
+ACTIVATION_PREFIX = ["--enable", "codex_hooks", "--dangerously-bypass-hook-trust"]
 # The events named in issue 12081. The CLI's own baseline (an empty hooks.json)
 # defines the complete injected set, which newer schemas extend.
 ISSUE_EVENTS = [
@@ -227,6 +227,26 @@ def test_persistent_cmux_hook_is_not_duplicated() -> None:
             assert_single_cmux_group(event, values, "persistent")
         assert_no_user_handlers(arguments, "persistent")
         assert hooks_path.read_bytes() == original_bytes, "inject-args rewrote hooks.json"
+
+
+def test_computer_use_notify_handler_is_preserved() -> None:
+    """Hook injection must coexist with Codex's single legacy notify slot."""
+    cli_path = resolve_cmux_cli()
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        codex_home = root / "codex"
+        codex_home.mkdir()
+        (codex_home / "hooks.json").write_text(json.dumps({"hooks": {}}), encoding="utf-8")
+        config_path = codex_home / "config.toml"
+        config_bytes = b'notify = ["/Applications/Codex Computer Use.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]\n'
+        config_path.write_bytes(config_bytes)
+
+        arguments = run_inject_args(cli_path, codex_home, root / "home")
+        assert_injection_shape(arguments, "computer-use notify")
+        assignments = hook_assignments(arguments)
+        assert "Stop" in assignments, f"completion hook missing with notify configured: {arguments}"
+        assert "notify" not in "\0".join(arguments), f"notify config leaked into injected args: {arguments}"
+        assert config_path.read_bytes() == config_bytes, "inject-args rewrote Computer Use notify config"
 
 
 class _FakeModelHandler(BaseHTTPRequestHandler):
