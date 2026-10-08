@@ -157,7 +157,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         if collect(pid) { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)")
-            nonisolated(unsafe) let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+            let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
             let done = Mutex(false)
             let finish: @Sendable () -> Void = {
                 guard done.withLock({ done in defer { done = true }; return !done }) else { return }
