@@ -174,6 +174,7 @@ def stop_process(proc):
 
 _ACTIVE_PROCESSES = set()
 _ACTIVE_PROCESSES_LOCK = threading.Lock()
+_CANCEL_REQUESTED = threading.Event()
 
 
 def stop_active_processes():
@@ -197,10 +198,21 @@ def execute(repo, item, timeout):
     with tempfile.TemporaryFile() as log:
         proc = None
         try:
-            proc = subprocess.Popen(argv, cwd=repo, stdout=log, stderr=subprocess.STDOUT,
-                                    start_new_session=True)
             with _ACTIVE_PROCESSES_LOCK:
-                _ACTIVE_PROCESSES.add(proc)
+                # Cancellation sets the event before taking this lock. A
+                # worker that has not started yet therefore cannot cross
+                # Popen after the cancellation snapshot.
+                if _CANCEL_REQUESTED.is_set():
+                    result["status"] = "interrupted"
+                    result["cancelled"] = True
+                    output = "Interrupted before this check started."
+                else:
+                    proc = subprocess.Popen(argv, cwd=repo, stdout=log, stderr=subprocess.STDOUT,
+                                            start_new_session=True)
+                    _ACTIVE_PROCESSES.add(proc)
+            if proc is None:
+                result["elapsed_seconds"] = round(time.monotonic() - started, 3)
+                return result, output
             result["executed"] = True
             try:
                 code = proc.wait(timeout=timeout)
@@ -430,6 +442,7 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
             try:
                 results = [future.result() for future in futures]
             except KeyboardInterrupt:
+                _CANCEL_REQUESTED.set()
                 stop_active_processes()
                 for future in futures:
                     future.cancel()
@@ -450,6 +463,8 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
                 cancelled = True
             else:
                 pool.shutdown(wait=True)
+            finally:
+                _CANCEL_REQUESTED.clear()
             for item, (execution, output) in zip(items, results):
                 executions.append(execution)
                 report(item, execution, output)

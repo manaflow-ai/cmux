@@ -150,13 +150,14 @@ class PreflightTests(unittest.TestCase):
             active = 0
             maximum = 0
             lock = threading.Lock()
+            overlap = threading.Barrier(2)
 
             def fake_execute(_repo, item, _timeout):
                 nonlocal active, maximum
                 with lock:
                     active += 1
                     maximum = max(maximum, active)
-                time.sleep(0.05)
+                overlap.wait(timeout=5)
                 with lock:
                     active -= 1
                 return ({"id": item[0], "phase": item[1], "argv": item[3],

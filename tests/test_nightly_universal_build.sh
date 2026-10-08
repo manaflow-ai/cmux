@@ -444,6 +444,7 @@ sign_job = re.search(
     re.MULTILINE | re.DOTALL,
 ).group(1)
 assert "setup-bun@" not in sign_job
+assert "actions/setup-node@" in sign_job
 
 def step(name):
     match = re.search(

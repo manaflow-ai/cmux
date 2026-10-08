@@ -214,7 +214,8 @@ class HelperNotarizationTests(unittest.TestCase):
         # CDN-backed check on the signing lane.
         self.run_helper(CMUX_DEFER_GATEKEEPER_ASSESSMENT='true')
         self.assertFalse(self.calls('spctl'))
-        self.assertTrue(self.calls('xcrun', 'stapler', 'validate'))
+        validations = self.calls('xcrun', 'stapler', 'validate')
+        self.assertTrue(any(call[-1].endswith('/standalone/cmux Computer Use.app') for call in validations))
         self.assertTrue(self.calls('sign-bundle'))
 
     def notary_auth(self):
