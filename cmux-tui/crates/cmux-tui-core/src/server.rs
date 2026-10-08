@@ -107,6 +107,8 @@ mod client_hello;
 #[cfg(unix)]
 mod fs_wire;
 mod line_connection;
+mod command_args;
+use command_args::{parse_direction, parse_split_dir, parse_zoom_mode, workspace_mutation};
 mod origin_gate;
 mod orphan_shutdown;
 pub use orphan_shutdown::stop_orphaned_owner;
@@ -10978,14 +10980,6 @@ fn create_surface_with_receipt(
     Ok(json!({"surface": surface, "replayed": replayed}))
 }
 
-fn parse_split_dir(dir: &str) -> anyhow::Result<SplitDir> {
-    match dir {
-        "right" => Ok(SplitDir::Right),
-        "down" => Ok(SplitDir::Down),
-        other => anyhow::bail!("bad dir {other:?} (want \"right\" or \"down\")"),
-    }
-}
-
 fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
     cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
 }
@@ -11004,39 +10998,6 @@ fn paired_surface_size(
 
 fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
-}
-
-/// The mutation `client` asks for, caused by the client's connection actor.
-fn workspace_mutation(
-    mux: &Mux,
-    client: u64,
-    request: &MutationRequest,
-) -> anyhow::Result<WorkspaceMutation> {
-    let actor = origin_gate::connection_actor(mux, client);
-    match (&request.mutation_id, &request.origin) {
-        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone(), actor),
-        (None, None) => Ok(WorkspaceMutation::local("legacy-control", actor)),
-        _ => anyhow::bail!("origin and mutation_id must be provided together"),
-    }
-}
-
-fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
-    match dir {
-        "left" => Ok(Direction::Left),
-        "right" => Ok(Direction::Right),
-        "up" => Ok(Direction::Up),
-        "down" => Ok(Direction::Down),
-        other => anyhow::bail!("bad dir {other:?} (want \"left\", \"right\", \"up\", or \"down\")"),
-    }
-}
-
-fn parse_zoom_mode(mode: Option<String>) -> anyhow::Result<ZoomMode> {
-    match mode.as_deref().unwrap_or("toggle") {
-        "toggle" => Ok(ZoomMode::Toggle),
-        "on" => Ok(ZoomMode::On),
-        "off" => Ok(ZoomMode::Off),
-        other => anyhow::bail!("bad mode {other:?} (want \"toggle\", \"on\", or \"off\")"),
-    }
 }
 
 fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Result<Value> {
