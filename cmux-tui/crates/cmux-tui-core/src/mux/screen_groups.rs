@@ -972,10 +972,6 @@ impl Mux {
         }
         let (surface, screen) =
             self.new_screen_created_as(actor, workspace, spec.name.clone(), spawn, size)?;
-        #[cfg(test)]
-        if let Some(hook) = self.screen_created_hook.lock().unwrap().take() {
-            hook(surface.id);
-        }
         if spec.has_presentation() {
             let applied =
                 self.commit_screen_change("screen.create.presentation", |_, state, screens| {

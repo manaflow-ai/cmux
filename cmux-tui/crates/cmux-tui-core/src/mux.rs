@@ -2651,8 +2651,8 @@ pub struct Mux {
     pending_diagnostics: Mutex<Vec<String>>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
-    /// Runs in `new_screen_with_spec_as` right after the create returns,
-    /// where a terminal that exits at once can already close its screen.
+    /// Runs right after a new screen's creation handoff is released, where a
+    /// terminal that exits at once can already close its screen.
     #[cfg(test)]
     screen_created_hook: Mutex<Option<ScreenCreatedHook>>,
     terminal_exit_waiters: TerminalExitWaiters,

@@ -259,6 +259,11 @@ impl Mux {
                 Some(state.workspaces[wi].screens[si].id)
             })
             .context("created screen disappeared")?;
+        drop(_creation_handoff);
+        #[cfg(test)]
+        if let Some(hook) = self.screen_created_hook.lock().unwrap().take() {
+            hook(surface.id);
+        }
         Ok((surface, screen))
     }
 
