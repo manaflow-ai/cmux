@@ -41,9 +41,13 @@ struct CloudTreeSectionRefreshHeader: View {
                         .controlSize(.mini)
                         .scaleEffect(0.7)
                 } else {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: scaled(max(8, style.detailSize - 2)), weight: .semibold))
-                        .foregroundStyle(isHovered ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+                    CmuxSystemSymbolImage(
+                        systemName: "arrow.clockwise",
+                        pointSize: scaled(max(8, style.detailSize - 2)),
+                        weight: .semibold,
+                        tint: Color(nsColor: isHovered ? .secondaryLabelColor : .tertiaryLabelColor),
+                        appliesGlobalFontMagnification: false
+                    )
                 }
             }
             // The same hit area and hover fill as the headers' + and ⋯

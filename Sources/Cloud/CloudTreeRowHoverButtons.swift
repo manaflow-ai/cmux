@@ -227,9 +227,12 @@ private struct CloudTreeDevicesMenuButton: View {
                 setIncomingAccess: { nodeActions.setDeviceIncomingAccess($0) }
             )
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
+            CmuxSystemSymbolImage(
+                systemName: "ellipsis",
+                pointSize: 11,
+                weight: .medium,
+                tint: Color(nsColor: isHovered ? .labelColor : .secondaryLabelColor)
+            )
                 .frame(width: 22, height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
