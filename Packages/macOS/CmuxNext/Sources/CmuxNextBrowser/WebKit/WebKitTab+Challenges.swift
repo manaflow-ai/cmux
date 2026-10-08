@@ -11,7 +11,7 @@ extension WebKitTab: BrowserCertificateBypassing {
     typealias ChallengeDecision = WebKitChallengeDecision
 
     static func decide(method: String, failures: Int, trusted: Bool, excepted: Bool, proposed: Bool = false) -> ChallengeDecision {
-        WebKitChallengeDecision(method: method, failures: failures, trusted: trusted, excepted: excepted)
+        WebKitChallengeDecision(method: method, failures: failures, trusted: trusted, excepted: excepted, proposed: proposed)
     }
 
     /// Every challenge but server trust (`webView(_:didReceive:completionHandler:)`,
@@ -19,10 +19,13 @@ extension WebKitTab: BrowserCertificateBypassing {
     func answer(_ challenge: URLAuthenticationChallenge,
                 completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let space = challenge.protectionSpace
+        let proposed = challenge.proposedCredential.flatMap { $0.hasPassword ? $0 : nil }
         switch Self.decide(method: space.authenticationMethod, failures: challenge.previousFailureCount, trusted: false,
-                           excepted: false) {
-        case .defaultHandling, .useServerTrust, .useProposedCredential:
+                           excepted: false, proposed: proposed != nil) {
+        case .defaultHandling, .useServerTrust:
             completionHandler(.performDefaultHandling, nil)
+        case .useProposedCredential:
+            completionHandler(.useCredential, proposed)
         case .cancel:
             completionHandler(.cancelAuthenticationChallenge, nil)
         case .askCredentials:
@@ -59,12 +62,13 @@ enum WebKitChallengeDecision: Equatable {
     case useServerTrust
     case cancel
 
-    /// Pure: HTTP authentication asks (until 5 failures); an untrusted
-    /// server certificate is used only for a host the user proceeded to.
-    init(method: String, failures: Int, trusted: Bool, excepted: Bool) {
+    /// Pure: HTTP authentication uses a remembered password on the first
+    /// try, else asks (until 5 failures); an untrusted server certificate is
+    /// used only for a host the user proceeded to.
+    init(method: String, failures: Int, trusted: Bool, excepted: Bool, proposed: Bool = false) {
         switch method {
         case NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLAuthenticationMethodNTLM:
-            self = failures >= 5 ? .cancel : .askCredentials
+            self = failures >= 5 ? .cancel : (proposed && failures == 0 ? .useProposedCredential : .askCredentials)
         case NSURLAuthenticationMethodServerTrust:
             self = !trusted && excepted ? .useServerTrust : .defaultHandling
         default:

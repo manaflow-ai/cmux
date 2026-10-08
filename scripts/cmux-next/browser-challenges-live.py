@@ -6,7 +6,8 @@ certificate, and HTTP with basic auth (user "ada", a random password). Launches
 the tagged app (no activation, automation socket) once per theme, opens each
 URL in a WebKit tab (`action.run openBrowser.webkit`), and writes window
 snapshots: the interstitial (Back to Safety, Proceed hidden), the sign-in sheet
-with "Remember password", and the page after sign-in.
+with "Remember password", and the page after sign-in. The second launch checks
+that the remembered password signs in again without a sheet.
 
   scripts/cmux-next/browser-challenges-live.py --tag <tag> [--out DIR]
 
@@ -65,7 +66,7 @@ REQUESTS = []
 class Basic(Page):
     def do_GET(self):
         want = "Basic " + base64.b64encode(f"ada:{PASSWORD}".encode()).decode()
-        REQUESTS.append({"t": round(time.time(), 2), "path": self.path,
+        REQUESTS.append({"t": round(time.time(), 2), "port": self.server.server_address[1], "path": self.path,
                          "auth": "none" if not self.headers.get("Authorization") else
                                  ("right" if self.headers.get("Authorization") == want else "wrong")})
         if self.headers.get("Authorization") == want:
@@ -141,7 +142,7 @@ def auth_dialog():
     return next((d for d in dialogs if d.get("identifier") == "browser.dialog.httpAuth" and d.get("visible")), None)
 
 
-def run(theme):
+def run(theme, basic_port, remembered_port=None):
     config = os.path.join(opts.out, f"cmux-{theme.replace(' ', '-')}.json")
     with open(config, "w") as f:
         json.dump({"appearance": {"theme": theme}}, f)
@@ -163,7 +164,16 @@ def run(theme):
         notes.append({"theme": theme, "open": open_webkit(f"https://localhost:{SECURE_PORT}/")})
         time.sleep(6)
         snap(f"interstitial-{tag}")
-        notes.append({"theme": theme, "open": open_webkit(f"http://localhost:{BASIC_PORT}/")})
+        if remembered_port:
+            # The previous run checked "Remember password" for this server and its
+            # tab is restored: it must sign in without a sheet.
+            started = time.time()
+            if not wait(lambda: any(r["port"] == remembered_port and r["auth"] == "right" and r["t"] >= started - 30
+                                    for r in REQUESTS), 20):
+                failures.append(f"{theme}: the remembered password was not sent after a relaunch")
+            if auth_dialog():
+                failures.append(f"{theme}: a sign-in sheet asked again for the remembered server")
+        notes.append({"theme": theme, "open": open_webkit(f"http://localhost:{basic_port}/")})
         dialog = wait(auth_dialog, 30)
         if not dialog:
             failures.append(f"{theme}: no sign-in sheet: {json.dumps(rpc('debug.dialog'))[:400]}")
@@ -192,11 +202,11 @@ def run(theme):
             app.wait(20)
 
 
-SECURE_PORT, BASIC_PORT = free_port(), free_port()
-servers = [serve(Secure, SECURE_PORT, tls=True), serve(Basic, BASIC_PORT)]
+SECURE_PORT, DARK_PORT, LIGHT_PORT = free_port(), free_port(), free_port()
+servers = [serve(Secure, SECURE_PORT, tls=True), serve(Basic, DARK_PORT), serve(Basic, LIGHT_PORT)]
 try:
-    for theme in ("Builtin Dark", "Builtin Light"):
-        run(theme)
+    run("Builtin Dark", DARK_PORT)
+    run("Builtin Light", LIGHT_PORT, remembered_port=DARK_PORT)
 finally:
     for server in servers:
         server.shutdown()
