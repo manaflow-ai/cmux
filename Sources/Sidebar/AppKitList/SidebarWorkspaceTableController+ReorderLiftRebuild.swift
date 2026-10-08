@@ -73,6 +73,8 @@ extension SidebarWorkspaceTableController {
     /// workspace may be gone (closed mid-drag); then the lift simply ends.
     func rebuildReorderLift(from carry: ReorderLiftCarryOver) {
         endReorderLift(animated: false)
+        // The update may have swapped row views; none may come back hovered.
+        suspendHoverForDrag()
         updateReorderLift(windowPoint: carry.windowPoint, workspaceId: carry.workspaceId, carry: carry)
     }
 

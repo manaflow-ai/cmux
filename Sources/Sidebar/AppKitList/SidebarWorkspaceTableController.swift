@@ -33,13 +33,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// unrelated invalidation — historically an app deactivate/reactivate
     /// (issue #9690).
     var onDeferredRowClickAwaitingApply: (() -> Void)?
-    private var hoveredRowId: SidebarWorkspaceRenderItemID?
-    private var contextMenuRowId: SidebarWorkspaceRenderItemID?
+    private(set) var hoveredRowId: SidebarWorkspaceRenderItemID?
+    private(set) var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
-    private var isPresentationActive = true
-    /// See `setRowsOnScreen`.
-    private var rowsAreOnScreen = true
+    private(set) var isPresentationActive = true
+    /// See `setRowsOnScreen`. Row hover: `+Hover`.
+    var rowsAreOnScreen = true
+    var rowHoverObservation: NSKeyValueObservation?
     private var structuralUpdateDepth = 0
     private var deferredPumpHeightRowIds: Set<SidebarWorkspaceRenderItemID> = []
     private var deferredStructuralHeightRows = IndexSet()
@@ -51,7 +52,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// promoted; caching this map keeps multi-row drag work linear and
     /// consistent across every dragged item.
     private var dragWorkspaceGroupAnchorIds: [UUID: UUID]?
-    private var isWorkspaceDragSourceActive = false
+    private(set) var isWorkspaceDragSourceActive = false
     // Keep the source table alive until AppKit delivers the terminal callback.
     // SwiftUI may remove the representable (fullscreen/display changes) while
     // the native drag still owns that table.
@@ -217,6 +218,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         containerView = container
 
         let table = container.tableView
+        observeRowHoverSetting()
         table.workspaceController = self
         container.clipView.workspaceController = self
         table.dataSource = self
@@ -1593,6 +1595,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             releaseRetainedWorkspaceDragContainerIfPossible()
         }
         isWorkspaceDragSourceActive = true
+        suspendHoverForDrag()
         SidebarReorderInteractionState.shared.setDragging(true, owner: self)
         workspaceDragSourceCompletionReceived = false
         if let sourceTableView {
@@ -1760,6 +1763,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         clearPendingWorkspaceDragWriters()
         isWorkspaceDragSourceActive = false
         SidebarReorderInteractionState.shared.setDragging(false, owner: self)
+        // After this callback returns: the drop's apply and the lift's end
+        // run first, then hover follows the pointer again.
+        DispatchQueue.main.async { [weak self] in self?.rederiveHoverAfterDrag() }
         let sessionId = activeWorkspaceDragSessionId ?? pendingWorkspaceDragSessionId
         let capabilityValue = activeWorkspaceDragCapabilityValue ?? {
             guard let sessionId,
@@ -2128,6 +2134,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// `windowPoint` is the location an event just delivered; recomputes
     /// without one read the live pointer.
     func recomputeHoveredRow(windowPoint: NSPoint? = nil) {
+        // No row hovers while a reorder drag runs: tracking events stop for
+        // the session, so any hover set now would strand when it ends.
+        if isHoverSuspendedForDrag {
+            setHoveredRowId(nil)
+            return
+        }
         guard contextMenuRowId == nil, rowsAreOnScreen,
               let table = containerView?.tableView else {
             return
@@ -2337,20 +2349,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return containerView.clipView.bounds.width
     }
 
-    /// A hidden docked pane keeps applying content, so its reveal shows
-    /// current rows, but its spinners, status pulses and hover pause.
-    func setRowsOnScreen(_ onScreen: Bool) {
-        guard rowsAreOnScreen != onScreen else { return }
-        rowsAreOnScreen = onScreen
-        if !onScreen { setHoveredRowId(nil) }
-        let animates = isPresentationActive && onScreen
-        containerView?.tableView.enumerateAvailableRowViews { rowView, _ in
-            (rowView.view(atColumn: 0) as? SidebarWorkspaceRowTableCellView)?.setPresentationActive(animates)
-            (rowView.view(atColumn: 0) as? SidebarGroupHeaderTableCellView)?.setPresentationActive(animates)
-        }
-    }
-
-    private func setHoveredRowId(_ next: SidebarWorkspaceRenderItemID?) {
+    func setHoveredRowId(_ next: SidebarWorkspaceRenderItemID?) {
         guard hoveredRowId != next else { return }
         let previous = hoveredRowId
         hoveredRowId = next
@@ -2465,29 +2464,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let idSet = Set(ids)
         let indexes = IndexSet(rows.indices.filter { idSet.contains(rows[$0].id) })
         reconfigureVisibleRows(indexes)
-    }
-
-    /// Authoritative pass over visible cells so hover-revealed chrome (close
-    /// button, header plus) cannot strand: per-transition repaints resolve
-    /// ids against a rows array that can mutate in the same tick (content
-    /// churn scrolling rows under a parked pointer), and a missed repaint
-    /// left multiple rows showing hover chrome at once.
-    private func enforceHoverOnVisibleCells() {
-        guard let table = containerView?.tableView else { return }
-        let visible = table.rows(in: table.visibleRect)
-        for row in visible.lowerBound..<(visible.lowerBound + visible.length)
-        where rows.indices.contains(row) {
-            let rowId = rows[row].id
-            let hovering = hoveredRowId == rowId && contextMenuRowId != rowId
-            switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
-            case let cell as SidebarGroupHeaderTableCellView:
-                cell.enforcePointerHovering(hovering)
-            case let cell as SidebarWorkspaceRowTableCellView:
-                cell.enforcePointerHovering(hovering)
-            default:
-                break
-            }
-        }
     }
 
     /// Row edits that keep cells (moves, inserts, removes) must refresh every

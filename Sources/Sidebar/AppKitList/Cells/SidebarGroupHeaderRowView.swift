@@ -14,6 +14,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     /// Selection fill and edge layer. Internal so tests read its paint directly.
     let backgroundView = NSView()
+    /// Row hover wash; see `SidebarRowHover.swift`.
+    let rowHoverLayer = CALayer()
     private let pinImageView = NSImageView()
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
@@ -29,12 +31,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let bottomDropIndicator = SidebarReorderIndicatorView()
     private let hintPill = SidebarShortcutHintPillView()
 
-    private var model: SidebarGroupHeaderRowModel?
+    private(set) var model: SidebarGroupHeaderRowModel?
     private var actions: SidebarGroupHeaderRowActions?
     /// Mirrors the table controller's flag, as workspace row cells do, so a
     /// cell configured while the sidebar is hidden does not restart the pulse.
     private var isPresentationActive = true
-    private var isPointerHovering = false
+    var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
@@ -63,6 +65,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.cornerCurve = .continuous
         addSubview(backgroundView)
+        SidebarGlassSelection.installHoverLayer(rowHoverLayer, in: backgroundView)
 
         pinImageView.imageScaling = .scaleProportionallyDown
         addSubview(pinImageView)
@@ -103,6 +106,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         suspendPresentation()
         model = nil
         isPointerHovering = false
+        rowHoverLayer.isHidden = true
         plusButton.concealImmediately()
         hintPill.resetForReuse()
     }
@@ -282,6 +286,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         // its exact resting appearance (the dim was a ghost-era cue).
         alphaValue = 1
         updatePlusVisibility()
+        updateRowHoverFill()
         setAccessibilityIdentifier("sidebarWorkspaceGroup.\(model.groupId.uuidString)")
         setAccessibilityLabel(model.name)
     }
@@ -304,18 +309,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 #endif
 
-    private func updatePlusVisibility() {
+    func updatePlusVisibility() {
         let showsHint = model?.shortcutHintText != nil
         plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !showsHint)
-    }
-
-    /// Authoritative hover enforcement: the controller sweeps visible cells
-    /// so hover-revealed chrome cannot strand on rows the pointer left
-    /// (row-index/id races during churn made per-transition repaints miss).
-    func enforcePointerHovering(_ hovering: Bool) {
-        guard isPointerHovering != hovering else { return }
-        isPointerHovering = hovering
-        updatePlusVisibility()
     }
 
     /// Optimistic press treatment: paints the anchor-active header visuals
@@ -332,6 +328,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         applySelectionEdge(model.anchorActiveEdgeColor)
         CATransaction.commit()
         nameField.textColor = labelColor
+        updateRowHoverFill()
     }
 
     /// Modifier-click preview: paints the same dim membership tint as an
@@ -344,6 +341,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
         applySelectionEdge(model.multiSelectionBackgroundStyle.edgeColor)
         CATransaction.commit()
+        updateRowHoverFill()
     }
 
     /// Plain-click counterpart: clears active and multi-selected header paint
@@ -362,6 +360,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             for: colorScheme,
             opacity: 0.9
         )
+        updateRowHoverFill()
     }
 
     /// Rollback for optimistic press paint: reapplies the stored model
@@ -446,6 +445,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
         backgroundView.frame = bgFrame
+        rowHoverLayer.frame = backgroundView.bounds
         let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
         let midY = bounds.height / 2
         var x = bgFrame.minX

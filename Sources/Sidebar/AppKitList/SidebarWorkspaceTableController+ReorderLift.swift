@@ -314,6 +314,8 @@ extension SidebarWorkspaceTableController {
                 MainActor.assumeIsolated {
                     guard let self, let layer, self.reorderLiftSession == nil else { return }
                     layer.zPosition = 0
+                    // The block has landed under a still pointer.
+                    self.rederiveHoverAfterDrag()
                 }
             }
             layer.removeAnimation(forKey: "cmux.reorderShift")
@@ -326,6 +328,10 @@ extension SidebarWorkspaceTableController {
 
     func installReorderLiftSnapshots(table: NSTableView, sourceRange: Range<Int>) {
         removeReorderLiftSnapshots()
+        suspendHoverForDrag()
+        // Hover just left the lifted rows (close button back to its badge);
+        // lay them out before they are snapshotted.
+        for row in sourceRange { table.rowView(atRow: row, makeIfNecessary: false)?.layoutSubtreeIfNeeded() }
         let scale = table.window?.backingScaleFactor ?? 2
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return }
         for row in sourceRange {
