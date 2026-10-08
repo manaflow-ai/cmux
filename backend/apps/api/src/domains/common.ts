@@ -277,10 +277,10 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       risk: "mutate-shared",
       target: "team",
       principals: ["system"],
-      params: Schema.Struct({ user: Schema.String, hosts: Schema.Array(Schema.String) }),
+      params: Schema.Struct({ user: Schema.String, hosts: Schema.Array(Schema.String), cert_valid_before: Schema.optionalKey(Schema.Int) }),
       result: Schema.Unknown,
       errors: [],
-      docs: "Internal: after a removal, TeamDO revoked the member's team SSH certificates; this marks their hosts orphaned and ends the pending cleanup (cx-44j.49).",
+      docs: "Internal: after a removal, TeamDO revoked the member's team SSH certificates; this marks their hosts orphaned, tells TeamVmDO when the member's last certificate ended (taint, cx-q4f3) and ends the pending cleanup (cx-44j.49).",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef

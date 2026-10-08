@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Persists unsent composer text by acpmux session.
 public protocol AgentPaneDraftStoring: Sendable {
@@ -19,13 +19,13 @@ public actor UserDefaultsAgentPaneDraftStore: AgentPaneDraftStoring {
     /// - Parameters:
     ///   - defaults: The defaults suite that owns the drafts.
     ///   - keyPrefix: A namespace for the stored session keys.
-    public init(defaults: UserDefaults, keyPrefix: String = "cmux.next.agent.composer-draft.") {
+    public nonisolated init(defaults: UserDefaults, keyPrefix: String = "cmux.next.agent.composer-draft.") {
         self.defaults = defaults
         self.keyPrefix = keyPrefix
     }
 
     /// Creates a draft store backed by the app's standard defaults suite.
-    public init() {
+    public nonisolated init() {
         self.init(defaults: UserDefaults.standard)
     }
 
