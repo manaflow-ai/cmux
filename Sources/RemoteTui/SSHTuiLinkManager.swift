@@ -176,7 +176,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         let arguments = connection.forwardArguments(stateDirectory: paths.stateDir.path, target: target)
         let task = Task {
             try await process.start(client: clientURL, arguments: arguments,
-                                    environment: connection.configuration.sshProcessEnvironment,
+                                    environment: connection.sshProcessEnvironment,
                                     listener: listener)
         }
         loopbackForwardStarts[key] = task
@@ -184,7 +184,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         do {
             let port = try await task.value
             guard port > 0 else {
-                throw CloudMachineLink.LinkError.spawnFailed(String(
+                throw CloudMachineLink.LinkError.failureMessage(String(
                     localized: "ssh.tui.browserListener.invalidPort",
                     defaultValue: "The SSH forward returned an invalid browser listener port."
                 ))

@@ -171,7 +171,7 @@ actor SSHTuiLoopbackListenerLeaseRegistry {
         let key = Key(machineID: machineID, host: target.host.lowercased(), port: target.port)
         if let existing = leases[key] { return existing }
         guard leases.count < maximumLeases else {
-            throw CloudMachineLink.LinkError.spawnFailed(String(
+            throw CloudMachineLink.LinkError.failureMessage(String(
                 localized: "ssh.tui.browserListener.endpointLimit",
                 defaultValue: "The app's managed SSH browser endpoint limit has been reached."
             ))

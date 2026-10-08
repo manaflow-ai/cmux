@@ -70,13 +70,13 @@ actor SSHTuiLoopbackForwardProcess {
             }
             try Task.checkCancellation()
             guard !stopped, child.isRunning, let port else {
-                throw CloudMachineLink.LinkError.spawnFailed(String(
+                throw CloudMachineLink.LinkError.failureMessage(String(
                     localized: "ssh.tui.browserListener.forwardEnded",
                     defaultValue: "The SSH port forward ended before it became ready."
                 ))
             }
             guard port == listener.port else {
-                throw CloudMachineLink.LinkError.spawnFailed(String(
+                throw CloudMachineLink.LinkError.failureMessage(String(
                     localized: "ssh.tui.browserListener.portMismatch",
                     defaultValue: "The SSH helper reported a different browser listener port."
                 ))
