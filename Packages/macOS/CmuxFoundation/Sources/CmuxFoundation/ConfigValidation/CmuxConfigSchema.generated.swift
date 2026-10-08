@@ -1671,6 +1671,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show the workspace working directory."
         },
+        "showCloudDeviceIcons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details."
+        },
         "showPullRequests": {
           "type": "boolean",
           "default": true,
