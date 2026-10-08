@@ -1,6 +1,8 @@
 import Foundation
 
 private final class AnalyticsFlushWaiter: @unchecked Sendable {
+    // lint:allow lock - synchronous acknowledgement resolution closes the
+    // cancellation race between the caller and the worker task.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Void, Never>?
     private var completed = false
@@ -33,6 +35,8 @@ private final class AnalyticsFlushWaiter: @unchecked Sendable {
 }
 
 private final class AnalyticsEmitterState: @unchecked Sendable {
+    // lint:allow lock - nonisolated capture and flush calls need synchronous
+    // bounded admission while the worker drains the control lane.
     private let lock = NSLock()
     private let capacity: Int
     private let wake: AsyncStream<Void>.Continuation
@@ -302,8 +306,9 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
     }
 
     public static let defaultSleep: @Sendable (TimeInterval) async -> Void = { delay in
-        guard delay > 0 else { return }
-        let nanoseconds = UInt64(min(delay, TimeInterval(UInt64.max) / 1_000_000_000) * 1_000_000_000)
+        guard delay.isFinite, delay > 0 else { return }
+        let maximumDelay = TimeInterval(UInt64.max - 1) / 1_000_000_000
+        let nanoseconds = UInt64(min(delay, maximumDelay) * 1_000_000_000)
         do {
             try await Task.sleep(nanoseconds: nanoseconds)
         } catch {
@@ -442,9 +447,9 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
                 }
                 guard let batch = nextBatch() else { return }
                 var attempt = 0
-                var result: AnalyticsUploadResult = .drop
+                var finished = false
 
-                while true {
+                while !finished {
                     guard !Task.isCancelled else {
                         dropAllPending()
                         return
@@ -453,6 +458,7 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
                         dropAllPending()
                         return
                     }
+                    let result: AnalyticsUploadResult
                     do {
                         result = try await transport.upload(batch.data)
                     } catch is CancellationError {
@@ -465,15 +471,15 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
                     switch result {
                     case .accepted, .drop:
                         pending.removeFirst(min(batch.events.count, pending.count))
-                        attempt = maxRetries + 1
+                        finished = true
                     case .offline:
                         dropAllPending()
-                        attempt = maxRetries + 1
+                        finished = true
                     case .retry:
                         guard attempt < maxRetries else {
                             pending.removeFirst(min(batch.events.count, pending.count))
-                            attempt = maxRetries + 1
-                            continue
+                            finished = true
+                            break
                         }
                         let exponent = min(attempt, 30)
                         let multiplier = pow(2, Double(exponent))
@@ -481,8 +487,6 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
                         attempt += 1
                         await sleep(delay)
                     }
-
-                    if attempt > maxRetries { break }
                 }
             }
         }
