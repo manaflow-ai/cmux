@@ -244,14 +244,32 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
     var onContentChange: (() -> Void)?
 
-    /// Replaces the workspace layout view.
+    /// Keeps the outgoing content until an unpainted top page paints.
+    let paintHold = PanePaintHold(owner: "window.paint-hold")
+
+    /// Replaces the workspace layout view. A top page that has not painted
+    /// (a transparent web view) shows once it paints; the outgoing content
+    /// stays until then, as in a pane (no-flicker audit).
     func show(_ view: NSView) {
         guard content !== view else { return }
-        content?.removeFromSuperview()
-        view.frame = contentHost.bounds
-        view.autoresizingMask = [.width, .height]
-        contentHost.addSubview(view)
+        let outgoing = content
+        let holds = PanePaintHold.holds(view, replacing: outgoing)
         content = view
+        // An earlier swap still waiting on a first frame ends now; a view kept
+        // by it that is shown again stays (no detach of its panes).
+        paintHold.end()
+        if !holds { outgoing?.removeFromSuperview() }
+        if view.superview !== contentHost || view.frame != contentHost.bounds {
+            view.frame = contentHost.bounds
+            view.autoresizingMask = [.width, .height]
+            contentHost.addSubview(view)
+        }
+        if holds, let outgoing {
+            paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost) { [weak self] outgoing in
+                guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
+                outgoing.removeFromSuperview()
+            }
+        }
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
         onContentChange?()

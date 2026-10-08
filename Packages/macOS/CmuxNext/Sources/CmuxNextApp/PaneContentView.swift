@@ -45,10 +45,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var isBandActive: Bool { !bandPins.isEmpty }
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
-    var paintHold: PanePaintHold?
-    var paintHoldCounter: UInt64 = 0
-    /// The hold's deadline (``PanePaintHold/limit``).
-    let paintHoldDeadline = DemandTimer(owner: "pane.paint-hold")
+    let paintHold = PanePaintHold(owner: "pane.paint-hold")
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
