@@ -8,12 +8,23 @@ public actor PaletteSearcher {
     private var indexVersion = -1
     private let bridge: PaletteRankerBridge?
 
+    private var betweenCalls: (@Sendable (isolated PaletteSearcher) -> Void)?
+
     public init() {
         bridge = try? PaletteRankerBridge()
     }
 
+    func setBetweenCalls(_ hook: (@Sendable (isolated PaletteSearcher) -> Void)?) { betweenCalls = hook }
+
+    private func endCall() {
+        guard let hook = betweenCalls else { return }
+        betweenCalls = nil
+        hook(self)
+    }
+
     /// Installs a new snapshot unless this version is already current.
     public func install(_ snapshot: PaletteSearchIndex, version: Int) {
+        defer { endCall() }
         guard version != indexVersion else { return }
         index = snapshot
         indexVersion = version
@@ -21,6 +32,7 @@ public actor PaletteSearcher {
 
     /// Builds the index here, off the main actor, when `version` is new.
     public func install(entries: [PaletteSearchEntry], version: Int) {
+        defer { endCall() }
         guard version != indexVersion else { return }
         index = PaletteSearchIndex(entries: entries)
         indexVersion = version
@@ -36,6 +48,7 @@ public actor PaletteSearcher {
         keepsSectionOrder: Bool = false,
         ranksPrefixFirst: Bool = false
     ) -> (generation: Int, sections: [PaletteRankedSection]) {
+        defer { endCall() }
         let sections: [PaletteRankedSection]
         do {
             guard let bridge else { return (generation, []) }
