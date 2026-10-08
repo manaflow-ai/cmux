@@ -35,21 +35,10 @@ struct SingleInstanceConflictPolicyTests {
         #expect(SingleInstanceConflictPolicy.isSameBundle(stable, sameWithSlash))
     }
 
-    @Test("an authorized relaunch can replace the existing instance")
-    func authorizedRelaunchReplaces() {
-        #expect(
-            SingleInstanceConflictPolicy(environment: [:]).action(
-                currentBundleURL: stable,
-                existingBundleURL: stable,
-                replacementAuthorized: true
-            ) == .replaceExisting
-        )
-    }
-
     @Test("the explicit override restores replace-anything")
     func overrideReplaces() {
         #expect(
-            SingleInstanceConflictPolicy(environment: [SingleInstanceConflictPolicy.allowReplacingEnvironmentKey: "1"]).action(currentBundleURL: localRelease, existingBundleURL: stable) == .replaceExisting
+            SingleInstanceConflictPolicy(environment: [SingleInstanceConflictPolicy.allowReplacingEnvironmentKey: "1"]).action(currentBundleURL: localRelease, existingBundleURL: nil) == .replaceExisting
         )
     }
 }

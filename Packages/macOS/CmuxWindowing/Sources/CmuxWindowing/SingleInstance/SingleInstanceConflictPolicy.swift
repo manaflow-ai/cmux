@@ -34,11 +34,12 @@ public struct SingleInstanceConflictPolicy: Sendable {
 
     public func action(
         currentBundleURL _: URL,
-        existingBundleURL: URL?,
-        replacementAuthorized: Bool = false
+        existingBundleURL: URL?
     ) -> Action {
-        guard existingBundleURL != nil else { return .yieldToExisting }
-        if environment[Self.allowReplacingEnvironmentKey] == "1" || replacementAuthorized {
+        // Keep the deliberate reload escape hatch independent of bundle-path
+        // discovery. The old behavior allowed this override to replace an
+        // instance even when LaunchServices did not report its bundle URL.
+        if environment[Self.allowReplacingEnvironmentKey] == "1" {
             return .replaceExisting
         }
         return .yieldToExisting
