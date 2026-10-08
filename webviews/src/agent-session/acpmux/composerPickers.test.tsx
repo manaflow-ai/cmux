@@ -869,7 +869,7 @@ describe("acpmux composer queue", () => {
     }
   });
 
-  test("with a session's place shown, the queue sits on the context tray and the tray on the box", async () => {
+  test("with a session's place shown, the queue sits on the card and the place is the card's footer row", async () => {
     const root = createRoot(doc.getElementById("root")!);
     try {
       await act(async () =>
@@ -885,8 +885,9 @@ describe("acpmux composer queue", () => {
           }),
         ),
       );
-      const tray = doc.querySelector(".acpmux-composer-context")!;
-      expect(tray.previousElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      const box = doc.querySelector(".acpmux-composer-box")!;
+      expect(box.lastElementChild!.classList.contains("acpmux-composer-context")).toBe(true);
+      expect(box.previousElementSibling!.classList.contains("acpmux-composer-queue")).toBe(true);
     } finally {
       await act(async () => root.unmount());
     }
