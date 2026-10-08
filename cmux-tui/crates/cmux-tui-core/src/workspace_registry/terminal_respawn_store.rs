@@ -72,7 +72,7 @@ impl WorkspaceRegistry {
         }
         let (revision, sqlite_revision) =
             next_revision(transaction_terminal_revision(&tx)?, "terminal")?;
-        let mutation = WorkspaceMutation::local(RESPAWN_ORIGIN);
+        let mutation = WorkspaceMutation::daemon_local(RESPAWN_ORIGIN);
         let result = json!({
             "terminal_id": terminal_id,
             "workspace_key": &terminal.workspace_key,
@@ -133,7 +133,7 @@ impl WorkspaceRegistry {
         let (revision, sqlite_revision) =
             next_revision(transaction_terminal_revision(&tx)?, "terminal")?;
         let (next_resource, sqlite_resource) = next_revision(resource_revision, "resource")?;
-        let mutation = WorkspaceMutation::local(RESPAWN_ORIGIN);
+        let mutation = WorkspaceMutation::daemon_local(RESPAWN_ORIGIN);
         let result = json!({
             "terminal_id": terminal_id,
             "workspace_key": &terminal.workspace_key,

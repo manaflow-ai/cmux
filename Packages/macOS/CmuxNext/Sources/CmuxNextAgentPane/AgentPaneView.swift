@@ -72,6 +72,8 @@ public final class AgentPaneView: NSView {
     /// menu's copies go (tests use their own pasteboard).
     var messageMenuTarget: AgentPaneMessageTarget?
     var pasteboard = NSPasteboard.general
+    /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
+    let loadingView = AgentPaneLoadingView()
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
 
@@ -180,6 +182,7 @@ public final class AgentPaneView: NSView {
             addSubview(webView)
             source.load(into: webView)
         }
+        beginLoadingState()
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
         observeUIScale()
@@ -231,6 +234,7 @@ public final class AgentPaneView: NSView {
     public override func layout() {
         super.layout()
         if let page { page.frame = bounds } else { webView.frame = bounds }
+        if loadingView.superview === self { loadingView.frame = bounds }
     }
 
     /// WebKit's feature that renders a page at the display-rate divisor
@@ -365,6 +369,7 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
+        themeLoadingState(tokens)
         page?.themeSurface = surface
         deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],
                 scripts: AgentPaneTheme.script(tokens, surface: surface).map { [$0] } ?? [])

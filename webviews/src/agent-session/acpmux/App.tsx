@@ -105,6 +105,7 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
+import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -949,15 +950,6 @@ function AcpmuxPane() {
   });
   const showCheckpoint = useRef(checkpoints.show);
   showCheckpoint.current = checkpoints.show;
-  // The pane keeps what it showed until this document first draws what it is: the frames before
-  // the handshake (no hero yet, "Connecting") stay hidden. The second animation frame after the
-  // handshake's render runs once that frame was drawn. The host shows the page anyway after a limit.
-  const paintReported = useRef(false);
-  useEffect(() => {
-    if (!handshaken || paintReported.current) return;
-    paintReported.current = true;
-    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
-  }, [handshaken]);
   useEffect(() => {
     void callNative("pane.checkpointAvailability", { available: checkpoints.supported }).catch(() => undefined);
   }, [checkpoints.supported, snapshot.sessionId]);
@@ -1309,6 +1301,17 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
+  // The host covers the pane with its loading state until this document first draws what it is:
+  // the handshake's answer, or the host error when there is none (a failed start must show, not
+  // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
+  // The second animation frame after that render runs once its frame was drawn.
+  const paintReported = useRef(false);
+  const showsWhatItIs = handshaken || hostError !== undefined;
+  useEffect(() => {
+    if (!showsWhatItIs || paintReported.current) return;
+    paintReported.current = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
+  }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
     return projectDraft && !snapshot.sessionId
@@ -1746,6 +1749,10 @@ function AcpmuxPane() {
               String(query ?? ""),
               typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
             ),
+          "chat.adoptLive": async ({ choice }) => {
+            await client.adoptLive(choice === "fork" ? "fork" : "open");
+            return persistSession(client.adopted);
+          },
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
@@ -2357,6 +2364,12 @@ function AcpmuxPane() {
                   <p className="acpmux-link-missing" role="alert">
                     {t("link.sessionMissing")}
                   </p>
+                )}
+                {snapshot.liveChat && (
+                  <LiveChatChoice
+                    {...snapshot.liveChat}
+                    onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
+                  />
                 )}
                 {!reviewing && snapshot.handoff?.error && (
                   <p className="acpmux-handoff-error" role="alert">

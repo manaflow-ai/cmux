@@ -36,7 +36,7 @@ impl Mux {
                 selectors.clone(),
                 fields.clone(),
                 expected_resource_revision,
-                &WorkspaceMutation::local("cmux-tui-layout-undo"),
+                &WorkspaceMutation::daemon_local("cmux-tui-layout-undo"),
             );
             let conflict =
                 result.as_ref().err().is_some_and(crate::resource_router::is_revision_conflict);

@@ -425,7 +425,7 @@ fn column_update_survives_a_restart() {
         let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("seed-column-update", "test").unwrap(),
+                &WorkspaceMutation::daemon("seed-column-update", "test").unwrap(),
                 "session.restore_fixture",
                 &serde_json::json!({"fixture":"nested-columns"}),
                 None,

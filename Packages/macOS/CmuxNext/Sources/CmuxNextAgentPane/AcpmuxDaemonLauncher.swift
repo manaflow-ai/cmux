@@ -8,7 +8,7 @@ import os
 /// The daemon runs as a background job of a throwaway `/bin/sh` with job
 /// control on (`set -m`), so it gets its own process group, is adopted by
 /// launchd when the shell exits, and outlives the app (its sessions are
-/// durable state). Its fd 3 is our pipe; stdout and stderr go to
+/// durable state). The launcher reaps the shell. Its fd 3 is our pipe; stdout and stderr go to
 /// `<home>/daemon.log`.
 nonisolated enum AcpmuxDaemonLauncher {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
@@ -98,6 +98,21 @@ nonisolated enum AcpmuxDaemonLauncher {
             throw Failure.spawnFailed(String(cString: strerror(spawnStatus)))
         }
         logger.info("acpmux spawn succeeded executable=/bin/sh")
+        // The shell exits as soon as it has put the daemon in the background (the daemon
+        // goes to launchd). Reap it on every path out, or each launch leaves a zombie child
+        // in this process (cx-xqng).
+        let ready: Result<AcpmuxWebEndpoint, any Error>
+        do {
+            ready = .success(try await readReadyLine(&outputPipe, environment: environment, deadline: deadline))
+        } catch {
+            ready = .failure(error)
+        }
+        await Self.reap(processIdentifier)
+        return try ready.get()
+    }
+
+    private static func readReadyLine(_ outputPipe: inout [Int32], environment: AcpmuxEnvironment,
+                                      deadline: Duration) async throws -> AcpmuxWebEndpoint {
         // Only the spawned shell and daemon may hold the write end. The CLOEXEC
         // default above closes every inherited descriptor; the shell creates
         // descriptor 3 explicitly for the ready line.
@@ -115,6 +130,28 @@ nonisolated enum AcpmuxDaemonLauncher {
             throw Failure.noWebSocket(logPath: environment.logPath)
         }
         return endpoint
+    }
+
+    /// Collects the launch shell's exit status without blocking a thread: the shell
+    /// exits at once, so it is usually reaped by the first non-blocking `waitpid`;
+    /// otherwise its exit event (bounded) comes first. A shell still running after
+    /// that bound is left to exit on its own (it is in its own session).
+    private static func reap(_ pid: pid_t) async {
+        if collect(pid) { return }
+        _ = await AgentPaneProcessExit.exitEvent(pid: pid, within: .seconds(5))
+        if !collect(pid) { logger.notice("acpmux launch shell still running after its exit wait") }
+    }
+
+    /// One non-blocking `waitpid`: true once the shell is reaped (or is no child of ours).
+    private static func collect(_ pid: pid_t) -> Bool {
+        var status: Int32 = 0
+        let result = waitpid(pid, &status, WNOHANG)
+        if result == pid { return true }
+        guard result == -1 else { return false }
+        let failure = errno
+        if failure == EINTR { return false }
+        if failure != ECHILD { logger.error("acpmux launch shell reap failed errno=\(failure, privacy: .public)") }
+        return true
     }
 
     private static func withCStringArray<Value>(
