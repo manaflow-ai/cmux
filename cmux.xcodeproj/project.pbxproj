@@ -629,6 +629,7 @@
 		C1175700000000000000003A /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000021 /* ClaudeWrapperResumeEnvironmentTests.swift */; };
 		A0DD6EEA0656443ED94D975D /* CLIAgentHibernationTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B6FD335AD1A538E8DBB23D /* CLIAgentHibernationTargetTests.swift */; };
 		AE55A6E50000000000000005 /* CLIAgentMessageCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE55A6E50000000000000006 /* CLIAgentMessageCommandTests.swift */; };
+		D3C184780000000000000001 /* CMUXCLIInboxWaitMemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C184780000000000000002 /* CMUXCLIInboxWaitMemoryTests.swift */; };
 		9758A0000000000000000004 /* CLIAmpLifecycleIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */; };
 		A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */; };
 		805500000000000000000001 /* CLIBrowserEvalOutputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805500000000000000000002 /* CLIBrowserEvalOutputTests.swift */; };
@@ -5223,6 +5224,7 @@
 		C11757000000000000000021 /* ClaudeWrapperResumeEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWrapperResumeEnvironmentTests.swift; sourceTree = "<group>"; };
 		A2B6FD335AD1A538E8DBB23D /* CLIAgentHibernationTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIAgentHibernationTargetTests.swift"; sourceTree = "<group>"; };
 		AE55A6E50000000000000006 /* CLIAgentMessageCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAgentMessageCommandTests.swift; sourceTree = "<group>"; };
+		D3C184780000000000000002 /* CMUXCLIInboxWaitMemoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIInboxWaitMemoryTests.swift; sourceTree = "<group>"; };
 		9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAmpLifecycleIntegrationTests.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAuthAliasTests.swift; sourceTree = "<group>"; };
 		805500000000000000000002 /* CLIBrowserEvalOutputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIBrowserEvalOutputTests.swift; sourceTree = "<group>"; };
@@ -9146,6 +9148,7 @@
 				C117570000000000000000B1 /* CLITmuxCompatBufferContentTests.swift */,
 				C117570000000000000000A1 /* CLIPasteCommandTests.swift */,
 				AE55A6E50000000000000006 /* CLIAgentMessageCommandTests.swift */,
+				D3C184780000000000000002 /* CMUXCLIInboxWaitMemoryTests.swift */,
 				AE55B7F6000000000000A001 /* CLISendDraftGuardTests.swift */,
 				C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */,
 				C1175700000000000000001D /* CLIWorkspaceGroupSafetyTests.swift */,
@@ -14278,6 +14281,7 @@
 				C117570000000000000000C1 /* ClaudeHookSessionStoreRecoveryTests.swift in Sources */,
 				C1175700000000000000003A /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */,
 				AE55A6E50000000000000005 /* CLIAgentMessageCommandTests.swift in Sources */,
+				D3C184780000000000000001 /* CMUXCLIInboxWaitMemoryTests.swift in Sources */,
 				C11757000000000000000042 /* CLIChildEnvironment.swift in Sources */,
 				C11757000000000000000028 /* CLIClaudeHookTimeoutRegressionTests.swift in Sources */,
 				C11757000000000000000029 /* CLICoderouterBootstrapTests.swift in Sources */,

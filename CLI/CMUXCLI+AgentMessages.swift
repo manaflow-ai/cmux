@@ -305,56 +305,62 @@ extension CMUXCLI {
         var registered = false
         var consecutiveFailures = 0
         while true {
-            if let agentPID, agentPID > 1, kill(agentPID, 0) != 0, errno == ESRCH {
-                exit(0)
-            }
-            do {
-                defer { client.close() }
-                let payload = try client.sendV2(
-                    method: "agent.message.poll",
-                    params: [
-                        "surface_id": surfaceId,
-                        "poller_key": pollerKey,
-                        "register": !registered,
-                        "mark_delivered_read": !registered && isStop,
-                    ],
-                    responseTimeout: 5
-                )
-                registered = true
-                consecutiveFailures = 0
-                if payload["status"] as? String == "superseded" {
+            Self.withAgentInboxPollIteration {
+                if let agentPID, agentPID > 1, kill(agentPID, 0) != 0, errno == ESRCH {
                     exit(0)
                 }
-                if (payload["queued"] as? Int ?? 0) > 0, payload["held"] as? Bool != true {
-                    let deferred = Self.agentInboxDeferredClaim(
-                        surfaceId: surfaceId,
-                        via: "claude.wake",
-                        pollerKey: pollerKey,
-                        client: client
+                do {
+                    defer { client.close() }
+                    let payload = try client.sendV2(
+                        method: "agent.message.poll",
+                        params: [
+                            "surface_id": surfaceId,
+                            "poller_key": pollerKey,
+                            "register": !registered,
+                            "mark_delivered_read": !registered && isStop,
+                        ],
+                        responseTimeout: 5
                     )
-                    if !deferred.text.isEmpty {
-                        FileHandle.standardError.write(Data((deferred.text + "\n").utf8))
-                        if let leaseID = deferred.leaseID {
-                            _ = Self.agentInboxAcknowledge(
-                                surfaceId: surfaceId,
-                                pollerKey: pollerKey,
-                                leaseID: leaseID,
-                                via: "claude.wake",
-                                client: client
-                            )
-                        }
-                        exit(2)
+                    registered = true
+                    consecutiveFailures = 0
+                    if payload["status"] as? String == "superseded" {
+                        exit(0)
                     }
+                    if (payload["queued"] as? Int ?? 0) > 0, payload["held"] as? Bool != true {
+                        let deferred = Self.agentInboxDeferredClaim(
+                            surfaceId: surfaceId,
+                            via: "claude.wake",
+                            pollerKey: pollerKey,
+                            client: client
+                        )
+                        if !deferred.text.isEmpty {
+                            FileHandle.standardError.write(Data((deferred.text + "\n").utf8))
+                            if let leaseID = deferred.leaseID {
+                                _ = Self.agentInboxAcknowledge(
+                                    surfaceId: surfaceId,
+                                    pollerKey: pollerKey,
+                                    leaseID: leaseID,
+                                    via: "claude.wake",
+                                    client: client
+                                )
+                            }
+                            exit(2)
+                        }
+                    }
+                } catch {
+                    // The app may be restarting. Keep trying while Claude lives,
+                    // for up to about ten minutes; a restarted app hands the
+                    // surface to the first poller that checks in.
+                    consecutiveFailures += 1
+                    if consecutiveFailures >= Self.agentInboxMaximumPollFailures { exit(0) }
                 }
-            } catch {
-                // The app may be restarting. Keep trying while Claude lives,
-                // for up to about ten minutes; a restarted app hands the
-                // surface to the first poller that checks in.
-                consecutiveFailures += 1
-                if consecutiveFailures >= Self.agentInboxMaximumPollFailures { exit(0) }
             }
             Thread.sleep(forTimeInterval: Self.agentInboxPollInterval)
         }
+    }
+
+    static func withAgentInboxPollIteration<T>(_ body: () throws -> T) rethrows -> T {
+        try body()
     }
 
     static let agentInboxPollInterval: TimeInterval = 2
