@@ -11,7 +11,10 @@ enum SidebarGlassSelection {
             .labelColor,
             for: colorScheme,
             opacity: defaults.object(forKey: "sidebarGlassSelectionFillOpacity") as? Double
-                ?? (colorScheme == .dark ? 0.13 : 0.07)
+                // Keep the active row legible over terminal output while it
+                // remains translucent enough to read as glass. Multi-select
+                // rows still reduce this through the shared selection style.
+                ?? (colorScheme == .dark ? 0.17 : 0.10)
         )
     }
 
@@ -20,7 +23,9 @@ enum SidebarGlassSelection {
             .labelColor,
             for: colorScheme,
             opacity: defaults.object(forKey: "sidebarGlassSelectionEdgeOpacity") as? Double
-                ?? (colorScheme == .dark ? 0.14 : 0.12)
+                // A slightly brighter rim gives the selected row a stable
+                // reading edge when the pane is over high-contrast content.
+                ?? (colorScheme == .dark ? 0.18 : 0.15)
         )
     }
 
