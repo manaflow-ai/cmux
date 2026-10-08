@@ -5,6 +5,42 @@ import Testing
 
 @Suite("SessionRemoteWorkspaceSnapshot persistence shape")
 struct SessionRemoteWorkspaceSnapshotTests {
+    @Test("restore prefers a live saved agent and falls back after it moves")
+    func restoresLiveAgent() {
+        let saved = "/tmp/cmux-saved-agent.sock"
+        let current = "/tmp/cmux-current-agent.sock"
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh, destination: "example.invalid", agentSocketPath: saved
+        )
+        let environment = ["SSH_AUTH_SOCK": current]
+        #expect(snapshot.restoredAgentSocketPath(environment: environment, isLiveAgent: { _ in true }) == saved)
+        #expect(snapshot.restoredAgentSocketPath(environment: environment, isLiveAgent: { $0 == current }) == current)
+        #expect(snapshot.restoredAgentSocketPath(environment: environment, isLiveAgent: { _ in false }) == nil)
+    }
+
+    @Test("an explicitly disabled saved agent never falls back", arguments: [nil, "", "   "] as [String?])
+    func disabledAgentDoesNotFallBack(saved: String?) throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh, destination: "example.invalid",
+            agentSocketPath: saved, agentSocketPathOverrideIsSet: true
+        )
+        let restored = try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: JSONEncoder().encode(snapshot))
+        #expect(restored.restoredAgentSocketPath(
+            environment: ["SSH_AUTH_SOCK": "/tmp/cmux-current-agent.sock"],
+            isLiveAgent: { _ in true }
+        ) == nil)
+    }
+
+    @Test("legacy snapshots with no saved agent inherit a live current agent")
+    func legacyAgentInherits() {
+        let current = "/tmp/cmux-current-agent.sock"
+        let snapshot = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "example.invalid")
+        #expect(snapshot.restoredAgentSocketPath(
+            environment: ["SSH_AUTH_SOCK": current], isLiveAgent: { $0 == current }
+        ) == current)
+        #expect(snapshot.restoredAgentSocketPath(environment: [:], isLiveAgent: { _ in true }) == nil)
+    }
+
     @Test("codable round trip preserves every field")
     func codableRoundTrip() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
