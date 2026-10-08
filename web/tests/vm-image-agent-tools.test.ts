@@ -77,7 +77,8 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
   test("the default bake's daemon unit is unchanged; --agent-tools adds the tool dir and the browser host the daemon supervises", () => {
     const plain = daemonUnit();
     expect(plain).not.toContain("CMUX_AGENT_TOOLS_BIN_DIR");
-    expect(plain).not.toContain("CMUX_BROWSER_HOST");
+    expect(plain).not.toContain("CMUX_BROWSER_HOST_BIN");
+    expect(plain).not.toContain("CMUX_BROWSER_HOST_CHROMIUM");
     const env = agentToolsDaemonEnv(lock);
     const browser = rolesManifest(lock).roles.browser;
     const host = browser.programs.find((p) => p.name === "cmux-browser-host")!;

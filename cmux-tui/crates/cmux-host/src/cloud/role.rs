@@ -386,6 +386,9 @@ impl Worker {
                 fds.len() - 1
             });
             let clients_from = fds.len();
+            // Only these clients have a pollfd in this pass; `accept` below
+            // adds new ones, which are read from the next pass on.
+            let polled_clients = self.clients.len();
             for c in &self.clients {
                 fds.push(libc::pollfd {
                     fd: c.stream.as_raw_fd(),
@@ -419,7 +422,7 @@ impl Worker {
                 self.read_activity();
             }
             let readable: Vec<usize> =
-                (0..self.clients.len()).filter(|i| ready(clients_from + i)).collect();
+                (0..polled_clients).filter(|i| ready(clients_from + i)).collect();
             self.read_clients(&readable);
             self.fire_deadlines();
         }
@@ -803,3 +806,7 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
     let identify = query_identify(&socket, timeout).map_err(|e| format!("identify: {e}"))?;
     Ok(daemon_info_from_identify(&identify, false).to_json())
 }
+
+#[cfg(test)]
+#[path = "role_tests.rs"]
+mod role_tests;
