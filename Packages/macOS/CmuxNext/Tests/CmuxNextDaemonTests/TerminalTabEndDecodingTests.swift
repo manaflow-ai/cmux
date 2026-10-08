@@ -40,6 +40,17 @@ import Testing
         #expect(tab.end?.reason == .other)
     }
 
+    /// cx-0tgl LA: a host loss carries the evidence its host left (the
+    /// first recorded signal and its sender, whether it had panicked).
+    @Test func aHostLossCarriesItsCause() throws {
+        let lost = try tab(
+            #"{"surface":4,"dead":true,"end":{"kind":"host_lost","reason":"dead_before_adoption","cause":{"signal":"SIGTERM","sender_pid":9,"sender_name":"bash","panicked":false}}}"#
+        )
+        #expect(lost.end?.cause == TerminalTabEnd.Cause(signal: "SIGTERM", senderPid: 9, senderName: "bash"))
+        let panicked = try tab(#"{"surface":4,"dead":true,"end":{"kind":"host_lost","cause":{"panicked":true}}}"#)
+        #expect(panicked.end?.cause == TerminalTabEnd.Cause(panicked: true))
+    }
+
     @Test func olderDaemonsOmitTheFields() throws {
         let tab = try tab(#"{"surface":4,"dead":true}"#)
         #expect(tab.terminalState == nil)

@@ -58,8 +58,10 @@ export const parseApproval = (item: unknown): ParsedApproval | null => {
   const input = obj(action?.input)
   const a = obj(input?.approval)
   if (!a || !REQUEST.test(str(a.request)) || !DIGEST.test(str(a.digest)) || !str(a.team)) return null
-  // The same check the API makes (feed-approvals.ts): only the posting team's ConnectionDO hears the answer.
-  if (obj(i.poster)?.scope !== `system:connections:${str(a.team)}`) return null
+  // The same check the API makes (feed-approvals.ts): only the posting team's ConnectionDO, or its CloudDO
+  // for a Cloud request from a device (cx-wb5.65), hears the answer.
+  const scope = obj(i.poster)?.scope
+  if (scope !== `system:connections:${str(a.team)}` && scope !== `system:cloud:${str(a.team)}`) return null
   const answer = obj(obj(i.answer)?.value)?.decision
   return {
     item: str(i.id),

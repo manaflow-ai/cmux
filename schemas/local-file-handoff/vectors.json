@@ -1,0 +1,145 @@
+{
+  "description": "Shared test vectors for the local file handoff: a main-frame navigation to a local file that a browser tab hands to cmux's file opener instead of loading. A CEF tab hands off Markdown (the markdown page) and the video and audio its build cannot decode (H.264/HEVC .mp4 .mov .m4v and AAC .m4a .aac; the fork builds without proprietary codecs), which open in a WebKit tab; a WebKit tab hands off Markdown only. Swift LocalFileHandoff (CmuxNextBrowser/Core/LocalFileHandoff.swift, LocalFileHandoffVectorTests) and C++ CEFHandsOffLocalFile (CEFShim/src/local_file_handoff.h, scripts/cmux-next/test-local-file-handoff-cpp.sh) both read this file. Change both together.",
+  "cases": [
+    {
+      "url": "file:///Users/me/notes.md",
+      "cef": true,
+      "webkit": true
+    },
+    {
+      "url": "file:///Users/me/README.MARKDOWN",
+      "cef": true,
+      "webkit": true
+    },
+    {
+      "url": "file:///Users/me/notes.md#intro",
+      "cef": true,
+      "webkit": true
+    },
+    {
+      "url": "file:///Users/me/clip.mp4",
+      "cef": true,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/clip.MOV",
+      "cef": true,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/clip.m4v",
+      "cef": true,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/song.m4a",
+      "cef": true,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/song.aac",
+      "cef": true,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/clip.mp4?t=3",
+      "cef": true,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/my%20clip.mp4",
+      "cef": true,
+      "webkit": false
+    },
+    {
+      "url": "FILE:///Users/me/clip.mp4",
+      "cef": true,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/clip.webm",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/song.mp3",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/song.ogg",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/song.flac",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/song.wav",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/paper.pdf",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/anim.gif",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/photo.png",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/page.html",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/notes.txt",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/clip.mp4.txt",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/md",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "file:///Users/me/mp4",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "https://example.com/clip.mp4",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "http://example.com/notes.md",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "data:video/mp4;base64,AAAA",
+      "cef": false,
+      "webkit": false
+    },
+    {
+      "url": "about:blank",
+      "cef": false,
+      "webkit": false
+    }
+  ]
+}

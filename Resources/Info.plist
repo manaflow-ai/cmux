@@ -196,6 +196,14 @@
 				<string>org.xiph.ogg-audio</string>
 				<string>org.xiph.ogv</string>
 				<string>org.webmproject.webm</string>
+				<string>public.mpeg-4</string>
+				<string>com.apple.quicktime-movie</string>
+				<string>com.apple.m4v-video</string>
+				<string>public.mp3</string>
+				<string>com.apple.m4a-audio</string>
+				<string>public.aac-audio</string>
+				<string>com.microsoft.waveform-audio</string>
+				<string>org.xiph.flac</string>
 			</array>
 		</dict>
 		<dict>

@@ -3,6 +3,7 @@ import { categoryById, type CategoryCard } from "../categories";
 import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
+import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { AdvancedInfo, Backdrops, TerminalInfo } from "./HostCards";
@@ -17,6 +18,7 @@ const CARDS: Record<CategoryCard, () => ReactNode> = {
   themeStudio: () => <ThemeStudio />,
   terminalInfo: () => <TerminalInfo />,
   ghosttyDiagnostics: () => <GhosttyDiagnostics />,
+  computerUse: () => <ComputerUseCard />,
   spaces: () => <SpacesSection />,
   browserProfiles: () => <BrowserProfiles />,
   machines: () => <MachinesSection title={machinesTitle()} />,

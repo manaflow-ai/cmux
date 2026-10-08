@@ -1,5 +1,6 @@
-//! The words a respawned terminal shows (cx-6so.49 L2): one dim line under
-//! the previous screen, before the new shell's first prompt.
+//! The words a respawned terminal (cx-6so.49 L2) or a reopened archived
+//! terminal (ARCHIVE-1) shows: one dim line under the previous screen,
+//! before the new shell's first prompt.
 //!
 //! The daemon's binary owns the localization catalog and installs the text
 //! of its resolved language with [`install`] before it opens the session;
@@ -15,12 +16,16 @@ pub struct TerminalRespawnText {
     /// The marker of a respawned terminal that ran a command which is not
     /// offered again; `{program}` is the command's program name.
     pub restored_command: &'static str,
+    /// The line under a reopened tab's archived screen when its close
+    /// stopped a running program; `{program}` is the program's name.
+    pub stopped: &'static str,
 }
 
 /// The English text, used until [`install`] runs.
 pub const ENGLISH: TerminalRespawnText = TerminalRespawnText {
     restored: "\u{2014} session restored (previous process ended) \u{2014}",
     restored_command: "\u{2014} session restored (previous process ended; it ran {program}) \u{2014}",
+    stopped: "\u{2014} {program} was stopped when this tab closed \u{2014}",
 };
 
 static TEXT: OnceLock<&'static TerminalRespawnText> = OnceLock::new();
@@ -46,6 +51,13 @@ pub(crate) fn marker(program: Option<&str>) -> String {
     }
 }
 
+/// The line under a reopened tab's archived screen whose close stopped
+/// `program`. Control characters in the name are dropped.
+pub(crate) fn stopped_marker(program: &str) -> String {
+    let program = program.chars().filter(|c| !c.is_control()).collect::<String>();
+    text().stopped.replace("{program}", &program)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,5 +70,13 @@ mod tests {
             "\u{2014} session restored (previous process ended; it ran cat) \u{2014}"
         );
         assert_eq!(marker(Some("\u{7}")), ENGLISH.restored);
+    }
+
+    #[test]
+    fn the_stopped_marker_names_the_program_without_control_characters() {
+        assert_eq!(
+            stopped_marker("sle\u{1b}ep"),
+            "\u{2014} sleep was stopped when this tab closed \u{2014}"
+        );
     }
 }
