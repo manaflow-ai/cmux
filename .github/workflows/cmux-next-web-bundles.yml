@@ -111,9 +111,11 @@ jobs:
         working-directory: webviews
         run: bun run check
 
+      # One bun process per file, as ci-web.yml does: a single `bun test` was SIGKILLed
+      # (exit 137) or cascaded from one slow file into hundreds of failures.
       - name: bun test
         working-directory: webviews
-        run: bun test
+        run: ../scripts/ci/run-webviews-tests.sh
 
   # Interaction-latency scoreboard (plans/cmux-next/zero-latency.md): input-to-paint of every
   # page's named actions in headless Chromium and WebKit. A scoreboard only: it reports numbers in

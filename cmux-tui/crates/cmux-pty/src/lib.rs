@@ -19,6 +19,12 @@ pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
 #[cfg(unix)]
 mod macos;
+#[cfg(unix)]
+mod open_files;
+#[cfg(unix)]
+pub use open_files::{
+    OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit, restore_open_file_limit_in_child,
+};
 
 /// Stable classification for failures at the PTY allocation boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +205,9 @@ pub struct SpawnedPty {
     pub child: Box<dyn Child + Send + Sync>,
 }
 
+#[cfg(windows)]
+pub mod windows_jobs;
+
 pub fn open(size: PtySize) -> anyhow::Result<PtyPair> {
     let (master, slave) = platform::open(size)?;
     Ok(PtyPair { master, slave })
@@ -245,7 +254,8 @@ mod platform {
         for (key, value) in command.environment {
             builder.env(key, value);
         }
-        slave.0.spawn_command(builder)
+        let child = slave.0.spawn_command(builder)?;
+        Ok(Box::new(super::windows_jobs::JobChild::new(child)))
     }
 }
 

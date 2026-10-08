@@ -375,7 +375,7 @@ impl Mux {
         let mux = Arc::clone(self);
         let mut committed = None;
         let commit = self.commit_resource_mutation_plan(
-            &WorkspaceMutation::local("cmux-tui-tab-drag"),
+            &WorkspaceMutation::daemon_local("cmux-tui-tab-drag"),
             "tab.drag",
             &fingerprint,
             None,
@@ -970,7 +970,7 @@ mod tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("tab-drag-test"),
+            &WorkspaceMutation::daemon_local("tab-drag-test"),
         )
         .unwrap();
         assert!(mux.move_tab_to_new_workspace(second, Some("missing".into()), None, None).is_err());

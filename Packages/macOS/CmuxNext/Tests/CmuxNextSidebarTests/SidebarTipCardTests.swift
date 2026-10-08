@@ -63,4 +63,22 @@ import Testing
         #expect(intents == [.tryTip("commandPalette"), .dismissTip("commandPalette")])
         #expect(view.tipCardView.closeButton.accessibilityLabel() == "Hide This Tip")
     }
+
+    /// cx-367y: the card floats on Liquid Glass with the theme tint, and
+    /// Reduce Transparency turns it into an opaque theme fill, live.
+    @Test func theCardIsGlassAndOpaqueUnderReduceTransparency() {
+        let reduce = ReduceTransparency(system: { false }, changes: NotificationCenter())
+        let card = SidebarTipCardView(reduceTransparency: reduce)
+        card.configure(Self.tip)
+        card.frame = NSRect(x: 0, y: 0, width: 236, height: SidebarTipCardView.height)
+        card.layoutSubtreeIfNeeded()
+        #expect(card.surface.frame == card.bounds)
+        #expect(card.surface.material == OverlayMaterial.select(liquidGlassAvailable: OverlayMaterial.liquidGlassAvailable, reduceTransparency: false))
+        #expect(card.surface.isDescendant(of: card) && card.tryButton.isDescendant(of: card.surface), "the lines sit on the glass")
+        reduce.override = true
+        #expect(card.surface.material == .opaque)
+        #expect(card.shownText.first == "Did you know?", "the lines survive the material change")
+        reduce.override = nil
+        #expect(card.surface.material != .opaque)
+    }
 }

@@ -97,6 +97,8 @@ use crate::ui::graphics_writer::{
     GraphicsCompletion, GraphicsProcessing, GraphicsResponseFilter, GraphicsWriter,
     GraphicsWriterShutdown, StdoutLock, graphics_fence_channel,
 };
+mod pairing_confirm;
+
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::{
     ReusableRowBuffer, horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry,
@@ -19733,10 +19735,8 @@ impl App {
     }
 
     fn handle_pairing_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        match key.code {
-            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => self.resolve_pairing(true),
-            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => self.resolve_pairing(false),
-            _ => {}
+        if let Some(approve) = pairing_confirm::decision(&key) {
+            self.resolve_pairing(approve);
         }
         Ok(RenderAction::Draw)
     }
@@ -46739,7 +46739,7 @@ mod tests {
         assert!(app.owner_shutdown_requested());
     }
 
-    fn test_app(session: Session) -> App {
+    pub(super) fn test_app(session: Session) -> App {
         test_app_with_events(session).0
     }
 

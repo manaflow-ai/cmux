@@ -43,6 +43,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
+    /// The identified New Tab field mounted and took DOM focus.
+    case newTabInputReady(String)
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
@@ -229,6 +231,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             }
         case "shell.stop":
             if let id = Self.shellID(params) { self = .shellStop(id: id) } else { self = .unsupported(method) }
+        case "newTab.inputReady":
+            if let token = params?["token"] as? String, !token.isEmpty, token.count <= 128 { self = .newTabInputReady(token) }
+            else { self = .unsupported(method) }
         case "newTab.touched":
             self = .touched
         case "newTab.remember":
@@ -389,7 +394,6 @@ public nonisolated enum AgentPaneReply {
         return dictionary
     }
 }
-
 /// What the location bar can jump to (`tab.jump`).
 public nonisolated enum AgentPaneJumpTarget: String, Sendable {
     case tab, workspace

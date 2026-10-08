@@ -73,13 +73,42 @@ export interface ReplyHandler {
 
 export const RECEIVE_NAME = "__cmuxPageReceive";
 
+/**
+ * Set to `true` by the host before page code runs when the document loads in a parked pooled host
+ * (the prewarmed spare, PageWebView's pooled recipe). The spare has no routes yet, so the client
+ * holds every call and subscription until the host claims the document for a page.
+ */
+export const PARKED_NAME = "__cmuxPageParked";
+
+/**
+ * The host's claim of a parked document (`{route?}`): the claim's routes are bound, so the client
+ * shows `route` (a URL fragment), sends what it held, and acknowledges with `{claimed: true}`. A
+ * document that was not parked (it already ran against other routes) answers
+ * `cmux.page.not_parked`, and the host reloads it.
+ */
+export const CLAIM_OP = "cmux.page.claim";
+
 /** How many not-yet-registered subscriptions, and events per subscription, the client holds. */
 const EARLY_SUBS = 16;
 const EARLY_EVENTS = 64;
 
+/** A call or subscription a parked document holds until its claim. */
+interface Held {
+  envelope: Envelope & { id: number };
+  resolve: (reply: unknown) => void;
+  reject: (error: unknown) => void;
+}
+
+/** The part of `window.location` a claim uses. */
+interface ClaimLocation {
+  hash: string;
+  replace(url: string): void;
+}
+
 /**
  * The bridge client: the page posts envelopes and awaits the reply; the host pushes events and its
- * own calls through `window.__cmuxPageReceive(envelope)`.
+ * own calls through `window.__cmuxPageReceive(envelope)`. Every page that boots through it serves
+ * the pooled host's claim (`CLAIM_OP`); no page code takes part.
  */
 export class BridgePageClient implements PageClient {
   private nextId = 1;
@@ -88,12 +117,18 @@ export class BridgePageClient implements PageClient {
   private readonly handlers = new Map<string, PageHandler>();
   /** Events for a sub id whose subscribe reply the page has not read yet, replayed on registration. */
   private readonly early = new Map<number, { data: unknown; seq: number; meta: PageEventMeta }[]>();
+  /** True from boot in a parked pooled host until the claim (`PARKED_NAME`). */
+  private parked: boolean;
+  private held: Held[] = [];
+  private readonly location: ClaimLocation | undefined;
 
   constructor(
     private readonly handler: ReplyHandler,
     target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
   ) {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
+    this.parked = target[PARKED_NAME] === true;
+    this.location = target.location as ClaimLocation | undefined;
   }
 
   async call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
@@ -114,8 +149,10 @@ export class BridgePageClient implements PageClient {
     if (!signal) return (await reply) as R;
     return await new Promise<R>((resolve, reject) => {
       const onAbort = () => {
-        // The host cancels the op; its late answer for this id is ignored.
-        void this.handler.postMessage({ t: "cancel", id: envelope.id } satisfies Envelope).catch(() => undefined);
+        // A held call is dropped before the host sees it; else the host cancels the op, and its
+        // late answer for this id is ignored.
+        if (!this.drop(envelope.id))
+          void this.handler.postMessage({ t: "cancel", id: envelope.id } satisfies Envelope).catch(() => undefined);
         reject(cancelled());
       };
       signal.addEventListener("abort", onAbort, { once: true });
@@ -163,10 +200,38 @@ export class BridgePageClient implements PageClient {
     };
   }
 
+  /** Sends an envelope, or holds it while the document is parked. */
+  private transmit(envelope: Envelope & { id: number }): Promise<unknown> {
+    if (!this.parked) return this.handler.postMessage(envelope);
+    return new Promise((resolve, reject) => this.held.push({ envelope, resolve, reject }));
+  }
+
+  /** Drops a held envelope (its caller gave up); false when it was already sent. */
+  private drop(id: number): boolean {
+    const index = this.held.findIndex((held) => held.envelope.id === id);
+    if (index === -1) return false;
+    const [held] = this.held.splice(index, 1);
+    held?.reject(new Error("cancelled while parked"));
+    return true;
+  }
+
+  /** The host claimed this document: show the claim's route, then send what was held, in order. */
+  private claim(params: unknown): unknown {
+    if (!this.parked) throw pageError("cmux.page.not_parked", "the document already ran");
+    const route = (params as { route?: unknown } | null)?.route;
+    if (typeof route === "string" && route.startsWith("#") && this.location && this.location.hash !== route)
+      this.location.replace(route);
+    this.parked = false;
+    const held = this.held;
+    this.held = [];
+    for (const { envelope, resolve, reject } of held) this.handler.postMessage(envelope).then(resolve, reject);
+    return { claimed: true };
+  }
+
   private async post(envelope: Envelope & { id: number }): Promise<unknown> {
     let reply: unknown;
     try {
-      reply = await this.handler.postMessage(envelope);
+      reply = await this.transmit(envelope);
     } catch (error) {
       throw pageError("cmux.protocol.closed", error instanceof Error ? error.message : String(error), true);
     }
@@ -230,7 +295,7 @@ export class BridgePageClient implements PageClient {
   }
 
   private async answer(id: number, op: string, params: unknown): Promise<void> {
-    const handler = this.handlers.get(op);
+    const handler = op === CLAIM_OP ? (claim: unknown) => this.claim(claim) : this.handlers.get(op);
     let reply: Envelope;
     if (!handler) {
       reply = { t: "err", id, code: "cmux.protocol.unknown_op", message: op };
@@ -241,7 +306,7 @@ export class BridgePageClient implements PageClient {
         reply = {
           t: "err",
           id,
-          code: "cmux.page.failed",
+          code: isPageError(error) ? error.code : "cmux.page.failed",
           message: error instanceof Error ? error.message : String(error),
         };
       }

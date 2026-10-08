@@ -219,6 +219,96 @@ impl WorkspaceRegistry {
     }
 }
 
+/// A terminal's stored relaunch record, as the L2 respawn reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredRelaunch {
+    pub cwd: Option<String>,
+    pub kind: RelaunchKind,
+    pub shell_path: Option<String>,
+    pub program: Option<String>,
+    pub env: Vec<(String, String)>,
+    /// `(harness, session_id)` of the agent the terminal last ran.
+    pub agent: Option<(String, String)>,
+}
+
+/// Whether `session_id` may be stored and offered to a resume command:
+/// 1 to 128 of `[A-Za-z0-9._-]`.
+pub(crate) fn resumable_session_id(session_id: &str) -> bool {
+    (1..=128).contains(&session_id.len())
+        && session_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+}
+
+impl WorkspaceRegistry {
+    /// The relaunch record of terminal `terminal_id`, if one was stored.
+    pub(crate) fn terminal_relaunch_record(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<StoredRelaunch>> {
+        let row = self
+            .connection
+            .query_row(
+                "SELECT cwd, kind, shell_path, program, env_json, agent_json
+                 FROM terminal_relaunch WHERE terminal_id = ?1",
+                [terminal_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((cwd, kind, shell_path, program, env, agent)) = row else { return Ok(None) };
+        let kind = if kind == "command" { RelaunchKind::Command } else { RelaunchKind::Shell };
+        let env: Value = serde_json::from_str(&env).context("terminal_relaunch env is not JSON")?;
+        let env = env
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(key, _)| keeps_env_key(key))
+            .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.into())))
+            .collect();
+        let agent =
+            agent.and_then(|agent| serde_json::from_str::<Value>(&agent).ok()).and_then(|agent| {
+                let harness = agent["harness"].as_str()?.to_string();
+                let session_id = agent["session_id"].as_str()?.to_string();
+                resumable_session_id(&session_id).then_some((harness, session_id))
+            });
+        let cwd = cwd.and_then(|cwd| absolute(&cwd));
+        Ok(Some(StoredRelaunch { cwd, kind, shell_path, program, env, agent }))
+    }
+
+    /// Record (`Some`) or forget (`None`) the agent session terminal
+    /// `terminal_public_id` runs, from its agent hooks. An id that is not
+    /// resumable is never stored.
+    pub(crate) fn record_terminal_relaunch_agent(
+        &mut self,
+        terminal_public_id: &str,
+        agent: Option<(&str, &str)>,
+    ) -> anyhow::Result<()> {
+        let agent = match agent {
+            Some((harness, session_id)) if resumable_session_id(session_id) => {
+                Some(json!({"harness": harness, "session_id": session_id}).to_string())
+            }
+            Some(_) => return Ok(()),
+            None => None,
+        };
+        self.connection.execute(
+            "UPDATE terminal_relaunch SET agent_json = ?2, updated_at_ms = ?3
+             WHERE terminal_id = (
+               SELECT terminal_id FROM resource_terminals
+               WHERE public_id = ?1 AND deleted_revision IS NULL
+             )",
+            params![terminal_public_id, agent, now_ms()?],
+        )?;
+        Ok(())
+    }
+}
+
 /// The relaunch fields a closed tab keeps for the terminal `terminal_public_id`.
 pub(crate) fn closed_fields(
     connection: &Connection,

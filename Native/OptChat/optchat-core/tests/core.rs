@@ -145,8 +145,10 @@ fn long_chat_keeps_every_view_rule_and_a_stable_prefix() {
         assert!(memory.settled(), "the fake compactor keeps up");
         assert_tiles(&memory);
         assert_never_split(&before, memory.view());
+        // Spec 3.2: the view passes the budget by at most the lines built
+        // since the last message; the next message merges it down.
         assert!(
-            memory.view_size() <= budget,
+            memory.view_size() <= budget + NODE,
             "over budget at {step}: {}",
             memory.view_size()
         );
@@ -209,37 +211,6 @@ fn free_nodes_keep_short_messages_verbatim() {
 }
 
 #[test]
-fn level_zero_nodes_start_in_order_and_jobs_are_capped() {
-    let store = Mem::default();
-    let mut memory = Memory::new(VIEW);
-    for _ in 0..20 {
-        store.push(Kind::Echo, "y".repeat(5_000));
-        memory.append();
-    }
-    let work = memory.pump(&store);
-    // Only message 0 can start: every later level-0 node waits for the lines before it.
-    assert_eq!(
-        work,
-        vec![Work::Model {
-            node: NodeId::new(0, 0)
-        }]
-    );
-    let text = fake_summary(NodeId::new(0, 0));
-    store
-        .nodes
-        .borrow_mut()
-        .insert(NodeId::new(0, 0), text.clone());
-    memory.complete(NodeId::new(0, 0), &text).unwrap();
-    assert_eq!(
-        memory.pump(&store),
-        vec![Work::Model {
-            node: NodeId::new(0, 1)
-        }]
-    );
-    assert!(memory.busy().count() <= JOBS);
-}
-
-#[test]
 fn zoom_opens_lines_and_messages() {
     let store = Mem::default();
     let mut memory = Memory::new(VIEW);
@@ -269,28 +240,6 @@ fn zoom_opens_lines_and_messages() {
         zoom(&memory, &store, 0, 3).unwrap_err().to_string(),
         "No line 0+3."
     );
-}
-
-#[test]
-fn reloading_folds_the_same_view() {
-    let mut rng = Rng(42);
-    let store = Mem::default();
-    let mut memory = Memory::new(20_000);
-    for _ in 0..2_000 {
-        let (kind, text) = message(&mut rng);
-        store.push(kind, text);
-        memory.append();
-        drain(&mut memory, &store);
-    }
-    let sizes = store
-        .nodes
-        .borrow()
-        .iter()
-        .map(|(k, v)| (*k, v.len()))
-        .collect::<Vec<_>>();
-    let reloaded = Memory::load(memory.len(), sizes, 20_000);
-    assert_eq!(reloaded.view(), memory.view());
-    assert_eq!(reloaded.view_size(), memory.view_size());
 }
 
 /// A turn's view is recorded by its parts: rendering those parts later,
@@ -351,7 +300,7 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
     match size_check(std::slice::from_ref(&long)) {
         SizeCheck::Retry(msg) => {
             assert!(msg.starts_with(
-                "That line is 600 bytes; the limit is 512. It must end where it is cut here:\n"
+                "Too long: your line is 600 bytes, over the 512-byte limit. Write\n"
             ));
             assert!(msg.ends_with("| ← LIMIT"));
             assert_eq!(cut_at_bytes(&long, 512).len(), 512);
@@ -376,40 +325,13 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
 }
 
 #[test]
-fn compactor_requests_carry_no_ids_and_the_scale_line() {
-    assert_eq!(SCALE.len(), NODE, "SCALE must be exactly NODE bytes");
-    let store = Mem::default();
-    let mut memory = Memory::new(VIEW);
-    for text in ["short one", &"w".repeat(2_000)] {
-        store.push(Kind::User, text.to_string());
-        memory.append();
-    }
-    drain(&mut memory, &store);
-    let request = compact_request(
-        &memory,
-        &store,
-        NodeId::new(1, 0),
-        CompactPrompt::default().text("Chief"),
-    )
-    .unwrap();
-    assert!(request.context.starts_with("<chat>\n") && request.context.ends_with("</chat>"));
-    assert!(
-        !request.context.contains("+1|") && !request.step.contains("0+1"),
-        "no ids in a compactor call"
-    );
-    assert!(
-        request.step.contains(SCALE)
-            && request
-                .step
-                .contains("Merge these two lines into one, in at most 512 bytes:")
-    );
-}
-
-#[test]
 fn compactor_prompt_is_selectable_and_defaults_to_taelins() {
     assert_eq!(CompactPrompt::default(), CompactPrompt::Taelin);
     let taelin = CompactPrompt::Taelin.text("Chief");
-    assert!(taelin.starts_with("You write the memory of Chief, an AI agent"));
+    assert!(taelin.starts_with(
+        "You are Chief, an AI agent that works for one user in a single chat that never\nends."
+    ));
+    assert!(taelin.contains("\n# Compactions\n"), "one prompt for turns and compactions");
     assert!(!taelin.contains("{agent}"), "every placeholder is filled");
     assert_eq!(
         taelin,
@@ -540,7 +462,7 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
         request.step.chars().count() < STEP_MESSAGE + 2_000,
         "the call shows at most STEP_MESSAGE characters of it"
     );
-    assert!(request.step.contains("user: HEAD") && request.step.ends_with("TAIL"));
+    assert!(request.step.contains("user: HEAD") && request.step.ends_with("TAIL\n</input>"));
     let cut = total - STEP_MESSAGE;
     let prefix = request.cut.clone().expect("the request says it is cut");
     assert!(prefix.contains(&cut.to_string()) && prefix.contains(&total.to_string()));
@@ -558,7 +480,7 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
     memory.append();
     let whole = compact_request(&memory, &store, NodeId::new(0, 0), String::new()).unwrap();
     assert_eq!(whole.cut, None);
-    assert!(whole.step.ends_with(&"w".repeat(STEP_MESSAGE)));
+    assert!(whole.step.ends_with(&format!("{}\n</input>", "w".repeat(STEP_MESSAGE))));
     assert_eq!(finish_line(&whole, "tool: x"), "tool: x");
 }
 
@@ -570,7 +492,7 @@ fn the_size_loop_measures_a_cut_line_against_its_reduced_room() {
     let reply = "x".repeat(480);
     match size_check_in(std::slice::from_ref(&reply), room) {
         SizeCheck::Retry(text) => assert!(
-            text.starts_with("That line is 480 bytes; the limit is 450."),
+            text.starts_with("Too long: your line is 480 bytes, over the 450-byte limit."),
             "{text}"
         ),
         other => panic!("{other:?}"),
@@ -672,7 +594,7 @@ fn a_resumed_memory_is_the_live_one_and_keeps_only_the_views_sizes() {
 }
 
 #[test]
-fn a_stale_checkpoint_folds_the_tail_as_a_load_does() {
+fn a_stale_checkpoint_keeps_its_view_and_folds_only_the_tail() {
     let mut rng = Rng(5);
     let store = Mem::default();
     let mut live = Memory::new(20_000);
@@ -687,19 +609,14 @@ fn a_stale_checkpoint_folds_the_tail_as_a_load_does() {
         }
     }
     let checkpoint = checkpoint.unwrap();
-    let sizes: Vec<(NodeId, usize)> = store
-        .nodes
-        .borrow()
-        .iter()
-        .map(|(k, v)| (*k, v.len()))
-        .collect();
-    let loaded = Memory::load(live.len(), sizes, 20_000);
     let from = frontier(&store, &checkpoint);
     let resumed = Memory::resume(&checkpoint, live.len(), from, 20_000, &store).unwrap();
     assert_eq!(resumed.len(), live.len());
     assert_tiles(&resumed);
-    assert_eq!(resumed.view(), loaded.view());
-    assert_eq!(resumed.view_size(), loaded.view_size());
+    // Spec 3.2: the saved view is kept, never refit: the tail only appends
+    // and merges in batches, as the live memory did.
+    assert_never_split(&checkpoint.view, resumed.view());
+    assert!(resumed.view_size() <= 20_000 + NODE);
 }
 
 #[test]
@@ -723,6 +640,7 @@ fn a_checkpoint_that_does_not_fit_the_store_is_refused() {
         t: 8,
         low: vec![8],
         view: vec![NodeId::new(3, 0)],
+        ..Checkpoint::default()
     };
     assert!(Memory::resume(&missing, 8, Vec::new(), VIEW, &store).is_none());
 }

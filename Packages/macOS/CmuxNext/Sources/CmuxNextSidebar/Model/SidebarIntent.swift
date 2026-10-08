@@ -29,6 +29,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case ungroup(GroupID)
     /// Pin (save) or unpin a group.
     case setGroupPinned(GroupID, Bool)
+    /// Set a group's icon to the shared icon string (one emoji or an SF
+    /// Symbol name); nil removes it.
+    case setGroupIcon(GroupID, String?)
     /// Close every workspace in the group. A pinned group stays as an empty,
     /// collapsed saved group; an unpinned one disappears.
     case closeGroup(GroupID)
