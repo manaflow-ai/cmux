@@ -22,6 +22,9 @@ pending = {}
 known = set()
 
 
+LAST_MCP_SERVERS = None
+
+
 def send(obj):
     with lock:
         sys.stdout.write(json.dumps(obj) + "\n")
@@ -87,6 +90,60 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "question: Q" asks Q the way Claude Code's AskUserQuestion does and
+    # echoes the outcome plus the answers acpmux put into the tool input.
+    if text.startswith("question:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "q1", "title": "Question", "kind": "other", "status": "pending",
+                             "rawInput": {"questions": [{"question": text[9:].strip(), "header": "Pick",
+                                                         "multiSelect": False,
+                                                         "options": [{"label": "A", "description": "first"},
+                                                                     {"label": "B"}]}]},
+                             "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
+                "options": [
+                    {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        res = res or {}
+        chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
+        answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "gate-ask: PATH" blocks on the FIFO at PATH (as "gate:"), then asks
+    # like "ask:"; "drift-ask: MODE" changes its own mode to MODE, then asks.
+    # Both let a test change the session between the dispatch and the ask.
+    if text.startswith("gate-ask:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text[9:].strip()) as gate:
+            gate.read()
+        text = "ask: gated command"
+    if text.startswith("drift-ask:"):
+        update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[10:].strip()})
+        text = "ask: drifted command"
+    # "ask-always: X" asks with an "allow always" option (a lasting grant).
+    if text.startswith("ask-always:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "t1", "title": text[11:].strip(), "kind": "execute", "status": "pending"},
+                "options": [
+                    {"optionId": "always", "name": "Always", "kind": "allow_always"},
+                    {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",
@@ -123,6 +180,11 @@ def handle_prompt(rid, params):
     if text.startswith("env:"):
         name = text[4:].strip()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{name}={os.environ.get(name, '')}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "mcp" replies with the mcpServers of the last session/new, load or fork.
+    if text == "mcp":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "argv" replies with this process's arguments as JSON, for spawn-time checks.
@@ -168,12 +230,18 @@ def handle_prompt(rid, params):
         return
     # "codex-retry" streams a partial message, reports a Codex stream retry,
     # then redelivers the answer under a new messageId. "codex-retry-after-tool"
-    # finishes the message with a tool call before the retry notice.
+    # finishes the message with a tool call before the retry notice;
+    # "codex-retry-after-subagent" has a subagent end there instead.
     if text.startswith("codex-retry"):
         after_tool = text == "codex-retry-after-tool"
+        after_subagent = text == "codex-retry-after-subagent"
+        if after_subagent:
+            update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "child-1", "name": "Branch A", "task": "Branch A", "capabilities": {}})
         update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": "partial"}})
         if after_tool:
             update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tc1", "title": "ls", "kind": "read", "status": "completed"})
+        if after_subagent:
+            update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Reconnecting... 1", "willRetry": True, "additionalDetails": "stream disconnected"}}}})
         update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m2", "content": {"type": "text", "text": "partial answer"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
@@ -216,6 +284,7 @@ def handle_prompt(rid, params):
 
 
 def main():
+    global LAST_MCP_SERVERS
     # FAKE_IGNORE_TERM=1: behave like an agent that ignores SIGTERM.
     if os.environ.get("FAKE_IGNORE_TERM") == "1":
         import signal
@@ -241,6 +310,8 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        if m in ("session/new", "session/load", "session/fork"):
+            LAST_MCP_SERVERS = params.get("mcpServers")
         if m == "initialize":
             # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
             # session start that take time (MCP servers), for pool latency.

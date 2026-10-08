@@ -8,5 +8,5 @@ struct StandardClassicSessions: OnboardingScreenVariant {
     static let summary = "Import classic cmux workspaces, tabs and layout."
     static let surface = OnboardingSurface.fullGlass
     static let transition = OnboardingTransition.crossfade
-    static func makeContent(_ context: OnboardingStepContext) -> NSView { OnboardingScaffold.make(title: OnboardingStrings.classicSessionsTitle, subtitle: OnboardingStrings.classicSessionsSubtitle, body: ClassicSessionsStepView(model: context.model.classicSessions), context: context) }
+    static func makeContent(_ context: OnboardingStepContext) -> NSView { OnboardingScaffold.make(title: OnboardingStrings.classicSessionsTitle, subtitle: nil, body: ClassicSessionsStepView(model: context.model.classicSessions), context: context) }
 }

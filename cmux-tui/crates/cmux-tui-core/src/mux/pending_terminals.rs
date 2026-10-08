@@ -78,13 +78,25 @@ impl Mux {
             .insert(public_id.as_str().to_string(), (terminal_id.to_string(), pending));
     }
 
-    /// Forget a pending marker. Returns whether one was present.
+    /// Forget a pending marker. Returns whether one was present. A respawn's
+    /// marker stays: only its worker clears it.
     #[cfg(unix)]
     pub(super) fn clear_pending_terminal(&self, terminal_id: &str) -> bool {
         let mut pending = self.pending_terminals.lock().unwrap();
         let before = pending.len();
-        pending.retain(|_, (id, _)| id != terminal_id);
+        pending
+            .retain(|_, (id, marker)| id != terminal_id || *marker == PendingTerminal::Respawning);
         pending.len() != before
+    }
+
+    /// Whether a respawn of `terminal_id` (L2) is under way.
+    #[cfg(unix)]
+    pub(super) fn terminal_is_respawning(&self, terminal_id: &str) -> bool {
+        self.pending_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|(id, marker)| id == terminal_id && *marker == PendingTerminal::Respawning)
     }
 
     /// Remember the typed end of an ended terminal from its durable receipt,

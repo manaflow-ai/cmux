@@ -88,7 +88,15 @@ impl Client {
     }
 
     async fn new_session(&mut self, d: &Path) -> String {
-        let p = json!({"cwd": d.join("work"), "mcpServers": []});
+        self.new_on(d, None).await
+    }
+
+    /// A new session on `harness` (None: the default).
+    async fn new_on(&mut self, d: &Path, harness: Option<&str>) -> String {
+        let mut p = json!({"cwd": d.join("work"), "mcpServers": []});
+        if let Some(h) = harness {
+            p["_meta"] = json!({"acpmux": {"harness": h}});
+        }
         let r = self.call("session/new", p).await;
         r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned()
     }
@@ -106,11 +114,13 @@ async fn a_local_session_in_a_mode_that_does_not_ask_refuses_web_control() {
     let mut app = Client::new(&hub, Origin::LocalApp);
     let mut web = Client::new(&hub, Origin::Web);
     // Created over the unix socket: it keeps the harness's mode `normal`.
-    let s = local.new_session(&d).await;
+    // (Not a Claude session: the Web never controls one the Mac started,
+    // D13, tests/remote_local_claude.rs.)
+    let s = local.new_on(&d, Some("ftarget")).await;
     let r = web.prompt(&s, "from a paired device").await;
     assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
     assert_eq!(r["error"]["data"]["mode"], json!("normal"), "{r}");
-    assert_eq!(r["error"]["data"]["harness"], json!("fclaude"), "{r}");
+    assert_eq!(r["error"]["data"]["harness"], json!("ftarget"), "{r}");
     for (m, p) in [
         (
             "_acpmux/permission_respond",
@@ -133,7 +143,7 @@ async fn a_local_session_in_a_mode_that_does_not_ask_refuses_web_control() {
     assert!(local.prompt(&s, "mine").await.get("error").is_none());
     assert!(app.prompt(&s, "mine too").await.get("error").is_none());
     // An asking mode set locally opens it to the Web.
-    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "plan"})).await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "strict"})).await;
     assert!(r.get("error").is_none(), "{r}");
     assert!(web.prompt(&s, "now").await.get("error").is_none());
     let _ = std::fs::remove_dir_all(&d);
@@ -162,7 +172,7 @@ async fn a_session_loaded_in_a_mode_that_does_not_ask_refuses_web_control() {
     let s = {
         let hub = hub(&d, Some(&root));
         let mut local = Client::new(&hub, Origin::Local);
-        let s = local.new_session(&d).await;
+        let s = local.new_on(&d, Some("ftarget")).await;
         let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "auto"})).await;
         assert!(r.get("error").is_none(), "{r}");
         hub.flush();

@@ -8,6 +8,7 @@ import Foundation
 /// second while a card is open).
 public struct TerminalResourcesRequest: DaemonRequest {
     public static let command = "terminal-resources"
+    public static let requiredCapability: String? = capability
     public static let capability = "terminal-resources-v1"
 
     /// Nil asks for every PTY surface.

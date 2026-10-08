@@ -65,6 +65,7 @@ impl Core {
             }
             Port::Acpmux => {
                 self.acpmux_up = false;
+                self.accepted_prompts.clear();
                 self.inbox.retain(InboxItem::is_continuation);
                 // Pending permissions stay: the session list of the next
                 // acpmux connect answers them.

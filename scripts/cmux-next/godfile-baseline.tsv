@@ -18,7 +18,7 @@ rust-file	cmux-tui/crates/chatmux-relay/src/pty.rs	3173	152
 rust-file	cmux-tui/crates/chatmux-relay/src/relay_wire.rs	1480	4
 rust-file	cmux-tui/crates/chatmux-relay/src/session.rs	1528	49
 rust-file	cmux-tui/crates/chatmux-relay/src/tunnel_terminal.rs	1127	53
-rust-file	cmux-tui/crates/chatmux-relay/src/watch.rs	1528	48
+rust-file	cmux-tui/crates/chatmux-relay/src/watch.rs	1038	30
 rust-file	cmux-tui/crates/chatmux-relay/src/workspace.rs	3595	142
 rust-file	cmux-tui/crates/cmux-relay/src/relay.rs	2505	84
 rust-file	cmux-tui/crates/cmux-remote-protocol/src/rpc.rs	1299	34
@@ -93,7 +93,7 @@ rust-file	cmux-tui/crates/cmux-tui/src/main.rs	3154	117
 rust-file	cmux-tui/crates/cmux-tui/src/plugin_manager.rs	2140	106
 rust-file	cmux-tui/crates/cmux-tui/src/pty_input.rs	2783	105
 rust-file	cmux-tui/crates/cmux-tui/src/remote_browser_proxy.rs	1008	23
-rust-file	cmux-tui/crates/cmux-tui/src/remote_cli.rs	5324	190
+rust-file	cmux-tui/crates/cmux-tui/src/remote_cli.rs	5323	190
 rust-file	cmux-tui/crates/cmux-tui/src/remote_runtime.rs	6677	238
 rust-file	cmux-tui/crates/cmux-tui/src/session/mod.rs	3331	188
 rust-file	cmux-tui/crates/cmux-tui/src/session/remote.rs	2897	170
@@ -101,11 +101,11 @@ rust-file	cmux-tui/crates/cmux-tui/src/session/tree.rs	1628	69
 rust-file	cmux-tui/crates/cmux-tui/src/ui/graphics_writer.rs	2870	124
 rust-file	cmux-tui/crates/cmux-tui/src/ui/graphics.rs	2302	107
 rust-file	cmux-tui/crates/cmux-tui/src/ui/terminal_grid.rs	1115	43
-rust-file	cmux-tui/crates/cmux-tui/tests/cli.rs	3874	122
-rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5510	111
+rust-file	cmux-tui/crates/cmux-tui/tests/cli.rs	3833	121
+rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5474	111
 rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
 rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	3320	166
 swift-type	CmuxNextApp/WindowManager	1129	0
 swift-type	CmuxNextDaemon/DaemonConnection	1446	0
-swift-type	CmuxNextTabs/TabStripView	2114	0
+swift-type	CmuxNextTabs/TabStripView	2066	0
 swift-type	CmuxNextTerminal/TerminalSurfaceView	1043	0

@@ -52,6 +52,9 @@ export function toLines(text: string): string[] {
     let cut = Math.min(rest.length, MAX_LINE_BYTES);
     // Leave room for the 3-byte "…" continuation mark.
     while (encoder.encode(rest.slice(0, cut)).length > MAX_LINE_BYTES - 3) cut--;
+    // Never cut between the two halves of a surrogate pair.
+    const last = rest.charCodeAt(cut - 1);
+    if (last >= 0xd800 && last <= 0xdbff) cut--;
     const space = rest.lastIndexOf(" ", cut);
     if (space > cut / 2) cut = space;
     lines.push(`${rest.slice(0, cut).trimEnd()}…`);
@@ -110,7 +113,8 @@ export async function wake(store: MemoryStore, budget = 96): Promise<WakeView> {
   const cover = wakeCover(length, budget);
   const multi = cover.filter((r) => size(r) > 1);
   const nodes = await store.getNodes(expandAll(multi));
-  const missing = multi.filter((r) => !nodes.has(key(r)));
+  // An empty summary counts as missing (wake, zoom and compaction alike).
+  const missing = multi.filter((r) => !nodes.get(key(r)));
   const out: string[] = [];
   const render = async (r: Range): Promise<void> => {
     if (size(r) === 1) {

@@ -138,6 +138,28 @@ public nonisolated struct KeyBindingTable: Sendable {
         return resolution
     }
 
+    /// Entries of one layer on the same keys and the same context (`when`)
+    /// that run different actions: neither is meant to shadow the other.
+    /// An entry with a context over one without is a scope, not a conflict.
+    public func conflicts() -> [[KeyBinding]] {
+        struct Slot: Hashable {
+            var keys: [Shortcut]
+            var when: WhenClause?
+            var source: KeyBinding.Source
+        }
+        var slots: [Slot: [KeyBinding]] = [:]
+        var order: [Slot] = []
+        for entry in entries {
+            let slot = Slot(keys: entry.keys, when: entry.when, source: entry.source)
+            if slots[slot] == nil { order.append(slot) }
+            slots[slot, default: []].append(entry)
+        }
+        return order.compactMap { slot in
+            let group = slots[slot] ?? []
+            return Set(group.map(\.command)).count > 1 ? group : nil
+        }
+    }
+
     /// Whether `prefix` starts a longer entry that could run here: the next
     /// key may complete a chord.
     public func continues(_ prefix: [Shortcut], in context: KeyContext, isRunnable: (ActionID) -> Bool) -> Bool {

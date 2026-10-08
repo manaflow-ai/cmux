@@ -17,9 +17,10 @@ const REPLAY_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
 #[derive(Debug, Default)]
-struct OpenWork {
-    /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt, client).
-    turn: Option<(u64, String, String, String, String)>,
+pub(super) struct OpenWork {
+    /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
+    /// client, control; a Web steer's `turn_control` raises it).
+    turn: Option<(u64, String, String, String, String, Control)>,
     /// The `session/prompt` request id written to this host for that turn,
     /// and its answer when it is already logged.
     prompt_request: Option<Value>,
@@ -33,6 +34,15 @@ struct OpenWork {
     /// Largest `hostSeq` logged under this incarnation. Every entry kind is
     /// logged in entry order before its ack, so this is the logged prefix.
     last_host_seq: u64,
+    /// The remote floor's marks (`remote_floor.rs`): the turn it cancelled,
+    /// who started the last turn, and whether this harness process was given
+    /// a lasting grant ("allow always").
+    floor_cancelled: Option<String>,
+    last_control: Option<Control>,
+    harness_grant: bool,
+    /// A remote chain's Claude Code session whose current host has no
+    /// passed sandbox canary just before it started (`remote_sandbox.rs`).
+    unsandboxed: bool,
 }
 
 impl Hub {
@@ -283,14 +293,79 @@ impl Hub {
     /// Scan the log for the work in flight under host `incarnation`. Agent
     /// requests, answers and permission records count only within this
     /// incarnation: every harness restarts its own request ids.
-    fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
+    pub(super) fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
         let mut work = OpenWork::default();
         let mut current = false;
         let mut requests: Vec<(Value, String, Option<Value>, Option<u64>)> = Vec::new();
         let mut answered: std::collections::HashSet<String> = Default::default();
         let mut asked: HashMap<String, (String, Value, Option<Value>)> = HashMap::new();
         let mut by_permission: HashMap<String, String> = HashMap::new();
+        // permissionId -> the ids of its "allow always" options.
+        let mut lasting: HashMap<String, Vec<String>> = HashMap::new();
+        let always = |request: Option<&Value>| -> Vec<String> {
+            request
+                .and_then(|r| r.get("options"))
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|o| o.get("kind").and_then(Value::as_str) == Some("allow_always"))
+                .filter_map(|o| o.get("optionId").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        };
+        // The canary passes, then the host starts: that host is sandboxed.
+        // Only the adopted incarnation's own start counts, with the canary of
+        // the current profile right before it; missing: unsandboxed.
+        let remote_claude = self.remote_claude(session);
+        work.unsandboxed = remote_claude;
+        let mut canary_passed = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            if e.dir == "mux" {
+                let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
+                match e.kind.as_str() {
+                    "host_started" => {
+                        lasting.clear();
+                        work.harness_grant = false;
+                        if text("incarnation").as_deref() == Some(incarnation) {
+                            work.unsandboxed = remote_claude && !canary_passed;
+                        }
+                        canary_passed = false;
+                    }
+                    "remote_sandbox" => {
+                        canary_passed = e.msg.get("canary").and_then(Value::as_str)
+                            == Some("passed")
+                            && text("profile").as_deref()
+                                == Some(super::remote_sandbox::profile_id().as_str());
+                    }
+                    "permission_request" => {
+                        if let Some(pid) = text("permissionId") {
+                            lasting.insert(pid, always(e.msg.get("request")));
+                        }
+                    }
+                    "permission_decision" => {
+                        let chosen = e.msg.pointer("/outcome/optionId").and_then(Value::as_str);
+                        if let (Some(pid), Some(o)) = (text("permissionId"), chosen)
+                            && lasting.get(&pid).is_some_and(|ids| ids.iter().any(|i| i == o))
+                        {
+                            work.harness_grant = true;
+                        }
+                    }
+                    "permission_auto" => {
+                        if let Some(o) = text("optionId")
+                            && always(e.msg.get("request")).contains(&o)
+                        {
+                            work.harness_grant = true;
+                        }
+                    }
+                    "turn_started" => {
+                        work.last_control = Some(Control::from_recorded(
+                            e.msg.get("control").and_then(Value::as_str),
+                        ));
+                    }
+                    "turn_control" => work.last_control = Some(Control::Web),
+                    "remote_floor_cancel" => work.floor_cancelled = text("turnId"),
+                    _ => {}
+                }
+            }
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("mux", "host_started") => {
                     current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
@@ -313,9 +388,17 @@ impl Hub {
                         field("promptId"),
                         field("prompt"),
                         field("client"),
+                        Control::from_recorded(e.msg.get("control").and_then(Value::as_str)),
                     ));
                     work.prompt_request = None;
                     work.prompt_response = None;
+                }
+                ("mux", "turn_control") => {
+                    if let Some(t) = work.turn.as_mut()
+                        && e.msg.get("turnId").and_then(Value::as_str) == Some(t.1.as_str())
+                    {
+                        t.5 = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
+                    }
                 }
                 ("mux", "turn_result") => {
                     work.turn = None;
@@ -380,6 +463,22 @@ impl Hub {
         work
     }
 
+    /// The remote floor's marks of an adopted host (`open_work`).
+    pub(super) fn recover_floor(session: &Session, work: &OpenWork) {
+        session.floor.harness_grant.store(work.harness_grant, Ordering::SeqCst);
+        session.floor.unsandboxed.store(work.unsandboxed, Ordering::SeqCst);
+        session
+            .floor
+            .last_turn_web
+            .store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+        if let Some((_, turn_id, ..)) = &work.turn
+            && work.floor_cancelled.as_ref() == Some(turn_id)
+        {
+            *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(turn_id.clone());
+        }
+    }
+
     /// Rebuild the turn and the unanswered agent requests of an adopted host.
     async fn recover_work(
         self: &Arc<Self>,
@@ -387,7 +486,8 @@ impl Hub {
         child: &Arc<ChildAgent>,
         work: OpenWork,
     ) {
-        if let Some((turn_seq, turn_id, prompt_id, prompt, client)) = work.turn.clone() {
+        Self::recover_floor(session, &work);
+        if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
             match (work.prompt_request.clone(), work.prompt_response.clone()) {
                 // The prompt never reached this host (or another host ran
                 // it): nothing can answer it any more.
@@ -403,11 +503,16 @@ impl Hub {
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
                         turn_seq,
-                        // Adopted after a restart: who prompted is not
-                        // recorded, so it counts as Web (no chat allowance,
-                        // which a restart clears anyway).
-                        control: Control::Web,
+                        // Who prompted, as `turn_started` recorded it; an
+                        // older record without it counts as Web.
+                        control,
                     });
+                    session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+                    // A Web turn in flight in an agent the sandbox did not
+                    // start does not go on (tools that do not ask).
+                    if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
+                        self.remote_floor_cancel(session, "remote.unsandboxed_agent");
+                    }
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
@@ -437,11 +542,20 @@ impl Hub {
         }
         let epoch = session.permission_epoch.load(Ordering::SeqCst);
         let turn_id = session.turn().map(|t| t.turn_id);
+        // The remote floor cancelled the recovered turn (in the log, or just
+        // now for an unsandboxed agent): its permissions are cancelled too,
+        // never answered from the log or shown again.
+        let floored = Self::web_turn(session) && self.remote_floor_breach(session).is_some();
         for (id, m, params, _) in work.requests {
             if m == method::SESSION_REQUEST_PERMISSION
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()
             {
+                if floored {
+                    let cancelled = json!({"outcome": {"outcome": "cancelled"}});
+                    let _ = child.respond(id, Ok(cancelled)).await;
+                    continue;
+                }
                 match decided {
                     // Decided but the answer never reached the agent: send it.
                     Some(outcome) => {
@@ -469,8 +583,11 @@ impl Hub {
         child: &Arc<ChildAgent>,
         agent_request_id: Value,
         permission_id: String,
-        request: Value,
+        mut request: Value,
     ) {
+        // A record from a daemon without question normalization gets it here,
+        // so its answers are checked like a new ask's.
+        super::questions::normalize(&mut request);
         let (tx, rx) = oneshot::channel();
         session
             .permissions

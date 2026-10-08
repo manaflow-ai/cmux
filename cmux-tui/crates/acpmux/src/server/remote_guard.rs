@@ -28,6 +28,9 @@
 //!   the dashboard falls back to typed paths, which `session/new` checks).
 //!   LocalApp keeps both: the daemon cannot see user gestures, and the
 //!   native relay enforces a fresh gesture for LocalApp before it sends one.
+//! - Web only: no `acp.trust.set` (`trust.remote`); the folder-trust
+//!   question is the user's, and the trust gate (`trust_gate.rs`) holds Web
+//!   prompts until the user answers it in the app or the CLI.
 //! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
 //!   change which machines this daemon reaches with the user's ssh keys and
 //!   tokens); `peer_reconnect` only retries a configured peer.
@@ -56,9 +59,13 @@ pub(super) fn control_of(origin: super::Origin, params: &Value) -> crate::hub::C
 
 /// A request forwarded to a peer, which serves this daemon as Peer: one
 /// this daemon holds to the Web's rules says so, and the peer applies them.
+/// One from the app's pane says `via: app`, so the peer's folder-trust gate
+/// (`trust_gate.rs`) holds it as it holds its own pane's.
 pub(super) fn mark_forwarded(origin: super::Origin, params: &Value, forwarded: &mut Value) {
     if control_of(origin, params) == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
+    } else if origin == super::Origin::LocalApp {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "app"}));
     }
 }
 
@@ -77,6 +84,12 @@ pub(super) async fn check(
     params: &mut Value,
 ) -> Result<(), RpcError> {
     let web = origin.web_class();
+    // A per-session env is set over the unix socket only (session_env.rs).
+    if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
+        && crate::session_env::present(params.pointer("/_meta/acpmux"))
+    {
+        return Err(crate::session_env::origin_refused());
+    }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
@@ -86,6 +99,10 @@ pub(super) async fn check(
     // socket; no WebSocket origin (LocalApp and Peer included) gets them.
     if m == method::MUX_WEB_MODES {
         return Err(refused("_acpmux/web_modes"));
+    }
+    // The listener's own credential changes over the unix socket only.
+    if m == method::MUX_WEB_TOKEN_ROTATE {
+        return Err(refused("rotating the web token"));
     }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
@@ -112,6 +129,16 @@ pub(super) async fn check(
     }
     if web {
         web_only(m, params)?;
+        // A remote-origin session (a Web device, or a peer) never resumes a
+        // local harness session (REMOTE-FLOOR v3, D13).
+        if m == method::SESSION_NEW
+            && params.pointer("/_meta/acpmux/adopt").is_some_and(|v| !v.is_null())
+        {
+            return Err(RpcError::invalid_params(
+                "a remote device cannot adopt a local agent session; start a new chat from this device",
+            )
+            .with_data(serde_json::json!({"reason": "remote.adopt_refused"})));
+        }
     }
     let folders = matches!(
         m,
@@ -154,6 +181,15 @@ pub(super) async fn check(
             }
             params["additionalDirectories"] = Value::Array(out);
         }
+    }
+    // The folder-trust question is the user's: a remote browser cannot answer
+    // it for itself (`trust_gate.rs`). After the folder checks, so a bad path
+    // is still refused as one.
+    if m == method::ACP_TRUST_SET && control_of(origin, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "trust.remote: the folder's trust is answered only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "trust.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
@@ -325,6 +361,8 @@ async fn web_starts_asking(
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
+    // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
+    let web = control == crate::hub::Control::Web;
     if m == method::SESSION_NEW
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
@@ -384,6 +422,24 @@ async fn web_starts_asking(
         }
         return hub.web_control_check(&t, control);
     }
+    // D13: a remote device does not change or end a Claude session the Mac
+    // started either (its rules, policy, model, its life or its log).
+    let mutates = matches!(
+        m,
+        method::MUX_SET_RULES
+            | method::MUX_SET_POLICY
+            | method::MUX_KILL
+            | method::SESSION_DELETE
+            | method::SESSION_CLOSE
+            | method::SESSION_SET_MODEL
+    );
+    if web
+        && mutates
+        && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
+        && let Some(e) = hub.local_claude_refusal(&s.meta())
+    {
+        return Err(e);
+    }
     if !(copies || sets_mode || controls) {
         return Ok(());
     }
@@ -407,6 +463,14 @@ async fn web_starts_asking(
             e.message
         ))
     })?;
+    // D13: a copy of a Claude Code session the Mac started carries its
+    // local state; a remote chain starts fresh.
+    if web
+        && matches!(m, method::SESSION_FORK | method::MUX_HANDOFF_PREPARE)
+        && let Some(e) = hub.local_claude_refusal(&s.meta())
+    {
+        return Err(e);
+    }
     if sets_mode {
         hub.web_control_check(&s, control)?;
     }

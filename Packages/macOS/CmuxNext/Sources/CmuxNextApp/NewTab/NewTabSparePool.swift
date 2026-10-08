@@ -35,7 +35,11 @@ nonisolated struct NewTabSpareSlot<Spare> {
 /// Opening the new tab page in any window adopts it in the same main-actor
 /// turn (no load, no React mount on the open path); the next spare starts
 /// once input has been quiet for ``idleInput``, so making a web view never
-/// lands in the user's typing. Memory pressure drops the spare. A spare
+/// lands in the user's typing. The spare waits at the size of the pane
+/// content Cmd-T fills (the target window's focused pane), refitted when a
+/// pane there changes size or focus, so the adoption changes no size: WebKit
+/// shows it at once at its final layout (hqacp-v2: a page parked at the
+/// window's width showed for ~40 ms at that width after Cmd-T). Memory pressure drops the spare. A spare
 /// exists only while the new tab page is likely: Cmd-T opens it
 /// (`tabs.newTabKind` page) or it was opened in this session.
 @MainActor
@@ -47,9 +51,15 @@ final class NewTabSparePool {
         var crossWindow: Bool
         /// Main-thread time from the open action to the page in its pane.
         var milliseconds: Double
+        /// The spare waited at another size than its pane's: the adoption resized it, and WebKit
+        /// showed it at the old size until it laid it out again (the hqacp-v2 flash).
+        var refit = false
     }
 
     static let idleInput: Duration = .milliseconds(750)
+    /// A pane resize or focus change settles this long before the parked spare follows
+    /// (a live window resize lays the hidden page out once, at the end).
+    static let fitSettle: Duration = .milliseconds(120)
     static let maximumOpenings = 64
 
     private unowned let services: AppServices
@@ -58,6 +68,7 @@ final class NewTabSparePool {
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
     private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
+    private let fitTimer = DemandTimer(owner: "NewTabSparePool.fit")
     private var inputMonitor: Any?
     private var memoryPressure: (any DispatchSourceMemoryPressure)?
     private var usedThisSession = false
@@ -122,23 +133,54 @@ final class NewTabSparePool {
         scheduleWarm()
     }
 
+    /// Parks the parking view in `content`, at the target pane's size. It does not follow the
+    /// window's size: ``fitParked()`` follows the pane's.
     private func park(in content: NSView) {
-        guard parking.superview !== content else { return }
-        parking.frame = NewTabSpareParking.frame(in: content.bounds)
-        parking.autoresizingMask = [.width, .height]
-        content.addSubview(parking, positioned: .below, relativeTo: nil)
+        if parking.superview !== content {
+            parking.autoresizingMask = []
+            content.addSubview(parking, positioned: .below, relativeTo: nil)
+        }
+        fitParked()
+    }
+
+    /// The size of the pane content a Cmd-T in the target window fills: its focused pane's.
+    private var targetPaneSize: NSSize? {
+        guard let target, let pane = services.windows.controllers.first(where: { $0.window === target })?.content?.focusedPane
+        else { return nil }
+        let size = pane.view.contentHost.bounds.size
+        return size.width > 0 && size.height > 0 ? size : nil
+    }
+
+    /// Sizes the parking view and the spare in it to the target pane now, laid out, so the
+    /// page commits at that size long before an adoption.
+    private func fitParked() {
+        guard let content = parking.superview else { return }
+        let size = targetPaneSize ?? content.bounds.size
+        guard parking.frame != NewTabSpareParking.frame(in: content.bounds, size: size) else { return }
+        BenchSpans.measure("pool.fit") { parking.fit(to: size) }
+    }
+
+    /// A pane of `window` changed size, or its focus moved: the parked spare follows the
+    /// target pane once that settles (``fitSettle``). Nothing is scheduled while it fits.
+    func paneLayoutDidChange(in window: NSWindow?) {
+        guard let window, window === target, let content = parking.superview else { return }
+        let size = targetPaneSize ?? content.bounds.size
+        guard parking.frame != NewTabSpareParking.frame(in: content.bounds, size: size) else { return }
+        fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
     }
 
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
     /// A spare parked in another window is adopted all the same (a reparent).
     /// The caller adopts it at once; the next spare follows when input is quiet.
-    func take(for window: NSWindow?) -> (view: AgentPaneView, crossWindow: Bool)? {
+    /// `refit` is true when the spare waited at another size than `size`, the pane's
+    /// (a pane resized or focused less than ``fitSettle`` ago): its adoption resizes it.
+    func take(for window: NSWindow?, size: NSSize) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
         usedThisSession = true
         observeWindows()
         if target == nil, let window { retarget(window) }
         defer { scheduleWarm() }
         guard let view = slot.take() else { return nil }
-        return (view, window !== target)
+        return (view, window !== target, view.frame.size != size)
     }
 
     /// A closed new tab page that never became a chat or a terminal: reset to
@@ -248,11 +290,20 @@ final class NewTabSparePool {
 /// a window and not hidden), fully transparent, never hit by the mouse, and
 /// out of the accessibility tree. Adopting the spare reparents it into a pane.
 final class NewTabSpareParking: NSView {
-    /// The window content's size, far outside it. A web view's tracking areas
-    /// ignore alpha and hit testing: parked over the content, the spare's
-    /// cards hovered and set the cursor under the tab in front of it.
-    static func frame(in bounds: NSRect) -> NSRect {
-        NSRect(origin: NSPoint(x: bounds.minX - 100_000, y: bounds.minY - 100_000), size: bounds.size)
+    /// The size of the pane content the spare will fill (nil: the window content's), far
+    /// outside the window content. A web view's tracking areas ignore alpha and hit testing:
+    /// parked over the content, the spare's cards hovered and set the cursor under the tab in
+    /// front of it.
+    static func frame(in bounds: NSRect, size: NSSize?) -> NSRect {
+        NSRect(origin: NSPoint(x: bounds.minX - 100_000, y: bounds.minY - 100_000), size: size ?? bounds.size)
+    }
+
+    /// Sizes the parking view and the spare in it to `size` and lays them out now.
+    func fit(to size: NSSize) {
+        guard let superview else { return }
+        frame = Self.frame(in: superview.bounds, size: size)
+        for view in subviews where view.frame != bounds { view.frame = bounds }
+        layoutSubtreeIfNeeded()
     }
 
     override init(frame: NSRect) {

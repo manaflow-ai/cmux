@@ -15,7 +15,6 @@ import {
   PlusIcon,
   SearchIcon,
   PlanIcon,
-  ShieldIcon,
   SlashIcon,
   StopIcon,
 } from "./ComposerPickers";
@@ -27,6 +26,7 @@ import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
+import type { SendBlock } from "./useFolderTrustAsk";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -62,13 +62,18 @@ function attachmentErrorText(error: AttachmentError, t: Translate): string {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
+  /// answered Trust for the prompt the composer held). False when nothing went.
+  send(): boolean;
 };
 
 type Props = {
   snapshot: AcpmuxSnapshot;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
-  /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it.
-  onSend(text: string, attachments?: ComposerAttachment[]): boolean | void;
+  /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
+  /// promise holds the prompt in the composer until the host takes it: it clears when the promise
+  /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
+  onSend(text: string, attachments?: ComposerAttachment[]): boolean | void | Promise<unknown>;
   onStop(): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -90,6 +95,8 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
+  onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
   localName?: string;
   /// The folder a started chat moved to (shell/chatMoves.ts).
@@ -102,11 +109,14 @@ type Props = {
   onShell?(command: string): ShellRun | undefined;
   /// Ctrl-C: stops the chat's newest running command; false when none runs.
   onShellInterrupt?(): boolean;
-  /// Changes the approval mode from the + menu while keeping the keyboard shortcut path intact.
+  /// The + menu's Plan/Build toggle (permission modes live in the access chip beside +).
   onMode?(modeId: string): void;
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
+  /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
+  /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
+  blocked?: SendBlock;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -130,6 +140,7 @@ export function Composer({
   onProject,
   projectChoices,
   onBrowseProject,
+  onConnect,
   localName,
   movedTo,
   onMove,
@@ -138,6 +149,7 @@ export function Composer({
   onMode,
   onOpenInWindow,
   handle,
+  blocked,
 }: Props) {
   const t = useT();
   const [findingFiles, setFindingFiles] = useState(false);
@@ -177,6 +189,10 @@ export function Composer({
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
+  /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
+  const sending = useRef(false);
+  /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
+  const submitNow = useRef<(force: boolean) => boolean>(() => false);
   const held = useRef(0);
   held.current = attachments.length;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
@@ -251,6 +267,7 @@ export function Composer({
             ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
           ]);
       },
+      send: () => submitNow.current(true),
     }),
     [],
   );
@@ -263,14 +280,10 @@ export function Composer({
   }, [draft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
-  const modeChoices: Choice[] = (snapshot.summary?.modes?.availableModes ?? [])
-    .filter((mode) => !/(^|[-_])plan$/i.test(mode.id))
-    .map((mode) => ({
-      id: `mode:${mode.id}`,
-      name: mode.name || mode.id,
-      description: mode.description,
-      icon: <ShieldIcon />,
-    }));
+  // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
+  const permissionModes = (snapshot.summary?.modes?.availableModes ?? []).filter(
+    (mode) => !/(^|[-_])plan$/i.test(mode.id),
+  );
   const plan = snapshot.summary?.modes?.availableModes?.find((mode) => /(^|[-_])plan$/i.test(mode.id));
   const currentModeId = snapshot.summary?.modes?.currentModeId;
   const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
@@ -279,18 +292,10 @@ export function Composer({
   }
   if (currentModeId && !/(^|[-_])plan$/i.test(currentModeId)) lastMode.current.mode = currentModeId;
   const planning = plan?.id === currentModeId;
-  const modePlanChoices: Choice[] = [
-    ...modeChoices,
-    ...(plan
-      ? [
-          {
-            id: `plan:${plan.id}`,
-            name: planning ? "Build" : "Plan",
-            icon: planning ? <BuildIcon /> : <PlanIcon />,
-          },
-        ]
-      : []),
-  ];
+  const planChoice: Choice | undefined =
+    plan && onMode
+      ? { id: `plan:${plan.id}`, name: planning ? "Build" : "Plan", icon: planning ? <BuildIcon /> : <PlanIcon /> }
+      : undefined;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
@@ -334,23 +339,56 @@ export function Composer({
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
+    return send(false);
+  };
+  const send = (force: boolean): boolean => {
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
-    const prompt = unwrapped().trim();
+    // The folder's trust question is open: the prompt stays where it is.
+    if (blocked && !force) return false;
+    // The host has not taken the last prompt yet: it is still here, so Enter sends no copy.
+    if (sending.current) return false;
+    // The field holds markdown with its typed text escaped; the agent gets the text as typed.
+    const draftText = unwrapped();
+    const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
       return false;
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
-    if (onSend(prompt, attachments) === false) return false;
-    setAttachments([]);
-    setAttachError(undefined);
-    plusDraft.current = undefined;
-    edit("", 0);
-    sentAt.current = Date.now();
-    refocusSend.current = fromSend;
+    const sent = attachments;
+    const taken = onSend(prompt, sent);
+    if (taken === false) return false;
+    const written = field.current?.value() ?? "";
+    const clear = (rest = "") => {
+      setAttachments((current) => current.filter((attachment) => !sent.includes(attachment)));
+      setAttachError(undefined);
+      plusDraft.current = undefined;
+      if (field.current && rest) field.current.type(rest);
+      else edit(rest, rest.length);
+      sentAt.current = Date.now();
+      refocusSend.current = fromSend;
+    };
+    if (!(taken instanceof Promise)) {
+      clear();
+      return true;
+    }
+    // The prompt stays in the composer until the host takes it; a refusal keeps it there.
+    sending.current = true;
+    taken.then(
+      () => {
+        sending.current = false;
+        // What was typed while the host took the prompt stays.
+        const now = field.current?.value() ?? written;
+        clear(now === written ? "" : now.startsWith(written) ? now.slice(written.length).trimStart() : now);
+      },
+      () => {
+        sending.current = false;
+      },
+    );
     return true;
   };
+  submitNow.current = send;
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
   const mention = (path?: string) => {
@@ -530,32 +568,11 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
-      <ComposerContext
-        projectChoices={projectChoices}
-        onBrowseProject={onBrowseProject}
-        summary={snapshot.summary}
-        sessions={snapshot.sessions}
-        peers={snapshot.peers}
-        started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
-        onProject={
-          onProject &&
-          ((cwd, peer) => {
-            onProject(cwd, peer);
-            field.current?.focus();
-          })
-        }
-        localName={localName}
-        movedTo={movedTo}
-        busy={snapshot.isWorking}
-        onMove={
-          onMove &&
-          ((cwd) => {
-            const move = onMove(cwd);
-            setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
-            field.current?.focus();
-          })
-        }
-      />
+      {!remote.note && blocked?.reason && (
+        <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="note">
+          {t(blocked.reason)}
+        </p>
+      )}
       {findingFiles &&
         searchFiles &&
         form.current?.parentElement &&
@@ -663,23 +680,6 @@ export function Composer({
               align="start"
               returnFocus={false}
               sections={[
-                ...(modePlanChoices.length > 0 && onMode
-                  ? [
-                      {
-                        title: t("picker.mode"),
-                        choices: modePlanChoices,
-                        onPick: (id: string) => {
-                          if (id.startsWith("mode:")) onMode(id.slice("mode:".length));
-                          else if (id.startsWith("plan:"))
-                            onMode(
-                              planning
-                                ? (lastMode.current.mode ?? modeChoices[0]?.id?.slice(5) ?? id.slice(5))
-                                : id.slice(5),
-                            );
-                        },
-                      },
-                    ]
-                  : []),
                 {
                   choices: [
                     ...(onAttach ? [{ id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> }] : []),
@@ -695,15 +695,20 @@ export function Composer({
                           },
                         ]
                       : []),
+                    ...(planChoice ? [planChoice] : []),
                   ],
                   onPick: (id) =>
-                    id === "attach"
-                      ? onAttach?.()
-                      : id === "mention"
-                        ? mention()
-                        : id === "files"
-                          ? setFindingFiles(true)
-                          : openCommands(),
+                    id.startsWith("plan:")
+                      ? onMode?.(
+                          planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
+                        )
+                      : id === "attach"
+                        ? onAttach?.()
+                        : id === "mention"
+                          ? mention()
+                          : id === "files"
+                            ? setFindingFiles(true)
+                            : openCommands(),
                 },
               ]}
             />
@@ -728,15 +733,44 @@ export function Composer({
                 key="send"
                 ref={sendButton}
                 type="submit"
-                className={`acpmux-send${(shell ? shellText.trim() : text.trim() || attachments.length) ? " acpmux-send-ready" : ""}`}
+                disabled={Boolean(blocked) && !shell}
+                className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
                 aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                title={shell ? t("composer.shellRun") : t("composer.sendTooltip")}
+                title={shell ? t("composer.shellRun") : blocked?.reason ? t(blocked.reason) : t("composer.sendTooltip")}
               >
                 <ArrowUpIcon />
               </button>
             ) : null}
           </span>
         </div>
+        {/* The location row is the card's footer: one fill, one edge, a hairline above it. */}
+        <ComposerContext
+          projectChoices={projectChoices}
+          onBrowseProject={onBrowseProject}
+          onConnect={onConnect}
+          summary={snapshot.summary}
+          sessions={snapshot.sessions}
+          peers={snapshot.peers}
+          started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
+          onProject={
+            onProject &&
+            ((cwd, peer) => {
+              onProject(cwd, peer);
+              field.current?.focus();
+            })
+          }
+          localName={localName}
+          movedTo={movedTo}
+          busy={snapshot.isWorking}
+          onMove={
+            onMove &&
+            ((cwd) => {
+              const move = onMove(cwd);
+              setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
+              field.current?.focus();
+            })
+          }
+        />
       </div>
     </form>
   );

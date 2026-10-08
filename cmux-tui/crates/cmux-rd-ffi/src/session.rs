@@ -8,10 +8,11 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use cmux_rd_core::clock::ClockEstimator;
 use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{
-    DatagramHeader, DatagramKind, STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer,
-    encode_stream_frame,
+    ClockEstimate, ClockPong, DatagramHeader, DatagramKind, STREAM_BULK, STREAM_CONTROL,
+    STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
 };
 
 use crate::receiver::{
@@ -50,6 +51,8 @@ pub struct Session {
     message_bytes: usize,
     /// Streams of ready frames in release order (one entry per frame).
     ready: VecDeque<u16>,
+    /// The session clock (rd change C8), once the host accepted the `clock` cap.
+    clock: Option<ClockEstimator>,
     failed: bool,
 }
 
@@ -65,10 +68,22 @@ impl Session {
             messages: VecDeque::new(),
             message_bytes: 0,
             ready: VecDeque::new(),
+            clock: None,
             failed: false,
         };
         let _ = s.open_stream(0);
         s
+    }
+
+    /// Starts clock probes (only when welcome lists the `clock` cap: an
+    /// older host refuses the probe kinds). Idempotent.
+    pub fn enable_clock(&mut self) {
+        self.clock.get_or_insert_with(ClockEstimator::new);
+    }
+
+    /// The host clock's offset from this viewer's and the best sample's RTT.
+    pub fn clock(&self) -> Option<ClockEstimate> {
+        self.clock.as_ref().and_then(ClockEstimator::estimate)
     }
 
     /// Accepts datagrams of `stream` from now on (idempotent).
@@ -185,7 +200,24 @@ impl Session {
         if self.failed {
             return None;
         }
-        let datagram = self.streams.values_mut().find_map(|r| r.feedback(now_us))?;
+        let ping = self.clock.as_mut().and_then(|c| c.ping(now_us)).map(|ping| {
+            let mut d = DatagramHeader {
+                flags: 0,
+                kind: DatagramKind::ClockPing,
+                stream: 0,
+                frame: 0,
+                index: 0,
+                count: 0,
+                fec_count: 0,
+                transport_seq: 0,
+            }
+            .encode()
+            .to_vec();
+            d.extend_from_slice(&ping.encode());
+            d
+        });
+        let datagram =
+            ping.or_else(|| self.streams.values_mut().find_map(|r| r.feedback(now_us)))?;
         Some(match self.carrier {
             Carrier::Datagram => datagram,
             Carrier::Stream => {
@@ -202,7 +234,8 @@ impl Session {
         if self.failed {
             return u64::MAX;
         }
-        self.streams.values().map(Receiver::next_deadline_us).min().unwrap_or(u64::MAX)
+        let ping = self.clock.as_ref().map_or(u64::MAX, ClockEstimator::next_ping_us);
+        self.streams.values().map(Receiver::next_deadline_us).min().unwrap_or(u64::MAX).min(ping)
     }
 
     fn receiver(&mut self, stream: u16) -> Result<&mut Receiver, SessionError> {
@@ -236,12 +269,21 @@ impl Session {
                 self.track(header.stream, before, after);
                 pushed.map_err(SessionError::from)
             }
+            DatagramKind::ClockPong if self.clock.is_some() => {
+                let (_, payload) =
+                    DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
+                let pong = ClockPong::decode(payload).map_err(ReceiverError::Invalid)?;
+                if let Some(clock) = self.clock.as_mut() {
+                    clock.on_pong(&pong, now_us);
+                }
+                Ok(())
+            }
             _ => self.queue_message(STREAM_DATAGRAM, datagram.to_vec()),
         }
     }
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), SessionError> {
-        debug_assert!(matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM));
+        debug_assert!(matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK));
         let cost = bytes.len() + MESSAGE_OVERHEAD;
         if self.message_bytes + cost > MAX_MESSAGE_BYTES {
             return Err(self.fail());

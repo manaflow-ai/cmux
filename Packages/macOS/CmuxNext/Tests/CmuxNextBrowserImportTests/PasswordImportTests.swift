@@ -191,14 +191,93 @@ import Testing
         #expect(counting.reads.withLock { $0 } == ["Microsoft Edge Safe Storage", "Google Chrome Safe Storage"], "a Deny is not asked again")
     }
 
+    /// One synthetic profile per Chromium browser in the catalog, each sealed
+    /// with a key only that browser's "<Name> Safe Storage" item opens.
+    @Test func everyChromiumBrowserImportsWithItsOwnSafeStorageKey() async throws {
+        // Rows without a known Keychain item (registry) read no passwords; Yandex uses its own scheme.
+        for browser in ImportBrowser.allCases where browser.family == .chromium && browser.readsSavedPasswords && browser.safeStorageService != nil {
+            let home = try FixtureHome()
+            let profile = home.directory(browser).appending(path: "Default", directoryHint: .isDirectory)
+            try FixtureHome.sqlite(profile.appending(path: "Login Data"), [
+                Self.schema, row("https://site.example/", "user", try sealed("\(Self.marker)-\(browser.rawValue)")),
+            ])
+            let service = try #require(browser.safeStorageService, "\(browser) has no Safe Storage item")
+            let source = BrowserSourceProfile(browser: browser, directoryName: "Default", displayName: "Default", path: profile,
+                                              availability: [.passwords: .available])
+            let store = RecordingPasswordStore(reply: PasswordStoreReply(added: 1))
+            let report = try await PasswordImporter(keys: FixtureKeys(service: service, password: storagePassword), destination: store)
+                .run(source, intoProfile: "p")
+            #expect(report.imported == 1 && store.batches == [["https://site.example/"]], "\(browser)")
+            await #expect(throws: PasswordImporter.Failure.key(.keyNotFound(service: service)), "\(browser) must not open with another browser's key") {
+                try await PasswordImporter(keys: FixtureKeys(service: "Other Safe Storage", password: storagePassword),
+                                           destination: RecordingPasswordStore()).run(source, intoProfile: "p")
+            }
+        }
+    }
+
+    /// Helium names its Keychain item "Helium Storage Key", not "Helium Safe Storage"
+    /// (string in the shipped binary); the wrong name only reports "key not found".
+    @Test func heliumOpensWithItsStorageKey() async throws {
+        let home = try FixtureHome()
+        let profile = home.directory(.helium).appending(path: "Default", directoryHint: .isDirectory)
+        try FixtureHome.sqlite(profile.appending(path: "Login Data"), [
+            Self.schema, row("https://site.example/", "user", try sealed("\(Self.marker)-helium")),
+        ])
+        let source = BrowserSourceProfile(browser: .helium, directoryName: "Default", displayName: "Default", path: profile,
+                                          availability: [.passwords: .available])
+        let store = RecordingPasswordStore(reply: PasswordStoreReply(added: 1))
+        let report = try await PasswordImporter(keys: FixtureKeys(service: "Helium Storage Key", password: storagePassword), destination: store)
+            .run(source, intoProfile: "p")
+        #expect(report.imported == 1)
+    }
+
+    /// Yandex seals saved passwords with its own scheme, not the Safe Storage key:
+    /// the detector shows passwords as unsupported and the importer refuses them,
+    /// so nothing undecryptable is counted as a failure. Cookies are not affected.
+    @Test func yandexPasswordsAreUnsupported() async throws {
+        let home = try FixtureHome()
+        let root = try home.chromium(.yandex, profiles: [("Default", "Personal")])
+        try FixtureHome.sqlite(root.appending(path: "Default/Login Data"), [
+            Self.schema, row("https://site.example/", "user", try sealed("\(Self.marker)-yandex")),
+        ])
+        try FixtureHome.sqlite(root.appending(path: "Default/Network/Cookies"), ["CREATE TABLE cookies(x)"])
+        let source = try #require(BrowserSourceDetector(environment: home.environment).detect(.yandex))
+        let profile = try #require(source.profiles.first)
+        #expect(profile.availability(of: .passwords) == .unsupported(.exportFromSource))
+        #expect(profile.availability(of: .cookies) == .available)
+        let keys = FixtureKeys(service: "Yandex Safe Storage", password: storagePassword)
+        await #expect(throws: PasswordImporter.Failure.unsupportedBrowser) {
+            try await PasswordImporter(keys: keys, destination: RecordingPasswordStore()).run(profile, intoProfile: "p")
+        }
+    }
+
+    @Test func conflictsAreCountedOnTheirOwn() {
+        var report = PasswordImportReport()
+        report.store = PasswordStoreReply(added: 3, duplicate: 1, conflict: 2, rejected: 1)
+        report.skipped.empty = 4
+        #expect(report.conflicts == 2)
+        #expect(report.notImported == 8 && report.notImportedOtherThanConflicts == 6)
+    }
+
+    @Test func releaseBuildsIgnoreTheFixtureSeams() {
+        let environment = [ImportEnvironment.fixtureHomeKey: "/tmp/fixture-home", FixtureSafeStorage.environmentKey: "/tmp/keys.json"]
+        #expect(SafeStorageKeys(environment: environment, allowsFixtures: false).live() is KeychainSafeStorage)
+        #expect(SafeStorageKeys(environment: environment, allowsFixtures: true).live() is FixtureSafeStorage)
+        let release = ImportEnvironment.live(environment: environment, allowsFixtures: false) { _ in nil }
+        #expect(release.homeDirectory != URL(fileURLWithPath: "/tmp/fixture-home", isDirectory: true))
+    }
+
     @Test func refusesWhatItCannotDoSafely() async throws {
         let home = try FixtureHome()
         let profile = try edgeProfile(home)
         let keys = FixtureKeys(service: "Microsoft Edge Safe Storage", password: storagePassword)
         let edge = BrowserSourceProfile(browser: .edge, directoryName: "Default", displayName: "Work", path: profile, availability: [:])
-        let firefox = BrowserSourceProfile(browser: .firefox, directoryName: "x", displayName: "x", path: profile, availability: [:])
-        await #expect(throws: PasswordImporter.Failure.unsupportedBrowser) {
-            try await PasswordImporter(keys: keys, destination: RecordingPasswordStore()).run(firefox, intoProfile: "p")
+        // Safari has no read API for passwords (guided CSV export instead); Tor is refused outright.
+        for browser in [ImportBrowser.safari, .tor] {
+            let source = BrowserSourceProfile(browser: browser, directoryName: "x", displayName: "x", path: profile, availability: [:])
+            await #expect(throws: PasswordImporter.Failure.unsupportedBrowser) {
+                try await PasswordImporter(keys: keys, destination: RecordingPasswordStore()).run(source, intoProfile: "p")
+            }
         }
         await #expect(throws: PasswordImporter.Failure.storeUnavailable) {
             try await PasswordImporter(keys: keys, destination: RecordingPasswordStore(available: false)).run(edge, intoProfile: "p")

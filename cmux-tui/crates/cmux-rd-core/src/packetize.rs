@@ -1,5 +1,6 @@
 //! Splits one encoded frame into `cmux.rd/1` datagrams: data shards sized to
-//! the session's `max_datagram`, then parity shards of the same size.
+//! the session's `max_datagram`, then parity shards of the same size. A frame
+//! of one shard without parity is not padded.
 
 use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameBody, HEADER_LEN, MAX_FRAME_SHARDS};
 
@@ -11,6 +12,8 @@ pub struct Packetizer {
     stream: u16,
     max_datagram: usize,
     next_transport_seq: u16,
+    /// Shards go out as upstream media (rd change C4).
+    upstream: bool,
 }
 
 /// The datagrams of one frame, ready to send in order.
@@ -36,7 +39,7 @@ impl Packetizer {
     /// `max_datagram` comes from the link (1152 or 1332 bytes); tests may use
     /// smaller values, never below 64.
     pub fn new(stream: u16, max_datagram: usize) -> Self {
-        Self { stream, max_datagram: max_datagram.max(64), next_transport_seq: 0 }
+        Self { stream, max_datagram: max_datagram.max(64), next_transport_seq: 0, upstream: false }
     }
 
     /// Payload bytes per shard.
@@ -50,6 +53,19 @@ impl Packetizer {
         let first = self.next_transport_seq;
         self.next_transport_seq = self.next_transport_seq.wrapping_add(n);
         first
+    }
+
+    /// The display stream the next frames belong to. One packetizer serves
+    /// every stream of a peer, so transport sequence numbers stay one space
+    /// for transport-wide feedback.
+    pub fn set_stream(&mut self, stream: u16) {
+        self.stream = stream;
+    }
+
+    /// Upstream mode (rd change C4): every shard, data and parity, goes out
+    /// as `DatagramKind::UpMedia` (viewer to host media).
+    pub fn set_upstream(&mut self, upstream: bool) {
+        self.upstream = upstream;
     }
 
     /// Splits `body` into data shards plus `parity` parity shards.
@@ -73,7 +89,12 @@ impl Packetizer {
         if shards.is_empty() {
             shards.push(Vec::new());
         }
-        if let Some(last) = shards.last_mut() {
+        // Shards of one frame share one length (the reassembler refuses
+        // others, and parity needs it); a lone shard without parity keeps its
+        // own length, so a small frame (an Opus packet) costs its bytes only.
+        if (shards.len() > 1 || parity > 0)
+            && let Some(last) = shards.last_mut()
+        {
             last.resize(shard_len, 0);
         }
         let parity_shards = if parity == 0 {
@@ -92,7 +113,13 @@ impl Packetizer {
             .map(|(index, payload)| {
                 let header = DatagramHeader {
                     flags,
-                    kind: if index < data_shards { DatagramKind::Video } else { DatagramKind::Fec },
+                    kind: if self.upstream {
+                        DatagramKind::UpMedia
+                    } else if index < data_shards {
+                        DatagramKind::Video
+                    } else {
+                        DatagramKind::Fec
+                    },
                     stream: self.stream,
                     frame,
                     index: index as u16,

@@ -1,6 +1,6 @@
 name: cmux-tui Rust Testbox setup
-# The run title names the box, so an approver can bind a waiting run to its
-# Testbox before a runner takes the job (scripts/blacksmith-testbox-approve.sh).
+# The run title names the box, so the cmux-ci-testbox-approver App can bind a
+# waiting run to its registered Testbox before a runner takes the job.
 run-name: cmux-tui Rust Testbox setup ${{ inputs.testbox_id }}
 
 # Main-controlled broker. This workflow runs only from refs/heads/main and
@@ -41,12 +41,13 @@ jobs:
     if: github.repository_owner == 'manaflow-ai'
     runs-on: blacksmith-32vcpu-ubuntu-2404
     environment:
-      # This environment has the cmux CI Testbox Approver App's protection
-      # rule, no secrets, and a deployment branch rule of exactly `main`.
-      # Human approval of Testbox runs was removed on purpose on 2026-10-05;
-      # the cmux-ci App approves registered boxes. A missing reviewer is
-      # expected, not a security problem. Approval is evaluated before the
-      # first step, so it precedes begin-testbox.
+      # The environments API shows (2026-10-06): one custom deployment
+      # protection rule, the cmux-ci-testbox-approver App; no required
+      # reviewers; no secrets or variables; and a deployment branch policy
+      # that allows only the branch `main`. Human approval of Testbox runs was
+      # removed on purpose on 2026-10-05, so a missing reviewer is expected.
+      # The gate is evaluated before the first step, so it precedes
+      # begin-testbox.
       name: blacksmith-testbox-trusted
     permissions:
       contents: read
@@ -92,7 +93,7 @@ jobs:
         with:
           testbox_id: ${{ inputs.testbox_id }}
 
-      # main can move while a reviewer approves the deployment. Record which
+      # main can move while the deployment gate waits. Record which
       # commit this job actually hydrates and fail closed if the dispatch ref
       # changed under it.
       - name: Revalidate broker identity after token exposure

@@ -83,4 +83,22 @@ extension DaemonService {
             return nil
         }
     }
+
+    /// `request` for callers that handle the failure themselves: it still
+    /// goes to the action scope (ticket, barrier, failure), and is rethrown.
+    func perform<T: Sendable>(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> T) async throws -> T {
+        let ticket = openTicket()
+        guard let connection else {
+            await closeTicket(ticket, label: label, error: DaemonError.notConnected)
+            throw DaemonError.notConnected
+        }
+        do {
+            let value = try await body(connection)
+            await closeTicket(ticket, label: label, error: nil, replying: connection)
+            return value
+        } catch {
+            await closeTicket(ticket, label: label, error: error)
+            throw error
+        }
+    }
 }

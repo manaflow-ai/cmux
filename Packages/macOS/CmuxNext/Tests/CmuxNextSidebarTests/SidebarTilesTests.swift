@@ -12,13 +12,13 @@ import Testing
     private let m = SidebarRegionMetrics(rowHeight: 28, headerHeight: 22, inset: 8, sectionGap: 8, padding: 4,
                                          cardPadding: 4, tileMinWidth: 42, tileHeight: 36, tileGap: 8)
     /// A top section that chose the tiles: Home, the App Store, New
-    /// Workspace, Import and Sync.
+    /// Terminal Tab, New Browser Tab.
     private let top = LayoutSection(
         id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, arrangement: SidebarLayoutDocument.tilesArrangement,
         items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
                 LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store")),
-                LayoutItem(id: LayoutItemID("itm_new_workspace"), ref: .builtIn(.newWorkspace)),
-                LayoutItem(id: LayoutItemID("itm_import_sync"), ref: .builtIn(.importSync))])
+                LayoutItem(id: LayoutItemID("itm_new_terminal"), ref: .builtIn(.newTerminal)),
+                LayoutItem(id: LayoutItemID("itm_new_browser"), ref: .builtIn(.newBrowser))])
 
     // MARK: Layout
 
@@ -100,17 +100,16 @@ import Testing
     @Test func aTileDrawsItsShortCaptionAndKeepsTheFullTitle() {
         let view = SidebarItemRowView()
         view.frame = NSRect(x: 0, y: 0, width: 52, height: 64)
-        let info = SidebarBuiltIn.importSync.defaultInfo
-        #expect(info.caption == "Import")
+        let info = SidebarBuiltIn.appStore.defaultInfo
+        #expect(info.caption == "Apps")
         view.configure(info, style: .favorite)
-        #expect(view.titleText == "Import")
-        #expect(view.toolTip == "Import and Sync")
+        #expect(view.titleText == "Apps")
+        #expect(view.toolTip == "App Store")
         view.configure(info, style: .list)
-        #expect(view.titleText == "Import and Sync", "a row keeps the full title")
+        #expect(view.titleText == "App Store", "a row keeps the full title")
     }
 
     @Test func theDefaultTilesHaveShortCaptions() {
-        #expect(SidebarBuiltIn.newWorkspace.caption == "New")
         #expect(SidebarBuiltIn.appStore.caption == "Apps")
         #expect(SidebarBuiltIn.home.caption == nil, "Home is already short")
         #expect(SidebarItemInfo.fallback(for: .app("cmux/app-store")).caption == "Apps")

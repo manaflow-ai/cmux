@@ -52,11 +52,17 @@ final class HeaderBackdropView: NSView {
     }
 
     let params = Params.fromArguments()
-    private let root = CALayer()
+    /// cmux: internal, for the top fade (HeaderFade.swift).
+    let root = CALayer()
     private var a: CALayer?, b: CALayer?
     private let tint = CALayer()
     private let fadeMask = CAGradientLayer()
     private(set) var available = false
+    /// cmux: the light top fade that replaces the blur (HeaderFade.swift);
+    /// nil keeps MessagesLab's always-on blurred header.
+    var topFade: CAGradientLayer?
+    /// cmux: the length of the last show or hide of the top fade.
+    var lastFadeDuration: TimeInterval = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -87,7 +93,7 @@ final class HeaderBackdropView: NSView {
     override func layout() {
         super.layout()
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        for l in [a, b, tint].compactMap({ $0 }) { l.frame = bounds }
+        for l in [a, b, tint, topFade].compactMap({ $0 }) { l.frame = bounds }
         fadeMask.frame = bounds
         let h = max(1, bounds.height)
         let solid = (params.height) / h

@@ -25,7 +25,9 @@ use std::collections::HashSet;
 use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
-/// Runs the request; keeps the body in the host world under an id.
+/// Runs the request; keeps the body in the host world under an id. The id
+/// comes from `crypto.getRandomValues`, which (unlike `crypto.randomUUID`)
+/// exists in an insecure context too (an http page that is not loopback).
 const START: &str = "async (req) => { \
     const store = globalThis.__cmuxFetch || (globalThis.__cmuxFetch = new Map()); \
     const ctls = globalThis.__cmuxFetchCtl || (globalThis.__cmuxFetchCtl = new Map()); \
@@ -42,7 +44,7 @@ const START: &str = "async (req) => { \
       if (reader) for (;;) { const { done, value } = await reader.read(); if (done) break; touch(); size += value.length; \
         if (size > req.maxBytes) { ctl.abort(); throw new Error('the response body is larger than 64 MiB; download it in a tab'); } chunks.push(value); } \
       const all = new Uint8Array(size); let at = 0; for (const c of chunks) { all.set(c, at); at += c.length; } \
-      const id = crypto.randomUUID(); store.set(id, all); \
+      const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''); store.set(id, all); \
       return { id, size, type: r.type, url: r.url, status: r.status, statusText: r.statusText, redirected: r.redirected, headers: [...r.headers] }; \
     } finally { clearTimeout(timer); clearTimeout(idle); if (req.fetchId) ctls.delete(req.fetchId); } }";
 

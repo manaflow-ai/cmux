@@ -151,7 +151,13 @@ impl Hub {
     /// `_acpmux/handoff_prepare`: capture the source's context and create
     /// the target (never prompted). The same `handoffKey` returns the same
     /// record.
-    pub async fn handoff_prepare(self: &Arc<Self>, p: &Value) -> Result<Value, RpcError> {
+    /// `remote`: a remote-origin caller; its new target is a remote-origin
+    /// session (a remote chain, sandboxed when it runs Claude Code).
+    pub async fn handoff_prepare(
+        self: &Arc<Self>,
+        p: &Value,
+        remote: bool,
+    ) -> Result<Value, RpcError> {
         let source_key = required(p, "sessionId")?;
         let harness = required(p, "harness")?;
         let key = required(p, "handoffKey")?;
@@ -263,6 +269,7 @@ impl Hub {
                         harness: Some(profile),
                         cwd: Some(sm.cwd.clone()),
                         policy: Some(policy),
+                        remote,
                         ..Default::default()
                     })
                     .await?;
@@ -294,6 +301,7 @@ impl Hub {
             created_at: at.clone(),
             updated_at: at,
             drafts: Vec::new(),
+            web: false,
         };
         if let Err(e) = self.handoffs.put(&record) {
             let _ = self.kill(&target, true).await;
@@ -359,10 +367,15 @@ impl Hub {
         self.handoffs.get(id).map(|r| (r.target.session_id, r.state == State::Draft))
     }
 
-    pub async fn handoff_start(self: &Arc<Self>, p: &Value) -> Result<Value, RpcError> {
+    pub async fn handoff_start(
+        self: &Arc<Self>,
+        p: &Value,
+        control: crate::hub::Control,
+    ) -> Result<Value, RpcError> {
         let id = required(p, "handoffId")?;
         let _id = self.handoffs.lock(format!("id:{id}")).await;
         let mut r = self.handoffs.get(id).ok_or_else(|| not_found(id))?;
+        let web = control == crate::hub::Control::Web;
         // A start refused before delivery kept its promptId for the retry.
         let prompt_id = text_param(p, "promptId")
             .or(r.prompt_id.as_deref())
@@ -389,6 +402,11 @@ impl Hub {
                         Some(self.handoff_view(&r)),
                     ));
                 }
+                // A remote device's retry resends (if it must) as a Web turn.
+                if web && !r.web {
+                    r.web = true;
+                    self.handoffs.put(&r)?;
+                }
                 return self.handoff_deliver(r, true).await;
             }
             State::Draft => {}
@@ -414,6 +432,9 @@ impl Hub {
         }
         r.state = State::Starting;
         r.prompt_id = Some(prompt_id);
+        // Who starts it decides the target's turn: a remote device's start
+        // is a Web turn (the remote floor).
+        r.web = web;
         r.updated_at = now();
         // Recorded before the send, so a lost reply or a restart is
         // reconciled by promptId instead of sent again.
@@ -549,8 +570,10 @@ impl Hub {
                 let _ = tx.send(v);
             })),
             resend: true,
-            // A Web start is checked against the target in the remote guard.
-            control: crate::hub::Control::Local,
+            // A Web start is checked against the target in the remote guard,
+            // and its turn there is a Web turn (the remote floor).
+            control: if r.web { crate::hub::Control::Web } else { crate::hub::Control::Local },
+            trust_gate: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

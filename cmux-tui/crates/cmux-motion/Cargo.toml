@@ -14,9 +14,16 @@ workspace = true
 # Process-wide speed and Reduce Motion (env vars, macOS NSWorkspace). Hosts
 # that own these already turn it off and pass a `MotionPolicy` per call.
 default = ["settings"]
-settings = ["dep:objc2-app-kit"]
+settings = ["dep:objc2-app-kit", "dep:libc", "dep:windows-sys"]
 
 [dependencies]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", features = ["NSWorkspace"], optional = true }
+
+# The system Reduce Motion setting (src/system.rs).
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, optional = true, features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }

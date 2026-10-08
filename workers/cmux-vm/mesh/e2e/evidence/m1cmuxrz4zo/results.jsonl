@@ -1,0 +1,16 @@
+{"t":1791357453186,"event":"mesh","meshId":"mesh_wfdb8dgtt2xs4d6sgjytpfhds8","ipv4Cidr":"10.176.144.0/20","ms":115}
+{"t":1791357453325,"event":"vm","vmId":"vm_gk48g309804prfj6tqx3g8wktm","state":"running","idleTimeoutSeconds":300,"ms":138}
+{"t":1791357453602,"event":"vm-joined","ipv4":"10.176.144.1","ms":277}
+{"t":1791357454636,"event":"vm-server","exitCode":0,"stdout":"1"}
+{"t":1791357454751,"event":"keygen","code":0,"publicKey":"ZFhDhkKY5VGsQfFEc+5HkXb2AYaTzGaIr57F92TbuhI="}
+{"t":1791357454796,"event":"provider-error","method":"POST","path":"/v5/tunnels","status":409,"body":"{\"code\":\"CONFLICT\",\"message\":\"conflict: vpc vpc-17cdce0e30f54088837b26f04314f090 has cidr fd3b:5c80:74b4::/64, outside tunnel tun-ddd3534fae9947a192a9e053c6a57bd0's routed ranges                      (10.176.144.0/20); create a tunnel whose routes cover it\"}","sent":"{\"clientPublicKey\":\"ZFhDhkKY5VGsQfFEc+5HkXb2AYaTzGaIr57F92TbuhI=\",\"displayName\":\"cmux team_mesh_m1_m1cmuxrz4zo dev_78fc3t4x36jgap8k8ep3nsgv2m\",\"routes\":[\"10.176.144.0/20\"],\"vpcs\":[{\"vpc\":\"vpc-17cdce0e30f54088837b26f04314f090\"}]}"}
+{"t":1791357454801,"event":"enroll","code":1,"stderr":"{\"error\":\"Conflict\",\"message\":\"The tunnel could not be created for this mesh\",\"status\":409}\n"}
+{"t":1791357454803,"event":"error","message":"Error: enroll failed"}
+{"t":1791357454947,"event":"cleanup","path":"/v1/meshes/mesh_wfdb8dgtt2xs4d6sgjytpfhds8/vms/vm_gk48g309804prfj6tqx3g8wktm","status":204}
+{"t":1791357454993,"event":"cleanup","path":"/v1/vms/vm_gk48g309804prfj6tqx3g8wktm","status":204}
+{"t":1791357455030,"event":"cleanup","path":"/v1/meshes/mesh_wfdb8dgtt2xs4d6sgjytpfhds8","status":204}
+{"t":1791357455032,"event":"cmux-404","path":"/v1/vms/vm_gk48g309804prfj6tqx3g8wktm","status":404}
+{"t":1791357455033,"event":"cmux-404","path":"/v1/meshes/mesh_wfdb8dgtt2xs4d6sgjytpfhds8","status":404}
+{"t":1791357455044,"event":"provider-404","kind":"vpc","id":"vpc-17cdce0e30f54088837b26f04314f090","status":404}
+{"t":1791357455053,"event":"provider-404","kind":"vm","id":"vm-e7ae3b707bf74a3388de04d60755547c","status":404}
+{"t":1791357455054,"event":"done","run":"m1cmuxrz4zo","ok":false,"out":"/Users/cmux/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e/out/m1cmuxrz4zo"}

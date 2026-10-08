@@ -37,6 +37,11 @@ extension AgentPaneModel {
     }
 
     /// Why shell mode's command did not run, or was lost.
+    /// `shell.complete` ran past its deadline (`shell.timed_out`).
+    static var shellCompletionTimedOutMessage: String {
+        String(localized: "agentPane.shell.completionTimedOut", defaultValue: "Completion timed out", bundle: .module)
+    }
+
     static func shellFailureMessage(_ error: any Error) -> String {
         switch error as? AgentPaneShell.Failure {
         case .tooMany:

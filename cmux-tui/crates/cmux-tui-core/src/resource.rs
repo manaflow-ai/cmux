@@ -1,6 +1,6 @@
 //! Opaque public resource identities and protocol-v2 shared types.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::OnceLock;
 
@@ -376,6 +376,10 @@ pub enum ResourceOperation {
     WindowRecordPut,
     #[serde(rename = "window_record.delete")]
     WindowRecordDelete,
+    #[serde(rename = "sidebar_layout.get")]
+    SidebarLayoutGet,
+    #[serde(rename = "sidebar_layout.update")]
+    SidebarLayoutUpdate,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -448,6 +452,8 @@ pub enum ResourceOperation {
     WorkspacePlacementList,
     #[serde(rename = "workspace.update")]
     WorkspaceUpdate,
+    #[serde(rename = "workspace.agent_folder.set")]
+    WorkspaceAgentFolderSet,
     #[serde(rename = "workspace_group.create")]
     WorkspaceGroupCreate,
     #[serde(rename = "workspace_group.delete")]
@@ -587,6 +593,7 @@ impl ResourceOperation {
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
+                | Self::SidebarLayoutGet
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet
@@ -610,6 +617,7 @@ impl ResourceOperation {
 }
 
 mod envelope;
+mod journal;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
@@ -618,6 +626,7 @@ mod wire_decimal;
 mod wire_name;
 
 pub use envelope::{RequestEnvelope, ResponseEnvelope};
+pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
 pub use wire_decimal::WireDecimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -834,8 +843,7 @@ impl Selector {
     }
 }
 
-/// Tokens consumed by the noun-first CLI grammar. A resource may retain any
-/// of these exact names, but callers must select it with the `name:` escape.
+/// A noun-first CLI token: a resource may keep the name; callers select it with `name:`.
 pub fn is_reserved_selector_token(value: &str) -> bool {
     matches!(
         value,
@@ -967,137 +975,6 @@ pub fn resolve_name<T: Clone>(
             ids.sort();
             Err(ResourceError::ambiguous(kind, selector, ids))
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResourceDelta {
-    pub sequence: u32,
-    pub event: String,
-    pub data: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResourceDeltaBatch {
-    pub previous_revision: WireDecimal,
-    pub revision: WireDecimal,
-    pub deltas: Vec<ResourceDelta>,
-}
-
-/// Bounded contiguous journal. One commit advances the resource revision
-/// exactly once and may append several ordered deltas at that revision.
-#[derive(Debug)]
-pub struct ResourceJournal {
-    generation: String,
-    revision: u64,
-    batches: VecDeque<(ResourceDeltaBatch, usize)>,
-    capacity: usize,
-    byte_capacity: usize,
-    retained_bytes: usize,
-}
-
-impl ResourceJournal {
-    pub fn new(generation: String, revision: u64) -> Self {
-        Self {
-            generation,
-            revision,
-            batches: VecDeque::new(),
-            capacity: JOURNAL_CAPACITY,
-            byte_capacity: JOURNAL_BYTE_CAPACITY,
-            retained_bytes: 0,
-        }
-    }
-
-    pub fn generation(&self) -> &str {
-        &self.generation
-    }
-
-    pub fn revision(&self) -> u64 {
-        self.revision
-    }
-
-    pub fn commit(&mut self, events: Vec<(String, Value)>) -> anyhow::Result<u64> {
-        let previous_revision = self.revision;
-        let revision = self
-            .revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-        let deltas = events
-            .into_iter()
-            .enumerate()
-            .map(|(sequence, (event, data))| {
-                Ok(ResourceDelta {
-                    sequence: u32::try_from(sequence).map_err(|_| {
-                        anyhow::anyhow!("too many deltas in one resource transaction")
-                    })?,
-                    event,
-                    data,
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let batch = ResourceDeltaBatch {
-            previous_revision: WireDecimal::new(previous_revision),
-            revision: WireDecimal::new(revision),
-            deltas,
-        };
-        let bytes = serde_json::to_vec(&batch)?.len();
-        if bytes > self.byte_capacity {
-            anyhow::bail!("one resource delta batch exceeds journal byte capacity");
-        }
-        self.revision = revision;
-        self.batches.push_back((batch, bytes));
-        self.retained_bytes = self.retained_bytes.saturating_add(bytes);
-        while self.batches.len() > self.capacity || self.retained_bytes > self.byte_capacity {
-            let Some((_, removed)) = self.batches.pop_front() else { break };
-            self.retained_bytes = self.retained_bytes.saturating_sub(removed);
-        }
-        Ok(self.revision)
-    }
-
-    pub fn after(&self, revision: u64) -> Result<Vec<ResourceDeltaBatch>, ResourceError> {
-        if revision > self.revision {
-            return Err(ResourceError::new(
-                "cursor.invalid",
-                "resume cursor is ahead of the session revision",
-                json!({
-                    "requested":{
-                        "generation":self.generation,
-                        "revision":revision.to_string(),
-                    },
-                    "current":{
-                        "generation":self.generation,
-                        "revision":self.revision.to_string(),
-                    },
-                    "reason":"resume cursor is ahead of the session revision",
-                }),
-                false,
-            ));
-        }
-        let oldest = self.batches.front().map_or(self.revision, |(batch, _)| batch.revision.get());
-        if revision.saturating_add(1) < oldest {
-            return Err(ResourceError::new(
-                "cursor.gap",
-                "resume cursor is no longer retained",
-                json!({
-                    "requested":{
-                        "generation":self.generation,
-                        "revision":revision.to_string(),
-                    },
-                    "current":{
-                        "generation":self.generation,
-                        "revision":self.revision.to_string(),
-                    },
-                    "oldest_revision":oldest.to_string(),
-                }),
-                true,
-            ));
-        }
-        Ok(self
-            .batches
-            .iter()
-            .filter(|(batch, _)| batch.revision.get() > revision)
-            .map(|(batch, _)| batch.clone())
-            .collect())
     }
 }
 

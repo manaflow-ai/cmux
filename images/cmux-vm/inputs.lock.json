@@ -304,6 +304,33 @@
           "libzvbi-common": "0.2.42-2",
           "libzvbi0t64": "0.2.42-2",
           "ocl-icd-libopencl1": "2.3.2-1build1"
+        },
+        "browser": {
+          "fontconfig": "2.15.0-1.1ubuntu2",
+          "fontconfig-config": "2.15.0-1.1ubuntu2",
+          "fonts-liberation": "1:2.1.5-3",
+          "libasound2-data": "1.2.11-1ubuntu0.3",
+          "libasound2t64": "1.2.11-1ubuntu0.3",
+          "libatk-bridge2.0-0t64": "2.52.0-1build1",
+          "libatk1.0-0t64": "2.52.0-1build1",
+          "libavahi-client3": "0.8-13ubuntu6.2",
+          "libavahi-common-data": "0.8-13ubuntu6.2",
+          "libavahi-common3": "0.8-13ubuntu6.2",
+          "libcairo2": "1.18.0-3build1",
+          "libcups2t64": "2.4.7-1.2ubuntu7.14",
+          "libdatrie1": "0.2.13-3build1",
+          "libfontconfig1": "2.15.0-1.1ubuntu2",
+          "libgraphite2-3": "1.3.14-2ubuntu0.24.04.1",
+          "libharfbuzz0b": "8.3.0-2build2",
+          "libnspr4": "2:4.35-1.1build1",
+          "libnss3": "2:3.98-1ubuntu0.2",
+          "libpango-1.0-0": "1.52.1+ds-1build1",
+          "libthai-data": "0.1.29-2build1",
+          "libthai0": "0.1.29-2build1",
+          "libxcb-render0": "1.15-1ubuntu2",
+          "libxcomposite1": "1:0.4.5-1build3",
+          "libxdamage1": "1:1.1.6-1build1",
+          "libxfixes3": "1:6.0.0-2build1"
         }
       }
     },
@@ -326,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
-      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "3c4f2b9cf262655b892e509bb3f8e632503a58da9c4ed8a86dbfe2ae54a094d7",
-      "size": 67778656,
+      "version": "d3fa8796dee7f44f861c74ad9c80b82b054f518e",
+      "url": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "6e1f396150d755ad555c29787d71c06c95ddd42893cee4b6fe9f3e205b3d0c56",
+      "size": 75473168,
       "format": "raw",
       "fileName": "cmux-tui",
-      "bin": { "cmux-tui": "cmux-tui" },
+      "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
+      "source": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/manifest.json (cmux-tui-artifacts run 37772102409, branch cmux-tui-pin-d3fa8796dee7; contains eb9cd709a8a8, the Cloud worker survives agent socket clients; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
-      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "f7ced093b9252c8d694ef9f845781ee012038f88db8702aee50365632dd8591c",
-      "size": 3567048,
+      "version": "d3fa8796dee7f44f861c74ad9c80b82b054f518e",
+      "url": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "dbdcda72ea23ccdcb080e086213cbfed485e05de846b2722fa3da090678f902a",
+      "size": 3625064,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
+      "source": "https://files.cmux.com/cmux-tui/d3fa8796dee7f44f861c74ad9c80b82b054f518e/manifest.json (cmux-tui-artifacts run 37772102409, branch cmux-tui-pin-d3fa8796dee7; contains eb9cd709a8a8, the Cloud worker survives agent socket clients; contains 65477c3b1ce4, the cmux host Cloud agent role, and 3c15962b154c, host key comment root@<hostname>, bead cx-3bi.29; contains a97f64d1e118 systemd host scopes, cx-4eho, and 9778585eda79, cx-h8n)"
     },
     {
       "name": "coderouter",
@@ -454,13 +481,58 @@
       "checksumsName": "cmux-cua-0.8.7-linux-x86_64.tar.gz",
       "roles": ["cua"],
       "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.7 (full release 2026-10-05, LICENSE in the tarball); arm64 tarball sha256 550b1c902c4f47ded822f02dd1badb812bea2ae5e59d89817e1693805c867eaf; needs libX11 (base), libXi and libxkbcommon (display role)"
+    },
+    {
+      "name": "chrome-for-testing",
+      "version": "154.0.8037.92",
+      "url": "https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.92/linux64/chrome-linux64.zip",
+      "sha256": "ff43322f335e436b2f4dcdfeeec5db032299e335a7e8c1c618b326e100ce8732",
+      "size": 196202491,
+      "format": "zip",
+      "bin": { "chrome": "chrome-linux64/chrome" },
+      "versionArgs": ["--version"],
+      "expect": "Google Chrome for Testing 154.0.8037.92",
+      "roles": ["browser"],
+      "firstUse": true,
+      "source": "Chrome for Testing 154.0.8037.92 linux64 (latest-versions-per-milestone 154, revision 1689415; the CEF fork manaflow-ai/cef cef-154.0.28-cmux.19 is Chromium 154 branch 8037 and has no Linux release yet). D-A1 interim engine, x86_64 only. sha256 is ours; Google publishes x-goog-hash md5=eb+FnbaHwkXCE8wFqB2DJw== crc32c=H0W+Ow== (both match the download, last-modified 2026-09-28). Linked libraries: the browser first-use closure plus the base (libgbm1, libx11-6, libglib2.0-0t64, libdbus-1-3, libudev1, libatspi2.0-0t64) and the baked libxkbcommon0."
+    },
+    {
+      "name": "cmux-browser-host",
+      "version": "0.1.0",
+      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v0.1.0/cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "79b0945cdbe6e585a781da2530b2a3aafaa10969bc6d63b7559ae6a96e57da18",
+      "size": 2294597,
+      "format": "tar.gz",
+      "bin": { "cmux-browser-host": "bin/cmux-browser-host" },
+      "versionArgs": ["version"],
+      "expect": "cmux-browser-host 0.1.0 (db8565dfe127b2d182eb508754129c541cc7cecb)",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v0.1.0/SHA256SUMS",
+      "checksumsName": "./cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      "roles": ["browser"],
+      "firstUse": true,
+      "notices": ["LICENSE", "THIRD_PARTY_LICENSES.md"],
+      "otherArches": {
+        "aarch64": {
+          "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v0.1.0/cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "cca1a3a51d89e15c1bcf2e2bb2bec0462470f59756bb471d0564dd510f4239f2",
+          "size": 2133182,
+          "checksumsName": "./cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz"
+        }
+      },
+      "source": "manaflow-ai/cmux release cmux-browser-host-v0.1.0 (prerelease 2026-10-07; tag on db8565dfe127, a feat-cmux-next commit; tag run 37553041068). sha256 of both archives checked against SHA256SUMS after download; gh attestation verify passed for both archives and manifest-entries.json (sha256 d4f924f35d54d7db08b02f838ac1996c879343fc34ce6dd52d97256793675469). Archive: LICENSE, THIRD_PARTY_LICENSES.md, bin/cmux-browser-host (glibc floor 2.31)."
     }
   ],
   "roles": {
     "fonts": { "default": "on", "apt": ["fonts-noto-cjk"] },
     "display": { "default": "off", "apt": ["xvfb", "xauth", "at-spi2-core", "libxtst6", "libxi6", "libxkbcommon0"] },
     "display-wm": { "default": "off", "firstUse": true, "apt": ["openbox"] },
-    "cua-video": { "default": "off", "firstUse": true, "apt": ["ffmpeg"] }
+    "cua-video": { "default": "off", "firstUse": true, "apt": ["ffmpeg"] },
+    "browser": {
+      "default": "off",
+      "firstUse": true,
+      "apt": ["fonts-liberation", "libasound2t64", "libatk1.0-0t64", "libatk-bridge2.0-0t64", "libcairo2", "libcups2t64", "libnspr4", "libnss3", "libpango-1.0-0", "libxcomposite1", "libxdamage1", "libxfixes3"],
+      "env": { "CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE": "0" }
+    }
   },
   "tools": {
     "syft": {
