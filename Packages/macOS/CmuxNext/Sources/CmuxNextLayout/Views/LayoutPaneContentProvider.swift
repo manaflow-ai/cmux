@@ -49,11 +49,26 @@ final class LayoutViewContext {
     /// is on top there, the window is not key). Read with no event at hand,
     /// because the layout can move under a still pointer.
     var hoverPointer: (NSWindow) -> NSPoint? = { _ in nil }
+    /// Windows above this one that pass divider hover through: the app's
+    /// click-catching panels over page windows (`DividerMouseCatchers`).
+    var hoverPassThroughWindows: () -> Set<Int> = { [] }
 
     init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
         self.provider = provider
         self.scrollbarClock = scrollbarClock
+        hoverPointer = { [unowned self] window in Self.systemPointer(in: window, passThrough: self.hoverPassThroughWindows()) }
+    }
+
+    /// The real pointer in `window`'s coordinates, when it may hover there:
+    /// the window is key and the topmost window under the pointer is this
+    /// window or one that passes hover through. Nil otherwise (another app,
+    /// a panel or menu above, the pointer outside every window).
+    static func systemPointer(in window: NSWindow, passThrough: Set<Int>) -> NSPoint? {
+        guard window.isKeyWindow, window.isVisible else { return nil }
+        let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        guard top == window.windowNumber || passThrough.contains(top) else { return nil }
+        return window.mouseLocationOutsideOfEventStream
     }
 
     var style: LayoutStyle { model.style }

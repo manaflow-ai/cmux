@@ -89,6 +89,19 @@ extension ScreenContentView {
         }
     }
 
+    /// Ends a drag whose handle left the view tree (its column or split went
+    /// away): no release will arrive. The drag is cancelled like a refused
+    /// transaction (its live overrides drop; nothing is committed for a
+    /// target that no longer exists) and the model leaves gesture mode, so
+    /// the display link can come to rest.
+    func endDrag() {
+        guard let drag = activeDrag else { return }
+        activeDrag = nil
+        rowDragPreview = nil
+        context.model.rejectTransaction(drag.transaction)
+        context.model.setGestureActive(false)
+    }
+
     func applyDrag(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard let drag = activeDrag else { return }
         let point = contentPoint(fromWindow: windowPoint, kind: drag.kind)

@@ -24,6 +24,8 @@ public final class LayoutRootView: NSView {
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
+    /// Key-window changes of `window`: divider hover is recomputed on each.
+    var keyObservers: [any NSObjectProtocol] = []
     private var lastSnapshot: Snapshot?
     private var reportedVisible: Set<PaneID> = []
     private var reportedKeepAlive: Set<PaneID> = []
@@ -345,6 +347,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
+        observeKeyWindow()
         guard window != nil else {
             updateVisibility()
             return

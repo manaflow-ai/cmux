@@ -148,6 +148,7 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
+                view.onPointerChange = { [weak self] in self?.refreshDividerHover() }
                 addSubview(view)
                 dividerViews[kind] = view
             }
@@ -163,6 +164,8 @@ final class ScreenContentView: NSView {
             }
         }
         for kind in dividerViews.keys where targets[kind] == nil {
+            // The handle under a drag goes away: its mouse-up never comes.
+            if activeDrag?.kind == kind { endDrag() }
             dividerViews.removeValue(forKey: kind)?.removeFromSuperview()
             dividerFrames[kind] = nil
         }
@@ -231,7 +234,24 @@ final class ScreenContentView: NSView {
             if view.isHidden != hidden { view.isHidden = hidden }
         }
         updateScrollbar()
+        refreshDividerHover()
         context.overlayNeedsSync()
+    }
+
+    /// The one owner of divider hover (cx-ww20): hover is a function of where
+    /// the pointer is now and where the handles are now, recomputed whenever
+    /// either changes (a tracking event, a forwarded catcher event, any frame
+    /// change including a strip or row scroll, key-window changes). The
+    /// topmost visible handle under the pointer is hovered; every other one
+    /// is not.
+    func refreshDividerHover() {
+        let point = window.flatMap { context.hoverPointer($0) }.map { convert($0, from: nil) }
+        let hit = point.flatMap { point in
+            subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
+                !$0.isHidden && $0.alphaValue > 0.01 && $0.frame.contains(point)
+            }
+        }
+        for view in dividerViews.values { view.setHovered(view === hit) }
     }
 
     /// Hosts this screen displays now.
@@ -265,9 +285,11 @@ final class ScreenContentView: NSView {
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
     }
 
-    /// Hover forwarded from a click-catching panel over a page.
+    /// A click-catching panel over a page saw the pointer cross a divider's
+    /// hit area: recompute (the panel's own event says nothing about frames
+    /// that moved since).
     func setDividerHovered(_ id: String, _ hovered: Bool) {
-        dividerViews.first { $0.key.mouseAreaID == id }?.value.setForwardedHover(hovered)
+        refreshDividerHover()
     }
 
     // MARK: Chrome
