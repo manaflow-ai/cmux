@@ -23,7 +23,10 @@ import Testing
         #expect(!stall.frames.isEmpty)
         #expect(stall.frames.contains { $0.symbol?.contains("stallForTest") == true },
                 "frames: \(stall.frames.prefix(8).map(\.description))")
-        // An idle run loop records nothing further.
+        // The main thread works between the two runs (the symbolication
+        // above; on a loaded host it takes longer than the threshold), then
+        // the run loop idles: nothing further is recorded (cx-onbb).
+        spin(for: .milliseconds(60))
         CFRunLoopRunInMode(.defaultMode, 0.2, false)
         #expect(watchdog.log.summary.count == records.count)
     }
