@@ -8,13 +8,15 @@
 //! The table is bounded and deletable, unlike the append-only journal blobs:
 //! - one archive keeps at most [`ARCHIVE_MAX_SCREEN_BYTES`] of VT bytes (the
 //!   capture drops the oldest scrollback first);
-//! - at most [`MAX_ARCHIVES`] rows; a new archive deletes the oldest beyond
-//!   that, and its reopened tab starts without the old screen;
+//! - at most [`MAX_ARCHIVES`] rows and none older than
+//!   [`MAX_ARCHIVE_AGE_MS`]; a deleted archive's reopened tab starts without
+//!   the old screen;
 //! - triggers on `closed_groups` delete an archive once no closed-history
-//!   group names its terminal (the group was reopened, consumed or deleted).
+//!   group names its terminal (its group was reopened), and an archive is
+//!   stored only while a group names its terminal.
 //!
 //! The screen holds whatever the terminal printed, so a printed secret stays
-//! until one of those three removes the row.
+//! until one of those removes the row.
 
 use std::io::{Read, Write};
 
@@ -30,22 +32,53 @@ use super::WorkspaceRegistry;
 pub(crate) const ARCHIVE_MAX_SCREEN_BYTES: usize = 1024 * 1024;
 /// Most archives kept; the oldest go first.
 pub(crate) const MAX_ARCHIVES: usize = 100;
+/// An archive older than this is deleted (a printed secret does not stay).
+pub(crate) const MAX_ARCHIVE_AGE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 /// Longest stored program name, in bytes (cut at a character boundary).
 const MAX_PROGRAM_BYTES: usize = 255;
 
-/// Creates the table and the triggers that drop an archive with the last
-/// closed-history group that names its terminal. Runs after `closed_groups`
-/// exists. An older daemon ignores the table; its triggers keep working
-/// there, since they only read `closed_groups` and this table.
+/// Creates the tables and triggers. Runs after `closed_groups` exists, on
+/// every open (all statements are idempotent).
+///
+/// `closed_group_terminals` indexes which closed group names which terminal
+/// (every `terminal_id` string in its record); triggers on `closed_groups`
+/// keep it, and drop an archive once no group names its terminal. An older
+/// daemon ignores both tables; the triggers live in the database, so its
+/// closes and reopens keep them correct too. Trigger names carry a version:
+/// a changed body gets a new name and the old trigger is dropped.
 pub(crate) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    const ORPHANS: &str = "DELETE FROM terminal_archives
-           WHERE instr(OLD.record_json, '\"terminal_id\":\"' || terminal_archives.terminal_id || '\"') > 0
+    let index_is_new: bool = transaction.query_row(
+        "SELECT NOT EXISTS(
+           SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'closed_group_terminals'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    const NAMED: &str = "SELECT value FROM json_tree({ROW}.record_json)
+           WHERE key = 'terminal_id' AND type = 'text'";
+    let old = NAMED.replace("{ROW}", "OLD");
+    let new = NAMED.replace("{ROW}", "NEW");
+    let orphans = format!(
+        "DELETE FROM terminal_archives
+           WHERE terminal_id IN ({old})
              AND NOT EXISTS (
-               SELECT 1 FROM closed_groups AS g
-               WHERE instr(g.record_json, '\"terminal_id\":\"' || terminal_archives.terminal_id || '\"') > 0
-             );";
+               SELECT 1 FROM closed_group_terminals AS named
+               WHERE named.terminal_id = terminal_archives.terminal_id
+             );"
+    );
     transaction.execute_batch(&format!(
-        "CREATE TABLE IF NOT EXISTS terminal_archives (
+        "DROP TRIGGER IF EXISTS closed_groups_delete_drops_archives;
+         DROP TRIGGER IF EXISTS closed_groups_update_drops_archives;
+         DROP TABLE IF EXISTS terminal_archive_stops;
+         DROP INDEX IF EXISTS terminal_archives_by_age;
+         CREATE TABLE IF NOT EXISTS closed_group_terminals (
+           closed_id TEXT NOT NULL,
+           terminal_id TEXT NOT NULL,
+           PRIMARY KEY(closed_id, terminal_id)
+         ) WITHOUT ROWID;
+         CREATE INDEX IF NOT EXISTS closed_group_terminals_by_terminal
+           ON closed_group_terminals(terminal_id);
+         CREATE TABLE IF NOT EXISTS terminal_archives (
            terminal_id TEXT PRIMARY KEY NOT NULL,
            generation TEXT NOT NULL,
            program TEXT,
@@ -55,15 +88,35 @@ pub(crate) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()>
            screen_bytes INTEGER NOT NULL CHECK(screen_bytes >= 0),
            created_at_ms INTEGER NOT NULL
          );
-         CREATE INDEX IF NOT EXISTS terminal_archives_by_age
-           ON terminal_archives(created_at_ms);
-         CREATE TRIGGER IF NOT EXISTS closed_groups_delete_drops_archives
-           AFTER DELETE ON closed_groups
-         BEGIN {ORPHANS} END;
-         CREATE TRIGGER IF NOT EXISTS closed_groups_update_drops_archives
+         CREATE TRIGGER IF NOT EXISTS closed_groups_insert_names_terminals_v1
+           AFTER INSERT ON closed_groups
+         BEGIN
+           INSERT OR IGNORE INTO closed_group_terminals(closed_id, terminal_id)
+             SELECT NEW.closed_id, value FROM ({new});
+         END;
+         CREATE TRIGGER IF NOT EXISTS closed_groups_update_names_terminals_v1
            AFTER UPDATE OF record_json ON closed_groups
-         BEGIN {ORPHANS} END;"
+         BEGIN
+           DELETE FROM closed_group_terminals WHERE closed_id = OLD.closed_id;
+           INSERT OR IGNORE INTO closed_group_terminals(closed_id, terminal_id)
+             SELECT NEW.closed_id, value FROM ({new});
+           {orphans}
+         END;
+         CREATE TRIGGER IF NOT EXISTS closed_groups_delete_names_terminals_v1
+           AFTER DELETE ON closed_groups
+         BEGIN
+           DELETE FROM closed_group_terminals WHERE closed_id = OLD.closed_id;
+           {orphans}
+         END;"
     ))?;
+    if index_is_new {
+        // Groups written before the index existed.
+        transaction.execute_batch(
+            "INSERT OR IGNORE INTO closed_group_terminals(closed_id, terminal_id)
+               SELECT g.closed_id, t.value FROM closed_groups AS g, json_tree(g.record_json) AS t
+               WHERE t.key = 'terminal_id' AND t.type = 'text';",
+        )?;
+    }
     Ok(())
 }
 
@@ -142,15 +195,21 @@ impl WorkspaceRegistry {
             let screen = archive
                 .screen
                 .filter(|screen| !screen.is_empty() && screen.len() <= ARCHIVE_MAX_SCREEN_BYTES);
+            // A later archive of the same terminal is the newest row.
+            tx.execute(
+                "DELETE FROM terminal_archives WHERE terminal_id = ?1",
+                [archive.terminal_id],
+            )?;
+            // Only while a closed group names the terminal: a reopen that
+            // committed first left nothing that could reopen this archive.
             tx.execute(
                 "INSERT INTO terminal_archives(
                    terminal_id, generation, program, cols, rows, screen, screen_bytes,
                    created_at_ms
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                 ON CONFLICT(terminal_id) DO UPDATE SET
-                   generation = excluded.generation, program = excluded.program,
-                   cols = excluded.cols, rows = excluded.rows, screen = excluded.screen,
-                   screen_bytes = excluded.screen_bytes, created_at_ms = excluded.created_at_ms",
+                 ) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+                   WHERE EXISTS (
+                     SELECT 1 FROM closed_group_terminals WHERE terminal_id = ?1
+                   )",
                 params![
                     archive.terminal_id,
                     archive.generation,
@@ -164,11 +223,13 @@ impl WorkspaceRegistry {
             )?;
         }
         tx.execute(
-            "DELETE FROM terminal_archives WHERE terminal_id NOT IN (
-               SELECT terminal_id FROM terminal_archives
-               ORDER BY created_at_ms DESC, rowid DESC LIMIT ?1
-             )",
-            [i64::try_from(MAX_ARCHIVES)?],
+            "DELETE FROM terminal_archives WHERE rowid NOT IN (
+               SELECT rowid FROM terminal_archives ORDER BY rowid DESC LIMIT ?1
+             ) OR created_at_ms < ?2",
+            params![
+                i64::try_from(MAX_ARCHIVES)?,
+                i64::try_from(now_ms.saturating_sub(MAX_ARCHIVE_AGE_MS))?,
+            ],
         )?;
         tx.commit()?;
         Ok(())
@@ -204,17 +265,16 @@ impl WorkspaceRegistry {
     }
 
     /// Whether a closed-history group can reopen public terminal
-    /// `terminal_id` (its tab record names it).
+    /// `terminal_id` (its record names it).
     pub(crate) fn closed_history_mentions_terminal(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<bool> {
-        let needle = format!("\"terminal_id\":\"{terminal_id}\"");
         Ok(self
             .connection
             .query_row(
-                "SELECT 1 FROM closed_groups WHERE instr(record_json, ?1) > 0 LIMIT 1",
-                [needle],
+                "SELECT 1 FROM closed_group_terminals WHERE terminal_id = ?1 LIMIT 1",
+                [terminal_id],
                 |_| Ok(()),
             )
             .optional()?
