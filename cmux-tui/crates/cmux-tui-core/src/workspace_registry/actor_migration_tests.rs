@@ -23,9 +23,11 @@ fn insert_old_row(connection: &Connection, key: &str, revision: i64) {
 fn actor_of(registry: &WorkspaceRegistry, key: &str) -> String {
     registry
         .connection
-        .query_row("SELECT actor FROM resource_mutations WHERE idempotency_key = ?1", [key], |row| {
-            row.get::<_, String>(0)
-        })
+        .query_row(
+            "SELECT actor FROM resource_mutations WHERE idempotency_key = ?1",
+            [key],
+            |row| row.get::<_, String>(0),
+        )
         .unwrap()
 }
 
