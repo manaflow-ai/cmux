@@ -33,13 +33,11 @@ fn a_local_caller_on_a_cloud_machine_is_refused_every_limited_range() {
         "http://169.254.169.254/latest/meta-data/",
         "http://[fd00:ec2::254]/latest/meta-data/",
         "http://metadata.google.internal/computeMetadata/v1/",
-        "http://127.0.0.1:3000/",
-        "http://localhost:3000/",
         "http://10.0.0.1/",
         "http://172.16.5.4/",
         "http://192.168.1.1/",
         "http://100.64.0.1/",
-        "http://[::1]/",
+        "http://0.0.0.0:3000/",
         "http://[fe80::1]/",
         "http://[fd12::1]/",
         "http://[::ffff:10.0.0.1]/",
@@ -56,7 +54,9 @@ fn a_local_caller_on_a_cloud_machine_is_refused_every_limited_range() {
         }
     }
     assert!(methods(&driver).is_empty(), "nothing reached the engine: {:?}", methods(&driver));
-    assert!(gate.driver_call("tabs.open", json!({"url": "https://public.test/"})).is_ok());
+    for url in ["https://public.test/", "http://localhost:3000/", "http://127.0.0.1:3000/"] {
+        assert!(gate.driver_call("tabs.open", json!({"url": url})).is_ok(), "{url}");
+    }
 }
 
 #[test]
@@ -132,8 +132,8 @@ fn the_owner_allow_list_reaches_fetch_and_the_request_filter() {
     assert_eq!(decide("http://localhost:3000/app.js"), None);
     assert_eq!(decide("http://127.0.0.1:3000/app.js"), None);
     assert_eq!(decide("https://public.test/x"), None, "names are the listener's");
+    assert_eq!(decide("http://127.0.0.1:3001/"), None, "the VM's own loopback");
     for refused in [
-        "http://127.0.0.1:3001/",
         "http://10.0.0.1/",
         "http://169.254.169.254/",
         "http://metadata.google.internal/",

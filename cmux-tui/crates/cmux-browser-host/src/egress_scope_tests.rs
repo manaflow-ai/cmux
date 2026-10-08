@@ -35,16 +35,12 @@ const REFUSED_ADDRESSES: &[&str] = &[
     "192.168.1.1:80",
     "100.64.0.1:80",
     "100.127.255.254:80",
-    "127.0.0.1:80",
-    "127.1.2.3:8080",
     "0.0.0.0:80",
-    "[::1]:80",
     "[::]:80",
     "[fe80::1]:80",
     "[fd00::1]:80",
     "[fc00::1]:80",
     "[::ffff:10.0.0.1]:80",
-    "[::ffff:127.0.0.1]:80",
     "[::ffff:169.254.169.254]:80",
     "[::a9fe:a9fe]:80",
     "[64:ff9b::a9fe:a9fe]:80",
@@ -75,6 +71,7 @@ fn names_are_checked_after_resolution_and_metadata_names_before_it() {
         ("ula.test", &["fd00:ec2::254"]),
         ("mixed.test", &["93.184.216.34", "192.168.0.10"]),
         ("mapped.test", &["::ffff:100.64.1.1"]),
+        ("loop.test", &["127.0.0.1"]),
     ]);
     let rule = EgressRule::new(
         Vec::new(),
@@ -91,11 +88,8 @@ fn names_are_checked_after_resolution_and_metadata_names_before_it() {
         "ula.test",
         "mixed.test",
         "mapped.test",
-        "localhost",
-        "LOCALHOST.",
-        "app.localhost",
-        "127.0.0.1",
-        "[::1]",
+        // A public name that resolves to loopback is DNS rebinding.
+        "loop.test",
     ] {
         assert!(matches!(rule.resolve(&name(refused)), Err(Refusal::Blocked(_))), "{refused}");
     }
@@ -107,6 +101,20 @@ fn names_are_checked_after_resolution_and_metadata_names_before_it() {
     assert!(matches!(rule.resolve(&name("nowhere.test")), Err(Refusal::Unresolved(_))));
 }
 
+/// The chief's decision (cx-d0d.7): an agent browses its own dev server on
+/// the VM's loopback; metadata and private ranges stay refused.
+#[test]
+fn the_vms_own_loopback_is_reachable_by_literal_target() {
+    let rule = EgressRule::new(Vec::new(), no_names());
+    for text in ["127.0.0.1:3000", "127.1.2.3:8080", "[::1]:3000", "[::ffff:127.0.0.1]:3000"] {
+        let addr: SocketAddr = text.parse().unwrap();
+        assert!(rule.resolve(&Target::Address(addr)).is_ok(), "{text}");
+    }
+    for name in ["localhost", "LOCALHOST.", "app.localhost", "127.0.0.1", "[::1]"] {
+        assert!(rule.resolve(&Target::Name(name.into(), 3000)).is_ok(), "{name}");
+    }
+}
+
 #[test]
 fn urls_are_refused_by_literal_and_by_resolution() {
     let rule = EgressRule::new(Vec::new(), table(&[("rebind.test", &["127.0.0.1"])]));
@@ -116,15 +124,21 @@ fn urls_are_refused_by_literal_and_by_resolution() {
         "http://metadata.google.internal/computeMetadata/v1/",
         "http://10.1.2.3/",
         "http://100.64.0.1/",
-        "http://127.0.0.1:3000/",
-        "http://localhost:3000/",
+        "http://0.0.0.0:3000/",
         "http://[::ffff:192.168.1.1]/",
         "https://rebind.test/",
-        "ws://127.0.0.1:9000/socket",
     ] {
         assert!(rule.url_refusal(&Url::parse(text).unwrap()).is_some(), "{text}");
     }
-    for text in ["https://example.test/", "data:text/html,x", "about:blank"] {
+    for text in [
+        "https://example.test/",
+        "data:text/html,x",
+        "about:blank",
+        // The VM's own dev servers (no cmux service listens there).
+        "http://127.0.0.1:3000/",
+        "http://localhost:3000/",
+        "ws://127.0.0.1:9000/socket",
+    ] {
         assert!(rule.url_refusal(&Url::parse(text).unwrap()).is_none(), "{text}");
     }
 }
@@ -148,7 +162,7 @@ fn the_owner_allow_list_opens_exact_private_ports_but_never_metadata() {
         "a public name that resolves to an allowed address"
     );
     assert!(rule.resolve(&addr("10.0.0.5:8080")).is_ok());
-    for refused in ["127.0.0.1:3001", "10.0.0.5:80", "169.254.169.254:80", "[fd00:ec2::254]:80"] {
+    for refused in ["10.0.0.5:80", "169.254.169.254:80", "[fd00:ec2::254]:80"] {
         assert!(rule.resolve(&addr(refused)).is_err(), "{refused}");
     }
 }
@@ -255,12 +269,17 @@ fn the_listener_refuses_each_limited_target_and_carries_an_allowed_one() {
         let (code, _) = socks(proxy, &Target::Address(text.parse().unwrap()), 1);
         assert_eq!(code, 0x02, "{text}: not allowed by the ruleset");
     }
-    for name in ["metadata.google.internal", "localhost", "lan.test"] {
+    for name in ["metadata.google.internal", "lan.test"] {
         let (code, _) = socks(proxy, &Target::Name(name.into(), port), 1);
         assert_eq!(code, 0x02, "{name}");
     }
+    // The VM's own loopback is reachable: a port nobody listens on is
+    // dialed and refused by the kernel, not by the rule.
     let (code, _) = socks(proxy, &Target::Address(SocketAddr::from(([127, 0, 0, 1], port + 1))), 1);
-    assert_eq!(code, 0x02, "an unlisted loopback port");
+    assert_eq!(code, 0x05, "an unused loopback port");
+    // The listener never connects to itself.
+    let (code, _) = socks(proxy, &Target::Address(proxy), 1);
+    assert_eq!(code, 0x02, "the listener's own port");
     let (code, _) = socks(proxy, &Target::Name("nowhere.test".into(), 80), 1);
     assert_eq!(code, 0x04, "a name without an address");
     for cmd in [2, 3] {
