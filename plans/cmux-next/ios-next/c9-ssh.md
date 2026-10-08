@@ -145,7 +145,9 @@ unsupported layouts and command failures fail closed; there is no name-based fal
 listing. Workspace and terminal IDs survive rename/reindex and change when the server is replaced.
 
 `SSHTmuxControlChannel` bounds commands (64), input per call (16 KiB), framing (256 KiB line,
-2 MiB response), pane inventory (256), and output (128 chunks of at most 16 KiB). It closes on a
+2 MiB response), pane inventory (256), and output (128 chunks of at most 16 KiB). Snapshot replay
+also caps the aggregate capture rows at 2 MiB, so callers cannot bypass the response budget with
+large individual rows. It closes on a
 reliable-output overflow instead of silently dropping bytes. Each outstanding command sequence has
 a cancellable ten-second deadline. `SSHTerminalByteSource` also bounds and chunks its renderer
 queue. Reconnect gets a fresh owner snapshot; input bytes are never replayed. tmux layout/lifecycle
@@ -214,6 +216,18 @@ hydration, not its paired-Mac Iroh workload; real SSH attach/reconnect verificat
 This closes one parser-state gap only. tmux's `-P` buffer omits incomplete UTF-8 in the ground state;
 current pen attributes, saved cursor/charset state, pending wrap, on-demand history, multi-pane layout
 composition, and reconnect-safe lifecycle mutations still need follow-up. C9 remains incomplete.
+
+### Aggregate capture replay bound (2026-10-08)
+
+`SSHTmuxSnapshot.replay` now totals every encoded capture row with overflow-safe subtraction before
+allocating the reconstructed terminal stream. A direct replay is rejected when the aggregate exceeds
+the control-mode 2 MiB response budget, even when no individual row crosses the decoder's 256 KiB
+line limit. This keeps callers of the renderer-independent snapshot seam under the same memory bound
+as framed control responses and fails closed before emitting a partial screen.
+
+One deterministic Swift Testing case supplies valid metadata and a capture row larger than the
+aggregate limit and expects `SSHSessionFailure.shellRejected`. Swift parsing and diff checks pass;
+native package execution, live SSH, and simulator/device verification remain unverified.
 
 ### Read-only split layout model (2026-10-07)
 

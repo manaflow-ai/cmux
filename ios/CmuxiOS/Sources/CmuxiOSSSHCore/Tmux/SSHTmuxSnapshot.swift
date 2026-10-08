@@ -13,6 +13,10 @@ struct SSHTmuxSnapshot: Sendable {
     /// An incomplete control string is renderer parser state, not visible
     /// text. Refuse a huge pending string instead of hydrating it partially.
     static let maximumPendingBytes = 16 * 1024
+    /// The control-mode response budget is 2 MiB. Bound the complete capture
+    /// before rebuilding it so a direct replay caller cannot bypass the
+    /// decoder's aggregate response limit with a handful of huge rows.
+    static let maximumCaptureBytes = 2 * 1024 * 1024
 
     static let fields = [
         "pane_id", "pane_width", "pane_height", "cursor_x", "cursor_y", "alternate_on",
@@ -38,6 +42,16 @@ struct SSHTmuxSnapshot: Sendable {
               (0..<rows).contains(values[5]), (values[5]..<rows).contains(values[6]),
               ([values[4]] + Array(values[7...])).allSatisfy({ $0 == 0 || $0 == 1 }) else {
             throw SSHSessionFailure.shellRejected
+        }
+        // The decoder rejects a response over 2 MiB, but replay is also a
+        // direct seam used by callers. Check each row with subtraction
+        // instead of summing first so a malicious input cannot overflow Int.
+        var captureBytes = 0
+        for line in lines {
+            guard line.count <= Self.maximumCaptureBytes - captureBytes else {
+                throw SSHSessionFailure.shellRejected
+            }
+            captureBytes += line.count
         }
         let renderedLines: ArraySlice<Data>
         let history: ArraySlice<Data>

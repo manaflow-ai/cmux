@@ -192,6 +192,15 @@ import Testing
         }
     }
 
+    @Test func snapshotRejectsAnAggregateCaptureThatExceedsTheControlBudget() {
+        let metadata = [Data("%2 80 24 0 0 0 0 23 1 0 0 0 0 0 0 0 0 0 0 0".utf8)]
+        #expect(throws: SSHSessionFailure.shellRejected) {
+            try SSHTmuxSnapshot.replay(
+                lines: [Data(repeating: 65, count: SSHTmuxSnapshot.maximumCaptureBytes + 1)],
+                metadata: metadata, pane: "%2", cols: 80, rows: 24)
+        }
+    }
+
     @Test func snapshotHydratesBoundedNormalScreenHistoryBeforeVisibleRows() throws {
         let metadata = [Data("%2 8 2 3 1 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0".utf8)]
         let replay = try SSHTmuxSnapshot.replay(

@@ -101,7 +101,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.14 | Push coordinator, readiness, repair, Allow Push, DEBUG diagnostics | C7, C11 | done |
 | 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
 | 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
-| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (tmux control-mode hydration, safe attach, bounded split-layout metadata, partial pane composition, durable lifecycle owner and explicit pending readback reconciliation are landed; full renderer composition, multi-pane/history/parser-state parity, live owner execution and lifecycle verification remain) |
+| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (tmux control-mode hydration, safe attach, bounded split-layout metadata, aggregate capture replay bound, partial pane composition, durable lifecycle owner and explicit pending readback reconciliation are landed; full renderer composition, multi-pane/history/parser-state parity, live owner execution and lifecycle verification remain) |
 | 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
 | 1.15 | SOCKS proxy and local port forward | C14 | done (credentialed generic SOCKS route is wired into `WebRoute`; loopback uses the route tunnel, non-loopback is default-deny with an explicit direct-backend seam; live device/reconnect verification pending) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
@@ -134,7 +134,8 @@ device-unverified unless the row says otherwise.)
 Open implementation gaps, grouped by owner:
 - C9: tmux control-mode discovery, epoch validation, hydration and live output are landed for
   single-pane matching-grid windows; discovery now also validates and exposes bounded read-only split
-  layout metadata. The pane-composition seam preserves pane-id renderer/parser identity, maps grid
+  layout metadata, and snapshot replay enforces the 2 MiB aggregate capture budget. The
+  pane-composition seam preserves pane-id renderer/parser identity, maps grid
   input to pane-local coordinates, and reconciles add/remove/update operations deterministically.
   The renderer-independent on-demand history request/page contract is landed with bounded,
   epoch-checked cursor assembly, but its host adapter is not. The durable lifecycle owner adapter now
