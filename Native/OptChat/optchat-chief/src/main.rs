@@ -27,7 +27,7 @@ optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-soc
                                                              answer the chief's cloud conversation (an always-on brain host)
 optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
-     OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
+     OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr when acpmux has a configured CodeRouter route, else claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
      CMUX_SOCKET_PATH, CMUX_MCP_COMMAND, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
 

@@ -20,10 +20,11 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   acpmux session of the Chief's harness, named `optchat-<home id>-<first
   id>`, and each summary is one too (see [Harnesses and cache
   layout](#harnesses-and-cache-layout)); no Messages API is called. The
-  harness is one setting (`OPTCHAT_CHIEF_HARNESS`): claude-cr by default
-  (acpmux's own Claude Code ACP adapter, `claude_stdio`, launched through
-  `cr claude-david`, CodeRouter's Bedrock route; Lawrence 2026-10-08),
-  claude-sr (the subrouter pool, only when set), codex, or any acpmux harness.
+  harness is one setting (`OPTCHAT_CHIEF_HARNESS`). By default it is
+  acpmux's own Claude Code adapter (`claude_stdio`): `claude-cr` when acpmux
+  has a configured CodeRouter route (`coderouterClaudeRoute`), else `claude`,
+  the user's own login. claude-sr (the subrouter pool) only when set; codex
+  or any acpmux harness also work.
   Claude Code's Task/Agent subagents are denied (their steps would be
   logged as the Chief's); `chief agents` starts agents instead. So are
   AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
@@ -269,8 +270,8 @@ messages, and `dry-run` warns about it.
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |
 | `OPTCHAT_CHIEF_SERVER_FALLBACK` | off | native: `1` sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) |
-| `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-cr` (CodeRouter's Bedrock route; `claude-sr` only when set) | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
-| `MUX_HARNESS` | `claude-cr` | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
+| `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-cr` when acpmux has a configured CodeRouter route, else `claude` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
+| `MUX_HARNESS` | `claude` (acpmux resolves it through `defaults.claude.prefer`) | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
 | `MUX_POLICY` | `approve-all` | acpmux: permission policy of each turn session |
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |

@@ -1,13 +1,11 @@
-//! Owns launcher probing (`sr claude proxy`, `cr claude-david`) and the
-//! subrouter fallback profile verification.
+//! Owns launcher probing and subrouter fallback profile verification.
 
 use super::*;
 
 /// Drop discovered launcher profiles whose binary cannot actually run the
 /// harness: an older subrouter without `claude proxy`, one whose proxy
-/// setup fails before Claude starts, or a CodeRouter CLI without the
-/// `claude-david` Bedrock route. `--version` does not check the login; a
-/// missing Chatmux login fails the session with the CLI's own message. Runs once at daemon start, so a
+/// setup fails before Claude starts, or a configured CodeRouter route
+/// (`claude-cr`) the installed CLI does not have. Runs once at daemon start, so a
 /// `claude` session never fails over into a launcher that dies at once.
 pub fn verify_launchers(cfg: &mut Config) {
     let servers =
@@ -50,15 +48,17 @@ pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
         .iter()
-        .filter(|(_, p)| is_launcher(&p.argv))
+        .filter(|(n, p)| {
+            is_subrouter_proxy(&p.argv)
+                || (n.as_str() == super::CODEROUTER_CLAUDE_PROFILE
+                    && p.kind == HarnessKind::ClaudeStdio)
+        })
         .map(|(n, p)| (n.clone(), p.argv.clone()))
         .collect();
     for (name, argv) in candidates {
         if let Err(reason) = launcher_ok(&argv) {
             // Only acpmux's own adapter takes over: claude-sr never becomes
-            // an ACP adapter (`claude` imported from ~/.acpx, say). Only a
-            // subrouter proxy reroutes to the subrouter server; a failing
-            // CodeRouter launcher is just unavailable.
+            // an ACP adapter (`claude` imported from ~/.acpx, say).
             if is_subrouter_proxy(&argv)
                 && let Some(url) = &route
                 && let Some(claude) = cfg
@@ -109,14 +109,6 @@ pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
 fn is_subrouter_proxy(argv: &[String]) -> bool {
     argv.get(1).map(String::as_str) == Some("claude")
         && argv.get(2).map(String::as_str) == Some("proxy")
-}
-
-/// A launcher whose `--version` must be checked before it serves: a
-/// subrouter proxy or `cr claude-david` (CodeRouter's Bedrock route).
-fn is_launcher(argv: &[String]) -> bool {
-    is_subrouter_proxy(argv)
-        || (argv.len() == 2
-            && argv.get(1).map(String::as_str) == Some(super::discover::CODEROUTER_CLAUDE_COMMAND))
 }
 
 pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {

@@ -306,8 +306,8 @@ fn the_harness_is_one_setting_for_turns_and_the_compactor() {
     use optchat_chief::host::harness_choice;
     assert_eq!(
         harness_choice(None, None, None),
-        ("claude-cr".to_owned(), "claude-cr".to_owned()),
-        "our Claude Code adapter through CodeRouter's Bedrock route (Lawrence 2026-10-08), never the subrouter by default"
+        ("claude".to_owned(), "claude".to_owned()),
+        "our Claude Code adapter on the user's own login, never the subrouter by default"
     );
     assert_eq!(
         harness_choice(Some("codex"), None, None),
@@ -457,31 +457,51 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
 }
 
 #[test]
-fn the_default_coderouter_route_is_admitted_and_children_default_to_it() {
+fn the_default_is_the_users_login_or_the_configured_coderouter_route() {
+    use optchat_chief::host::{DEFAULT_HARNESS, default_harness};
     // `MUX_HARNESS` unset in the test process: the child takes the default.
     let flags = optchat_chief::cli::Flags::default();
     if std::env::var_os("MUX_HARNESS").is_none() {
         let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
-        assert_eq!(child.harness, optchat_chief::host::DEFAULT_HARNESS);
+        assert_eq!(child.harness, DEFAULT_HARNESS);
     }
-    let answer = json!({"harnesses": {
-        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/cr", "claude-david"]},
+    // No route configured (acpmux has no claude-cr): the user's own login,
+    // never the subrouter even when it is installed.
+    let plain = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
         "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
     }});
-    let admitted =
-        optchat_chief::harness_gate::admit(&answer, optchat_chief::host::DEFAULT_HARNESS).unwrap();
-    assert_eq!(admitted.profile, "claude-cr");
-    assert_eq!(admitted.argv0, "/u/bin/cr");
-    // A CodeRouter launcher acpmux could not run is refused at the gate.
-    let down = json!({"harnesses": {
-        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/cr", "claude-david"],
-                      "unavailable": "`cr claude-david --version` failed: unknown command"},
+    assert_eq!(default_harness(&plain), "claude");
+    let admitted = optchat_chief::harness_gate::admit(&plain, default_harness(&plain)).unwrap();
+    assert_eq!(admitted.argv0, "/u/bin/claude");
+    // A configured route: the Chief uses it.
+    let routed = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/coderouter", "team-route"]},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
     }});
+    assert_eq!(default_harness(&routed), "claude-cr");
+    let admitted = optchat_chief::harness_gate::admit(&routed, "claude-cr").unwrap();
+    assert_eq!(admitted.profile, "claude-cr");
+    // A configured route acpmux could not run: refused with its reason
+    // (posted in the Chief chat), never a silent move to another account.
+    let down = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/cr", "team-route"],
+                      "unavailable": "`cr team-route --version` failed: unknown command"},
+    }});
+    assert_eq!(default_harness(&down), "claude-cr");
     let refused = optchat_chief::harness_gate::admit(&down, "claude-cr").unwrap_err();
-    assert!(refused.contains("unavailable"), "{refused}");
+    assert!(
+        refused.contains("unavailable") && refused.contains("unknown command"),
+        "{refused}"
+    );
+    let shown = optchat_chief::harness_gate::refusal(&refused);
+    assert!(shown.starts_with("refused: "), "{shown}");
+    assert!(!shown.contains("Authentication"), "{shown}");
     // The subrouter still answers when it is asked for by name.
     assert_eq!(
-        optchat_chief::harness_gate::admit(&answer, "claude-sr")
+        optchat_chief::harness_gate::admit(&routed, "claude-sr")
             .unwrap()
             .profile,
         "claude-sr"

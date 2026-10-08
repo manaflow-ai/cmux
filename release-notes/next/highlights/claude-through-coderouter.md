@@ -1,5 +1,5 @@
-title: Claude runs through CodeRouter by default
+title: Agents use your own Claude login by default
 category: improved
 action: docs | cmux-tui/crates/acpmux/README.md
 
-When the CodeRouter CLI is installed, new Claude chats, the Chief and its memory use CodeRouter's Bedrock route first and fall back to your own Claude login. The subrouter pool is used only when you pick it by name.
+New Claude chats, the Chief and its memory now use your own Claude login unless you configure a CodeRouter route. A configured route that cannot run shows a clear message in the Chief instead of a sign-in error.
