@@ -26,7 +26,7 @@ fn dock_column_persists_across_restart() {
         let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("seed-dock-restart", "test").unwrap(),
+                &WorkspaceMutation::daemon("seed-dock-restart", "test").unwrap(),
                 "session.restore_fixture",
                 &serde_json::json!({"fixture":"nested-columns"}),
                 None,
@@ -107,7 +107,7 @@ fn dock_column_flags_cleared_by_a_close_stay_cleared_after_restart() {
         let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("seed-dock-close", "test").unwrap(),
+                &WorkspaceMutation::daemon("seed-dock-close", "test").unwrap(),
                 "session.restore_fixture",
                 &serde_json::json!({"fixture":"nested-columns"}),
                 None,
@@ -182,7 +182,7 @@ fn edge_dock_persists_across_restart_outside_the_viewport_record() {
         let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("seed-edge-dock-restart", "test").unwrap(),
+                &WorkspaceMutation::daemon("seed-edge-dock-restart", "test").unwrap(),
                 "session.restore_fixture",
                 &serde_json::json!({"fixture":"nested-columns"}),
                 None,
@@ -247,7 +247,7 @@ fn an_older_side_pin_wins_over_a_dock_that_would_leave_no_column_scrolling() {
         let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("seed-edge-dock-older", "test").unwrap(),
+                &WorkspaceMutation::daemon("seed-edge-dock-older", "test").unwrap(),
                 "session.restore_fixture",
                 &serde_json::json!({"fixture":"nested-columns"}),
                 None,

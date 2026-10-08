@@ -67,3 +67,47 @@ fn rows_written_before_the_actor_column_read_legacy_after_the_upgrade() {
     drop(registry);
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn effect_receipts_written_before_the_actor_column_read_legacy() {
+    let root = temp_root("old-receipts");
+    {
+        let registry = WorkspaceRegistry::open(&root, "receipt-migration").unwrap();
+        let columns = registry
+            .connection
+            .prepare("PRAGMA table_info(resource_effect_receipts)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect::<Vec<_>>();
+        if columns.iter().any(|column| column == "actor") {
+            registry
+                .connection
+                .execute_batch("ALTER TABLE resource_effect_receipts DROP COLUMN actor;")
+                .unwrap();
+        }
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_effect_receipts(
+                   idempotency_key, operation, fingerprint, intent_json, state,
+                   outcome_json, committed_revision
+                 ) VALUES('old-receipt', 'workspace.close', '{}', '{}', 'pending', NULL, NULL)",
+                [],
+            )
+            .unwrap();
+    }
+    let registry = WorkspaceRegistry::open(&root, "receipt-migration").unwrap();
+    let actor: String = registry
+        .connection
+        .query_row(
+            "SELECT actor FROM resource_effect_receipts WHERE idempotency_key = 'old-receipt'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(actor, "legacy");
+    drop(registry);
+    let _ = fs::remove_dir_all(root);
+}
