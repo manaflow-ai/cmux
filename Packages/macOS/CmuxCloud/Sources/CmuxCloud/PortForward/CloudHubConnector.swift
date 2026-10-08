@@ -174,7 +174,7 @@ public struct CloudHubConnector: Sendable {
                 switch event {
                 case .success(let index, let value):
                     inFlight[index] -= 1
-                    if expired || clock.now >= deadline {
+                    if expired || clock.now.duration(to: deadline) <= .zero {
                         discard(value)
                     } else if winner == nil {
                         winner = value
