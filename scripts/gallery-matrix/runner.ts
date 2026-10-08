@@ -176,10 +176,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     });
     const target = /^https?:\/\//.test(item.path_or_url) ? item.path_or_url : `${baseUrl}/${item.path_or_url.replace(/^\/+/, "")}`;
     const url = queryUrl(target, params);
-    // The gallery stage reports its own settled/ready state below. Waiting for networkidle here
-    // makes pages with a long-lived resource (the markdown showcase is one) look hung even after
-    // they have painted, adding a false 30-second stall to every engine.
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.goto(url, { waitUntil: "networkidle" });
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
@@ -220,44 +217,14 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
   await mkdir(args.outputDir, { recursive: true });
   const server = selected.some((item) => !/^https?:\/\//.test(item.path_or_url)) ? await serveDirectory(resolve(args.galleryDir)) : null;
   const browsers = new Map<Engine, Browser>();
-  const launch = async (engine: Engine): Promise<Browser> => browserTypes[engine].launch({ headless: true, timeout: 30_000 });
-  const screenshotName = (item: MatrixCase, engine: Engine) => `${safeFilePart(item.id)}-${engine}.png`;
-  const failedResult = (item: MatrixCase, engine: Engine, error: unknown): Record<string, unknown> => ({
-    id: item.id,
-    engine,
-    screenshot: screenshotName(item, engine),
-    params: item.params ?? {},
-    ready: "error",
-    error: error instanceof Error ? error.message : String(error),
-  });
   try {
     // Keep one process per engine; every case still gets a fresh context and page.
-    for (const engine of args.engines) browsers.set(engine, await launch(engine));
+    for (const engine of args.engines) browsers.set(engine, await browserTypes[engine].launch({ headless: true, timeout: 30_000 }));
     const results: Record<string, unknown>[] = [];
     for (const item of selected)
       for (const engine of args.engines) {
         const started = Date.now();
-        let result: Record<string, unknown>;
-        try {
-          result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!);
-        } catch (firstError) {
-          // A long matrix can lose a renderer process late in the run (Playwright reports
-          // "Target crashed" or "browser has been closed"). Recycle that engine once and retry
-          // the case so one transient target failure does not discard the entire matrix.
-          console.error(`gallery matrix: ${item.id} ${engine} failed; recycling browser and retrying: ${firstError instanceof Error ? firstError.message : String(firstError)}`);
-          const previous = browsers.get(engine);
-          try { await previous?.close(); } catch { /* the target already died */ }
-          try {
-            const replacement = await launch(engine);
-            browsers.set(engine, replacement);
-            result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, replacement);
-          } catch (secondError) {
-            // Preserve a broken result and continue the other cases. compareRuns will report this
-            // case as broken and the matrix still publishes the useful screenshots it collected.
-            console.error(`gallery matrix: ${item.id} ${engine} failed after browser recycle: ${secondError instanceof Error ? secondError.message : String(secondError)}`);
-            result = failedResult(item, engine, secondError);
-          }
-        }
+        const result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!);
         console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
         results.push(result);
       }

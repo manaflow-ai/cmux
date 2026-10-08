@@ -5,8 +5,7 @@ import Testing
 /// `answers` on `_acpmux/permission_respond` (plans/cmux-next/agent-questions.md): the relay lets
 /// page answers through only to a pending question (`request.toolCall._meta.acpmux.question` is an
 /// object), keyed by that question's items, and bounded: 1 to ``AcpmuxPaneMethods/maximumAnswerItems``
-/// items, each key and each string at most ``AcpmuxPaneMethods/maximumAnswerBytes`` UTF-8 bytes,
-/// and list strings counted together under that same bound. Anything else is refused as `transport.intent_invalid` and never reaches the
+/// items, each key and each string at most ``AcpmuxPaneMethods/maximumAnswerBytes`` UTF-8 bytes. Anything else is refused as `transport.intent_invalid` and never reaches the
 /// daemon; the permission stays pending. An answer is still an allow and needs a fresh gesture.
 @MainActor
 @Suite(.serialized) struct AgentPaneQuestionAnswersTests {
@@ -81,9 +80,9 @@ import Testing
         #expect(Self.passes(Self.respond(permission: "p-codex", answers: ["db_engine": ["answers": ["SQLite"]], "service_name": ["answers": ["ledger"]]])))
         #expect(Self.passes(Self.respond(permission: "p-codex", answers: ["db_engine": ["answers": ["SQLite", "Postgres"]]])))
         #expect(Self.passes(Self.respond(permission: "p-codex", answers: ["db_engine": ["SQLite"]])))
-        // A scalar may use all 4096 bytes; a list's strings are counted together.
+        // The limit is per string: exactly 4096 bytes passes, and so do several such strings.
         #expect(Self.passes(Self.respond(permission: "p-claude", answers: ["Which auth?": String(repeating: "a", count: 4096)])))
-        #expect(Self.refused(Self.respond(permission: "p-codex", answers: ["db_engine": ["answers": [String(repeating: "a", count: 2048), String(repeating: "b", count: 2049)]]])))
+        #expect(Self.passes(Self.respond(permission: "p-codex", answers: ["db_engine": ["answers": [String(repeating: "a", count: 4096), String(repeating: "b", count: 4096)]]])))
         // A list holds at most 64 strings.
         #expect(Self.passes(Self.respond(permission: "p-codex", answers: ["db_engine": ["answers": Array(repeating: "SQLite", count: 64)]])))
         #expect(Self.passes(Self.respond(permission: "p-claude", answers: ["Which auth?": Array(repeating: "OAuth", count: 64)])))

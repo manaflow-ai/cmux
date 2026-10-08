@@ -47,6 +47,11 @@ on:
       - scripts/ci/macos-cross.sh
       - scripts/ci/macos-stubs/**
       - scripts/ci/macos_stubs.py
+      # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/packages/home-core/conformance/**
+      - mux/packages/brain/conformance/**
+      - skills/cmux-browser/**
+      - skills/cmux-cua/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**

@@ -100,37 +100,6 @@ test("a matrix reuses its browser while isolating and closing every case context
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("recycles a crashed renderer and keeps the matrix moving", async () => {
-  const { runLocal } = await import("./runner");
-  const { writeFileSync } = await import("node:fs");
-  const dir = mkdtempSync(join(process.cwd(), "gallery-browser-recovery-"));
-  const manifest = join(dir, "manifest.json");
-  writeFileSync(manifest, JSON.stringify([{ id: "crash-once", path_or_url: "https://example.test/" }]));
-  let launches = 0;
-  let closedBrowsers = 0;
-  try {
-    const browserTypes = { chromium: { launch: async () => {
-      const attempt = ++launches;
-      return {
-        newContext: async () => ({
-          newPage: async () => ({
-            exposeFunction: async () => {}, goto: async () => {}, waitForFunction: async () => {},
-            evaluate: async () => { if (attempt === 1) throw new Error("Target crashed"); return null; },
-            screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
-          }),
-          close: async () => {},
-        }),
-        close: async () => { closedBrowsers++; },
-      };
-    } } };
-    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never);
-    expect(results).toHaveLength(1);
-    expect(results[0]?.ready).toBe(null);
-    expect(launches).toBe(2);
-    expect(closedBrowsers).toBe(2);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
 test("allocation failure waits for late VM ids before finally cleanup", async () => {
   const { createAllVms } = await import("./runner");
   const late = Promise.withResolvers<void>();
