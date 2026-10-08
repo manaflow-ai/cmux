@@ -72,6 +72,11 @@ enum WorkspaceHandlers {
             }
             do {
                 let key = workspaceKey ?? WorkspaceKey.generate()
+                // A fresh workspace goes to the `workspaces.newPlacement` slot; a
+                // History reopen (`workspaceKey`) keeps the place the daemon kept.
+                if workspaceKey == nil {
+                    NewWorkspacePlacements.expect(key.rawValue, in: target, byDefault: NewWorkspacePlacements.rule(for: target, in: windows), windows: windows)
+                }
                 windows.claimNew(workspaceID: key.rawValue, window: target)
                 if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
                     try await homeConnection.pinWorkspace(session: session, key: key, to: room)

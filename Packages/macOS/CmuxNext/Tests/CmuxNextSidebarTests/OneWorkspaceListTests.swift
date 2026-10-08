@@ -4,9 +4,10 @@ import Testing
 
 /// `sidebar.groupByComputer` off, the default (Lawrence 2026-10-08, cx-plf5:
 /// "default sidebar should not have computers. it should just be single list
-/// of workspaces"): no computer header, no gap between computers, an empty
-/// computer shows nothing, and a workspace of another computer names it on
-/// its second line. Pinned and user groups stay.
+/// of workspaces"): one "Projects" header over the whole list (as with one
+/// computer today) and no computer header, no gap between computers, an
+/// empty computer shows nothing, and a workspace of another computer names it
+/// on its second line. Pinned and user groups stay.
 struct OneWorkspaceListTests {
     static func sections(cloudNodes: [SidebarNode]) -> [SidebarSection] {
         [
@@ -26,10 +27,17 @@ struct OneWorkspaceListTests {
         return SidebarLayout.make(sections: sections, metrics: .standard, options: o)
     }
 
-    @Test func oneListHasNoComputerHeaders() {
+    @Test func oneListHasOneProjectsHeaderAndNoComputerHeaders() {
         let rows = Self.layout(Self.sections(cloudNodes: [.workspace(w("c", cloud))]), grouped: false).rows
-        #expect(rows.map(\.key) == [.section(.pinned), .workspace(id("p1")), .workspace(id("a")), .group(g1), .workspace(id("g1")),
-                                    .workspace(id("c"))])
+        #expect(rows.map(\.key) == [.section(.pinned), .workspace(id("p1")), .section(local), .workspace(id("a")), .group(g1),
+                                    .workspace(id("g1")), .workspace(id("c"))])
+        #expect(rows.first { $0.key == .section(local) }?.titlesProjects == true)
+    }
+
+    @Test func collapsingTheProjectsHeaderFoldsTheWholeList() {
+        var sections = Self.sections(cloudNodes: [.workspace(w("c", cloud))])
+        sections[1].isCollapsed = true
+        #expect(Self.layout(sections, grouped: false).rows.map(\.key) == [.section(.pinned), .workspace(id("p1")), .section(local)])
     }
 
     @Test func groupingByComputerKeepsTheHeaders() {
@@ -59,6 +67,6 @@ struct OneWorkspaceListTests {
         let last = try #require(rows.first { $0.key == .workspace(id("g1")) })
         let remote = try #require(rows.first { $0.key == .workspace(id("c")) })
         let m = SidebarLayoutMetrics.standard
-        #expect(remote.y == last.y + last.height + m.rowSpacing + m.groupBottomPadding, "no section gap between computers")
+        #expect(abs(remote.y - (last.y + last.height + m.rowSpacing + m.groupBottomPadding)) < 0.001, "no section gap between computers")
     }
 }

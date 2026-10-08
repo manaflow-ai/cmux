@@ -191,7 +191,8 @@ extension TabDragSession {
 
     func claimAndPlace(_ key: WorkspaceKey, in state: WindowState, at slot: WorkspaceSlot?, select: Bool = true) {
         services.windows.claim(workspaceID: key.rawValue, in: state, select: select)
-        if let slot { services.windows.place(newWorkspace: key.rawValue, in: state.id, at: slot) }
+        // No gap (a drop that names no slot): the `workspaces.newPlacement` slot.
+        services.windows.place(newWorkspace: key.rawValue, in: state.id, at: slot)
     }
 
     /// The view change after a landed drop (`DropRevealPolicy`): drags are
