@@ -106,8 +106,22 @@ def test_ci_group_deduplication_gates_only_the_overlapping_matrix_leg() -> None:
     steps = job["steps"]
     poll = next(step for step in steps if step.get("name") == "Check independent fast guard result")
     propagate = next(step for step in steps if step.get("name") == "Propagate failed independent fast guard")
+    helper = next(step for step in steps if step.get("name") == "Checkout fast guard status helper")
+    fallback_checkout = next(step for step in steps if step.get("name") == "Checkout guard sources")
+    materialize = next(step for step in steps if step.get("name") == "Materialize fallback guard sources")
+    names = [step.get("name") for step in steps]
+    assert names.index("Checkout fast guard status helper") < names.index("Check independent fast guard result")
+    assert names.index("Propagate failed independent fast guard") < names.index("Materialize fallback guard sources")
     assert poll["if"] == "${{ matrix.group == 'ci' }}"
     assert propagate["if"] == "${{ matrix.group == 'ci' && steps.fast-guard.outputs.state == 'failure' }}"
+    assert helper["if"] == "${{ matrix.group == 'ci' }}"
+    assert helper["with"]["filter"] == "blob:none"
+    assert helper["with"]["sparse-checkout"] == "scripts/ci/fast_guard_status.py"
+    assert helper["with"]["sparse-checkout-cone-mode"] is False
+    assert fallback_checkout["if"] == "${{ matrix.group != 'ci' }}"
+    assert materialize["if"] == "${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}"
+    assert "git sparse-checkout disable" in materialize["run"]
+    assert "git checkout --force HEAD" in materialize["run"]
     assert job["permissions"] == {"contents": "read", "checks": "read"}
     assert poll["run"] == "python3 scripts/ci/fast_guard_status.py"
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
@@ -115,7 +129,13 @@ def test_ci_group_deduplication_gates_only_the_overlapping_matrix_leg() -> None:
     gated = [
         step for step in steps
         if "matrix.group == 'ci'" in str(step.get("if", ""))
-        and step.get("name") not in {"Check independent fast guard result", "Propagate failed independent fast guard"}
+        and step.get("name") not in {
+            "Check independent fast guard result",
+            "Propagate failed independent fast guard",
+            "Checkout fast guard status helper",
+            "Checkout guard sources",
+            "Materialize fallback guard sources",
+        }
     ]
     assert gated
     assert all("steps.fast-guard.outputs.skip != 'true'" in step["if"] for step in gated)

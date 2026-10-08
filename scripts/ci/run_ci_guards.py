@@ -62,6 +62,12 @@ PYTHON_PACKAGES = ("PyYAML==6.0.3", "bashlex==0.18")
 # other condition beyond `matrix.group == '...'` fails the plan rather than
 # silently dropping a step.
 EVENT_CONDITION_STEPS = {
+    # Actions-only checkouts are not part of the portable local plan. The fast
+    # guard leg first fetches only its status helper, then materializes the
+    # repository only when its duplicate-suite fallback is needed.
+    "Checkout fast guard status helper",
+    "Checkout guard sources",
+    "Materialize fallback guard sources",
     # The history job binds the synthetic merge base; run_steps binds it
     # directly (PACKAGE_RESOLVED_POLICY_BASE_REF).
     "Bind package policy to synthetic merge base",

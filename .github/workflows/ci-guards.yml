@@ -75,9 +75,16 @@ jobs:
       contents: read
       checks: read
     steps:
-      - name: Checkout
+      - name: Checkout fast guard status helper
+        if: ${{ matrix.group == 'ci' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # The common path only asks whether the independent guard already
+          # settled. Avoid materializing the full tree unless the fallback
+          # suite actually has to run.
+          filter: blob:none
+          sparse-checkout: scripts/ci/fast_guard_status.py
+          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Check independent fast guard result
@@ -94,6 +101,20 @@ jobs:
         run: |
           echo "CI fast guards already reported failure for this revision; skipping duplicate guard execution."
           exit 1
+
+      - name: Checkout guard sources
+        if: ${{ matrix.group != 'ci' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Materialize fallback guard sources
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: |
+          # The status-only checkout is a blobless sparse tree. Expand that
+          # same checkout only when the duplicate suite is actually needed.
+          git sparse-checkout disable
+          git checkout --force HEAD
 
       - name: Validate macOS runner guards
         if: ${{ matrix.group == 'preflight' }}
