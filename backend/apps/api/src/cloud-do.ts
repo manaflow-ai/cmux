@@ -117,6 +117,9 @@ export class CloudDO extends CloudIdle {
         }
       }, now)
       if (applied) await this.considerIdlePause(entity, applied.machine, applied.report, now)
+      // A held report commits nothing, so nothing moved the alarm: arm it for the end of the window
+      // (VmStatusQueue.dueAt) so the latest held report applies then, not at an unrelated wake.
+      else if (r.ok) this.scheduleAlarm()
       return r
     }
     return vmEventEmit(entity, principal, params, rows, this.vmEvents, (f) => sendEphemeral(this.ctx.getWebSockets(), f, (ws, a) => this.socketLive(ws, a as never) && a.principal.team === entity && a.principal.install_kind !== "vm"), now)
