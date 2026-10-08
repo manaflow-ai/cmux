@@ -5,7 +5,21 @@ import Testing
 @Suite struct CEFSwitchesTests {
     @Test func forkBuildGetsTabbedWindowsAndNoFieldTrials() {
         let switches = CEFSwitches(forkAPIVersion: 2, useMockKeychain: false, loadExtensions: [])
-        #expect(switches.arguments == ["cmux-tabbed-windows", "disable-field-trial-config", "disable-notifications"])
+        #expect(switches.arguments == [
+            "cmux-tabbed-windows", "disable-field-trial-config", "disable-notifications",
+            "disable-features=MacAppCodeSignClone",
+        ])
+    }
+
+    /// Chromium's code-sign clone makes CefShutdown spawn a
+    /// `--type=code-sign-clone-cleanup` helper that outlives the app (cx-dj33).
+    @Test func everyBundleDisablesTheCodeSignClone() {
+        for bundle in ["com.cmuxterm.app", "com.cmuxterm.app.debug.x"] {
+            let switches = CEFSwitches.current(forkAPIVersion: 2, bundleIdentifier: bundle, environment: [:])
+            #expect(switches.arguments.contains("disable-features=MacAppCodeSignClone"))
+        }
+        #expect(CEFSwitches(forkAPIVersion: 0, useMockKeychain: false, loadExtensions: [])
+            .arguments.contains("disable-features=MacAppCodeSignClone"))
     }
 
     @Test func stockCEFHasNoTabbedWindows() {
@@ -22,9 +36,10 @@ import Testing
         #expect(switches.useMockKeychain)
         #expect(switches.loadExtensions == ["/tmp/a", "/tmp/b"])
         #expect(switches.arguments.contains("load-extension=/tmp/a,/tmp/b"))
-        // Passing --disable-features would replace Chromium's own default
-        // list (GlicActorUi, ...) and crash in ActorUiContentsContainerController.
-        #expect(!switches.arguments.contains { $0.hasPrefix("disable-features") })
+        // The shim merges disable-features into CEF's own list (GlicActorUi,
+        // ...; CEFShim/src/command_line_switches.h); replacing that list
+        // crashes in ActorUiContentsContainerController. cmux adds one entry.
+        #expect(switches.arguments.filter { $0.hasPrefix("disable-features") } == ["disable-features=MacAppCodeSignClone"])
     }
 
     @Test func releaseBundleUsesRealKeychain() {
