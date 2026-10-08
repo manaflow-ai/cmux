@@ -4437,7 +4437,7 @@ fn close_terminal_in_transaction(
             transaction,
             ledger,
             mutation,
-            &fingerprint,
+            fingerprint,
             &result_json,
             revision,
         )?;
@@ -4467,7 +4467,7 @@ fn close_terminal_in_transaction(
         [revision.to_string()],
     )?;
     let ledger = mutation_ledger::KeyedLedger::Terminal;
-    let row = (&fingerprint, &result_json, sqlite_revision);
+    let row = (fingerprint, result_json.as_str(), sqlite_revision);
     mutation_ledger::insert_keyed_mutation(transaction, ledger, mutation, row.0, row.1, row.2)?;
     transaction.execute(
         "INSERT INTO terminal_events(

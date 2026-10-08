@@ -73,7 +73,7 @@ impl Mux {
         index: Option<usize>,
         delta: Option<isize>,
     ) {
-        self.select_tab_as(&Actor::Daemon, pane, index, delta)
+        self.select_tab_as(&Actor::Daemon, pane, index, delta);
     }
 
     pub(crate) fn set_column_dock(
