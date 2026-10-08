@@ -50,7 +50,7 @@ final class AgentFeedQuestionUITests: XCTestCase {
         customAnswer.typeText("Only failure notifications")
         XCTAssertTrue(submit.isEnabled)
         XCTAssertTrue(app.keyboards.firstMatch.exists)
-        XCTAssertLessThanOrEqual(customAnswer.frame.maxY, app.keyboards.firstMatch.frame.minY - 8)
+        assertAnswerCardClearsKeyboard(in: app, questionID: "events")
         capture(app, "05-custom-answer-focused")
 
         for _ in 0..<5 where !build.isHittable { app.swipeDown() }
@@ -116,14 +116,8 @@ final class AgentFeedQuestionUITests: XCTestCase {
         field.typeText("\nKeep monitoring.\nPause if errors rise.")
         XCTAssertEqual(field.frame.height, fourLineHeight, accuracy: 2)
         XCTAssertTrue((field.value as? String)?.contains("Pause if errors rise.") == true)
-        let clearsKeyboard = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                field.frame.maxY <= app.keyboards.firstMatch.frame.minY - 8
-            },
-            object: nil
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [clearsKeyboard], timeout: 3), .completed)
         capture(app, "feed-custom-answer-four-line-scroll-limit")
+        assertAnswerCardClearsKeyboard(in: app, questionID: "deploy")
     }
 
     @MainActor
@@ -183,6 +177,30 @@ final class AgentFeedQuestionUITests: XCTestCase {
         for (key, value) in environment { app.launchEnvironment[key] = value }
         app.launch()
         return app
+    }
+
+    @MainActor
+    private func assertAnswerCardClearsKeyboard(in app: XCUIApplication, questionID: String) {
+        let card = app.otherElements["MobileAgentFeedQuestionCard-\(questionID)"]
+        let keyboard = app.keyboards.firstMatch
+        let predictions = app.otherElements["Typing Predictions"].firstMatch
+        let clearsKeyboard = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let keyboardTop = predictions.exists && !predictions.frame.isEmpty
+                    ? min(keyboard.frame.minY, predictions.frame.minY)
+                    : keyboard.frame.minY
+                return card.frame.maxY <= keyboardTop - 8
+            },
+            object: nil
+        )
+        let result = XCTWaiter.wait(for: [clearsKeyboard], timeout: 3)
+        let geometry = XCTAttachment(string:
+            "card: \(card.frame), keyboard: \(keyboard.frame), predictions: \(predictions.frame)"
+        )
+        geometry.name = "custom-answer-keyboard-clearance-\(questionID)"
+        geometry.lifetime = .keepAlways
+        add(geometry)
+        XCTAssertEqual(result, .completed, "The entire custom answer must clear the prediction bar")
     }
 
     @MainActor
