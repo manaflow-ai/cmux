@@ -12,10 +12,11 @@ workspace = true
 
 [features]
 # Typed control messages (`control::Control`) for hosts and Rust viewers.
-serde = ["dep:serde"]
+serde = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
 serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

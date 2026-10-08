@@ -67,11 +67,17 @@ enum Action {
     case evict(top: Int, bottom: Int)
     /// Jump: replace the loaded window.
     case replaceWindow([Message], start: Int)
+    /// A hosted row's new payload (CustomRows.swift): the part is replaced in place and
+    /// written through; a height change animates like any row change.
+    case setCustomPart(ID, Int, CustomPart)
     /// cmux: an attachment part's bytes arrived or its upload moved
     /// (HomeStore); replaces the part with the same attachment id, no motion.
     case cmuxSetAttachment(ID, Attachment)
     /// cmux: the host's notice changed (nil clears it); the rows are derived again.
     case cmuxNotice(String?)
+    /// Hosted rows of these messages measure again (no state change). `animated` false: an
+    /// estimate correction (no motion; the first visible row keeps its place).
+    case remeasureCustom([ID], animated: Bool)
 }
 
 enum Reducer {
@@ -171,6 +177,12 @@ enum Reducer {
             s.conversation.messages = msgs
             s.windowStart = start
             s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
+        case let .setCustomPart(id, pi, part):
+            guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }), pi < s.conversation.messages[i].parts.count,
+                  case .custom = s.conversation.messages[i].parts[pi] else { break }
+            s.conversation.messages[i].parts[pi] = .custom(part)
+        case .remeasureCustom:
+            break
         case let .cmuxSetAttachment(id, a):  // cmux
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
                   let pi = s.conversation.messages[i].parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
@@ -226,8 +238,15 @@ enum TextParts {
             parts.append(.text(block, runs: linkRuns(block)))
             pending = []
         }
+        // Markdown: a URL line inside a code fence stays code (no card splits the block).
+        var fence: Character?
         for line in text.components(separatedBy: "\n") {
-            if let url = soleURL(line) {
+            let lead = line.prefix { $0 == " " }.count
+            let body = line.drop { $0 == " " }
+            if lead < 4, let c = body.first, c == "`" || c == "~", body.hasPrefix(String(repeating: c, count: 3)) {
+                if fence == nil { fence = c } else if fence == c { fence = nil }
+            }
+            if fence == nil, lead < 4, let url = soleURL(line) {
                 flush()
                 // Pending (no title, no site): Messages' grey placeholder until the
                 // metadata or the domain fallback arrives (Store.apply).
@@ -264,7 +283,7 @@ extension Reducer {
             w.append(s.message(m.id) ?? m)
         case let .react(ref, _, _):
             if let m = s.message(ref.messageId) { w.update(m) }
-        case let .edit(id, _), let .unsend(id), let .delete(id):
+        case let .edit(id, _), let .unsend(id), let .delete(id), let .setCustomPart(id, _, _):
             if let m = s.message(id) { w.update(m) }
         case let .linkMetadata(url, _, _, _):
             for m in s.conversation.messages where m.parts.contains(where: { if case let .link(u, _, _, _, _) = $0 { return u == url }; return false }) { w.update(m) }
@@ -321,6 +340,30 @@ final class Store {
     func date(at t: Double) -> Date { baseDate.addingTimeInterval(t) }
 
     func dispatch(_ action: Action) { apply(action, at: now) }
+
+    /// Apply a user action at `t` ahead of the jobs that fall due by then: they fire at the
+    /// next `advance`, in their own order and at that time. A keystroke's pass then carries
+    /// only the keystroke; statuses, replies and typing due in it follow in the next run-loop
+    /// pass (they are not latency-critical; appkit-native Host.dispatch).
+    func dispatchAhead(_ action: Action, at t: Double) {
+        now = max(now, t)
+        apply(action, at: now)
+    }
+
+    /// Whether every job due by `t` is a status or a typing change (a send may go ahead of
+    /// them: neither changes the order of the messages). Replies and responder steps keep
+    /// their place in time.
+    func onlyAmbientDue(by t: Double) -> Bool {
+        for j in queue {
+            guard j.time <= t else { break }
+            guard case let .action(a) = j.job else { return false }
+            switch a {
+            case .status, .typing: continue
+            default: return false
+            }
+        }
+        return true
+    }
 
     func schedule(_ action: Action, after delay: Double) { schedule(action, at: now + delay) }
 

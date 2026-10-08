@@ -1,7 +1,7 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
-import { hostByInstall, hostDelete, hostOf, hostUpsert, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
+import { hostByInstall, hostDelete, hostOf, hostUpsert, memberLeftItems, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
@@ -19,6 +19,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
+  /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
+  readonly member_cleanup?: Readonly<Record<string, number>>
 }
 
 /**
@@ -75,6 +77,49 @@ export const teamDomain: Domain<TeamState> = {
           writes: [...members.map(memberUpsert), ...hosts.flatMap(hostUpsert)],
           ...(state.team ? { outbox: members.map((m) => teamIndexItem(state.team!, m.user, m.role, ctx.tx)) } : {}),
           value: { members: members.length, hosts: hosts.length }
+        }
+      }
+      case "team.member.remove": {
+        // Internal (cx-44j.47): the future members op and operator tools remove through here.
+        // Only this TeamDO's own submitSystem (identity system:team), never a delivered outbox item.
+        if (p.kind !== "system" || p.identity !== "system:team") return reject("auth.forbidden", "internal op")
+        const user = (params as { user?: unknown } | null)?.user
+        if (typeof user !== "string" || !user) return reject("validation.invalid", "user required")
+        const member = memberOf(state, ctx.rows, user)
+        if (!member) return { ok: true, state, value: { user, removed: false }, changed: false }
+        // An owner is demoted first, so no team is ever left without one (a personal team's owner never leaves).
+        if (member.role === "owner") return reject("auth.forbidden", "an owner cannot be removed; demote them first")
+        const { [user]: _gone, ...legacyMembers } = state.members ?? {}
+        return {
+          ok: true,
+          state: { ...state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1), member_cleanup: { ...(state.member_cleanup ?? {}), [user]: ctx.now } },
+          writes: [{ table: TABLE_MEMBER, op: "delete", key: user }],
+          value: { user, removed: true },
+          ...(state.team ? { outbox: memberLeftItems(state.team, user, ctx.tx, ctx.now) } : {})
+        }
+      }
+      case "team.member.cleaned": {
+        // TeamDO's own submit after it put the member's certificates on the KRL (team-member-cleanup.ts).
+        if (p.kind !== "system" || p.identity !== "system:team") return reject("auth.forbidden", "internal op")
+        const v = (params ?? {}) as { user?: unknown; hosts?: unknown }
+        if (typeof v.user !== "string" || !Array.isArray(v.hosts)) return reject("validation.invalid", "user and hosts required")
+        const at = state.member_cleanup?.[v.user]
+        if (at === undefined) return { ok: true, state, value: { orphaned: [] }, changed: false }
+        const user = v.user
+        const { [user]: _done, ...rest } = state.member_cleanup ?? {}
+        // Back in the team already (a re-join before the cleanup ran): certificates were revoked, hosts stay theirs.
+        const rejoined = memberOf(state, ctx.rows, user) !== undefined
+        const hosts = rejoined ? [] : v.hosts.map((id) => hostOf(state, ctx.rows, String(id))).filter((h): h is NonNullable<typeof h> => h !== undefined && h.owner_user === user && !h.orphaned && h.enrolled_at <= at)
+        const orphaned = hosts.map((h) => ({ ...h, orphaned: { at, former_owner: user } }))
+        // Rows only: a legacy map entry would overwrite the flag at a later rows_migrate.
+        const legacy = state.hosts ? Object.fromEntries(Object.entries(state.hosts).filter(([id]) => !hosts.some((h) => h.id === id))) : undefined
+        const a = appendAudit({ ...state, member_cleanup: rest, ...(legacy ? { hosts: legacy } : {}) }, state.team?.id ?? "", ctx, "team.member.cleaned", `member ${user} removed: ${orphaned.length} host(s) orphaned`, { user, orphaned: orphaned.map((h) => h.id) })
+        return {
+          ok: true,
+          state: a.state,
+          writes: orphaned.flatMap((h) => hostUpsert(h)),
+          value: { orphaned: orphaned.map((h) => h.id) },
+          outbox: [...orphaned.map((h) => ({ kind: "host.upsert", entity: h.id, payload: { ...h, team: state.team?.id } })), a.outbox]
         }
       }
       case "team.ensure_personal": {

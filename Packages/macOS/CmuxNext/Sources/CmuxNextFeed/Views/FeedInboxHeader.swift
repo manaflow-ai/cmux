@@ -1,7 +1,11 @@
+import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 /// Connection tabs and compact inbox triage controls, driven by host callbacks.
 struct FeedInboxHeader: View {
+    /// Header glyphs sit beside 12 pt text.
+    static let glyphSide = CGFloat.iconRowSize(forLabelPointSize: 12)
     @Binding var filter: FeedInboxFilter
     let hasUnread: Bool
     let canRefresh: Bool
@@ -14,13 +18,17 @@ struct FeedInboxHeader: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 5) {
-                connectionTab(.github, title: FeedStrings.github, symbol: "arrow.triangle.pull")
-                connectionTab(.feed, title: FeedStrings.title, symbol: "tray")
+                connectionTab(.github, title: FeedStrings.github, icon: .brandGithub)
+                connectionTab(.feed, title: FeedStrings.title, icon: .inbox)
                 Spacer(minLength: 0)
                 if canAddConnection {
                     Button(action: addConnection) {
-                        Label(FeedStrings.addConnection, systemImage: "plus")
-                            .font(.system(size: 11.5))
+                        Label {
+                            Text(FeedStrings.addConnection)
+                        } icon: {
+                            Icon(.actionAdd, size: .iconRowSize(forLabelPointSize: 11.5))
+                        }
+                        .font(.system(size: 11.5))
                     }
                     .buttonStyle(.plain).foregroundStyle(colors.secondary)
                 }
@@ -28,7 +36,7 @@ struct FeedInboxHeader: View {
             .padding(.horizontal, 10).frame(height: 43)
             FeedHairline()
             HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(colors.tertiary)
+                Icon(.search, size: Self.glyphSide).foregroundStyle(colors.tertiary)
                 TextField(FeedStrings.filterInbox, text: $filter.query)
                     .textFieldStyle(.plain).font(.system(size: 12))
                     .foregroundStyle(colors.primary)
@@ -40,14 +48,16 @@ struct FeedInboxHeader: View {
                         Text(FeedStrings.notices).tag(FeedInboxFilter.Category.notices)
                     }
                 } label: {
-                    Image(systemName: filter.category == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                    // Menu labels render through AppKit, which keeps images but not canvases.
+                    Image(nsImage: .icon(.filter, size: Self.glyphSide, style: filter.category == .all ? .line : .solid))
+                        .renderingMode(.template)
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden)
                 .frame(width: 16).help(FeedStrings.filterInbox)
                 Button(action: markRead) { Image(systemName: "checkmark.circle") }
                     .buttonStyle(.plain).disabled(!hasUnread).help(FeedStrings.markAllRead)
                 if canRefresh {
-                    Button(action: refresh) { Image(systemName: "arrow.clockwise") }
+                    Button(action: refresh) { Icon(.actionReload, size: Self.glyphSide) }
                         .buttonStyle(.plain).help(FeedStrings.refresh)
                 }
             }
@@ -57,9 +67,9 @@ struct FeedInboxHeader: View {
         }
     }
 
-    private func connectionTab(_ connection: FeedInboxFilter.Connection, title: String, symbol: String) -> some View {
+    private func connectionTab(_ connection: FeedInboxFilter.Connection, title: String, icon: IconName) -> some View {
         Button { filter.connection = connection } label: {
-            Label(title, systemImage: symbol)
+            FeedIconLabel(title, icon: icon, textSize: 11.5)
                 .font(.system(size: 11.5, weight: filter.connection == connection ? .medium : .regular))
                 .padding(.horizontal, 9).padding(.vertical, 6)
                 .background(RoundedRectangle(cornerRadius: 6).fill(filter.connection == connection ? colors.selection : .clear))

@@ -38,9 +38,12 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
         return .prompt(trimmed)
     }
 
-    /// BrowserURLResolver's address (WebKit rules), minus a bare file name.
-    /// Without a home folder, `~` and `~/path` are text.
+    /// A Chromium internal page (`chrome://`, `chrome-extension://`, an
+    /// `about:` alias) in canonical form, which opens in a Chromium tab;
+    /// else BrowserURLResolver's address (WebKit rules), minus a bare file
+    /// name. Without a home folder, `~` and `~/path` are text.
     static func url(for text: String, home: URL?) -> URL? {
+        if let page = ChromiumInternalURL(typed: text) { return page.url }
         if text == "~" || text.hasPrefix("~/"), home == nil { return nil }
         if looksLikeFileName(text) { return nil }
         let resolver = BrowserURLResolver(homeDirectory: home ?? URL(filePath: "/"))

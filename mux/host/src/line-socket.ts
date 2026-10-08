@@ -26,15 +26,27 @@ export class LineSocket {
     });
   }
 
+  /** Connects; aborting `signal` before the connection is up destroys the socket and rejects. */
   static open(
     path: string,
     onMessage: (message: Record<string, unknown>) => void,
+    signal?: AbortSignal,
   ): Promise<LineSocket> {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(new Error("connect aborted"));
       const socket = connect(path);
-      const failed = (error: Error) => reject(error);
+      const abort = () => {
+        socket.destroy();
+        reject(new Error("connect aborted"));
+      };
+      const failed = (error: Error) => {
+        signal?.removeEventListener("abort", abort);
+        reject(error);
+      };
+      signal?.addEventListener("abort", abort, { once: true });
       socket.once("error", failed);
       socket.once("connect", () => {
+        signal?.removeEventListener("abort", abort);
         socket.off("error", failed);
         resolve(new LineSocket(socket, onMessage));
       });

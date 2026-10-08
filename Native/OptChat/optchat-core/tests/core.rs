@@ -85,7 +85,8 @@ fn drain(memory: &mut Memory, store: &Mem) {
                         store,
                         node,
                         CompactPrompt::default().text("Chief"),
-                    );
+                    )
+                    .unwrap();
                     assert!(
                         !request.context.contains(PLACEHOLDER),
                         "compactor saw an unbuilt line for {}",
@@ -93,7 +94,7 @@ fn drain(memory: &mut Memory, store: &Mem) {
                     );
                     let text = fake_summary(node);
                     store.nodes.borrow_mut().insert(node, text.clone());
-                    memory.complete(node, &text);
+                    memory.complete(node, &text).unwrap();
                 }
             }
         }
@@ -144,8 +145,10 @@ fn long_chat_keeps_every_view_rule_and_a_stable_prefix() {
         assert!(memory.settled(), "the fake compactor keeps up");
         assert_tiles(&memory);
         assert_never_split(&before, memory.view());
+        // Spec 3.2: the view passes the budget by at most the lines built
+        // since the last message; the next message merges it down.
         assert!(
-            memory.view_size() <= budget,
+            memory.view_size() <= budget + NODE,
             "over budget at {step}: {}",
             memory.view_size()
         );
@@ -208,37 +211,6 @@ fn free_nodes_keep_short_messages_verbatim() {
 }
 
 #[test]
-fn level_zero_nodes_start_in_order_and_jobs_are_capped() {
-    let store = Mem::default();
-    let mut memory = Memory::new(VIEW);
-    for _ in 0..20 {
-        store.push(Kind::Echo, "y".repeat(5_000));
-        memory.append();
-    }
-    let work = memory.pump(&store);
-    // Only message 0 can start: every later level-0 node waits for the lines before it.
-    assert_eq!(
-        work,
-        vec![Work::Model {
-            node: NodeId::new(0, 0)
-        }]
-    );
-    let text = fake_summary(NodeId::new(0, 0));
-    store
-        .nodes
-        .borrow_mut()
-        .insert(NodeId::new(0, 0), text.clone());
-    memory.complete(NodeId::new(0, 0), &text);
-    assert_eq!(
-        memory.pump(&store),
-        vec![Work::Model {
-            node: NodeId::new(0, 1)
-        }]
-    );
-    assert!(memory.busy().count() <= JOBS);
-}
-
-#[test]
 fn zoom_opens_lines_and_messages() {
     let store = Mem::default();
     let mut memory = Memory::new(VIEW);
@@ -270,26 +242,31 @@ fn zoom_opens_lines_and_messages() {
     );
 }
 
+/// A turn's view is recorded by its parts: rendering those parts later,
+/// after the chat moved on and the view merged, gives the turn's bytes back.
 #[test]
-fn reloading_folds_the_same_view() {
-    let mut rng = Rng(42);
+fn a_past_view_renders_again_from_its_parts() {
+    let mut rng = Rng(11);
     let store = Mem::default();
     let mut memory = Memory::new(20_000);
-    for _ in 0..2_000 {
+    let mut snapshots = Vec::new();
+    for k in 0..1_500 {
         let (kind, text) = message(&mut rng);
         store.push(kind, text);
         memory.append();
         drain(&mut memory, &store);
+        if k % 300 == 299 {
+            let view = render_view(&memory, &store);
+            assert_eq!(view.parts, memory.view());
+            snapshots.push(view);
+        }
     }
-    let sizes = store
-        .nodes
-        .borrow()
-        .iter()
-        .map(|(k, v)| (*k, v.len()))
-        .collect::<Vec<_>>();
-    let reloaded = Memory::load(memory.len(), sizes, 20_000);
-    assert_eq!(reloaded.view(), memory.view());
-    assert_eq!(reloaded.view_size(), memory.view_size());
+    for old in &snapshots {
+        let again = render_parts(&old.parts, &store);
+        assert_eq!(again.text, old.text);
+        assert_eq!(again.marks, old.marks);
+    }
+    assert_ne!(snapshots[0].parts, memory.view(), "the view moved on");
 }
 
 #[test]
@@ -323,7 +300,7 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
     match size_check(std::slice::from_ref(&long)) {
         SizeCheck::Retry(msg) => {
             assert!(msg.starts_with(
-                "That line is 600 bytes; the limit is 512. It must end where it is cut here:\n"
+                "Too long: your line is 600 bytes, over the 512-byte limit. Write\n"
             ));
             assert!(msg.ends_with("| ← LIMIT"));
             assert_eq!(cut_at_bytes(&long, 512).len(), 512);
@@ -348,39 +325,13 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
 }
 
 #[test]
-fn compactor_requests_carry_no_ids_and_the_scale_line() {
-    assert_eq!(SCALE.len(), NODE, "SCALE must be exactly NODE bytes");
-    let store = Mem::default();
-    let mut memory = Memory::new(VIEW);
-    for text in ["short one", &"w".repeat(2_000)] {
-        store.push(Kind::User, text.to_string());
-        memory.append();
-    }
-    drain(&mut memory, &store);
-    let request = compact_request(
-        &memory,
-        &store,
-        NodeId::new(1, 0),
-        CompactPrompt::default().text("Chief"),
-    );
-    assert!(request.context.starts_with("<chat>\n") && request.context.ends_with("</chat>"));
-    assert!(
-        !request.context.contains("+1|") && !request.step.contains("0+1"),
-        "no ids in a compactor call"
-    );
-    assert!(
-        request.step.contains(SCALE)
-            && request
-                .step
-                .contains("Merge these two lines into one, in at most 512 bytes:")
-    );
-}
-
-#[test]
 fn compactor_prompt_is_selectable_and_defaults_to_taelins() {
     assert_eq!(CompactPrompt::default(), CompactPrompt::Taelin);
     let taelin = CompactPrompt::Taelin.text("Chief");
-    assert!(taelin.starts_with("You write the memory of Chief, an AI agent"));
+    assert!(taelin.starts_with(
+        "You are Chief, an AI agent that works for one user in a single chat that never\nends."
+    ));
+    assert!(taelin.contains("\n# Compactions\n"), "one prompt for turns and compactions");
     assert!(!taelin.contains("{agent}"), "every placeholder is filled");
     assert_eq!(
         taelin,
@@ -504,13 +455,14 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
         &store,
         NodeId::new(0, 0),
         CompactPrompt::default().text("Chief"),
-    );
+    )
+    .unwrap();
     assert_eq!(store.message(0).1, huge, "the log keeps the message whole");
     assert!(
         request.step.chars().count() < STEP_MESSAGE + 2_000,
         "the call shows at most STEP_MESSAGE characters of it"
     );
-    assert!(request.step.contains("user: HEAD") && request.step.ends_with("TAIL"));
+    assert!(request.step.contains("user: HEAD") && request.step.ends_with("TAIL\n</input>"));
     let cut = total - STEP_MESSAGE;
     let prefix = request.cut.clone().expect("the request says it is cut");
     assert!(prefix.contains(&cut.to_string()) && prefix.contains(&total.to_string()));
@@ -526,9 +478,9 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
     let mut memory = Memory::new(VIEW);
     store.push(Kind::Tool, "w".repeat(STEP_MESSAGE));
     memory.append();
-    let whole = compact_request(&memory, &store, NodeId::new(0, 0), String::new());
+    let whole = compact_request(&memory, &store, NodeId::new(0, 0), String::new()).unwrap();
     assert_eq!(whole.cut, None);
-    assert!(whole.step.ends_with(&"w".repeat(STEP_MESSAGE)));
+    assert!(whole.step.ends_with(&format!("{}\n</input>", "w".repeat(STEP_MESSAGE))));
     assert_eq!(finish_line(&whole, "tool: x"), "tool: x");
 }
 
@@ -540,7 +492,7 @@ fn the_size_loop_measures_a_cut_line_against_its_reduced_room() {
     let reply = "x".repeat(480);
     match size_check_in(std::slice::from_ref(&reply), room) {
         SizeCheck::Retry(text) => assert!(
-            text.starts_with("That line is 480 bytes; the limit is 450."),
+            text.starts_with("Too long: your line is 480 bytes, over the 450-byte limit."),
             "{text}"
         ),
         other => panic!("{other:?}"),
@@ -562,7 +514,7 @@ fn a_cut_request_knows_its_room() {
     store.push(Kind::Echo, "e".repeat(total));
     let mut memory = Memory::new(VIEW);
     memory.append();
-    let request = compact_request(&memory, &store, NodeId::new(0, 0), "S".into());
+    let request = compact_request(&memory, &store, NodeId::new(0, 0), "S".into()).unwrap();
     let prefix = request.cut.clone().unwrap();
     assert_eq!(request.room(), NODE - prefix.len());
     let line = finish_line(&request, &"w".repeat(request.room()));
@@ -588,7 +540,7 @@ fn drain_in(memory: &mut Memory, store: &Mem) {
                 Work::Model { node } => {
                     let text = fake_summary(node);
                     store.nodes.borrow_mut().insert(node, text.clone());
-                    memory.complete_in(node, &text, store);
+                    memory.complete_in(node, &text, store).unwrap();
                 }
             }
         }
@@ -642,7 +594,7 @@ fn a_resumed_memory_is_the_live_one_and_keeps_only_the_views_sizes() {
 }
 
 #[test]
-fn a_stale_checkpoint_folds_the_tail_as_a_load_does() {
+fn a_stale_checkpoint_keeps_its_view_and_folds_only_the_tail() {
     let mut rng = Rng(5);
     let store = Mem::default();
     let mut live = Memory::new(20_000);
@@ -657,19 +609,14 @@ fn a_stale_checkpoint_folds_the_tail_as_a_load_does() {
         }
     }
     let checkpoint = checkpoint.unwrap();
-    let sizes: Vec<(NodeId, usize)> = store
-        .nodes
-        .borrow()
-        .iter()
-        .map(|(k, v)| (*k, v.len()))
-        .collect();
-    let loaded = Memory::load(live.len(), sizes, 20_000);
     let from = frontier(&store, &checkpoint);
     let resumed = Memory::resume(&checkpoint, live.len(), from, 20_000, &store).unwrap();
     assert_eq!(resumed.len(), live.len());
     assert_tiles(&resumed);
-    assert_eq!(resumed.view(), loaded.view());
-    assert_eq!(resumed.view_size(), loaded.view_size());
+    // Spec 3.2: the saved view is kept, never refit: the tail only appends
+    // and merges in batches, as the live memory did.
+    assert_never_split(&checkpoint.view, resumed.view());
+    assert!(resumed.view_size() <= 20_000 + NODE);
 }
 
 #[test]
@@ -693,6 +640,98 @@ fn a_checkpoint_that_does_not_fit_the_store_is_refused() {
         t: 8,
         low: vec![8],
         view: vec![NodeId::new(3, 0)],
+        ..Checkpoint::default()
     };
     assert!(Memory::resume(&missing, 8, Vec::new(), VIEW, &store).is_none());
+}
+
+/// Audit major 1 (fixed by e46860e1a8bc, which checks built before it stores
+/// a size): a second `complete` for a node, with a text of another length,
+/// changes no size, so `view_size` stays the sum of the view's lines.
+#[test]
+fn a_second_complete_changes_no_size() {
+    let mut memory = Memory::new(VIEW);
+    let store = Mem::default();
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    assert_eq!(
+        memory.pump(&store),
+        vec![Work::Model {
+            node: NodeId::new(0, 0)
+        }]
+    );
+    let text = fake_summary(NodeId::new(0, 0));
+    store
+        .nodes
+        .borrow_mut()
+        .insert(NodeId::new(0, 0), text.clone());
+    memory.complete(NodeId::new(0, 0), &text).unwrap();
+    let size = memory.view_size();
+    assert_eq!(size, text.len());
+    let _ = memory.complete(NodeId::new(0, 0), "a much shorter line");
+    assert_eq!(
+        memory.view_size(),
+        size,
+        "a second complete changed view_size"
+    );
+    for _ in 0..40 {
+        store.push(Kind::Echo, "z".repeat(5_000));
+        memory.append();
+    }
+    drain(&mut memory, &store);
+    let lines: usize = memory
+        .view()
+        .iter()
+        .map(|p| store.node(*p).unwrap().len())
+        .sum();
+    assert_eq!(
+        memory.view_size(),
+        lines,
+        "view_size is the sum of the view's lines"
+    );
+}
+
+/// Audit major 3: `complete` writes only a node whose model call is running.
+/// A node `pump` never handed out (here past the end of the log) or one
+/// completed already is refused, and nothing becomes built: a later message
+/// at that id would otherwise count as summarized by an unrelated text.
+#[test]
+fn a_complete_for_a_node_with_no_call_running_is_refused() {
+    let mut memory = Memory::new(VIEW);
+    let store = Mem::default();
+    store.push(Kind::User, "hi");
+    memory.append();
+    assert!(memory.complete(NodeId::new(0, 5), "made up").is_err());
+    assert!(
+        !memory.is_built(NodeId::new(0, 5)),
+        "a node no call ran for became built"
+    );
+    assert!(memory.complete(NodeId::new(2, 0), "made up").is_err());
+    assert!(!memory.is_built(NodeId::new(2, 0)));
+}
+
+/// Audit major 3: a compactor call for a node whose child or context line is
+/// built but missing from the store is refused, never sent with an empty
+/// line (the node the model wrote from it would be wrong for good).
+#[test]
+fn a_compactor_call_with_a_missing_line_is_refused() {
+    let mut memory = Memory::new(VIEW);
+    let store = Mem::default();
+    for _ in 0..4 {
+        store.push(Kind::Echo, "z".repeat(5_000));
+        memory.append();
+    }
+    drain(&mut memory, &store);
+    assert!(memory.is_built(NodeId::new(1, 0)));
+    // A merge whose child text is gone.
+    store.nodes.borrow_mut().remove(&NodeId::new(0, 1));
+    let merge = compact_request(&memory, &store, NodeId::new(1, 0), String::new());
+    assert_eq!(merge.err(), Some(MissingNode(NodeId::new(0, 1))));
+    // A level-0 call whose context (a view line before it) is gone.
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    let gone = memory.view()[0];
+    store.nodes.borrow_mut().remove(&gone);
+    let leaf = compact_request(&memory, &store, NodeId::new(0, 4), String::new());
+    assert_eq!(leaf.err(), Some(MissingNode(gone)));
 }

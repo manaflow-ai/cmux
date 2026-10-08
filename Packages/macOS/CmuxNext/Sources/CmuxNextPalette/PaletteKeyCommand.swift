@@ -14,7 +14,7 @@ public enum PaletteKeyCommand: Equatable, Sendable {
     case submit
     /// Cmd-Return: run the alternate command.
     case submitAlternate
-    /// Cmd-K.
+    /// The footer's Actions button (no default key since decision K1; Tab opens the menu).
     case toggleActions
     /// Tab.
     case openActions

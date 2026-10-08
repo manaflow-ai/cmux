@@ -183,6 +183,10 @@ impl Driver for FakeDriver {
                     .and_then(|url| self.fetch_routes.lock().unwrap().get(url).cloned());
                 Ok(routed.unwrap_or_else(|| self.fetch_reply.lock().unwrap().clone()))
             }
+            // An engine with proxy stores: new tabs use the proxy.
+            "session.configure" => {
+                Ok(json!({"proxy": params.get("proxy").is_some_and(|proxy| !proxy.is_null())}))
+            }
             _ => Ok(Value::Null),
         }
     }
@@ -1386,3 +1390,81 @@ fn a_redirect_hop_without_its_address_is_logged() {
     let log = policy(&gate, "corsLog", json!({})).unwrap();
     assert!(!log.to_string().contains("https://a.test/r2"), "{log}");
 }
+
+/// FETCH-PRIVATE-RANGES under a proxy (browser-egress.md 7.3): a remote
+/// (relay) session sets no proxy, and a proxy's own address meets the range
+/// rule (link-local is refused to every session).
+#[test]
+fn a_proxy_meets_the_range_rule_and_remote_sessions_set_none() {
+    let (_, driver) = make_gate(Value::Null, false);
+    let remote = Gate::new(driver, Grants { remote: true, ..Grants::default() });
+    for server in ["http://203.0.113.7:3128", "127.0.0.1:8080", "socks5://10.0.0.2:1080"] {
+        let refused = remote
+            .driver_call("session.configure", json!({"proxy": {"server": server}}))
+            .unwrap_err();
+        assert_eq!(refused.code, ErrorCode::Forbidden, "{server}: {refused}");
+    }
+    assert!(remote.driver_call("session.configure", json!({"proxy": null})).is_ok());
+    let (local, driver) = make_gate(Value::Null, false);
+    let local = local.with_resolver(Arc::new(|host: &str, _| match host {
+        "metadata-proxy.test" => vec!["169.254.169.254".parse().unwrap()],
+        _ => Vec::new(),
+    }));
+    for server in [
+        "http://169.254.169.254:80",
+        "169.254.10.1:3128",
+        "http=127.0.0.1:1;https=metadata-proxy.test:3128",
+        "http://metadata.google.internal:80",
+    ] {
+        let refused = local
+            .driver_call("session.configure", json!({"proxy": {"server": server}}))
+            .unwrap_err();
+        assert_eq!(refused.code, ErrorCode::Forbidden, "{server}: {refused}");
+    }
+    assert!(
+        !driver.calls.lock().unwrap().iter().any(|(m, _)| m == "session.configure"),
+        "no refused proxy reached the engine"
+    );
+    let answer = local
+        .driver_call("session.configure", json!({"proxy": {"server": "http://127.0.0.1:3128"}}))
+        .expect("a loopback proxy for a local session");
+    assert_eq!(answer["proxy"], true);
+}
+
+/// A proxied response reports the proxy's address (Chromium, browser-egress
+/// 7.3), so the after-the-fact check never sees where a name went: while the
+/// session's new tabs use a proxy, a name this machine resolves into a
+/// refused range is refused before dispatch.
+#[test]
+fn a_proxied_session_is_refused_a_name_that_resolves_to_metadata() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    let gate = gate.with_resolver(Arc::new(|host: &str, _| match host {
+        "meta.test" => vec!["169.254.169.254".parse().unwrap()],
+        "lan.test" => vec!["10.0.0.5".parse().unwrap()],
+        _ => Vec::new(),
+    }));
+    // Without a proxy the engine resolves; the response check applies.
+    assert!(gate.driver_call("tabs.open", json!({"url": "http://meta.test/"})).is_ok());
+    gate.driver_call("session.configure", json!({"proxy": {"server": "http://127.0.0.1:3128"}}))
+        .unwrap();
+    for (method, params) in [
+        ("tabs.open", json!({"url": "http://meta.test/latest/meta-data/"})),
+        ("tab.navigate", json!({"targetId": "T", "url": "http://meta.test/"})),
+        ("net.fetch", json!({"targetId": "T", "url": "http://meta.test/x"})),
+    ] {
+        let refused = gate.driver_call(method, params).unwrap_err();
+        assert_eq!(refused.code, ErrorCode::Forbidden, "{method}: {refused}");
+        assert!(refused.message.contains("169.254.169.254"), "{refused}");
+    }
+    // A local session may reach private ranges; a name that does not
+    // resolve here is the proxy's to resolve.
+    assert!(gate.driver_call("tabs.open", json!({"url": "http://lan.test/"})).is_ok());
+    assert!(gate.driver_call("tabs.open", json!({"url": "http://elsewhere.test/"})).is_ok());
+    gate.driver_call("session.configure", json!({"proxy": null})).unwrap();
+    assert!(gate.driver_call("tabs.open", json!({"url": "http://meta.test/"})).is_ok());
+    let opened = driver.calls.lock().unwrap().iter().filter(|(m, _)| m == "tabs.open").count();
+    assert_eq!(opened, 4, "the refused calls never reached the engine");
+}
+
+#[path = "gate_isolated_tests.rs"]
+mod isolated;

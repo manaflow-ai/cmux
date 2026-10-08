@@ -178,6 +178,9 @@ pub mod method {
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
     pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
+    /// A new dashboard token, served at once (`hub/web_token.rs`); unix
+    /// socket only.
+    pub const MUX_WEB_TOKEN_ROTATE: &str = "_acpmux/web_token_rotate";
     pub const MUX_HARNESSES: &str = "_acpmux/harnesses";
     /// Reload catalog configuration without touching existing sessions.
     pub const MUX_RELOAD_CONFIG: &str = "_acpmux/reload_config";
@@ -215,6 +218,10 @@ pub mod method {
     /// acpmux's own decision; `set` records the decision, never the agents' files.
     pub const ACP_TRUST_GET: &str = "acp.trust.get";
     pub const ACP_TRUST_SET: &str = "acp.trust.set";
+    /// A folder harness profile's "Enable harness" prompt (no `sha256`), or
+    /// the user's confirmation of exactly the bytes it showed (`sha256`).
+    /// The unix socket and the local app only (BRING-YOUR-OWN-HARNESS H4).
+    pub const MUX_HARNESS_ENABLE: &str = "_acpmux/harness_enable";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";
@@ -226,6 +233,9 @@ pub mod method {
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
+    /// To watchers when a harness profile source changed and the catalog
+    /// reloaded: `{harnesses: string[], diagnostics}`.
+    pub const MUX_HARNESSES_CHANGED: &str = "_acpmux/harnesses_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";

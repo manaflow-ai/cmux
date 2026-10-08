@@ -1211,7 +1211,7 @@
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:18 (MotionTunables.springDefaults)",
     "unit": "s",
-    "use": "Sidebar selection pill"
+    "use": "Page info toggle (the sidebar selection does not animate)"
    },
    "panel": {
     "value": {
@@ -1269,6 +1269,18 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:37 (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Theme switch"
+   },
+   "highlight": {
+    "value": 1.2,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:38 (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Settings row highlight after a search jump or deep link fades out"
+   },
+   "launch": {
+    "value": 0.24,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:39 (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Launch mark resolving on the glass of a window still connecting (Motion.revealLaunchMark); under 400 ms at normal speed"
    }
   },
   "loops": {

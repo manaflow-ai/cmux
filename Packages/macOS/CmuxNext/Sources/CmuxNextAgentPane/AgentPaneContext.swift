@@ -24,13 +24,17 @@ public nonisolated struct AgentPaneContext: Sendable, Equatable {
 
 extension AgentPaneView {
     /// Asks the page what its chat works on. Nil before the page connects,
-    /// or when it does not answer within `limit`.
+    /// or when it does not answer within `limit`. An agent-home cwd never
+    /// leaves the chat (``AgentPaneModel/folderForOtherTabs(_:)``).
     public func workingContext(limit: Duration = .seconds(1)) async -> AgentPaneContext? {
-        await agentPaneFirst(within: limit) { [weak self] in
+        let read: AgentPaneContext? = await agentPaneFirst(within: limit) { [weak self] in
             guard let webView = self?.webView else { return nil }
             let script = "const read = window.cmuxAcpmuxActions?.['pane.context']; return read ? await read({}) : null;"
             let value = try? await webView.callAsyncJavaScript(script, arguments: [:], contentWorld: .page)
             return AgentPaneContext(page: value)
         }
+        guard var context = read else { return nil }
+        context.cwd = model.folderForOtherTabs(context.cwd)
+        return context
     }
 }

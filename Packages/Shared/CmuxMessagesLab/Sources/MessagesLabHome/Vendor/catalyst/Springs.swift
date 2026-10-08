@@ -164,6 +164,16 @@ enum Springs {
     static var read: SpringElement { element("transcript.read") }
     static var typing: SpringElement { element("transcript.typing") }
     static var receive: SpringElement { element("transcript.receive") }
+    /// A received photo or video (lossless send-typed-media take: an ease-in-out move, the
+    /// photo's opacity following it).
+    static var receiveMedia: SpringElement { element("transcript.receiveMedia") }
+    /// My tapback (lossless tapback-menu-heart-take1: the rows above the part move 27.5 pt
+    /// 90 ms after our react commit, an ease-in-out of 0.29 s).
+    static var tapback: SpringElement { element("transcript.tapback") }
+    static func isMedia(_ p: Part) -> Bool {
+        if case let .attachment(a) = p { return a.kind == "image" || a.kind == "video" }
+        return false
+    }
     /// An outgoing message that arrives from outside the field (another
     /// device, a script): no morph, no field collapse.
     static var insert: SpringElement { element("transcript.insert") }
@@ -202,7 +212,8 @@ enum Springs {
 /// `final + sum_i delta_i (p_i(t) - 1)`, which equals the fitted element.
 /// Further animations on the same key path add up (no snap on interruption).
 enum Animate {
-    private static var serial = 0
+    /// Animations added so far (also the key serial; the bench counts animations per commit).
+    private(set) static var serial = 0
 
     /// Local time of `layer` now (virtual time when the root is paused).
     static func now(_ layer: CALayer) -> CFTimeInterval { layer.convertTime(CACurrentMediaTime(), from: nil) }
@@ -293,6 +304,24 @@ enum Animate {
         layer.add(a, forKey: "sampled.\(keyPath).\(serial)")
     }
 
+    /// `--x-two-animation-springs`: the hold-and-spring form in live trees too (the before arm of
+    /// the A/B bench of the one-animation form; animations per send).
+    static let twoAnimationForm = ProcessInfo.processInfo.arguments.contains("--x-two-animation-springs")
+
+    /// Whether `layer` is in a paused tree (an ancestor with speed 0: captures, checks, live grabs),
+    /// where the render server did not hold a backward fill for a start that lay ahead. A layer
+    /// with no superlayer (a mask, a detached layer) counts as paused: the two-animation form is
+    /// right in both trees.
+    static func inPausedTree(_ layer: CALayer) -> Bool {
+        if twoAnimationForm { return true }
+        var l = layer
+        while let up = l.superlayer {
+            if l.speed == 0 { return true }
+            l = up
+        }
+        return l === layer || l.speed == 0
+    }
+
     /// Model opacity for "hidden" layers that still animate: the render
     /// server skips layers whose model opacity is exactly 0, animations or not.
     static let hiddenOpacity: Float = 0.01
@@ -305,6 +334,26 @@ enum Animate {
     /// (The earlier 240 Hz keyframe path boxed 150-300 NSNumbers per row per
     /// send: 485k main-thread allocations in 20 fast sends.)
     static func sampled(_ layer: CALayer, _ keyPath: String, delta d: Double, spring: Spring, delay: Double, begin: CFTimeInterval) -> String {
+        if !inPausedTree(layer) {
+            // A live tree holds a backward fill (only a paused tree did not): one animation, not
+            // a hold and a spring. The same presented values (Presenter evaluates both alike).
+            let a = CASpringAnimation(keyPath: keyPath)
+            a.mass = 1
+            a.stiffness = spring.stiffness
+            a.damping = spring.damping
+            a.initialVelocity = spring.initialVelocity
+            a.fromValue = -d
+            a.toValue = 0.0
+            a.isAdditive = true
+            a.beginTime = begin + delay
+            a.duration = spring.settlingTime()
+            a.fillMode = .backwards
+            a.isRemovedOnCompletion = true
+            serial += 1
+            let key = "spring.\(keyPath).\(serial)"
+            layer.add(a, forKey: key)
+            return key
+        }
         let hold = CAKeyframeAnimation(keyPath: keyPath)
         hold.values = [-d, -d]
         hold.beginTime = begin
@@ -336,7 +385,8 @@ enum Animate {
     /// spring (no backward fill; a paused tree did not honour it).
     static func basic(_ layer: CALayer, _ keyPath: String, delta d: Double, curve: Curve, begin: CFTimeInterval,
                       holdFrom: CFTimeInterval) -> String {
-        if begin > holdFrom {
+        let live = begin > holdFrom && !inPausedTree(layer)
+        if begin > holdFrom, !live {
             let hold = CAKeyframeAnimation(keyPath: keyPath)
             hold.values = [-d, -d]
             hold.beginTime = holdFrom
@@ -354,7 +404,7 @@ enum Animate {
         a.isAdditive = true
         a.beginTime = begin
         a.duration = curve.duration
-        if begin <= holdFrom { a.fillMode = .backwards }
+        if begin <= holdFrom || live { a.fillMode = .backwards }
         a.isRemovedOnCompletion = true
         serial += 1
         let key = "curve.\(keyPath).\(serial)"

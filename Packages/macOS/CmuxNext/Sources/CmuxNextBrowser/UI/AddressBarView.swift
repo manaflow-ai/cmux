@@ -262,6 +262,26 @@ public final class AddressBarView: NSView {
         }
     }
 
+    /// Verification hook (`debug.omnibar_type`): types `text` as `debugType`
+    /// does, then (with `commit`) gives the field editor a Return key-down,
+    /// so the commit takes the path a real Return takes once the key reaches
+    /// the field (`OmnibarFieldEditor.keyDown`, then the omnibar reducer).
+    /// The window need not be key. Returns false when the field did not
+    /// start editing.
+    @discardableResult
+    public func debugTypeAndCommit(_ text: String, commit: Bool = true) -> Bool {
+        debugType(text)
+        guard let editor = field.currentEditor() as? NSTextView else { return false }
+        guard commit else { return true }
+        guard let enter = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window?.windowNumber ?? 0, context: nil, characters: "\r",
+            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36
+        ) else { return false }
+        editor.keyDown(with: enter)
+        return true
+    }
+
     var fieldEditor: OmnibarFieldEditor? { field.editor }
     var suggestionPanel: OmniboxSuggestionPanel { panel }
 

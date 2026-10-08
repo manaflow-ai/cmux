@@ -12,7 +12,17 @@ public nonisolated enum SidebarSectionsSetting {
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
-    public static let showCountsPath = ["sidebar", "showCounts"]
+    public static let showChatsPath = ["sidebar", "showChats"]
+    public static let tipsPath = ["sidebar", "cards", "tips"]
+
+    static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(tipsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
+                          help: SettingsText.keyed("settings.sidebar.cards.tips.help",
+                                                   "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showsTips),
+                          keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"])
+    }
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
@@ -38,11 +48,12 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "workspace", "tabs"])
     }
 
-    static func showCountsDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(showCountsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showCounts", "Show Tab Counts"),
-                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showCounts),
-                          keywords: ["sidebar", "workspace", "tabs", "count", "number"])
+    static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showChatsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showChats", "Show Chats"),
+                          help: SettingsText.keyed("settings.sidebar.showChats.help", "Shows the device-wide Chats section in the sidebar."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
+                          keywords: ["sidebar", "chats", "agents", "conversations"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
@@ -92,18 +103,23 @@ public nonisolated enum SidebarSectionsSetting {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
             }
         }
-        SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
-        result.showCounts = flag(root, showCountsPath, fallback: result.showCounts, &diagnostics)
-        return result
-    }
-
-    private static func flag(_ root: JSONValue, _ path: [String], fallback: Bool, _ diagnostics: inout [SettingsDiagnostic]) -> Bool {
-        guard let value = root.value(at: path) else { return fallback }
-        guard let flag = value.boolValue else {
-            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
-            return fallback
+        if let value = root.value(at: tipsPath) {
+            if let flag = value.boolValue {
+                result.showsTips = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.cards.tips", message: "expected true or false"))
+            }
         }
-        return flag
+        SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
+        result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
+        if let value = root.value(at: showChatsPath) {
+            if let flag = value.boolValue {
+                result.showChats = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showChats", message: "expected true or false"))
+            }
+        }
+        return result
     }
 
     private static func share(_ root: JSONValue, _ path: [String], _ name: String, fallback: Double,

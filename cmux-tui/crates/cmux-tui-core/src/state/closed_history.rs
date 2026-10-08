@@ -100,6 +100,7 @@ fn commit_reopen(
     closed_id: &str,
     restored: &[Value],
     reopened: &Reopened,
+    active_workspace: Option<&str>,
 ) -> anyhow::Result<StateChanges> {
     let record = closed_record(transaction, closed_id)?
         .ok_or_else(|| state_not_found("closed", closed_id))?;
@@ -112,17 +113,65 @@ fn commit_reopen(
         .collect::<Vec<_>>();
     let remaining = keep.len();
     let kind = record["kind"].as_str().unwrap_or_default().to_string();
+    // A deleted space (SPACE-DELETE-CLOSES-ITS-WORKSPACES) comes back first,
+    // so its reopened workspaces get their pins and groups back.
+    let room = record.get("room").filter(|room| room.is_object()).cloned();
+    // A deleted personal workspace group (Ungroup, Delete Group) has no
+    // member: its reopen forms the group again around its open workspaces.
+    let group = record.get("group").filter(|group| group.is_object()).cloned();
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
         state_delete("closed", closed_id)
     } else {
         state_upsert("closed", closed_id, keep_members(transaction, closed_id, record, keep)?)
     };
-    let workspace =
-        reopened.workspaces.first().cloned().context("reopened item has no workspace")?;
+    // A deleted space that had no workspace, or a deleted group, reopens
+    // no workspace: the result names the session's active one, which stays
+    // shown.
+    let workspace = reopened
+        .workspaces
+        .first()
+        .cloned()
+        .or_else(|| {
+            active_workspace.filter(|_| room.is_some() || group.is_some()).map(str::to_string)
+        })
+        .context("reopened item has no workspace")?;
     let mut changes = vec![change];
+    let room_restored = match &room {
+        Some(room) => {
+            let local = crate::state::values::local_registry_id(transaction)?;
+            crate::workspace_registry::personal_mutations::room_archive::restore_room(
+                transaction,
+                room,
+                &local,
+                &reopened.placements,
+            )?
+        }
+        None => false,
+    };
     for (closed_key, reopened_key) in &reopened.placements {
         changes.extend(restore_placement(transaction, closed_key, reopened_key)?);
+    }
+    let group_restored = match &group {
+        Some(group) => {
+            let local = crate::state::values::local_registry_id(transaction)?;
+            crate::workspace_registry::personal_mutations::group_archive::restore_group(
+                transaction,
+                group,
+                &local,
+                &reopened.placements,
+            )?
+        }
+        None => false,
+    };
+    if group_restored && !room_restored {
+        changes.extend(crate::state::personal::all_groups(transaction)?);
+        changes.extend(crate::state::personal::all_placements(transaction)?);
+    }
+    if room_restored {
+        changes.extend(crate::state::personal::all_rooms(transaction)?);
+        changes.extend(crate::state::personal::all_groups(transaction)?);
+        changes.extend(crate::state::personal::all_placements(transaction)?);
     }
     Ok(StateChanges::new(
         serde_json::json!({
@@ -209,13 +258,21 @@ impl Mux {
         for member in &restore {
             self.reopen_member(&closed_id, member, &mut reopened)?;
         }
+        let active = self.with_state(|state| {
+            state
+                .workspaces
+                .get(state.active_workspace)
+                .map(|workspace| workspace.public_id.to_string())
+        });
         self.commit_state(
             mutation,
             OPERATION,
             &fingerprint,
             expected_revision,
             StateEffects::EVENTS_ONLY,
-            |transaction, _| commit_reopen(transaction, &closed_id, &restore, &reopened),
+            |transaction, _| {
+                commit_reopen(transaction, &closed_id, &restore, &reopened, active.as_deref())
+            },
         )
     }
 
@@ -301,7 +358,8 @@ impl Mux {
                 }) {
                     Some(surface) => surface,
                     None => {
-                        self.new_tab(Some(pane), tab["cwd"].as_str().map(str::to_string), None)?.id
+                        let (cwd, env) = crate::workspace_registry::relaunch_store::replay(tab);
+                        self.new_tab_with_env(Some(pane), cwd, env, None)?.id
                     }
                 }
             }

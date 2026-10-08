@@ -21,6 +21,8 @@ final class ChatRow: NSView {
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let detail = OnboardingLabel.make(Self.detail(chat, now: now), font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
         detail.alignment = .right
+        // A long detail gives up its start (the project), never the title's share.
+        detail.lineBreakMode = .byTruncatingHead
         detail.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         box.target = self
         box.action = #selector(boxPressed)
@@ -34,6 +36,7 @@ final class ChatRow: NSView {
             box.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4), box.centerYAnchor.constraint(equalTo: centerYAnchor),
             name.leadingAnchor.constraint(equalTo: box.trailingAnchor, constant: 8), name.centerYAnchor.constraint(equalTo: centerYAnchor),
             name.trailingAnchor.constraint(lessThanOrEqualTo: detail.leadingAnchor, constant: -12),
+            Self.titleShare(name, of: self),
             detail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4), detail.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -41,12 +44,30 @@ final class ChatRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// "cmux · Claude Code · Prompts: 12 · 2 days ago".
+    /// "cmux · Claude Code · Prompts: 12 · 2 days ago". A folder named by a
+    /// UUID is an app's private session folder (cmux's agent home, a scratch
+    /// directory), not a project: it is left out rather than shown raw.
     static func detail(_ chat: AgentChat, now: Date) -> String {
         let when = RelativeDateTimeFormatter().localizedString(for: chat.lastActive, relativeTo: now)
-        return [chat.folder.lastPathComponent, chat.app.displayName, OnboardingStrings.chatsPrompts(chat.prompts), when]
-            .joined(separator: " · ")
+        return [projectName(chat.folder), chat.app.displayName, OnboardingStrings.chatsPrompts(chat.prompts), when]
+            .compactMap { $0 }.joined(separator: " · ")
     }
+
+    /// The folder's name as a project, or nil for a UUID-named private folder.
+    static func projectName(_ folder: URL) -> String? {
+        let name = folder.lastPathComponent
+        return name.isEmpty || UUID(uuidString: name) != nil ? nil : name
+    }
+
+    /// The title keeps at least 40% of the row: above the detail's
+    /// compression resistance, so the detail truncates first.
+    static func titleShare(_ name: NSView, of row: NSView) -> NSLayoutConstraint {
+        let share = name.widthAnchor.constraint(greaterThanOrEqualTo: row.widthAnchor, multiplier: titleMinimumShare)
+        share.priority = .init(NSLayoutConstraint.Priority.defaultHigh.rawValue + 1)
+        return share
+    }
+
+    static let titleMinimumShare: CGFloat = 0.4
 
     @objc private func boxPressed() { toggle() }
 

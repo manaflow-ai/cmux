@@ -105,7 +105,7 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 id: "space.setIcon",
                 title: String(localized: "action.space.setIcon", defaultValue: "Set Space Icon…", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "icon", "emoji", "symbol"], category: .workspace, symbol: "face.smiling",
-                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.iconString], targets: [.profile],
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.iconString.optional], targets: [.profile],
                 cliName: "space set-icon"
             ),
             ActionDescriptor(
@@ -120,6 +120,13 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 keywords: ["room", "profile", "directory", "cwd", "environment", "env"], category: .workspace, symbol: "terminal",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.cwdString.optional, CatalogArgument.envString.optional],
                 targets: [.profile], cliName: "space set-defaults"
+            ),
+            ActionDescriptor(
+                id: "space.newGroup",
+                title: String(localized: "action.space.newGroup", defaultValue: "New Group in Space", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "group", "folder", "create"], category: .workspace, symbol: "folder.badge.plus",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.nameString.optional], targets: [.profile],
+                cliName: "space new-group"
             ),
             ActionDescriptor(
                 id: "space.delete",

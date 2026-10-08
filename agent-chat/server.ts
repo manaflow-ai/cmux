@@ -23,10 +23,12 @@ import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { discoverHarnesses } from "./harnesses";
 import type { HarnessRecommendation } from "./harness-contract";
 import { harnessCatalogs } from "./harness-messages";
+import { OpenCodes } from "./open-codes";
 import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
-import { readFileSync, statSync, watch, type FSWatcher } from "node:fs";
-import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { closeSync, readFileSync, readSync, statSync, watch, type FSWatcher } from "node:fs";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { basename as pathBasename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 function argValue(name: string): string | undefined {
@@ -37,43 +39,83 @@ function argValue(name: string): string | undefined {
 }
 
 const PORT = Number(argValue("--port") ?? process.env.CMUX_AGENT_CHAT_PORT ?? process.env.CMUX_AGENT_UI_PORT ?? 7739);
-const AUTH_TOKEN = argValue("--token") ?? process.env.CMUX_AGENT_CHAT_TOKEN ?? "";
-if (AUTH_TOKEN.includes("/")) throw new Error("CMUX_AGENT_CHAT_TOKEN must be a single path segment");
-const AUTH_PREFIX = AUTH_TOKEN ? `/${encodeURIComponent(AUTH_TOKEN)}` : "";
+// Every route but /healthz lives under /<token>/ (D5: no unauthenticated
+// localhost HTTP). A launcher hands its token over an inherited descriptor
+// (--token-fd N); without one the server makes a per-launch token and writes
+// it to an owner-only file (CMUX_AGENT_CHAT_TOKEN_FILE, default
+// ~/.cmux/agent-chat/token-<port>) that `cmux-chat` reads. A token in argv or
+// the environment, which other local processes can read, is refused.
+function givenToken(): string {
+  if (Bun.argv.some((a) => a === "--token" || a.startsWith("--token="))) {
+    throw new Error("--token is refused (argv is visible to other processes); pass the token with --token-fd");
+  }
+  if (process.env.CMUX_AGENT_CHAT_TOKEN !== undefined) {
+    throw new Error("CMUX_AGENT_CHAT_TOKEN is refused (the environment is visible to other processes); pass the token with --token-fd");
+  }
+  const raw = argValue("--token-fd");
+  if (raw === undefined) return "";
+  if (!/^[0-9]+$/.test(raw ?? "") || Number(raw) < 3) throw new Error(`--token-fd needs a descriptor number of 3 or more, got ${JSON.stringify(raw)}`);
+  const fd = Number(raw);
+  // One line of at most 512 bytes: a launcher that keeps its end of the pipe
+  // open does not stall the start once the newline is written.
+  const buf = Buffer.alloc(512);
+  let len = 0;
+  while (len < buf.length && !buf.subarray(0, len).includes(10)) {
+    const n = readSync(fd, buf, len, buf.length - len, null);
+    if (n === 0) break;
+    len += n;
+  }
+  closeSync(fd);
+  const token = buf.subarray(0, len).toString("utf8").split("\n")[0].trim();
+  if (!/^[A-Za-z0-9_-]{32,256}$/.test(token)) throw new Error("--token-fd: the token must be 32-256 characters of [A-Za-z0-9_-]");
+  return token;
+}
+const GIVEN_TOKEN = givenToken();
+const AUTH_TOKEN = GIVEN_TOKEN || randomBytes(32).toString("base64url");
+const AUTH_PREFIX = `/${encodeURIComponent(AUTH_TOKEN)}`;
 const STATE_FILE = process.env.CMUX_AGENT_CHAT_STATE_FILE ?? "";
 
 // The sidecar binds loopback only, but browsers can still reach loopback from
-// arbitrary web origins (CSRF against the WS control plane) and DNS rebinding
-// can defeat a bind-address check alone. Require a loopback Host header and
-// for browser-originated requests, a same-origin Origin header. Requests
-// without an Origin header (CLI curl, Bun's WebSocket client) are trusted.
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+// arbitrary web origins (CSRF) and DNS rebinding defeats a bind-address check
+// alone. Every request needs a Host that names this server (a loopback name
+// with its own port), and a browser request (one with an Origin) must come
+// from this server's own origin. Requests without an Origin (curl, Bun's
+// WebSocket client, navigations) pass the Origin rule.
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
-function hasTrustedHost(req: Request): boolean {
-  const host = req.headers.get("host") ?? "";
+function namesThisServer(authority: string, port: number): boolean {
   try {
-    return LOOPBACK_HOSTS.has(new URL(`http://${host}`).hostname);
+    const url = new URL(`http://${authority}`);
+    return LOOPBACK_HOSTS.has(url.hostname) && url.port === String(port) && url.host === authority.toLowerCase();
   } catch {
     return false;
   }
 }
 
-function hasTrustedOrigin(req: Request): boolean {
+function hasTrustedHost(req: Request, port: number): boolean {
+  return namesThisServer(req.headers.get("host") ?? "", port);
+}
+
+function hasTrustedOrigin(req: Request, port: number): boolean {
   const origin = req.headers.get("origin");
   if (origin === null) return true;
-  try {
-    const u = new URL(origin);
-    return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname) && u.host === (req.headers.get("host") ?? "");
-  } catch {
-    return false;
-  }
+  if (!origin.startsWith("http://")) return false;
+  return namesThisServer(origin.slice("http://".length).replace(/\/$/, ""), port);
+}
+
+/// Constant-time equality of two path segments (the length is not secret).
+function sameSegment(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function stripAuthPrefixWithToken(url: URL, token: string): URL | null {
-  const prefix = token ? `/${encodeURIComponent(token)}` : "";
-  if (!prefix) return url;
   if (url.pathname === "/healthz") return url;
-  if (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`)) return null;
+  const prefix = `/${encodeURIComponent(token)}`;
+  const end = url.pathname.indexOf("/", 1);
+  const segment = end === -1 ? url.pathname : url.pathname.slice(0, end);
+  if (!token || !sameSegment(segment, prefix)) return null;
   const next = new URL(url);
   next.pathname = url.pathname.slice(prefix.length) || "/";
   return next;
@@ -83,10 +125,26 @@ function stripAuthPrefix(url: URL): URL | null {
   return stripAuthPrefixWithToken(url, AUTH_TOKEN);
 }
 
+/// The per-launch token file for `cmux-chat`: 0600 in a 0700 folder, replaced
+/// atomically, only when the server made its own token.
+async function writeTokenFile(port: number) {
+  if (GIVEN_TOKEN) return;
+  const path = process.env.CMUX_AGENT_CHAT_TOKEN_FILE || join(homedir(), ".cmux", "agent-chat", `token-${port}`);
+  const dir = dirname(path);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const tmp = join(dir, `${pathBasename(path)}.${process.pid}.tmp`);
+  // A tmp file left by a crashed server with the same pid would make `wx` fail.
+  await rm(tmp, { force: true });
+  await writeFile(tmp, AUTH_TOKEN + "\n", { encoding: "utf8", mode: 0o600, flag: "wx" });
+  await rename(tmp, path);
+}
+
 export function stripAuthPrefixForTest(path: string, token: string): string | null {
   const stripped = stripAuthPrefixWithToken(new URL(`http://127.0.0.1${path}`), token);
   return stripped?.pathname ?? null;
 }
+
+const openCodes = new OpenCodes();
 
 function prefixedPath(path: string): string {
   return `${AUTH_PREFIX}${path}`;
@@ -2073,13 +2131,23 @@ function startServer() {
     port: PORT,
     hostname: "127.0.0.1",
     async fetch(req, srv) {
+    // Host and Origin first: a malformed Host can make req.url unparsable.
+    if (!hasTrustedHost(req, srv.port) || !hasTrustedOrigin(req, srv.port)) {
+      return new Response("forbidden", { status: 403 });
+    }
     const originalUrl = new URL(req.url);
-    if (!hasTrustedHost(req)) return new Response("forbidden", { status: 403 });
     if (originalUrl.pathname === "/healthz") return new Response("ok");
+    // A one-time open code (`open-codes.ts`): spent by this request whatever
+    // its result, and redirects only to a page route under the token.
+    const openCode = /^\/o\/([A-Za-z0-9_-]{1,128})$/.exec(originalUrl.pathname);
+    if (openCode && req.method === "GET" && !originalUrl.search) {
+      const target = openCodes.redeem(openCode[1]);
+      if (!target) return new Response("not found", { status: 404 });
+      return new Response(null, { status: 302, headers: { location: prefixedPath(target), "cache-control": "no-store" } });
+    }
     const url = stripAuthPrefix(originalUrl);
     if (!url) return new Response("not found", { status: 404 });
     if (url.pathname === "/ws") {
-      if (!hasTrustedOrigin(req)) return new Response("forbidden", { status: 403 });
       return srv.upgrade(req, { data: { subscribed: null } })
         ? undefined
         : new Response("upgrade failed", { status: 400 });
@@ -2100,7 +2168,6 @@ function startServer() {
       return assetResponse(req, await cssAsset());
     }
     if (url.pathname === "/api/theme" && req.method === "POST") {
-      if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
       try {
         const theme = validateCmuxThemePayload(await req.json());
         // cmux's payload has no accent field, so a push must not clobber the
@@ -2123,8 +2190,14 @@ function startServer() {
     }
     // REST for the CLI: create a session (optionally with a first prompt) and
     // get back its id/url; list sessions.
+    // A one-time code for `cmux open`, whose argv other processes can read.
+    if (url.pathname === "/api/open-code" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const code = typeof body?.path === "string" ? openCodes.issue(body.path) : null;
+      if (!code) return Response.json({ error: "path is not a page of this server" }, { status: 400 });
+      return Response.json({ url: `http://127.0.0.1:${srv.port}/o/${code}` }, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/api/sessions" && req.method === "POST") {
-      if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
       const body = await req.json().catch(() => ({}));
       const provider = String(body.provider ?? "claude");
       const prompt = String(body.prompt ?? "").trim();
@@ -2225,7 +2298,10 @@ function startServer() {
     agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
   }, 60_000);
   startThemeWatcher();
-  writeStateFile(server.port).catch((err) => console.error(`failed to write agent-chat state file: ${String(err)}`));
+  // The token file comes first: a launcher that sees the state file may read it.
+  writeTokenFile(server.port)
+    .then(() => writeStateFile(server.port))
+    .catch((err) => console.error(`failed to write agent-chat token or state file: ${String(err)}`));
 
   console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
 }

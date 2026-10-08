@@ -60,7 +60,7 @@ import Testing
         cef.save(local, to: chosen)
         expectFailedSave(cefRecorder)
 
-        let webKit = WebKitEngine().makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let webKit = WebKitEngine().makeWebKitTab(profile: .default)
         let webKitRecorder = Recorder()
         webKit.delegate = webKitRecorder
         webKit.save(local, to: chosen)

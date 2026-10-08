@@ -238,7 +238,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<ResourceEffectPreparation>> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
-        let fingerprint = canonical_json(fingerprint)?;
+        let fingerprint = self.stored_fingerprint(fingerprint)?;
         read_effect_preparation(&self.connection, idempotency_key, operation, &fingerprint)
     }
 
@@ -253,7 +253,7 @@ impl WorkspaceRegistry {
         validate_correlation_key(correlation_key)?;
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
-        let fingerprint = canonical_json(fingerprint)?;
+        let fingerprint = self.stored_fingerprint(fingerprint)?;
         let Some(stored) = read_creation_record(&self.connection, correlation_key)? else {
             return Ok(None);
         };
@@ -353,10 +353,10 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn prepare_resource_creation(
+    pub fn prepare_resource_creation_for(
         &mut self,
         correlation_key: &str,
-        idempotency_key: &str,
+        mutation: &WorkspaceMutation,
         operation: &str,
         fingerprint: &Value,
         intent: &Value,
@@ -365,9 +365,9 @@ impl WorkspaceRegistry {
         expected_revision: Option<u64>,
     ) -> anyhow::Result<ResourceCreationPreparation> {
         validate_correlation_key(correlation_key)?;
-        validate_identifier("idempotency key", idempotency_key)?;
+        let (idempotency_key, actor) = (mutation.id.as_str(), &mutation.actor);
         validate_identifier("resource operation", operation)?;
-        let fingerprint = canonical_json(fingerprint)?;
+        let fingerprint = self.stored_fingerprint(fingerprint)?;
         let intent_json = canonical_json(intent)?;
         let execution_kind = if effectful { "effect" } else { "pure" };
         let tx = self.connection.transaction()?;
@@ -471,12 +471,15 @@ impl WorkspaceRegistry {
                         read_effect_record(&tx, idempotency_key)?.is_none(),
                         "resource effect receipt {idempotency_key:?} already exists without its creation correlation"
                     );
+                    let stable_intent =
+                        receipt_env::rehydrate(serde_json::from_str(&stored.intent_json)?, intent);
+                    let stable_json = canonical_json(&stable_intent)?;
                     tx.execute(
                         "INSERT INTO resource_effect_receipts(
                            idempotency_key, operation, fingerprint, intent_json, state,
-                           outcome_json, committed_revision
-                         ) VALUES(?1, ?2, ?3, ?4, 'pending', NULL, NULL)",
-                        params![idempotency_key, operation, fingerprint, &stored.intent_json,],
+                           outcome_json, committed_revision, actor
+                         ) VALUES(?1, ?2, ?3, ?4, 'pending', NULL, NULL, ?5)",
+                        params![idempotency_key, operation, fingerprint, stable_json, actor.wire()],
                     )?;
                     let changed = tx.execute(
                         "UPDATE resource_creation_receipts
@@ -486,7 +489,6 @@ impl WorkspaceRegistry {
                         params![correlation_key, idempotency_key],
                     )?;
                     anyhow::ensure!(changed == 1, "creation attempt changed while rebinding");
-                    let stable_intent: Value = serde_json::from_str(&stored.intent_json)?;
                     tx.commit()?;
                     return Ok(ResourceCreationPreparation::Execute {
                         idempotency_key: idempotency_key.to_string(),
@@ -519,9 +521,9 @@ impl WorkspaceRegistry {
             tx.execute(
                 "INSERT INTO resource_effect_receipts(
                    idempotency_key, operation, fingerprint, intent_json, state,
-                   outcome_json, committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, 'pending', NULL, NULL)",
-                params![idempotency_key, operation, fingerprint, intent_json],
+                   outcome_json, committed_revision, actor
+                 ) VALUES(?1, ?2, ?3, ?4, 'pending', NULL, NULL, ?5)",
+                params![idempotency_key, operation, fingerprint, intent_json, actor.wire()],
             )?;
         }
         tx.execute(
@@ -670,7 +672,7 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
         validate_resource_patch(patch)?;
-        let fingerprint = canonical_json(fingerprint)?;
+        let fingerprint = self.stored_fingerprint(fingerprint)?;
         let result_json = canonical_json(result)?;
         let created_path_json = canonical_json(created_path)?;
         let generation = self.generation.clone();
@@ -694,7 +696,6 @@ impl WorkspaceRegistry {
             "pure creation {correlation_key:?} cannot commit from state {:?}",
             stored.state
         );
-
         let previous_revision = transaction_resource_revision(&tx)?;
         let revision = previous_revision
             .checked_add(1)
@@ -729,18 +730,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            operation,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -771,18 +767,18 @@ impl WorkspaceRegistry {
         ))
     }
 
-    pub fn prepare_resource_effect(
+    pub fn prepare_resource_effect_for(
         &mut self,
-        idempotency_key: &str,
+        mutation: &WorkspaceMutation,
         operation: &str,
         fingerprint: &Value,
         intent: &Value,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<ResourceEffectPreparation> {
-        validate_identifier("idempotency key", idempotency_key)?;
+        let (idempotency_key, actor) = (mutation.id.as_str(), &mutation.actor);
         validate_identifier("resource operation", operation)?;
-        let fingerprint = canonical_json(fingerprint)?;
+        let fingerprint = self.stored_fingerprint(fingerprint)?;
         let intent_json = canonical_json(intent)?;
         let tx = self.connection.transaction()?;
         if let Some(preparation) =
@@ -808,9 +804,9 @@ impl WorkspaceRegistry {
         tx.execute(
             "INSERT INTO resource_effect_receipts(
                idempotency_key, operation, fingerprint, intent_json, state,
-               outcome_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, 'pending', NULL, NULL)",
-            params![idempotency_key, operation, fingerprint, intent_json],
+               outcome_json, committed_revision, actor
+             ) VALUES(?1, ?2, ?3, ?4, 'pending', NULL, NULL, ?5)",
+            params![idempotency_key, operation, fingerprint, intent_json, actor.wire()],
         )?;
         tx.commit()?;
         Ok(ResourceEffectPreparation::Execute { intent: intent.clone(), resumed: false })
@@ -824,7 +820,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Value> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
-        let fingerprint = canonical_json(fingerprint)?;
+        let fingerprint = self.stored_fingerprint(fingerprint)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
         let (stored_operation, stored_fingerprint, state, intent_json) =
@@ -877,7 +873,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<u64> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
-        let fingerprint = canonical_json(fingerprint)?;
+        let fingerprint = self.stored_fingerprint(fingerprint)?;
         let outcome_value = serde_json::to_value(outcome)?;
         let outcome_json = canonical_json(&outcome_value)?;
         let generation = self.generation.clone();
@@ -897,7 +893,6 @@ impl WorkspaceRegistry {
             state == "executing",
             "resource effect {idempotency_key:?} cannot commit from state {state:?}"
         );
-
         let previous_revision = transaction_resource_revision(&tx)?;
         let revision = if let Some(deltas) = deltas {
             let revision = previous_revision
@@ -1006,7 +1001,7 @@ impl WorkspaceRegistry {
                 .set(self.resource_patch_failures_remaining.get() - 1);
             anyhow::bail!("forced one-shot resource patch failure");
         }
-        let fingerprint = canonical_json(fingerprint)?;
+        let fingerprint = self.stored_fingerprint(fingerprint)?;
         let outcome = ResourceEffectOutcome::Success(result.clone());
         let outcome = serde_json::to_value(&outcome)?;
         let outcome_json = canonical_json(&outcome)?;
@@ -1052,9 +1047,10 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<ResourceCloseCommit> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
-        let mutation = WorkspaceMutation::new(idempotency_key, "resource-api")?;
+        let actor = mutation_ledger::effect_receipt_actor(&self.connection, idempotency_key)?;
+        let mutation = WorkspaceMutation::new(idempotency_key, "resource-api", actor)?;
         validate_terminal_batch_close(&mutation, terminals)?;
-        let fingerprint = canonical_json(fingerprint)?;
+        let fingerprint = self.stored_fingerprint(fingerprint)?;
         let outcome = ResourceEffectOutcome::Success(result.clone());
         let outcome = serde_json::to_value(&outcome)?;
         let outcome_json = canonical_json(&outcome)?;
