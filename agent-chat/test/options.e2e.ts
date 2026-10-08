@@ -1,7 +1,7 @@
 // End-to-end option controls: fetch provider options, start a session, set
 // runtime options through the shared WS op, then verify a prompt still
 // completes. Usage: bun test/options.e2e.ts [provider ...]
-const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
+import { WS_URL } from "./running-server";
 const providersToTest = Bun.argv.slice(2).length
   ? Bun.argv.slice(2)
   : ["codex", "pi", "opencode"];
@@ -24,7 +24,7 @@ async function commandExists(name: string): Promise<boolean> {
 
 async function testClaudeCatalogCache(): Promise<string> {
   if (!(await commandExists("claude"))) return "claude catalog: SKIP (claude binary missing)";
-  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+  const ws = new WebSocket(WS_URL);
   const events: any[] = [];
   const errors: string[] = [];
   let opened = false;
@@ -85,7 +85,7 @@ function assertClaudeCatalog(choices: { value: string; label: string; disabled?:
 }
 
 async function testProvider(provider: string): Promise<string> {
-  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+  const ws = new WebSocket(WS_URL);
   const events: any[] = [];
   let sessionId = "";
   let options: SessionOption[] = [];

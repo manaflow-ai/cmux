@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { WS_URL } from "./running-server";
 
-const port = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 const root = join(import.meta.dir, "..", "scratch", "files-changed-e2e");
 await rm(root, { recursive: true, force: true });
 await mkdir(root, { recursive: true });
@@ -18,7 +18,7 @@ await run(["git", "-c", "user.email=a@b.c", "-c", "user.name=agent", "commit", "
 await writeFile(join(root, "untracked.txt"), "new\nfile\n");
 await writeFile(join(root, ".env"), "SECRET_TOKEN=do-not-diff\n");
 
-const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+const ws = new WebSocket(WS_URL);
 let sessionId = "";
 const filesChanged = new Promise<{ path: string }[]>((resolve, reject) => {
   const timeout = setTimeout(() => reject(new Error("timed out waiting for files-changed")), 120_000);

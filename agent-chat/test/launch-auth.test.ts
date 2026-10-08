@@ -34,7 +34,7 @@ function baseEnv(dir: string): Record<string, string> {
   };
 }
 
-async function launch(extraArgs: string[] = [], stdio: any[] = ["ignore", "ignore", "inherit"]): Promise<Launch> {
+async function launch(extraArgs: string[] = [], stdio: any = ["ignore", "ignore", "inherit"]): Promise<Launch> {
   const dir = await mkdtemp(join(tmpdir(), "agent-chat-auth-"));
   const env = baseEnv(dir);
   const proc = Bun.spawn([process.execPath, SERVER, ...extraArgs], { env, stdio });
@@ -92,7 +92,7 @@ describe("agent-chat launch token and listener rule", () => {
   let l: Launch;
   beforeAll(async () => {
     l = await launch();
-  });
+  }, 40_000);
   afterAll(async () => {
     await stop(l);
   });
@@ -170,7 +170,7 @@ describe("agent-chat token sources", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   test("a launcher may hand its token over an inherited pipe (--token-fd)", async () => {
     const chosen = "f".repeat(64);
@@ -193,5 +193,5 @@ describe("agent-chat token sources", () => {
       await proc.exited;
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 40_000);
 });

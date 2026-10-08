@@ -1,11 +1,10 @@
-const port = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
-const base = `http://127.0.0.1:${port}`;
+import { HTTP_BASE as base } from "./running-server";
 
 const page = await fetch(`${base}/gallery`);
 if (!page.ok) throw new Error(`/gallery returned ${page.status}`);
 const html = await page.text();
 if (!html.includes('<div id="root"></div>')) throw new Error("/gallery did not return the app shell");
-if (!html.includes('/gallery.js')) throw new Error("/gallery shell did not load gallery.js");
+if (!html.includes('gallery.js')) throw new Error("/gallery shell did not load gallery.js");
 
 const galleryBundle = await fetch(`${base}/gallery.js`);
 if (!galleryBundle.ok) throw new Error(`/gallery.js returned ${galleryBundle.status}`);
@@ -19,4 +18,3 @@ if (appJs.includes("Agent Chat Gallery")) throw new Error("app bundle still cont
 
 console.log("gallery smoke: OK");
 
-export {};

@@ -35,7 +35,7 @@ import {
 } from "../server";
 import { applyManagedThemeOverrideForTest, pickAccentColor, resolveThemeNameForTest, type GhosttyTheme } from "../theme";
 import type { Adapter, AgentEvent, SessionCtx, SessionStatus } from "../types";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -75,9 +75,10 @@ assert(tokenHtml.includes('src="gallery.js"') && tokenHtml.includes('href="app.c
 assert(!tokenHtml.includes('src="/app.js"') && !tokenHtml.includes('href="/app.css"'), "tokened HTML should not use root-absolute asset URLs");
 const statePath = join(import.meta.dir, "..", "scratch", "agent-chat-state-test.json");
 await rm(statePath, { force: true });
-await writeStateFileForTest(statePath, 54321);
+await writeStateFileForTest(statePath, 54321, "t".repeat(64));
 const state = JSON.parse(await readFile(statePath, "utf8"));
-assert(state.port === 54321 && state.pid === process.pid && state.protocolVersion === 1, `state file should contain discovery JSON: ${JSON.stringify(state)}`);
+assert(state.port === 54321 && state.pid === process.pid && state.protocolVersion === 2 && state.token === "t".repeat(64), `state file should contain discovery JSON: ${JSON.stringify(state)}`);
+assert(((await stat(statePath)).mode & 0o777) === 0o600, "the state file holds the token: owner-only");
 
 assert(resolveFileDiffPath(cwd, "src/../file.ts") === "file.ts", "normal in-cwd paths should normalize");
 for (const path of ["src/../../x", "../x", "..", "a\0b"]) {

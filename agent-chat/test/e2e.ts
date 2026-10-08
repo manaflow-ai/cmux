@@ -1,7 +1,7 @@
 // End-to-end smoke: for each provider, start a session over WS, send a
 // prompt, and assert we see streamed/final assistant text plus a done event.
 // Usage: bun test/e2e.ts [provider ...]
-const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
+import { PORT, WS_URL } from "./running-server";
 const providersToTest = Bun.argv.slice(2).length
   ? Bun.argv.slice(2)
   : ["claude", "codex", "opencode", "pi", "gemini"];
@@ -10,7 +10,7 @@ const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 180_000);
 
 async function testProvider(provider: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+    const ws = new WebSocket(WS_URL);
     let text = "";
     let sessionId: string | null = null;
     let errors: string[] = [];

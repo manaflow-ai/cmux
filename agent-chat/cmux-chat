@@ -9,7 +9,11 @@
 #   cmux-chat --terminal [--surface ID] chat view of the agent running in a
 #                                      terminal ($CMUX_SURFACE_ID), as a split
 #
-# Starts the sidecar server (bun server.ts) if it isn't running.
+# Starts the sidecar server (bun server.ts) if it isn't running. The server
+# makes a token per launch and reports it, with its port, only in an
+# owner-only state file (~/.cmux/agent-chat/state.json); every route needs it
+# as the first path segment. The token never goes on a command line here:
+# curl reads its URLs from stdin.
 set -euo pipefail
 
 SELF="$0"
@@ -42,16 +46,39 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+STATE="$HOME/.cmux/agent-chat/state.json"
+
+# curl with its URL (which carries the token) on stdin, never in argv.
+curl_url() { # <url> [curl args...]
+  local u="$1"; shift
+  printf 'url = "%s"\n' "$u" | curl -fsS -K - "$@"
+}
+
+# The token from the state file, when that file names the server on $PORT.
+state_token() {
+  [ -r "$STATE" ] || return 1
+  CC_PORT="$PORT" python3 -c '
+import json, os, sys
+s = json.load(open(sys.argv[1]))
+if str(s.get("port")) != os.environ["CC_PORT"] or not s.get("token"): sys.exit(1)
+print(s["token"])' "$STATE"
+}
+
 if ! curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1; then
   echo "starting cmux-agent-ui server on :$PORT" >&2
-  (cd "$HERE" && "$BUN" server.ts >> /tmp/cmux-agent-ui.log 2>&1 &)
+  rm -f "$STATE"
+  (cd "$HERE" && CMUX_AGENT_CHAT_PORT="$PORT" "$BUN" server.ts >> /tmp/cmux-agent-ui.log 2>&1 &)
   ok=false
   for _ in $(seq 1 50); do
-    if curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1; then ok=true; break; fi
+    if curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1 && state_token >/dev/null 2>&1; then ok=true; break; fi
     sleep 0.2
   done
   $ok || { echo "server failed to start; see /tmp/cmux-agent-ui.log" >&2; exit 1; }
 fi
+token="$(state_token)" || { echo "a server runs on :$PORT but $STATE does not name it; stop that server and retry" >&2; exit 1; }
+curl_url "$BASE/$token/api/theme" --max-time 2 -o /dev/null 2>/dev/null \
+  || { echo "the server on :$PORT refused the token in $STATE; stop that server and retry" >&2; exit 1; }
+BASE="$BASE/$token"
 
 url="$BASE/"
 if $terminal; then
@@ -67,7 +94,7 @@ print(json.dumps({
     "cwd": os.environ["CC_CWD"],
     "autoApprove": os.environ["CC_AUTO"] == "true",
 }))')
-  resp=$(curl -fsS -X POST "$BASE/api/sessions" -H 'content-type: application/json' -d "$body")
+  resp=$(curl_url "$BASE/api/sessions" -X POST -H 'content-type: application/json' -d "$body")
   url=$(printf '%s' "$resp" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')
 fi
 
