@@ -649,6 +649,10 @@
       "scope": "inbox:write",
       "class": "mutation"
     },
+    "integration.approval.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
     "integration.complete": {
       "scope": "integration:write",
       "class": "mutation"

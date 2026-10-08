@@ -2105,7 +2105,7 @@ fn run_server(
         );
     }
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
-    let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
+    let ws_token = headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
