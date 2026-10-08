@@ -14,6 +14,13 @@ export interface CleanupDeps {
 
 const HOST_PAGE = 200
 
+/** A short deterministic tag of the serial set, so a retry with a different live set uses a different key (FNV-1a). */
+const setTag = (serials: ReadonlyArray<{ serial: number }>) => {
+  let h = 0x811c9dc5
+  for (const c of serials.map((s) => s.serial).sort((a, b) => a - b).join(",")) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0
+  return h.toString(16)
+}
+
 const committed = (res: { frames: ReadonlyArray<OwnerFrame> }) => {
   const rej = res.frames.find((f) => f.t === "reject")
   if (rej && rej.t === "reject") throw new Error(`${rej.code}: ${rej.message}`)
@@ -30,17 +37,19 @@ export const cleanupRemovedMembers = (deps: CleanupDeps): number => {
   const pending = Object.entries(deps.state().member_cleanup ?? {})
   if (pending.length === 0) return 0
   ensureSshTables(deps.sql)
+  // Without the row scan the hosts cannot be found: fail (the alarm retries) instead of ending the cleanup with none.
+  if (!deps.rows?.scanFrom) throw new Error("team rows are not readable")
   for (const [user, at] of pending) {
     const now = deps.now()
     const serials = deps.sql
       .exec<{ serial: number; valid_before: number; generation: number }>(`SELECT serial, valid_before, generation FROM ssh_certs WHERE user = ? AND issued_at <= ? AND valid_before > ?`, user, at, now - KRL_GRACE_MS)
       .toArray()
       .map((r) => ({ serial: r.serial, valid_before: r.valid_before, generation: r.generation }))
-    if (serials.length > 0) committed(deps.submitSystem("team_vm.ssh_certs_revoked", { serials, by: `system:member_removed:${user}`, admin: true, system: true, reason: "member removed" }, `member-certs:${user}:${at}`))
+    if (serials.length > 0) committed(deps.submitSystem("team_vm.ssh_certs_revoked", { serials, by: `system:member_removed:${user}`, admin: true, system: true, reason: "member removed" }, `member-certs:${user}:${at}:${setTag(serials)}`))
     const hosts: Array<string> = []
     let after: string | undefined
     for (;;) {
-      const page = deps.rows?.scanFrom?.<HostRecord>(TABLE_HOST, after, HOST_PAGE) ?? []
+      const page = deps.rows.scanFrom<HostRecord>(TABLE_HOST, after, HOST_PAGE)
       for (const r of page) if (r.row.owner_user === user && !r.row.orphaned && r.row.enrolled_at <= at) hosts.push(r.row.id)
       if (page.length < HOST_PAGE) break
       after = page[page.length - 1]!.key

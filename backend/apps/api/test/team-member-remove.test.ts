@@ -172,9 +172,12 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     await join(owner.team, member.user)
     const viaSso = await boundInstall(member.user, undefined, "laptop via team sso", owner.team)
     const viaOtherSso = await boundInstall(member.user, undefined, "laptop via other sso", member.team)
+    // Bound to another team (that team's VM) while carrying this team's SSO: the other team's authority stays.
+    const otherTeamVm = await boundInstall(member.user, member.team, "other team box", owner.team)
     await removeMember(owner.team, member.user)
     expect((await installOf(member.user, viaSso)).revoked_at).not.toBeNull()
     expect((await installOf(member.user, viaOtherSso)).revoked_at).toBeNull()
+    expect((await installOf(member.user, otherTeamVm)).revoked_at).toBeNull()
   })
 
   it("puts every live team SSH certificate of the member on the revocation list at once and orphans their hosts", async () => {
@@ -186,6 +189,7 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     const now = Date.now()
     const hostId = `host_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
     const otherHost = `host_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
+    const laterHost = `host_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
     await inDO(team(owner.team), async (instance, st) => {
       ensureSshTables(st.storage.sql)
       // Two live certificates of the member (one from an install not bound to the team), one expired, one of another member.
@@ -193,12 +197,20 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
         st.storage.sql.exec(`INSERT INTO ssh_certs (serial, identity, user, install, key_id, class, generation, issued_at, valid_before) VALUES (?, ?, ?, ?, ?, 'shell', 1, ?, ?)`, serial, `id-${serial}`, user, install, `${user}/k/${serial}`, now - 60_000, validBefore)
       instance.boundEngine.rows.apply([
         ...hostUpsert({ id: hostId, name: "member box", platform: "linux", owner_user: member.user, enrolled_by: "inst_box", enrolled_at: now, kind: "server" }),
-        ...hostUpsert({ id: otherHost, name: "other box", platform: "linux", owner_user: other.user, enrolled_by: "inst_box2", enrolled_at: now, kind: "server" })
+        ...hostUpsert({ id: otherHost, name: "other box", platform: "linux", owner_user: other.user, enrolled_by: "inst_box2", enrolled_at: now, kind: "server" }),
+        // Enrolled after the removal time (a clock or race edge): not the removed membership's host.
+        ...hostUpsert({ id: laterHost, name: "later box", platform: "linux", owner_user: member.user, enrolled_by: "inst_box3", enrolled_at: now + 3_600_000, kind: "server" })
       ])
     })
+    const krlBefore = await inDO(team(owner.team), async (instance) => instance.boundEngine.currentState.ssh_krl?.version ?? 0)
     await removeMember(owner.team, member.user)
-    const after = await inDO(team(owner.team), async (instance) => ({ revoked: Object.keys(instance.boundEngine.currentState.ssh_revoked ?? {}), host: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, hostId), other: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, otherHost) }))
+    const after = await inDO(team(owner.team), async (instance) => ({ krl: instance.boundEngine.currentState.ssh_krl?.version ?? 0, pending: instance.boundEngine.currentState.member_cleanup ?? {}, revoked: Object.keys(instance.boundEngine.currentState.ssh_revoked ?? {}), host: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, hostId), other: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, otherHost), later: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, laterHost) }))
     expect(after.revoked.sort()).toEqual(["9001", "9002"])
+    // A new KRL version is out for the team's hosts, and the cleanup is finished.
+    expect(after.krl).toBe(krlBefore + 1)
+    expect(after.pending).toEqual({})
+    expect(after.later?.orphaned).toBeUndefined()
+    expect(after.host?.orphaned?.at).toBeGreaterThanOrEqual(now)
     // The host stays for an owner to reassign; it says whose it was.
     expect(after.host).toMatchObject({ id: hostId, owner_user: member.user, orphaned: { former_owner: member.user } })
     expect(after.other?.orphaned).toBeUndefined()

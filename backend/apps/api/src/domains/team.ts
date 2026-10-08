@@ -105,13 +105,21 @@ export const teamDomain: Domain<TeamState> = {
         if (typeof v.user !== "string" || !Array.isArray(v.hosts)) return reject("validation.invalid", "user and hosts required")
         const at = state.member_cleanup?.[v.user]
         if (at === undefined) return { ok: true, state, value: { orphaned: [] }, changed: false }
-        const { [v.user]: _done, ...rest } = state.member_cleanup ?? {}
-        const hosts = v.hosts.map((id) => hostOf(state, ctx.rows, String(id))).filter((h): h is NonNullable<typeof h> => h !== undefined && h.owner_user === v.user && !h.orphaned)
+        const user = v.user
+        const { [user]: _done, ...rest } = state.member_cleanup ?? {}
+        // Back in the team already (a re-join before the cleanup ran): certificates were revoked, hosts stay theirs.
+        const rejoined = memberOf(state, ctx.rows, user) !== undefined
+        const hosts = rejoined ? [] : v.hosts.map((id) => hostOf(state, ctx.rows, String(id))).filter((h): h is NonNullable<typeof h> => h !== undefined && h.owner_user === user && !h.orphaned && h.enrolled_at <= at)
+        const orphaned = hosts.map((h) => ({ ...h, orphaned: { at, former_owner: user } }))
+        // Rows only: a legacy map entry would overwrite the flag at a later rows_migrate.
+        const legacy = state.hosts ? Object.fromEntries(Object.entries(state.hosts).filter(([id]) => !hosts.some((h) => h.id === id))) : undefined
+        const a = appendAudit({ ...state, member_cleanup: rest, ...(legacy ? { hosts: legacy } : {}) }, state.team?.id ?? "", ctx, "team.member.cleaned", `member ${user} removed: ${orphaned.length} host(s) orphaned`, { user, orphaned: orphaned.map((h) => h.id) })
         return {
           ok: true,
-          state: { ...state, member_cleanup: rest },
-          writes: hosts.flatMap((h) => hostUpsert({ ...h, orphaned: { at, former_owner: v.user as string } })),
-          value: { orphaned: hosts.map((h) => h.id) }
+          state: a.state,
+          writes: orphaned.flatMap((h) => hostUpsert(h)),
+          value: { orphaned: orphaned.map((h) => h.id) },
+          outbox: [...orphaned.map((h) => ({ kind: "host.upsert", entity: h.id, payload: { ...h, team: state.team?.id } })), a.outbox]
         }
       }
       case "team.ensure_personal": {

@@ -76,7 +76,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
     if (!state.team) return null
-    if (Object.keys(state.member_cleanup ?? {}).length > 0) return now
+    if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
     const times = [
       nextRecheckAt(state),
@@ -118,7 +118,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
-    this.cleanupMembers()
+    if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
     if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
     await this.recheckDomains(now)
     try {
@@ -194,11 +194,19 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (!engine) return
     try {
       cleanupRemovedMembers({ state: () => this.boundEngine!.currentState, rows: engine.rows, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) })
+      this.cleanupAttempts = 0
+      this.cleanupRetryAt = null
     } catch (e) {
-      // The removal is committed either way; nextWakeAt keeps the alarm due until the cleanup commits.
+      // The removal is committed either way; the alarm retries with backoff until the cleanup commits.
+      this.cleanupAttempts += 1
+      this.cleanupRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.cleanupAttempts)
       console.error(JSON.stringify({ msg: "member cleanup failed", error: String(e) }))
     }
   }
+
+  /** Backoff after a failed member cleanup (in memory: a restart retries at once). */
+  private cleanupRetryAt: number | null = null
+  private cleanupAttempts = 0
 
   /** A rejected system op must back off, not re-fire the alarm at once (review P2-1). */
   private requireCommitted(res: { frames: ReadonlyArray<OwnerFrame> }) {
