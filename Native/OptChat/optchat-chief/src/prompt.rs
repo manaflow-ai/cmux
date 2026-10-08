@@ -7,35 +7,21 @@ use serde_json::{Value, json};
 /// The agent's name in the prompts (section 7.2: rename the agent).
 pub const AGENT: &str = "Chief";
 
-/// MASTER from section 7.2 with the agent renamed, and two deviations
-/// (README): its line on messages sent mid-run says what the host does
-/// (decision 2026-10-04) instead of "reach you between tool calls", and its
-/// memory line says the memory persists and how to reach it, instead of
-/// "You keep no memory between turns", which reads as if past turns were
-/// lost (they are in the memory tree, reachable by zoom and date).
-pub const MASTER: &str = "You are Chief, an AI agent that works for one user in a single chat that
-never ends. Do the user's tasks yourself, with your tools, following
-the user's instructions at the end of this prompt: they say who the
-user is, how their files are organized and how they want work done.
-Use subagents only when the user asks for them.
-
-Your memory is the whole chat, kept across turns and restarts. Each turn
-is a fresh session that starts with the view below (that memory as a tree
-of summaries), followed by the user's new message; zoom and date reach
-any past message in it, so never tell the user you cannot remember an
-earlier turn: zoom it. Summaries keep little of tool output, so say in
-your reply what you learned that will matter later.
-A message the user sends while you work interrupts you at once, even
+/// The line on messages the user sends mid-turn, our one change to the
+/// spec's system prompt (decision 2026-10-04): it says what the host does,
+/// instead of "reach you between tool calls".
+pub const MIDRUN: &str = "A message the user sends while you work interrupts you at once, even
 mid-thought; a tool call already running finishes first, then you go on
-with the message.
+with the message.";
 
-Subagents and computer tasks run in the background. Each one's report
-reaches you as a message starting \"[id] \": between your tool calls
-while you work, or as a new turn once yours has ended. So never wait
-for one (no sleep, no polling): go on, or end your turn and tell the
-user what is running.";
+/// The spec's one system prompt for turns and compactions (gist 3c190e0,
+/// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief.
+pub fn base_prompt() -> String {
+    optchat_core::system_prompt(AGENT, MIDRUN)
+}
 
-/// VIEW_DOC, verbatim from section 7.2 with the agent renamed.
+/// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
+/// view as context, and the recipe gives them no prompt of their own.
 pub const VIEW_DOC: &str =
     "The view: the whole chat between Chief and the user, oldest first, inside
 <chat> tags, as one-line summaries. Each line is
@@ -84,14 +70,12 @@ cmux Home, and your final reply of each turn is posted there.
   --effort E` changes them from the next turn (only when the user asks).
 - The tools `zoom` and `date` (MCP server `optchat`) read your memory.";
 
-/// The system prompt (the session's CLAUDE.md): MASTER, VIEW_DOC, the cmux
-/// section, then the user's own instructions file (section 7.2), read once
-/// per host start so every turn's prompt stays byte-identical.
+/// The system prompt (the session's CLAUDE.md): the spec's prompt, the cmux
+/// section, then the user's own instructions file (spec 5), read once per
+/// host start so every turn's prompt stays byte-identical. Compactions send
+/// the same text (host.rs), so they read it from the turns' cache entry.
 pub fn claude_md(user: Option<&str>) -> String {
-    match user.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(user) => format!("{MASTER}\n\n{VIEW_DOC}\n\n{CMUX_INSTRUCTIONS}\n\n{user}\n"),
-        None => format!("{MASTER}\n\n{VIEW_DOC}\n\n{CMUX_INSTRUCTIONS}\n"),
-    }
+    system_text(user, &Tools::Mcp)
 }
 
 /// How a turn reaches its memory tools: Claude Code harnesses get the
@@ -104,16 +88,17 @@ pub enum Tools {
     Cli(String),
 }
 
-/// The system prompt for `tools`: MASTER, VIEW_DOC, the cmux section (its
+/// The system prompt for `tools`: the spec's prompt, the cmux section (its
 /// tool lines for `tools`), then the user's instructions file.
 pub fn system_text(user: Option<&str>, tools: &Tools) -> String {
+    let base = base_prompt();
     let cmux = match tools {
         Tools::Mcp => CMUX_INSTRUCTIONS.to_owned(),
         Tools::Cli(chief) => cli_instructions(chief),
     };
     match user.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(user) => format!("{MASTER}\n\n{VIEW_DOC}\n\n{cmux}\n\n{user}\n"),
-        None => format!("{MASTER}\n\n{VIEW_DOC}\n\n{cmux}\n"),
+        Some(user) => format!("{base}\n\n{cmux}\n\n{user}\n"),
+        None => format!("{base}\n\n{cmux}\n"),
     }
 }
 
@@ -222,115 +207,38 @@ pub struct CachedPrompt {
 }
 
 /// The cached layout of `context` (a view) between `system` and `tail`
-/// (README, Cache layout): `system` plus the context up to its first cache
-/// mark (50k) is the session's system prompt; the rest of the context
-/// follows as one block per `GRID` piece, the piece that ends at the last
-/// grid cut carrying the one `cache_control` marker when `marker`; then
-/// `tail`. Claude Code puts its own breakpoints
-/// on the system prompt and the last messages (three of the API's four), so
-/// one marker is all a request may add.
+/// (spec 3.3, gist 3c190e0): `system` is the session's system prompt as is
+/// (the same text for turns and compactions); the view follows in blocks of
+/// 4 lines, the last whole block carrying the one `cache_control` marker
+/// when `marker`; then `tail`. Claude Code puts its own breakpoints on the
+/// system prompt and the last messages (three of the API's four), so one
+/// marker is all a request may add. A block cut depends only on the lines
+/// before it, so the next call has a boundary at this marker, within the
+/// API's 20-block lookback from its own.
 pub fn cached_layout(system: &str, context: &str, tail: &str, marker: bool) -> CachedPrompt {
     let text = |t: &str| json!({"type": "text", "text": t});
-    // The view's head up to its first mark (50k) is the system prompt
-    // (Claude Code's own breakpoint), as before; a smaller view has none.
-    let head = optchat_core::cache_marks(context)
-        .first()
-        .copied()
-        .unwrap_or(0);
-    let system = if head > 0 {
-        format!("{system}\n\n{}", &context[..head])
-    } else {
-        system.to_owned()
-    };
-    // The rest, cut on a fixed grid: the last line end at or before every
-    // GRID characters from the view's start. A cut depends only on the
-    // bytes before it, so an unchanged prefix keeps its cuts from turn to
-    // turn, and the API's lookback from this turn's marker finds the
-    // previous turn's entry at one of them.
-    let mut cuts: Vec<usize> = grid_cuts(context)
-        .into_iter()
-        .filter(|c| *c > head)
-        .collect();
-    let stable = cuts.len();
-    cuts.insert(0, head);
-    cuts.push(context.len());
-    cuts.dedup();
-    let mut blocks: Vec<Value> = cuts
-        .windows(2)
-        .filter(|w| w[1] > w[0])
-        .map(|w| text(&context[w[0]..w[1]]))
-        .collect();
-    // ONE marker of ours (Claude Code places the other three): on the piece
-    // that ends at the last grid cut, so everything before the view's
-    // newest lines is cached.
-    if marker && stable > 0 && blocks.len() >= 2 {
-        let at = blocks.len() - 2;
-        blocks[at]["cache_control"] = json!({"type": "ephemeral"});
+    let pieces = optchat_core::block_pieces(context);
+    let whole = pieces.len() - 1;
+    let mut blocks: Vec<Value> = pieces.into_iter().map(text).collect();
+    if marker && whole > 0 {
+        blocks[whole - 1]["cache_control"] = json!({"type": "ephemeral"});
     }
     blocks.push(text(tail));
-    CachedPrompt { system, blocks }
+    CachedPrompt {
+        system: system.to_owned(),
+        blocks,
+    }
 }
 
-/// The compactor's layout: the context's marks (50k, 80k, 100k), the one
-/// marker on the piece ending at the last one (README, Compactor cache).
+/// The compactor's layout: the same as a turn's (spec 4: a compaction is a
+/// call like a turn, with its own view and its task).
 pub fn cached_layout_at_marks(
     system: &str,
     context: &str,
     tail: &str,
     marker: bool,
 ) -> CachedPrompt {
-    let text = |t: &str| json!({"type": "text", "text": t});
-    let marks = optchat_core::cache_marks(context);
-    let Some(&first) = marks.first() else {
-        return CachedPrompt {
-            system: system.to_owned(),
-            blocks: vec![text(context), text(tail)],
-        };
-    };
-    let mut cuts = marks.clone();
-    cuts.push(context.len());
-    let mut blocks: Vec<Value> = cuts
-        .windows(2)
-        .map(|w| text(&context[w[0]..w[1]]))
-        .collect();
-    // The pieces after the first mark: the one ending at the last mark is
-    // the second to last block (the last piece runs to the end).
-    if marker && marks.len() >= 2 {
-        let at = blocks.len() - 2;
-        blocks[at]["cache_control"] = json!({"type": "ephemeral"});
-    }
-    blocks.push(text(tail));
-    CachedPrompt {
-        system: format!("{system}\n\n{}", &context[..first]),
-        blocks,
-    }
-}
-
-/// The cache grid of a turn's view, in characters (section 8, our marker).
-/// Small enough that the newest lines stay out of the marked prefix, large
-/// enough that a 128 KB view has at most about 32 blocks; the API looks back
-/// 20 blocks from a marker, and the marker moves a block or two per turn.
-pub const GRID: usize = 4_096;
-
-/// The last line end at or before every `GRID` characters of `text`
-/// (byte offsets, increasing, none at the end of the text).
-pub fn grid_cuts(text: &str) -> Vec<usize> {
-    let mut cuts = Vec::new();
-    let mut last_end: Option<usize> = None;
-    let mut next = GRID;
-    for (chars, (byte, ch)) in text.char_indices().enumerate() {
-        while chars >= next {
-            if let Some(end) = last_end.filter(|e| cuts.last() != Some(e)) {
-                cuts.push(end);
-            }
-            next += GRID;
-        }
-        if ch == '\n' {
-            last_end = Some(byte + 1);
-        }
-    }
-    cuts.retain(|c| *c < text.len());
-    cuts
+    cached_layout(system, context, tail, marker)
 }
 
 /// The user's instructions file, `$MUX_HOME/optchat/AGENTS.md` (None when
@@ -345,19 +253,15 @@ pub fn user_instructions(path: &std::path::Path) -> Option<String> {
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
 
-/// The turn's user message (section 7): the view rendered before the new
+/// The turn's user message (spec 6): the view rendered before the new
 /// messages were logged, then the new messages joined by a blank line.
 ///
-/// The view goes as up to four text blocks, cut at its cache marks (section 8:
-/// the last line end before 50k, 80k and 100k characters), so a harness that
-/// puts a breakpoint on each block lets the next turn read the unchanged
-/// start of the view. Deviation: acpmux's Claude Code path forwards text
-/// blocks without `cache_control`, and Claude Code places its own breakpoints
-/// (never inside the view), so with claude-sr no breakpoint lands on these
-/// cuts yet and a turn rewrites the view instead of reading it. Each turn's
-/// host.log line (`turn::usage_line`) shows what the first request read.
+/// The view goes in blocks of 4 lines (spec 3.3), so a harness that marks
+/// the last whole block (the native engine) lets the next turn read the
+/// unchanged view; a harness with automatic prefix caching (codex) reads
+/// the byte-identical prefix whatever the blocks.
 pub fn turn_blocks(view: &str, texts: &[String]) -> Vec<Value> {
-    let mut blocks: Vec<Value> = optchat_core::cache_pieces(view)
+    let mut blocks: Vec<Value> = optchat_core::block_pieces(view)
         .into_iter()
         .map(|piece| json!({"type": "text", "text": piece}))
         .collect();

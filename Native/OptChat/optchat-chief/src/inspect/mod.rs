@@ -136,7 +136,7 @@ impl Inspector {
                 "node_bytes": optchat_core::NODE,
                 "view_bytes": optchat_core::VIEW,
                 "marks": optchat_core::MARKS,
-                "grid": crate::prompt::GRID,
+                "grid_lines": optchat_core::BLOCK_LINES,
                 "placeholder": optchat_core::PLACEHOLDER,
             },
         })

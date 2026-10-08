@@ -86,9 +86,10 @@ fn view_at_turn_equals_the_bytes_the_turn_sent_cached_layout() {
             agents.systems[k].as_ref(),
             "turn {k}: the system prompt"
         );
-        assert!(
-            prompt.system.len() > optchat_chief::prompt::claude_md(None).len(),
-            "the view head is in the system prompt"
+        assert_eq!(
+            prompt.system,
+            optchat_chief::prompt::claude_md(None),
+            "the system prompt is the constant text alone (spec 3.3)"
         );
     }
     assert_ne!(
