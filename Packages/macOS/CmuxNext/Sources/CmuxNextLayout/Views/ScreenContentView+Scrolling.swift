@@ -27,7 +27,8 @@ extension ScreenContentView {
             return rowsNeedFrames
         }
         scrollState.mode = mode
-        let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals))
+        let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals,
+                                               anchor: dragAnchorColumn))
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
         return apply(effects) || rowsNeedFrames
     }
@@ -95,5 +96,19 @@ extension ScreenContentView {
               let index = ColumnStripGeometry.leadingColumnIndex(frames: geometry.orderedColumnFrames, offset: scroll.value, gap: context.style.stripGap)
         else { return }
         context.model.reportScroll(screen: screenID, leadingColumn: geometry.columnOrder[index])
+    }
+
+    /// The strip column under a resize drag: the camera keeps it in place, so
+    /// its leading edge stays and its edge follows the pointer. Nil for a
+    /// docked column (it does not scroll) and when no drag runs.
+    var dragAnchorColumn: ColumnID? {
+        guard let drag = activeDrag, drag.dockEdge == nil else { return nil }
+        switch drag.kind {
+        case let .columnEdge(column), let .rowEdge(column, _): return column
+        case let .split(split):
+            return layout.columns.first { column in
+                column.root.ratio(of: split) != nil || column.rows.contains { $0.root.ratio(of: split) != nil }
+            }?.id
+        }
     }
 }
