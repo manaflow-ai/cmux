@@ -68,8 +68,6 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _):
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
-        case .authCallback(_, let url):
-            if let url = URL(string: url) { signInHandler?(url) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)

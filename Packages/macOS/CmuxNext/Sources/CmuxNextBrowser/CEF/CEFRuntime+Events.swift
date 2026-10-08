@@ -95,6 +95,8 @@ extension CEFRuntime {
             downloads.handle(event)
         case .omniboxSuggestions(let requestID, let extensionID, let json):
             omniboxKeywords.suggestionsArrived(requestID: requestID, extensionID: extensionID, json: json)
+        case .authCallback(let browser, let url):
+            CEFSignInCallbacks.shared.stopped(browser: browser, url: url)
         case .unknown:
             break
         default:
@@ -149,6 +151,7 @@ extension CEFRuntime {
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
+        CEFSignInCallbacks.shared.attached(tab)
     }
 
     private func browserClosed(_ browser: Int32) {

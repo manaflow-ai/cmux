@@ -105,9 +105,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The remote-localhost derived store, nil for the profile's own store.
     @ObservationIgnored public internal(set) var machineStore: BrowserMachineStore?
     @ObservationIgnored var navigationGuard: BrowserNavigationGuard = .none
-    /// The sign-in session this tab runs (`CEFTab+SignIn.swift`).
-    @ObservationIgnored var signInCallback: CEFSignInCallback?
-    @ObservationIgnored var signInHandler: ((URL) -> Void)?
 
     init(id: BrowserTabID, profile: BrowserProfileID, host: CEFPaneHost, runtime: CEFRuntime) {
         self.id = id
@@ -134,7 +131,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         browserID = browser
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)
-        applySignInCallback()
         applyPageBackground()
         applyPasswordFill()
         leaveAutomaticDownloadsToCmux(browser)

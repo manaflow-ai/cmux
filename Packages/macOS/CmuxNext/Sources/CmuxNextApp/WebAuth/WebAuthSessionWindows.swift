@@ -78,7 +78,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
             services.daemon.logger.notice("sign-in window: callback unknown; the page URL check ends the session")
         }
         if let cef = page as? CEFTab {
-            cef.setSignInCallback(Self.shimCallback(callback)) { [weak self] url in self?.shimStopped(url) }
+            CEFSignInCallbacks.shared.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
         }
         let panel = BrowserPopupPanel(page: page, frame: Self.frame())
         panel.onEscape = { [weak self] in self?.close() }
@@ -116,7 +116,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         // would stop this load again), and the page URL check stays. Another
         // app's link from a sign-in page does not open.
         guard url.scheme?.lowercased() == "https", let cef = page as? CEFTab else { return }
-        cef.setSignInCallback(nil, onCallback: nil)
+        CEFSignInCallbacks.shared.set(nil, on: cef, onCallback: nil)
         page?.load(url)
     }
 
