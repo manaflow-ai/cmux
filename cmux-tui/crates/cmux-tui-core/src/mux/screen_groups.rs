@@ -18,7 +18,6 @@
 
 use super::tab_strip::StripRequest;
 use super::*;
-use crate::Actor;
 use crate::state::screen_state_store::ScreenMetaUpdate;
 use crate::state::screens::ScreenResult;
 use crate::state::store::StateCommit;
@@ -27,6 +26,8 @@ use crate::workspace_registry::{
     new_saved_screen_group_id, new_screen_group_id, validate_tab_group_color,
     validate_tab_group_name,
 };
+mod screen_order;
+pub(crate) use screen_order::normalize_screen_order;
 
 /// One contiguous screen group run in a workspace, as frontends see it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,38 +173,6 @@ pub(crate) fn prune_screen_state(state: &State, screens: &mut ScreenPresentation
     });
     let used = screens.members.values().cloned().collect::<HashSet<_>>();
     screens.groups.retain(|id, _| used.contains(id));
-}
-
-/// Pinned screens first, then every group gathered at its first member. The
-/// active screen stays active.
-pub(crate) fn normalize_screen_order(workspace: &mut Workspace, screens: &ScreenPresentationState) {
-    let active = workspace.screens.get(workspace.active_screen).map(|screen| screen.id);
-    let group_of = |screen: &Screen| screens.members.get(screen.public_id.as_str()).cloned();
-    let old = std::mem::take(&mut workspace.screens);
-    let (mut ordered, rest): (Vec<Screen>, Vec<Screen>) =
-        old.into_iter().partition(|screen| screens.is_pinned(screen.public_id.as_str()));
-    let mut rest = rest.into_iter().map(Some).collect::<Vec<_>>();
-    for index in 0..rest.len() {
-        let Some(screen) = rest[index].take() else { continue };
-        let group = group_of(&screen);
-        ordered.push(screen);
-        if let Some(group) = group {
-            for later in rest.iter_mut().skip(index + 1) {
-                if later
-                    .as_ref()
-                    .is_some_and(|candidate| group_of(candidate).as_ref() == Some(&group))
-                {
-                    ordered.extend(later.take());
-                }
-            }
-        }
-    }
-    workspace.screens = ordered;
-    let last = workspace.screens.len().saturating_sub(1);
-    workspace.active_screen = active
-        .and_then(|id| workspace.screens.iter().position(|screen| screen.id == id))
-        .unwrap_or(0)
-        .min(last);
 }
 
 /// Move `block` (screens of workspace `from`) to workspace `to` at insertion

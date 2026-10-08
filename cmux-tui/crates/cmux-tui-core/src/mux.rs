@@ -17159,7 +17159,6 @@ impl Mux {
         let record = (*self.last_reported_focus.lock().unwrap())?;
         self.with_state(|state| state.panes.contains_key(&record.0)).then_some(record)
     }
-
 }
 
 /// Render raw terminal output bytes to plain text by replaying them through

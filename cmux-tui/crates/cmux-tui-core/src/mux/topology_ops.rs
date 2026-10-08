@@ -5,7 +5,6 @@
 use super::*;
 
 impl Mux {
-
     pub(crate) fn create_terminal_result_in_workspace_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -44,7 +43,7 @@ impl Mux {
         self.created_terminal_run_result(&terminal_id)
     }
 
-    fn create_terminal_surface_in_workspace(
+    pub(super) fn create_terminal_surface_in_workspace(
         self: &Arc<Self>,
         actor: &Actor,
         workspace: WorkspaceId,

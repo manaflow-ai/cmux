@@ -104,10 +104,10 @@ mod admission;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
+mod command_args;
 #[cfg(unix)]
 mod fs_wire;
 mod line_connection;
-mod command_args;
 use command_args::{parse_direction, parse_split_dir, parse_zoom_mode, workspace_mutation};
 mod origin_gate;
 mod orphan_shutdown;

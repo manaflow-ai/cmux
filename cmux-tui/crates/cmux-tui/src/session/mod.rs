@@ -281,39 +281,9 @@ fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> 
 }
 
 #[cfg(test)]
-pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
-    remote::RemoteRequestError::Timeout.into()
-}
-
+mod test_errors;
 #[cfg(test)]
-pub(crate) fn test_remote_transport_error() -> anyhow::Error {
-    remote::RemoteRequestError::Transport(std::io::Error::new(
-        std::io::ErrorKind::BrokenPipe,
-        "socket closed",
-    ))
-    .into()
-}
-
-#[cfg(test)]
-pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
-    test_remote_rejected_error_with_message("unknown surface")
-}
-
-#[cfg(test)]
-pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected { error: message.to_string(), code: None, delivery: None }
-        .into()
-}
-
-#[cfg(test)]
-fn test_remote_rejected_error_with_code(message: &str, code: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected {
-        error: message.to_string(),
-        code: Some(code.to_string()),
-        delivery: None,
-    }
-    .into()
-}
+pub(crate) use test_errors::*;
 
 pub struct SidebarPluginSurface {
     pub surface_id: Option<SurfaceId>,

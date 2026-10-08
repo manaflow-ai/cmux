@@ -25,6 +25,8 @@ use crate::workspace_registry::{
     TabGroupState, new_saved_tab_group_id, new_tab_group_id, validate_tab_group_color,
     validate_tab_group_name, validate_workspace_group_id,
 };
+mod blocks;
+pub(crate) use blocks::place_block;
 mod public_ids;
 pub(crate) use public_ids::{is_pinned, pane_by_public_id, pane_public_id, tab_public_id};
 
@@ -133,25 +135,6 @@ pub(crate) fn take_tab_group(
     groups.groups.remove(group);
     groups.members.retain(|_, member| member != group);
     Ok(members)
-}
-
-/// Reorder `pane` so `block` sits contiguously starting at insertion index
-/// `index` among the pane's other tabs. The active tab stays active.
-pub(crate) fn place_block(state: &mut State, pane: PaneId, block: &[SurfaceId], index: usize) {
-    let Some(record) = state.panes.get_mut(&pane) else { return };
-    let active = record.active_surface();
-    let mut rest =
-        record.tabs.iter().copied().filter(|surface| !block.contains(surface)).collect::<Vec<_>>();
-    let index = index.min(rest.len());
-    rest.splice(index..index, block.iter().copied());
-    record.tabs = rest;
-    if let Some(active) = active {
-        record.active_tab =
-            record.tabs.iter().position(|surface| *surface == active).unwrap_or(record.active_tab);
-    }
-    for surface in block {
-        state.resource_indexes.tab_pane.insert(*surface, pane);
-    }
 }
 
 /// Drop memberships whose tab is gone or left the group's pane, and groups
