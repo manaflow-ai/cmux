@@ -73,7 +73,7 @@ struct CloudVMResourcePoolTests {
 
     @Test
     func resizeAdmissionSharesPlanAndPoolRules() {
-        let pool = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40 * 1024, usedVcpus: 16, usedMemoryMb: 32 * 1024)
+        let pool = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40 * 1024, usedVcpus: 8, usedMemoryMb: 16 * 1024)
         let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024, resourcePool: pool)
         let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024, diskMb: 64 * 1024)
 
@@ -93,14 +93,14 @@ struct CloudVMResourcePoolTests {
 
     @Test
     func resizeAdmissionRemovesActiveReservationButNotPausedReservation() {
-        let pool = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40 * 1024, usedVcpus: 16, usedMemoryMb: 32 * 1024)
+        let pool = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40 * 1024, usedVcpus: 8, usedMemoryMb: 16 * 1024)
         let limits = CloudVMResizeLimits(maxVcpus: 32, maxMemoryMb: 64 * 1024, maxDiskMb: 256 * 1024, resourcePool: pool)
         let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024)
         let target = CloudVMResizeShape(vcpus: 16, memoryMb: 32 * 1024)
 
         #expect(CloudVMResizePlanValidator().violation(target: target, current: current, usesResourcePool: true, limits: limits) == nil)
         #expect(CloudVMResizePlanValidator().violation(target: target, current: current, usesResourcePool: false, limits: limits) == .poolLimit(
-            requestedVcpus: 16, requestedMemoryMb: 32 * 1024, freeVcpus: 4, freeMemoryMb: 8 * 1024
+            requestedVcpus: 16, requestedMemoryMb: 32 * 1024, freeVcpus: 12, freeMemoryMb: 24 * 1024
         ))
     }
 
