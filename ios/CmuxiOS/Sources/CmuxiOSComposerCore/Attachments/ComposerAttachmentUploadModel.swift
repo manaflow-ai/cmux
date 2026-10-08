@@ -82,6 +82,12 @@ public final class ComposerAttachmentUploadModel {
         let task: Task<Void, Never>
     }
 
+    deinit {
+        // The task body keeps the model weak, so this is a final safety net
+        // for a composer dismissed without an explicit cancel-all action.
+        for job in jobs.values { job.task.cancel() }
+    }
+
     public init(host: HostID, uploader: any ComposerAttachmentUploading,
                 limits: ComposerAttachmentUploadLimits = .default) {
         self.host = host
@@ -155,6 +161,13 @@ public final class ComposerAttachmentUploadModel {
         changed()
     }
 
+    /// Cancels every active upload. The picker owner calls this when the
+    /// composer target or screen is discarded; individual rows can use
+    /// ``cancel(_:)`` when the user removes one attachment.
+    public func cancelAll() {
+        for id in Array(jobs.keys) { cancel(id) }
+    }
+
     /// Removes a non-running item without attempting to cancel an in-flight
     /// transfer. Call ``cancel(_:)`` for an active upload.
     public func remove(_ id: TransferID) {
@@ -211,24 +224,24 @@ public final class ComposerAttachmentUploadModel {
         let token = UUID()
         activeTokens[id] = token
         let uploader = self.uploader
+        let host = self.host
         let task = Task { @MainActor [weak self] in
             // Let the handle install before a synchronous test uploader can
             // finish its stream and run the terminal cleanup path.
             await Task.yield()
-            guard let self else { return }
             guard !Task.isCancelled else { return }
-            let stream = await uploader.upload(localURL: item.localURL, name: item.name, mime: item.mime, to: self.host)
+            let stream = await uploader.upload(localURL: item.localURL, name: item.name, mime: item.mime, to: host)
             guard !Task.isCancelled else { return }
             var ended = false
             for await update in stream {
                 guard !Task.isCancelled else { return }
-                guard self.activeTokens[id] == token, self.picked[id] != nil else { return }
+                guard let self, self.activeTokens[id] == token, self.picked[id] != nil else { return }
                 let normalized = self.normalized(update, for: item)
                 self.apply(normalized, id: id, token: token)
                 if normalized.phase == .ready || normalized.phase == .failed { ended = true }
                 if ended { break }
             }
-            guard !Task.isCancelled, self.activeTokens[id] == token else { return }
+            guard !Task.isCancelled, let self, self.activeTokens[id] == token else { return }
             if !ended { self.fail(id, token: token) }
             self.activeTokens.removeValue(forKey: id)
             self.jobs.removeValue(forKey: id)

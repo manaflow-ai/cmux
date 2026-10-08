@@ -185,4 +185,21 @@ struct AttachmentUploadModelTests {
         await uploader.finish(abrupt)
         await waitFor { model.attachments.first(where: { $0.id == abrupt.id })?.phase == .failed }
     }
+
+    @Test func discardedModelDoesNotStayAliveForAnUnfinishedStream() async throws {
+        let uploader = ScriptedComposerUploader()
+        weak var weakModel: ComposerAttachmentUploadModel?
+        do {
+            let model = ComposerAttachmentUploadModel(host: host, uploader: uploader)
+            weakModel = model
+            try model.enqueue(item("dismissed"))
+            await waitForRequests(uploader, 1)
+            model.cancelAll()
+        }
+        for _ in 0..<20 {
+            if weakModel == nil { return }
+            await Task.yield()
+        }
+        #expect(weakModel == nil)
+    }
 }

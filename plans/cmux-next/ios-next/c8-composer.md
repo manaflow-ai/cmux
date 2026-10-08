@@ -238,6 +238,8 @@ The `ComposerAttachmentUploading` seam requires its implementation to observe
 task cancellation and finish its `AsyncStream`; the model also checks
 cancellation before and after opening the stream.
 
+The model exposes `cancelAll()` and cancels jobs again during teardown; its
+task body does not hold the model strongly while waiting on an upload stream.
 The native PhotosUI/document picker still needs to instantiate this model and
 own temporary-file cleanup. `ComposerAttachmentUploading` remains an injected
 seam until D1 supplies the real `FileSendCoordinator` adapter, so this core-only
