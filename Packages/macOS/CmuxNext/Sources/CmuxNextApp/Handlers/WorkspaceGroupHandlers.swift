@@ -87,7 +87,11 @@ enum WorkspaceGroupHandlers {
         })
         registry.bind("workspaceGroup.editConfig", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
 
-        registry.bindUnavailable(["workspaceGroup.togglePin"], ActionFailure.needsDaemonCapability("workspace-group-pin-v1"))
+        // A pinned (saved) group stays when its workspaces close.
+        registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
+            let group = try context.group(invocation)
+            try context.sidebar().handle(.setGroupPinned(sidebarID(group), !group.pinned))
+        })
         registry.bind("workspaceGroup.markUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
             WorkspaceUnreadMark.set(true, on: try members(invocation, context), machines: context.services.machines)

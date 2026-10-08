@@ -204,10 +204,28 @@ pub(super) fn update_group(
     Ok(json!({"group": group, "changed": changed}))
 }
 
+/// The same delete as `workspace_group.delete` (one closed-history record,
+/// so Reopen Closed forms the group again); the raw result shape stays.
 pub(super) fn delete_group(mux: &Mux, id: &str) -> anyhow::Result<Value> {
-    let (ungrouped, _) =
-        mux.personal_mutation(|registry| Ok((registry.delete_personal_group(id)?, true)))?;
-    Ok(json!({"group": id, "ungrouped": pairs(&ungrouped)}))
+    let commit = mux.state_personal(
+        &crate::WorkspaceMutation::local("delete-personal-group"),
+        "workspace_group.delete",
+        None,
+        &Mux::ordinary_resource_selectors(),
+        crate::state::personal::PersonalChange::GroupDelete { group: id.to_string() },
+    )?;
+    let ungrouped = commit.result["ungrouped"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|workspace| {
+            json!({
+                "session_id": workspace["session_id"],
+                "workspace_key": workspace["workspace_ref"],
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({"group": id, "ungrouped": ungrouped}))
 }
 
 pub(super) fn move_group(mux: &Mux, id: &str, index: usize) -> anyhow::Result<Value> {
