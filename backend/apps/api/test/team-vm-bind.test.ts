@@ -2,8 +2,9 @@ import { env } from "cloudflare:workers"
 import { runInDurableObject as runIn } from "cloudflare:test"
 import { decodeJwt } from "jose"
 import type { Principal, ReduceContext } from "@cmux/ownership"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { teamVmDomain } from "../src/domains/team-vm.ts"
+import { FreestyleDriver } from "../src/team-vm-driver.ts"
 import { bindMessage, checkProof, commitCommand, enrollCommand, NONCE_TTL_MS, parseProof, TeamVmBinds } from "../src/team-vm-bind.ts"
 import type { FakeGuestMode } from "../src/team-vm-fake-guest.ts"
 import { post, sessionToken } from "./cloud-bind-support.ts"
@@ -185,5 +186,24 @@ describe("TeamVmDO binds its VM through the provider exec", { timeout: 60_000 },
     expect(fresh.committed!.install).not.toBe(oldInstall)
     expect((await vmToken(fresh, o.user, fresh.committed!.install!)).status).toBe(200)
     expect((await vmToken(old, o.user, oldInstall)).token).toBeNull()
+  })
+})
+
+describe("the Freestyle exec the bind uses", () => {
+  it("runs the command as root on exactly that VM (the default exec user cannot write the VM's state)", async () => {
+    const seen: Array<{ url: string; body: any }> = []
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({ url: String(input), body: JSON.parse(String(init?.body ?? "{}")) })
+      return Response.json({ statusCode: 0, stdout: "x".repeat(20_000) + "\nlast\n", stderr: "" })
+    })
+    try {
+      const out = await new FreestyleDriver("k", "https://api.freestyle.example", "snap").exec("vm-abc", "/opt/cmux/current/bin/cmux host team-enroll --team t --epoch 1 --nonce n", 30_000)
+      expect(seen).toEqual([{ url: "https://api.freestyle.example/v5/vms/vm-abc/exec-await", body: { command: "/opt/cmux/current/bin/cmux host team-enroll --team t --epoch 1 --nonce n", timeoutMs: 30_000, linuxUser: "root" } }])
+      expect(out.code).toBe(0)
+      expect(out.stdout.endsWith("\nlast\n")).toBe(true)
+      expect(out.stdout.length).toBeLessThanOrEqual(16_384)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

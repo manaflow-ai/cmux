@@ -9,7 +9,7 @@ import Testing
 /// its own index between the two calls, so the search ranked the wrong page. The searcher's
 /// between-calls hook runs that other caller deterministically.
 @MainActor
-@Suite struct PaletteSearchReentrancyTests {
+@Suite(.paletteRanker) struct PaletteSearchReentrancyTests {
     func item(_ id: String, _ title: String) -> PaletteItem {
         PaletteItem(id: id, title: title, primary: PaletteCommand(id: "run", title: "Run", effect: .perform {}))
     }

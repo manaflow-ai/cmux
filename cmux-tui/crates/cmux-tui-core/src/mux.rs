@@ -50,6 +50,7 @@ mod tab_workspace_name;
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
 mod loss_causes;
+mod orphan_hosts;
 mod pending_terminals;
 pub(crate) mod terminal_archive;
 mod terminal_directory;
@@ -3504,6 +3505,7 @@ impl Mux {
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
+        let mut recovery_workspace = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
         // completion cannot collapse the exact status into "host missing".
@@ -3587,6 +3589,15 @@ impl Mux {
                     )?;
                     self.emit_terminal_registry_changed(&registry, revision);
                     terminal = Some(imported);
+                } else if orphan_hosts::recoverable(&options, &record_path, &record) {
+                    match self.recover_orphan_terminal(&record, &mut recovery_workspace) {
+                        Ok(recovered) => terminal = Some(recovered),
+                        Err(error) => {
+                            // The host and its record stay for a later start.
+                            eprintln!("cmux-tui: terminal {terminal_id} not recovered: {error:#}");
+                            continue;
+                        }
+                    }
                 } else {
                     if !cleanup_terminal_host_record(&record, &record_path) {
                         self.schedule_terminal_adoption(options.clone(), record, record_path);
@@ -3811,15 +3822,12 @@ impl Mux {
     /// appears includes the terminal it names.
     #[cfg(unix)]
     fn complete_template_adoption(&self, terminal_id: &str) -> anyhow::Result<()> {
-        let is_template = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .terminal_record(terminal_id)?
-            .is_some_and(|terminal| is_template_terminal(&terminal));
-        if !is_template {
+        let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
+        // A recovered terminal (cx-0tgl LC) is placed the same way; only a
+        // Cloud template gets the identity binding below.
+        let Some(terminal) = terminal.filter(orphan_hosts::placed_on_adoption) else {
             return Ok(());
-        }
+        };
         anyhow::ensure!(
             !self.consume_template_completion_failure(),
             "injected template completion failure"
@@ -3829,7 +3837,7 @@ impl Mux {
             serde_json::json!({}),
         )?;
         let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
-        if let Some(path) = bound_file {
+        if let Some(path) = bound_file.filter(|_| is_template_terminal(&terminal)) {
             self.publish_template_binding(terminal_id, &path)?;
         }
         Ok(())
@@ -4015,7 +4023,7 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if is_template_terminal(&terminal) && !has_restored_placements {
+        if orphan_hosts::placed_on_adoption(&terminal) && !has_restored_placements {
             // Cloud snapshot template, first adoption: its builder's placement
             // was wiped with the builder's registry, so it gets a new one here.
             // The template marker stays on the durable row, so a later daemon
@@ -4162,13 +4170,13 @@ impl Mux {
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
-                    let terminal = mux
-                        .workspace_registry
-                        .lock()
-                        .unwrap()
-                        .terminal_record(&terminal_id)
-                        .ok()
-                        .flatten();
+                    // A failed read proves nothing about the host: retry.
+                    let Ok(terminal) =
+                        mux.workspace_registry.lock().unwrap().terminal_record(&terminal_id)
+                    else {
+                        delay = (delay * 2).min(Duration::from_secs(5));
+                        continue;
+                    };
                     let Some(terminal) = terminal else {
                         if cleanup_terminal_host_record(&record, &record_path) {
                             break;
