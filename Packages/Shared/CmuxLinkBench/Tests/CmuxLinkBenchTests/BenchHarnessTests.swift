@@ -1,5 +1,7 @@
 @testable import CmuxLinkBench
+import CmuxLink
 import CmuxLinkDirect
+import CmuxLinkTesting
 import Foundation
 import Testing
 
