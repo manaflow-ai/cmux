@@ -211,7 +211,7 @@ struct NewMachineModelTests {
         // that sells the ladder, unless the plan already is Max.
         let (unnamed, _) = makeModel(plan: Self.proPlan, lockedMemoryOptionsMb: [65536], memoryUpgradePlanId: nil)
         #expect(unnamed.memoryUpgradePlanId == "max")
-        #expect(unnamed.memoryOptions == [4096, 8192, 16384])
+        #expect(unnamed.memoryOptions == [4096, 8192, 16384, 24576, 32768])
     }
 
     /// The Picker binding can only land on an allowed size: a locked pick
