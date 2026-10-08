@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
 import Testing
@@ -16,6 +17,18 @@ struct CapabilityRefusalTests {
     /// the word the old reasons used.
     static func namesCapability(_ text: String) -> Bool {
         text.contains(/[a-z0-9]-v[0-9]+\b/) || text.localizedCaseInsensitiveContains("capabilit")
+    }
+
+    /// The capability gate's reasons: what the user can do, never an id.
+    static var gateReasons: Set<String> {
+        [RefusalStrings.daemonConnecting, RefusalStrings.daemonUnavailable, RefusalStrings.restartToUpdateDaemon, RefusalStrings.notInThisVersion,
+         RefusalStrings.personalStateLoading, RefusalStrings.updateCloudMachine]
+    }
+
+    /// A run refused with one of the gate's reasons.
+    static func refusedByGate(_ outcome: ControlActionOutcome) -> Bool {
+        if case .refused(let reason) = outcome { return gateReasons.contains(reason) }
+        return false
     }
 
     /// Every capability this app knows by name, plus ids the app used as
@@ -52,6 +65,10 @@ struct CapabilityRefusalTests {
             let texts = [RefusalStrings.needsDaemonCapability(capability), ActionFailure.needsDaemonCapability(capability).message,
                          ActionFailure.needsAppCapability(capability).message]
             for text in texts { #expect(!Self.namesCapability(text), "\(capability): \(text)") }
+            // This tree's daemon serves it: a running daemon without it is older.
+            let expected = DaemonCapabilities.shared.isServedByBundledDaemon(capability) ? RefusalStrings.restartToUpdateDaemon
+                : RefusalStrings.notInThisVersion
+            #expect(RefusalStrings.needsDaemonCapability(capability) == expected, "\(capability)")
         }
     }
 

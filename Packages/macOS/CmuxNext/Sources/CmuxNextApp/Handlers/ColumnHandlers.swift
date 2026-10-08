@@ -98,7 +98,7 @@ enum ColumnHandlers {
         guard let (content, column) = column(invocation, ctx) else { return }
         let panes = column.root.panes
         guard panes.count == 1, let pane = panes.first else {
-            return ctx.refuse(RefusalStrings.moveColumnUnsupported("move-column", panes.count))
+            return ctx.refuse(RefusalStrings.moveColumnUnsupported(panes.count))
         }
         guard let screen = content.layoutModel.screen(containing: pane),
               PaneResize.adjacentColumn(of: pane, forward: direction == .right, in: screen.layout) != nil else {

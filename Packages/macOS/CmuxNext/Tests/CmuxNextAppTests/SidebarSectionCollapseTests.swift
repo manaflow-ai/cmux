@@ -65,7 +65,9 @@ import Testing
     }
 
     /// Before the local daemon answers, a group intent waits: no notice.
-    @Test func anOrganizationIntentBeforePersonalStateWaitsWithoutANotice() throws {
+    /// When the daemon then answers without `profiles-v1` (nothing will
+    /// load), the waiting intents are refused once, with a human reason.
+    @Test func anOrganizationIntentBeforePersonalStateWaitsWithoutANotice() async throws {
         let services = Fixture.services(file: nil)
         services.windows.restoreWhenLoaded()
         let controller = try #require(services.windows.controllers.first)
@@ -73,6 +75,11 @@ import Testing
         controller.sidebar.model.send(.createGroup(GroupID("grp_new"), name: "Work", color: .green, workspaces: []))
         controller.sidebar.model.send(.toggleCollapse(.group(GroupID("grp_new"))))
         #expect(log.notices.isEmpty, "\(log.notices)")
+        services.daemon.store.noteHandshake(DaemonIdentity(capabilities: DaemonCapabilities.shared.required, generation: "g1"))
+        services.daemon.store.apply(snapshot: Fixture.tree([1]))
+        await Fixture.settle { !log.notices.isEmpty }
+        #expect(log.notices.count == 1, "\(log.notices)")
+        #expect(!log.notices.contains(where: CapabilityRefusalTests.namesCapability), "\(log.notices)")
         Fixture.closeAll(services)
     }
 
