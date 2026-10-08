@@ -500,7 +500,7 @@ impl Mux {
             }
         };
         let fingerprint = json!({"target": fingerprint, "end_terminals": true});
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         self.commit_batch_close(BatchCloseRequest {
             target,
             end_terminals: true,
@@ -756,7 +756,11 @@ mod tests {
         let before = resource_revision(&mux);
 
         let outcome = mux
-            .close_tabs(surfaces.clone(), true, &WorkspaceMutation::local("batch-close-test"))
+            .close_tabs(
+                surfaces.clone(),
+                true,
+                &WorkspaceMutation::daemon_local("batch-close-test"),
+            )
             .unwrap();
 
         assert_eq!(resource_revision(&mux), before + 1, "one durable commit");
@@ -785,14 +789,22 @@ mod tests {
         let second = seed(&mux, 2, &key);
         let before = resource_revision(&mux);
         let error = mux
-            .close_tabs(vec![first, 999_999], true, &WorkspaceMutation::local("batch-close-test"))
+            .close_tabs(
+                vec![first, 999_999],
+                true,
+                &WorkspaceMutation::daemon_local("batch-close-test"),
+            )
             .unwrap_err();
         assert!(format!("{error:#}").contains("unknown surface"), "{error:#}");
         assert_eq!(resource_revision(&mux), before, "a rejected batch writes nothing");
         assert!(mux.with_state(|state| state.pane_of(first)).is_some());
 
         let outcome = mux
-            .close_tabs(vec![first, first], false, &WorkspaceMutation::local("batch-close-test"))
+            .close_tabs(
+                vec![first, first],
+                false,
+                &WorkspaceMutation::daemon_local("batch-close-test"),
+            )
             .unwrap();
         assert_eq!(outcome.closed(), vec![first]);
         assert!(outcome.terminals().is_empty());
@@ -811,7 +823,7 @@ mod tests {
         seed(&mux, 3, &key);
         let resource_before = resource_revision(&mux);
         let workspace_before = mux.with_state(|state| state.workspace_revision);
-        let mutation = WorkspaceMutation::new("close-ws-batch", "batch-close-test").unwrap();
+        let mutation = WorkspaceMutation::daemon("close-ws-batch", "batch-close-test").unwrap();
 
         let (result, outcome) =
             mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation).unwrap();
@@ -864,9 +876,10 @@ mod tests {
             // A second tab keeps the workspace open (LAST-TAB-CLOSES-WORKSPACE).
             seed(&mux, 100 + n, &key);
         }
-        mux.close_tabs(vec![surfaces[0]], true, &WorkspaceMutation::local("seed")).unwrap();
+        mux.close_tabs(vec![surfaces[0]], true, &WorkspaceMutation::daemon_local("seed")).unwrap();
         let before = resource_revision(&mux);
-        mux.close_tabs(vec![surfaces[1]], true, &WorkspaceMutation::local("second")).unwrap();
+        mux.close_tabs(vec![surfaces[1]], true, &WorkspaceMutation::daemon_local("second"))
+            .unwrap();
         let registry = mux.workspace_registry.lock().unwrap();
         let page = registry.resource_events_after(before).unwrap();
         assert_eq!(page.batches.len(), 1);
@@ -918,14 +931,15 @@ mod tests {
                 w.screens.first().map(|screen| state.panes[&screen.active_pane].tabs[0])
             })
         });
-        mux.close_tabs(vec![surface.unwrap()], true, &WorkspaceMutation::local("mixed")).unwrap();
+        mux.close_tabs(vec![surface.unwrap()], true, &WorkspaceMutation::daemon_local("mixed"))
+            .unwrap();
         assert_store_matches_full_projection(&mux);
         mux.close_workspace_ending_terminals(
             None,
             Some(&keys[4]),
             None,
             None,
-            &WorkspaceMutation::local("mixed"),
+            &WorkspaceMutation::daemon_local("mixed"),
         )
         .unwrap();
         assert_store_matches_full_projection(&mux);

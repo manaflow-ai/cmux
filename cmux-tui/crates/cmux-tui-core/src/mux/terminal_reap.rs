@@ -230,7 +230,7 @@ impl Mux {
             None,
             None,
             None,
-            &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+            &WorkspaceMutation::daemon_local(TERMINAL_REAP_MUTATION_ORIGIN),
             TerminalCloseGuard::UnplacedAndNotKept,
         ) {
             Ok(result) => {
@@ -357,7 +357,7 @@ impl Mux {
                     None,
                     None,
                     None,
-                    &WorkspaceMutation::local(END_TERMINALS_MUTATION_ORIGIN),
+                    &WorkspaceMutation::daemon_local(END_TERMINALS_MUTATION_ORIGIN),
                 )
                 .map(|_| ())
             };
@@ -789,7 +789,7 @@ mod tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("test-cleanup"),
+            &WorkspaceMutation::daemon_local("test-cleanup"),
         )
         .unwrap();
         mux.close_surface(scratch.id).unwrap();
@@ -872,7 +872,7 @@ mod tests {
             usize::MAX,
             None,
             None,
-            &WorkspaceMutation::local("test-terminal-reap-projection"),
+            &WorkspaceMutation::daemon_local("test-terminal-reap-projection"),
         )
         .unwrap();
         assert!(mux.reap_unplaced_terminals(&mut schedule, start + grace).is_empty());
@@ -887,7 +887,7 @@ mod tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("test-cleanup"),
+            &WorkspaceMutation::daemon_local("test-cleanup"),
         )
         .unwrap();
         mux.close_surface(scratch.id).unwrap();

@@ -24,10 +24,9 @@ const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
 
 fn ensure_journal_deadline(deadline: Option<Instant>) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        deadline.is_none_or(|deadline| Instant::now() < deadline),
-        "session journal commit deadline expired"
-    );
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return Err(crate::JournalContention::COMMIT_DEADLINE.into());
+    }
     Ok(())
 }
 

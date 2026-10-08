@@ -119,7 +119,7 @@ fn every_explicit_close_path_closes_the_emptied_workspace() {
             assert!(mux.close_screen(screen).unwrap());
         }),
         ("close-tabs", &|mux, surface| {
-            let mutation = WorkspaceMutation::new("close-tabs-last", "test").unwrap();
+            let mutation = WorkspaceMutation::daemon("close-tabs-last", "test").unwrap();
             mux.close_tabs_for(vec![surface], false, None, &mutation).unwrap();
         }),
         ("tab.close", &|mux, surface| {

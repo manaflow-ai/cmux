@@ -2668,11 +2668,6 @@ impl WorkspaceRegistry {
         // the column ships without a version bump so older builds keep opening
         // this registry (they omit the column on writes and the durable
         // default applies).
-        {
-            let tx = connection.unchecked_transaction()?;
-            mutation_ledger::migrate_resource_mutations_add_actor(&tx)?;
-            tx.commit()?;
-        }
         if !terminal_hosts_has_on_exit_column(&connection)? {
             let tx = connection.unchecked_transaction()?;
             migrate_terminal_hosts_add_on_exit(&tx)?;
@@ -2726,6 +2721,7 @@ impl WorkspaceRegistry {
             create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
+            mutation_ledger::migrate_add_actor_columns(&tx)?;
             recover_resource_effects(&tx)?;
             // cx-1a6: no terminal env value rests in the exactly-once receipts.
             scrubbed = receipt_env::scrub_stored_receipts(&tx, &resource_effect_pepper)?;
