@@ -78,9 +78,10 @@ final class ExternalOpenController {
             return
         }
         // The user opened it from another app: a window on a top page (Home)
-        // leaves it for its workspace so the tab shows, as a shown internal
-        // page does. Without this the open waited until the user left Home.
+        // shows a workspace so the tab shows, as a shown internal page does.
+        // Without this the open waited until the user left Home.
         controller.leaveTopPage()
+        if controller.focusedPane == nil, !controller.showOpenableWorkspace() { createWorkspaceForPending(in: controller) }
         guard let pane = controller.focusedPane else { return pending.append(route) }
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
@@ -91,6 +92,25 @@ final class ExternalOpenController {
             windows.bringToFront(controller)
         }
         if !services.environment.noActivate { NSApp.activate() }
+    }
+
+    /// A workspace being created to hold what opens while a window lists
+    /// only Home; its content runs the queue (`flush`).
+    private var creatingWorkspace = false
+
+    private func createWorkspaceForPending(in controller: WindowController) {
+        guard !creatingWorkspace, let windows = services.windows else { return }
+        creatingWorkspace = true
+        let target = windows.targetWindow(preferring: controller.state.id)
+        let logger = services.daemon.logger
+        Task { [weak self] in
+            do {
+                _ = try await windows.createWorkspace(WorkspaceSpawn(), into: target)
+            } catch {
+                logger.error("create workspace for an opened file failed: \(String(describing: error), privacy: .public)")
+            }
+            self?.creatingWorkspace = false
+        }
     }
 
     /// A window installed its content: run what waited for one.
@@ -164,5 +184,24 @@ final class CmuxServicesProvider: NSObject {
             return names
         }
         return (pasteboard.string(forType: .string) ?? "").split(whereSeparator: \.isNewline).map(String.init).filter { $0.hasPrefix("/") }
+    }
+}
+
+extension WindowController {
+    /// Shows this window's most recently used workspace that is not Home,
+    /// for something opened from another app while Home is shown. False when
+    /// the window lists no other workspace. A workspace whose content is not
+    /// installed yet runs the queue when it is (`ExternalOpenController.flush`).
+    func showOpenableWorkspace() -> Bool {
+        let machines = services.machines
+        let members = services.windows.registry.members(of: state.id)
+        let openable = { (id: String) -> Bool in
+            guard let (workspace, _) = machines.workspace(id: id) else { return false }
+            return workspace.kind != "home"
+        }
+        guard let id = (state.workspaceRecency + members).first(where: openable) else { return false }
+        state.showWorkspace(id)
+        showWorkspace(requested: id)
+        return true
     }
 }
