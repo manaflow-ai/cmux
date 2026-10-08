@@ -82,6 +82,10 @@ Cases:
       no file declares `Self`.
  (am) An unrelated type in the route type's file is not part of the route, so
       its own `command ==` comparison neither adds a verb nor fails the guard.
+ (an) An option present in detailed VM help must also appear in the command
+      row, so option-level contract drift fails instead of staying invisible.
+ (ao) The high-level `vm exec` row spells out argv semantics and the explicit
+      `sh -c` escape hatch, so it cannot regress to describing a shell fragment.
 """
 
 import os
@@ -791,6 +795,29 @@ def case_am_unrelated_type_in_route_file(tmp):
     expect_pass(root, "case am", "10 dispatched verbs")
 
 
+def case_an_option_missing_from_contract_row(tmp):
+    doc = FIXTURE_DOC.replace(
+        "| `vm` | Cloud machine namespace. |",
+        "| `vm` | Cloud machine namespace. |\n"
+        "| `vm agent` | Start an agent. |",
+    ) + "\n- `cmux vm agent --help` -> `Usage: cmux vm agent [--wait]`\n"
+    root = make_fixture_root(tmp, "case-an", doc=doc)
+    expect_failure(root, "case an", "vm agent help advertises --wait")
+
+
+def case_ao_vm_exec_contract_wording():
+    contract = open(os.path.join(ROOT_DIR, DOC_RELATIVE), encoding="utf-8").read()
+    rows = [line for line in contract.splitlines() if line.startswith("| `vm exec ")]
+    assert len(rows) == 1, "expected exactly one high-level vm exec row"
+    row = rows[0]
+    for required in (
+        "argv semantics",
+        "Shell syntax",
+        "`cmux vm exec <id> -- sh -c '<script>'`",
+    ):
+        assert required in row, "vm exec row missing {!r}: {}".format(required, row)
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="cli-contract-verb-guard-") as tmp:
         case_a_real_repo()
@@ -832,6 +859,8 @@ def main():
         case_ak_substring_type_name(tmp)
         case_al_implicit_receiver(tmp)
         case_am_unrelated_type_in_route_file(tmp)
+        case_an_option_missing_from_contract_row(tmp)
+        case_ao_vm_exec_contract_wording()
     print("test_ci_cli_contract_verb_guard: ok")
     return 0
 

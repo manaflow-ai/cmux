@@ -6525,6 +6525,7 @@ struct CMUXCLI {
 
                         Example:
                           cmux vm exec \(vmId) -- uname -a
+                          cmux vm exec \(vmId) -- sh -c 'cd /work && echo "$HOME"'
                         """)
                 }
                 // Shell-quote each argv element before joining. Plain-space join previously
