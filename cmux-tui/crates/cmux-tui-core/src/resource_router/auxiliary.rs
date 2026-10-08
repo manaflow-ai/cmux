@@ -562,15 +562,7 @@ fn parse_terminal_id(value: &Value) -> Result<TerminalPublicId, ResourceError> {
 }
 
 fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)
+    request.mutation().map_err(resource_operation_error)
 }
 
 fn decode_intent<T: serde::de::DeserializeOwned>(
@@ -614,6 +606,7 @@ mod tests {
             ),
             selectors,
             fields: fields.as_object().unwrap().clone(),
+            actor: crate::Actor::local_user(),
         }
     }
 

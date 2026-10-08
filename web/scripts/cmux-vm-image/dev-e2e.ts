@@ -216,6 +216,9 @@ export async function main(argv = process.argv): Promise<number> {
           return { value: null, detail: await journalWait("report [a-z+]*(change|resume)[a-z+]* (applied|held)", 30_000, sentAt) };
         } catch (error) {
           const tail = await run(vm, `${AGENT_LOG} | tail -6`);
+          // The whole agent journal (no secret is logged) for the diagnosis; the VM is deleted after.
+          const full = await run(vm, `journalctl -m -u ${HOST_UNIT} --no-pager -o short-precise | grep -v -E 'sudo|pam_unix'`);
+          writeFileSync(path.join(outDir, "agent-journal.txt"), full.stdout);
           throw new Error(`${(error as Error).message}; agent log: ${tail.stdout.trim().split("\n").join(" | ")}`);
         }
       });

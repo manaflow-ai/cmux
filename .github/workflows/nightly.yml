@@ -145,6 +145,7 @@ jobs:
       short_sha: ${{ steps.decide.outputs.short_sha }}
       published_sha: ${{ steps.decide.outputs.published_sha }}
       should_publish: ${{ steps.decide.outputs.should_publish }}
+      notary_paused: ${{ steps.decide.outputs.notary_paused }}
       variants: ${{ steps.decide.outputs.variants }}
       feeds: ${{ steps.decide.outputs.feeds }}
       legacy_variant: ${{ steps.decide.outputs.legacy_variant }}
@@ -194,6 +195,10 @@ jobs:
           # Minimum age, in hours, of the commit NIGHTLY last published before
           # a push to main builds again. `0` restores publish-every-push.
           PUSH_MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_PUSH_MIN_INTERVAL_HOURS || '2' }}
+          # `1` stops nightly-next before its notary submission and publishes
+          # nothing (cx-f58x: every nightly-next DMG got notary status 7000
+          # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
+          NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -494,6 +499,11 @@ jobs:
             core.setOutput('short_sha', headSha.slice(0, 7));
             core.setOutput('published_sha', publishedSha || '');
             core.setOutput('should_publish', shouldPublish ? 'true' : 'false');
+            const notaryPaused = track === 'nightly-next' && process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1';
+            core.setOutput('notary_paused', notaryPaused ? 'true' : 'false');
+            if (notaryPaused && appBuildSelected) {
+              core.notice('nightly-next notarization is paused (repository variable NIGHTLY_NEXT_NOTARY_PAUSED=1): this run builds and signs, stops before the notary submission and publishes nothing.');
+            }
             core.summary
               .addHeading(`${channelIdentity.releaseName} build decision`)
               .addTable([
@@ -2368,7 +2378,14 @@ jobs:
           ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"
 
+      - name: Stop before notarization (NIGHTLY_NEXT_NOTARY_PAUSED)
+        if: needs.decide.outputs.notary_paused == 'true'
+        run: |
+          echo "::notice title=nightly-next notarization paused::NIGHTLY_NEXT_NOTARY_PAUSED=1: the signed app was built, no notary submission was made and nothing is published."
+          echo "### nightly-next notarization paused (NIGHTLY_NEXT_NOTARY_PAUSED=1): no notary submission, nothing published" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Notarize app ticket through final DMG
+        if: needs.decide.outputs.notary_paused != 'true'
         # The notary wait is bounded at 25m; the step adds 15m for the DMG
         # build and the post-notary staple, smoke and mounted-DMG checks, and
         # the job's 80m leaves about 40m for every other step (about 5m).
@@ -2387,10 +2404,11 @@ jobs:
             "$NIGHTLY_DMG_IMMUTABLE"
 
       - name: Gate distribution with syspolicy_check
+        if: needs.decide.outputs.notary_paused != 'true'
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
 
       - name: Generate Sparkle appcasts (nightly)
-        if: needs.decide.outputs.fast_build != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
         env:
           NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
           CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -2419,7 +2437,7 @@ jobs:
           fi
 
       - name: Upload nightly variant artifacts
-        if: needs.decide.outputs.fast_build != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-${{ matrix.variant }}
@@ -2431,7 +2449,7 @@ jobs:
           retention-days: 3
 
       - name: Upload fast arm64 dogfood artifact
-        if: needs.decide.outputs.fast_build == 'true'
+        if: needs.decide.outputs.fast_build == 'true' && needs.decide.outputs.notary_paused != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-fast-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -2466,7 +2484,7 @@ jobs:
     needs: [decide, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.notary_paused != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
@@ -3096,7 +3114,7 @@ jobs:
   # with release-next's scoped R2 token after the appcasts are live.
   sign-release-notes:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next'
+    if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.notary_paused != 'true'
     environment: content-signing
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10

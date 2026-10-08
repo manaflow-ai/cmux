@@ -10,7 +10,7 @@ import {
   metadataGuardProblems,
   metadataGuardRules,
   metadataGuardUnit,
-} from "../scripts/cmux-vm-image/metadata-guard";
+} from "../services/vms/images/metadataGuard";
 
 // Bead cx-5hr2: the baked image blocks the metadata service for every
 // process but root, and the daemon's browser host is isolated.

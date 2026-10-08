@@ -25,7 +25,7 @@ import {
   metadataGuardProblems,
   metadataGuardRules,
   metadataGuardUnit,
-} from "./metadata-guard";
+} from "../../services/vms/images/metadataGuard";
 
 const AGENT_SHELL_CURL = "curl -s -m 3 -o /dev/null -w '%{http_code}' http://169.254.169.254/latest/meta-data/; echo \" exit=$?\"";
 
