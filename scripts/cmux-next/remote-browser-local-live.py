@@ -2,6 +2,8 @@
 """Live check: Open Remote Browser Tab (Local Host) against the real remote browser host.
 
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --host-app <cmux-remote-browser-host.app> [--out DIR]
+  scripts/cmux-next/remote-browser-local-live.py --tag <tag> --bundled [--out DIR]
+(--bundled: the host the DEV build embeds in Contents/Helpers, with CMUX_NEXT_RB_HOST unset)
 
 Fleet GUI host only (cmux-lawrence-2), never a developer laptop. Launches the tagged app
 (no activation, automation socket, CMUX_NEXT_RB_HOST=--host-app), serves a local test page,
@@ -20,7 +22,9 @@ from tag_teardown import TagTeardown  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
-parser.add_argument("--host-app", required=True)
+host_source = parser.add_mutually_exclusive_group(required=True)
+host_source.add_argument("--host-app")
+host_source.add_argument("--bundled", action="store_true")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="rb-local-live-"))
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -30,6 +34,10 @@ if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
+if opts.bundled:
+    opts.host_app = os.path.join(APP, "Contents/Helpers/cmux-remote-browser-host.app")
+    if not os.path.isdir(opts.host_app):
+        sys.exit(f"{APP} embeds no remote browser host")
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 
 # Page 1: a pointer link, a long body (wheel), a select near the bottom edge, a date input,
@@ -139,7 +147,9 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,820", "CMUX_NEXT_RB_HOST": os.path.abspath(opts.host_app)}
+       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,820"}
+if not opts.bundled:
+    env["CMUX_NEXT_RB_HOST"] = os.path.abspath(opts.host_app)
 teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
