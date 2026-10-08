@@ -353,6 +353,7 @@ let package = Package(
             name: "CmuxNextHomeTests",
             dependencies: [
                 "CmuxNextHome", "CmuxNextDesign", "CmuxNextIcons",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
