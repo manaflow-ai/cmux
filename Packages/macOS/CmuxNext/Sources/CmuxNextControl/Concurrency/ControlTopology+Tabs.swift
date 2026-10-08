@@ -5,6 +5,11 @@ public struct ControlPaneInfo: Sendable, Hashable {
     public var selectedTabID: String?
     public var tabs: [ControlTabInfo]
     public var tabGroups: [ControlTabGroupInfo]
+    /// App-only page tabs the pane's strip lists and its daemon does not
+    /// hold (the App Store, Settings pages). `snapshot.get` lists them in
+    /// `tabs` with kind `page`; targets, counts and Search Tabs read the
+    /// daemon's `tabs` only (bd cx-5xsi).
+    public var pageTabs: [ControlPageTabInfo] = []
 
     public init(id: String, handle: String, name: String? = nil, selectedTabID: String? = nil,
                 tabs: [ControlTabInfo] = [], tabGroups: [ControlTabGroupInfo] = []) {
@@ -14,6 +19,25 @@ public struct ControlPaneInfo: Sendable, Hashable {
         self.selectedTabID = selectedTabID
         self.tabs = tabs
         self.tabGroups = tabGroups
+    }
+}
+
+/// An app-only page tab: an internal page (`app-store`, `settings`, ...)
+/// this app keeps in a pane's strip, outside the daemon tree.
+public struct ControlPageTabInfo: Sendable, Hashable {
+    /// The strip id (`local-page:<page>:<uuid>`).
+    public var id: String
+    /// The internal page id, for example `app-store`.
+    public var page: String
+    public var title: String
+    /// The pane shows this tab.
+    public var isSelected: Bool
+
+    public init(id: String, page: String, title: String, isSelected: Bool) {
+        self.id = id
+        self.page = page
+        self.title = title
+        self.isSelected = isSelected
     }
 }
 

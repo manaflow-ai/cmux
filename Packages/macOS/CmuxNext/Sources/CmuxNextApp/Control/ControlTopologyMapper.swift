@@ -13,8 +13,10 @@ extension ControlTabInfo {
 }
 
 enum ControlTopologyMapper {
-    /// `selectedTab` answers the tab a window shows for a pane (app-local).
-    static func topology(store: DaemonStore, selectedTab: (PaneModel) -> String?) -> ControlTopology {
+    /// `selectedTab` answers the tab a window shows for a pane (app-local);
+    /// `pageTabs` the app-only page tabs its strip lists (bd cx-5xsi).
+    static func topology(store: DaemonStore, selectedTab: (PaneModel) -> String?,
+                         pageTabs: (PaneModel) -> [ControlPageTabInfo] = { _ in [] }) -> ControlTopology {
         var topology = ControlTopology()
         topology.isLoaded = store.isLoaded
         topology.daemonState = switch store.connectionState {
@@ -29,11 +31,12 @@ enum ControlTopologyMapper {
         topology.workspaceGroups = groups.map { group in
             ControlWorkspaceGroupInfo(id: group.id.rawValue, name: group.name, color: group.color, isCollapsed: group.collapsed)
         }
-        topology.workspaces = store.workspaces.map { workspace(from: $0, selectedTab: selectedTab) }
+        topology.workspaces = store.workspaces.map { workspace(from: $0, selectedTab: selectedTab, pageTabs: pageTabs) }
         return topology
     }
 
-    static func workspace(from model: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> ControlWorkspaceInfo {
+    static func workspace(from model: WorkspaceModel, selectedTab: (PaneModel) -> String?,
+                          pageTabs: (PaneModel) -> [ControlPageTabInfo] = { _ in [] }) -> ControlWorkspaceInfo {
         var info = ControlWorkspaceInfo(
             id: model.id,
             handle: model.handle.description,
@@ -46,15 +49,16 @@ enum ControlTopologyMapper {
             screens: model.screens.map { screen in
                 ControlScreenInfo(id: screen.id, handle: screen.handle.description, name: screen.name,
                                   zoomedPaneID: screen.zoomedPane.flatMap { handle in screen.pane(handle)?.id },
-                                  panes: screen.panes.map { pane(from: $0, selectedTab: selectedTab) })
+                                  panes: screen.panes.map { pane(from: $0, selectedTab: selectedTab, pageTabs: pageTabs) })
             }
         )
         info.resourceID = model.resourceID?.rawValue
         return info
     }
 
-    static func pane(from model: PaneModel, selectedTab: (PaneModel) -> String?) -> ControlPaneInfo {
-        ControlPaneInfo(
+    static func pane(from model: PaneModel, selectedTab: (PaneModel) -> String?,
+                     pageTabs: (PaneModel) -> [ControlPageTabInfo] = { _ in [] }) -> ControlPaneInfo {
+        var info = ControlPaneInfo(
             id: model.id,
             handle: model.handle.description,
             name: model.name,
@@ -70,6 +74,8 @@ enum ControlTopologyMapper {
                                     })
             }
         )
+        info.pageTabs = pageTabs(model)
+        return info
     }
 
     static func tab(_ model: TabModel) -> ControlTabInfo {
