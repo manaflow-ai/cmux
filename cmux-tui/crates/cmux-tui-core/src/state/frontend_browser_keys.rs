@@ -149,7 +149,7 @@ impl Mux {
         placement: FrontendTabPlacement,
     ) -> anyhow::Result<FrontendBrowserTabOutcome> {
         record.validate()?;
-        WorkspaceMutation::new(key, "new-frontend-browser-tab")?;
+        WorkspaceMutation::daemon(key, "new-frontend-browser-tab")?;
         let _serial = KEYED_CREATION.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let pane_id = match pane {
             Some(pane) => Some(self.with_state(|state| {

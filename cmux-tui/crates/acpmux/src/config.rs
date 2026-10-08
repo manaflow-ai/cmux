@@ -88,8 +88,9 @@ pub struct HarnessProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Profile to move a session onto when this one's account reports a
-    /// usage or rate limit mid-turn. Discovery sets `claude-sr` (the
-    /// subrouter account pool) for `claude` when `sr` is installed.
+    /// usage or rate limit mid-turn. Discovery sets `claude-cr` for
+    /// `claude` only when a CodeRouter route is configured
+    /// (`coderouterClaudeRoute`); never the subrouter pool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
     /// Model family this profile belongs to (`claude`, `codex`, `opencode`,
@@ -152,7 +153,7 @@ pub struct SessionDefaults {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PermissionPolicy>,
     /// Profiles to use, in order, when a session asks for this family:
-    /// `["claude-sr", "claude"]` sends `-m claude` to the account pool
+    /// `["claude-cr", "claude"]` sends `-m claude` to the CodeRouter route
     /// first. Absent: the family's only profile, else the profile named
     /// like the family, else the request is refused.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -302,7 +303,8 @@ pub struct WebSocketConfig {
     #[serde(default, alias = "allowed_origins", skip_serializing_if = "Vec::is_empty")]
     pub allowed_origins: Vec<String>,
     /// `Host` names allowed besides loopback (a proxy that keeps a public
-    /// name). Both lists are read when the listener starts.
+    /// name, or the name peers dial on a non-loopback `listen`, where every
+    /// other name is refused). Both lists are read when the listener starts.
     #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
     /// `tokenRotated`: the saved token was replaced at the first start of a
@@ -382,7 +384,7 @@ pub struct Config {
     pub default_harness: Option<String>,
     /// Per-family (or per-profile) session defaults, keyed by family or
     /// profile name: `{"claude": {"model": "claude-opus-5", "effort": "high",
-    /// "policy": "approve-edits", "prefer": ["claude-sr", "claude"]}}`.
+    /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub defaults: BTreeMap<String, SessionDefaults>,
     /// Named bundles for `-p NAME`: `{"deepseek": {"harness": "opencode",
@@ -416,6 +418,14 @@ pub struct Config {
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
+    /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
+    /// Claude Code through a CodeRouter route. When it is set (env
+    /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
+    /// PATH, discovery adds the `claude-cr` profile and `-m claude` prefers
+    /// it. Unset (the default): no CodeRouter profile, and `claude` is the
+    /// user's own login. The binary names no route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coderouter_claude_route: Option<String>,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
@@ -586,7 +596,8 @@ impl Config {
             Config::default()
         };
         cfg.join_profiles(profiles::load(sources));
-        cfg.join_discovered(discover_harnesses());
+        let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
+        cfg.join_discovered(discover_harnesses(route.as_deref()));
         if cfg.default_harness.is_none() {
             cfg.auto_default = true;
             cfg.default_harness = cfg.harnesses.keys().next().cloned();
@@ -623,37 +634,37 @@ impl Config {
                 cfg.harnesses.insert(name, profile);
             }
         }
-        if cfg.harnesses.contains_key("claude-sr") {
+        // A configured CodeRouter route (`claude-cr`) is the first `claude`
+        // preference and the direct login's fallback. The subrouter pool
+        // (`claude-sr`) stays a profile a user names; discovery never
+        // prefers it or falls back onto it.
+        let route = CODEROUTER_CLAUDE_PROFILE;
+        if cfg.discovered.contains(route) {
             if let Some(c) = cfg.harnesses.get_mut("claude")
                 && c.fallback.is_none()
                 && c.kind == HarnessKind::ClaudeStdio
             {
-                c.fallback = Some("claude-sr".into());
-                cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
+                c.fallback = Some(route.into());
+                cfg.auto_fallback = Some(("claude".into(), route.into()));
             }
-            // `-m claude` goes to the pool first, then the direct login, and
-            // the pool falls back to the direct login. Only when the user
-            // wrote no preference of their own.
-            if cfg.discovered.contains("claude-sr") {
-                // The pool falls back to, and `-m claude` prefers, a direct
-                // login only on acpmux's own adapter, never an ACP `claude`.
-                let has_direct =
-                    cfg.harnesses.get("claude").is_some_and(|c| c.kind == HarnessKind::ClaudeStdio);
-                if let Some(p) = cfg.harnesses.get_mut("claude-sr")
-                    && p.fallback.is_none()
-                    && has_direct
-                {
-                    p.fallback = Some("claude".into());
-                }
-                let entry = cfg.defaults.entry("claude".into()).or_default();
-                if entry.prefer.is_empty() {
-                    entry.prefer = ["claude-sr", "claude"]
-                        .iter()
-                        .filter(|n| has_direct || **n != "claude")
-                        .map(|n| n.to_string())
-                        .collect();
-                    cfg.auto_prefer = Some(entry.prefer.clone());
-                }
+            // The route falls back to, and `-m claude` prefers, a direct
+            // login only on acpmux's own adapter, never an ACP `claude`.
+            let has_direct =
+                cfg.harnesses.get("claude").is_some_and(|c| c.kind == HarnessKind::ClaudeStdio);
+            if let Some(p) = cfg.harnesses.get_mut(route)
+                && p.fallback.is_none()
+                && has_direct
+            {
+                p.fallback = Some("claude".into());
+            }
+            let entry = cfg.defaults.entry("claude".into()).or_default();
+            if entry.prefer.is_empty() {
+                entry.prefer = [route, "claude"]
+                    .iter()
+                    .filter(|n| has_direct || **n != "claude")
+                    .map(|n| n.to_string())
+                    .collect();
+                cfg.auto_prefer = Some(entry.prefer.clone());
             }
         }
     }
@@ -786,7 +797,10 @@ pub use codex_adapter::{
     CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
     resolve_adapter_package_bin,
 };
-pub use discover::{discover_harnesses, discover_harnesses_from};
+pub use discover::{
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+};
 mod peer;
 pub use peer::PeerConfig;
 mod pool;
