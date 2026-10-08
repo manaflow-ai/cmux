@@ -48,6 +48,8 @@ final class AgentFeedQuestionUITests: XCTestCase {
         XCTAssertFalse(submit.isEnabled)
         customAnswer.typeText("Only failure notifications")
         XCTAssertTrue(submit.isEnabled)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertLessThanOrEqual(customAnswer.frame.maxY, app.keyboards.firstMatch.frame.minY - 8)
         capture(app, "05-custom-answer-focused")
 
         for _ in 0..<5 where !build.isHittable { app.swipeDown() }
