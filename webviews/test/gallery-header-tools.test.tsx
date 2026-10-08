@@ -42,6 +42,8 @@ test("header tools gallery scripts exercise keyboard navigation and focus return
     },
     pointer: { down: async () => undefined, move: async () => undefined, up: async () => undefined },
     waitFor: async () => undefined,
+    scroll: async () => undefined,
+    selectText: async () => undefined,
     find: () => fakeDocument.body!,
     document: fakeDocument,
   } satisfies PlayContext;
