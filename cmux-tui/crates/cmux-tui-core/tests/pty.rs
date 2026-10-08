@@ -1,15 +1,13 @@
-use cmux_tui_core::Actor;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::TryRecvError;
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}, mpsc::TryRecvError};
 use std::time::{Duration, Instant};
-
+mod support;
 use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::{AttachFrame, CursorShape, DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
 use ghostty_vt::RenderState;
+use support::DaemonMuxOps;
 
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
     let timeout_scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -137,7 +135,7 @@ fn assert_vt_state_size(
 fn surface_runs_command_and_screen_updates() {
     let mux = Mux::new("test-pty", shell_opts("printf 'marker-42\\n'; sleep 30"));
     let events = mux.subscribe();
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
 
     // Output event arrives...
     let got = wait_for(
@@ -160,13 +158,13 @@ fn surface_runs_command_and_screen_updates() {
     );
     assert!(text.is_some(), "marker never appeared on screen");
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]
 fn surface_resize_reports_whether_the_size_changed() {
     let mux = Mux::new(unique_session("test-resize-bool"), shell_opts("sleep 30"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     assert!(!surface.resize(80, 24).unwrap());
     assert_eq!(surface.size(), (80, 24));
@@ -177,7 +175,7 @@ fn surface_resize_reports_whether_the_size_changed() {
     assert_eq!(surface.size(), (1, 1));
     assert!(!surface.resize(0, 0).unwrap());
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]
@@ -287,15 +285,7 @@ fn headless_creation_uses_explicit_or_authoritative_client_size() {
 fn terminal_surface_follows_the_latest_view_and_never_freezes() {
     let mux = Mux::new("terminal-geometry-authority", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface_as(
-            &Actor::Daemon,
-            vec!["/bin/cat".to_string()],
-            None,
-            true,
-            None,
-            None,
-            Some((80, 24)),
-        )
+        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
     // This test is about latest-activity ownership; the default is "Fit everyone".
@@ -329,7 +319,7 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
         SurfaceOptions { command: Some(vec!["/usr/bin/true".to_string()]), ..Default::default() };
     let mux = Mux::new("test-exit", opts);
     let events = mux.subscribe();
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
 
     let got = wait_for(
         || {
@@ -354,7 +344,7 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
 fn control_socket_round_trip() {
     let mux =
         Mux::new(unique_session("test-sock"), shell_opts("printf 'socket-check\\n'; sleep 30"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -564,7 +554,7 @@ fn process_info_reports_live_foreground_cwd() {
     // piece of recorded spawn metadata.
     let script = format!("cd '{}' && exec sleep 30", target.display());
     let mux = Mux::new(unique_session("test-foreground-cwd"), shell_opts(&script));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -595,7 +585,7 @@ fn process_info_reports_live_foreground_cwd() {
     // adopting the live foreground directory.
     assert_ne!(observed["cwd"].as_str(), Some(target_path.as_str()));
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
     std::fs::remove_dir(&target).unwrap();
 }
@@ -608,7 +598,7 @@ fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear()
     }
     let script = format!("printf '{output}'; printf '\\033[H\\033[2Jprompt$ '; sleep 30");
     let mux = Mux::new(unique_session("test-read-screen-viewport"), shell_opts(&script));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((17, 5))).unwrap();
+    let surface = mux.new_workspace(None, Some((17, 5))).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -635,7 +625,7 @@ fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear()
         "read-screen should report the rendered viewport, got {text:?}"
     );
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -645,7 +635,7 @@ fn control_socket_wait_for_matches_one_shot_output_already_on_screen() {
         unique_session("test-wait-for-one-shot"),
         shell_opts("printf 'one-shot-ready\\n'; sleep 30"),
     );
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -682,7 +672,7 @@ fn control_socket_wait_for_matches_one_shot_output_already_on_screen() {
     assert_eq!(value["ok"], true, "wait-for failed after one-shot output: {line}");
     assert_eq!(value["data"]["matched"], true);
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -738,7 +728,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
         cursor_blink: Some(false),
         ..Default::default()
     });
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     surface
         .try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07\x1b]4;4;#112233\x07"))
         .unwrap();
@@ -770,14 +760,14 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
     assert_eq!(response["id"], 1);
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
 fn control_socket_attach_serializes_kitty_aliases_on_initial_and_resize_replay() {
     let mux = Mux::new(unique_session("test-attach-kitty-aliases"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     surface
         .try_with_terminal(|terminal| {
             terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,I=77,s=1,v=1,q=2;/wAA\x1b\\");
@@ -841,14 +831,14 @@ fn control_socket_attach_serializes_kitty_aliases_on_initial_and_resize_replay()
     assert_eq!(resized["kitty_image_aliases"], expected_aliases);
     restore_and_place(&resized, "replay", 21, 4);
 
-    let _ = mux.close_surface_as(&Actor::Daemon, surface.id);
+    let _ = mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
 fn control_socket_attach_vt_state_reports_builtin_cursor_without_config() {
     let mux = Mux::new(unique_session("test-attach-cursor-null"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -863,7 +853,7 @@ fn control_socket_attach_vt_state_reports_builtin_cursor_without_config() {
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -875,7 +865,7 @@ fn control_socket_attach_vt_state_reports_authoritative_cursor_before_replay() {
         cursor_blink: Some(false),
         ..Default::default()
     });
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     surface.try_with_terminal(|term| term.vt_write(b"\x1b[3 q")).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
@@ -891,7 +881,7 @@ fn control_socket_attach_vt_state_reports_authoritative_cursor_before_replay() {
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -910,7 +900,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
         cursor_blink: Some(false),
         ..Default::default()
     });
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let attach_stream = connect(&sock_path);
@@ -963,14 +953,14 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
         })
     );
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
 fn control_socket_attach_palette_is_full_sparse_state_and_reset_clears_all_256() {
     let mux = Mux::new(unique_session("test-attach-palette"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     let mut set_palette = Vec::new();
     for index in 0..=255u8 {
         set_palette.extend_from_slice(
@@ -1012,14 +1002,14 @@ fn control_socket_attach_palette_is_full_sparse_state_and_reset_clears_all_256()
     .expect("palette reset colors-changed event");
     assert_eq!(reset["palette"], serde_json::json!({}));
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
 fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
     let mux = Mux::new(unique_session("test-resize-event"), shell_opts("sleep 30"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let subscribe_stream = connect(&sock_path);
@@ -1111,7 +1101,7 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
     );
     assert!(repeated.is_none(), "same-size resize emitted another event: {repeated:?}");
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -1119,7 +1109,7 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
 fn default_colors_apply_to_existing_and_future_surfaces() {
     let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
     let mux = Mux::new("test-default-colors", opts);
-    let first = mux.new_workspace_as(&Actor::Daemon, None, None).unwrap();
+    let first = mux.new_workspace(None, None).unwrap();
 
     let colors = DefaultColors {
         fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
@@ -1138,7 +1128,7 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
     );
     assert_eq!(first_state.cursor_visual().unwrap(), (CursorShape::Underline, true));
 
-    let second = mux.new_tab_as(&Actor::Daemon, None, None, None).unwrap();
+    let second = mux.new_tab(None, None, None).unwrap();
     let mut second_state = RenderState::new().unwrap();
     second.snapshot(&mut second_state).unwrap();
     assert_eq!(
@@ -1147,8 +1137,8 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
     );
     assert_eq!(second_state.cursor_visual().unwrap(), (CursorShape::Underline, true));
 
-    mux.close_surface_as(&Actor::Daemon, first.id).unwrap();
-    mux.close_surface_as(&Actor::Daemon, second.id).unwrap();
+    mux.close_surface(first.id).unwrap();
+    mux.close_surface(second.id).unwrap();
 }
 
 #[test]
@@ -1159,7 +1149,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
             "printf 'before-attach\\n'; read line; printf 'after-%s\\n' \"$line\"; sleep 30",
         ),
     );
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
 
     // Wait until the pre-attach output landed in the terminal.
     let ok = wait_for(
@@ -1213,14 +1203,14 @@ fn attach_stream_replays_then_streams_without_duplication() {
     let text = mirror.plain_text().unwrap();
     assert_eq!(text.matches("before-attach").count(), 1, "duplicated replay: {text}");
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]
 fn default_byte_attach_replays_preexisting_kitty_image() {
     let mux = Mux::new(unique_session("test-attach-kitty"), shell_opts("cat"));
     mux.set_cell_pixel_size(9, 18);
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     surface
         .try_with_terminal(|terminal| {
             terminal.vt_write(b"\x1b_Ga=T,t=d,f=32,i=73,p=2,s=1,v=1,c=2,r=2,q=2;/wAAfw==\x1b\\");
@@ -1238,13 +1228,13 @@ fn default_byte_attach_replays_preexisting_kitty_image() {
     let graphics = mirror.kitty_graphics_snapshot().unwrap();
     assert_eq!(&*graphics.image(73).expect("pre-attach image").data, &[255, 0, 0, 127]);
     assert_eq!((graphics.placements[0].pixel_width, graphics.placements[0].pixel_height), (18, 36));
-    let _ = mux.close_surface_as(&Actor::Daemon, surface.id);
+    let _ = mux.close_surface(surface.id);
 }
 
 #[test]
 fn byte_attach_between_transmit_and_place_keeps_the_unplaced_image() {
     let mux = Mux::new(unique_session("test-attach-unplaced-kitty"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     surface
         .try_with_terminal(|terminal| {
             terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=76,s=1,v=1,q=2;/wAA\x1b\\");
@@ -1262,13 +1252,13 @@ fn byte_attach_between_transmit_and_place_keeps_the_unplaced_image() {
 
     mirror.vt_write(b"\x1b_Ga=p,i=76,p=5,c=1,r=1,q=2;\x1b\\");
     assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements.len(), 1);
-    let _ = mux.close_surface_as(&Actor::Daemon, surface.id);
+    let _ = mux.close_surface(surface.id);
 }
 
 #[test]
 fn attach_and_resize_replays_restore_the_osc_title() {
     let mux = Mux::new(unique_session("test-attach-osc-title"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     surface.try_with_terminal(|terminal| terminal.vt_write(b"\x1b]2;renamed tab\x07")).unwrap();
 
     let attach = surface.attach_stream().unwrap();
@@ -1323,7 +1313,7 @@ fn attach_and_resize_replays_restore_the_osc_title() {
 #[test]
 fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
     let mux = Mux::new(unique_session("test-attach-inflight-kitty"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     surface
         .try_with_terminal(|terminal| {
             terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=79,s=1,v=2,m=1,q=2;////\x1b\\");
@@ -1390,13 +1380,13 @@ fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
     );
     assert_eq!(&*initial.kitty_graphics_snapshot().unwrap().image(79).unwrap().data, &[255; 6]);
     assert_eq!(&*resized.kitty_graphics_snapshot().unwrap().image(79).unwrap().data, &[255; 6]);
-    let _ = mux.close_surface_as(&Actor::Daemon, surface.id);
+    let _ = mux.close_surface(surface.id);
 }
 
 #[test]
 fn render_attach_snapshot_contains_preexisting_kitty_image() {
     let mux = Mux::new(unique_session("test-render-attach-kitty"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     surface
         .try_with_terminal(|terminal| {
             terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=74,p=0,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\");
@@ -1420,13 +1410,13 @@ fn render_attach_snapshot_contains_preexisting_kitty_image() {
         ),
         "unchanged render attachments must share decoded Kitty pixels"
     );
-    let _ = mux.close_surface_as(&Actor::Daemon, surface.id);
+    let _ = mux.close_surface(surface.id);
 }
 
 #[test]
 fn render_attach_initial_snapshot_includes_unplaced_image_for_later_placement() {
     let mux = Mux::new(unique_session("test-render-attach-unplaced-kitty"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     surface
         .try_with_terminal(|terminal| {
             terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=77,s=1,v=1,q=2;/wAA\x1b\\");
@@ -1439,19 +1429,19 @@ fn render_attach_initial_snapshot_includes_unplaced_image_for_later_placement() 
         &[255, 0, 0]
     );
     assert!(attach.initial.frame.kitty_graphics.placements.is_empty());
-    let _ = mux.close_surface_as(&Actor::Daemon, surface.id);
+    let _ = mux.close_surface(surface.id);
 }
 
 #[test]
 fn byte_attach_cursor_snapshot_does_not_fan_out_a_render_frame() {
     let mux = Mux::new(unique_session("test-attach-no-render-fanout"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     let render = surface.attach_render_stream().unwrap();
 
     let _byte_attach = surface.attach_stream().unwrap();
 
     assert!(matches!(render.stream.try_recv(), Err(TryRecvError::Empty)));
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]
@@ -1462,7 +1452,7 @@ fn attach_stream_orders_resize_between_output_frames() {
             "printf '\\033]4;4;#112233\\007before-resize\\n'; read line; printf 'after-resize\\n'; sleep 30",
         ),
     );
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
     wait_for(
         || {
             surface
@@ -1515,7 +1505,7 @@ fn attach_stream_orders_resize_between_output_frames() {
         }
     }
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]
@@ -1524,7 +1514,7 @@ fn render_attach_headless_fans_one_frame_to_render_and_byte_consumers() {
         unique_session("test-render-multi"),
         shell_opts("stty -echo -icanon; printf ready; cat"),
     );
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     wait_for(
         || {
             surface
@@ -1616,14 +1606,14 @@ fn render_attach_headless_fans_one_frame_to_render_and_byte_consumers() {
     );
     assert!(output.is_some(), "byte attachment stopped while render attachment was active");
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
 fn render_attach_snapshot_and_raced_write_have_no_gap_or_duplicate_frame() {
     let mux = Mux::new(unique_session("test-render-race"), shell_opts("stty -echo; cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((24, 3))).unwrap();
+    let surface = mux.new_workspace(None, Some((24, 3))).unwrap();
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
     stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
@@ -1659,14 +1649,14 @@ fn render_attach_snapshot_and_raced_write_have_no_gap_or_duplicate_frame() {
     assert!(saw_response, "render attach response was not delivered");
     assert_eq!(marker_events, 1, "raced output was missing or duplicated across snapshot/delta");
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
 fn render_attach_resize_is_a_full_replacement_at_the_new_size() {
     let mux = Mux::new(unique_session("test-render-resize"), shell_opts("cat"));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
     stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
@@ -1737,7 +1727,7 @@ fn render_attach_resize_is_a_full_replacement_at_the_new_size() {
     assert_eq!(delta["size"], serde_json::json!({"cols": 31, "rows": 6}));
     assert_eq!(delta["rows"].as_array().unwrap().len(), 6);
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -1746,7 +1736,7 @@ fn read_scrollback_pages_oldest_rows_and_clamps_bounds() {
     let script =
         "i=0; while [ $i -lt 30 ]; do printf 'history-%02d\\n' $i; i=$((i+1)); done; sleep 30";
     let mux = Mux::new(unique_session("test-read-scrollback"), shell_opts(script));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((20, 4))).unwrap();
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     wait_for(
         || surface.with_terminal(|term| (term.history_rows() >= 20).then_some(())).flatten(),
         Duration::from_secs(10),
@@ -1802,7 +1792,7 @@ fn read_scrollback_pages_oldest_rows_and_clamps_bounds() {
     );
     assert!(empty["data"]["rows"].as_array().unwrap().is_empty());
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -1893,7 +1883,7 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
             .any(|tab| tab["surface"] == surface)
     );
 
-    mux.close_surface_as(&Actor::Daemon, surface).unwrap();
+    mux.close_surface(surface).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -2151,7 +2141,7 @@ fn frontend_projection_round_trips_without_advancing_workspace_revision() {
 fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
     let script = "stty -echo -icanon min 1 time 0; printf 'paste-ready\\n'; od -An -tx1 -N 14; od -An -tx1 -N 3; sleep 30";
     let mux = Mux::new(unique_session("test-paste-mode"), shell_opts(script));
-    let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 8))).unwrap();
+    let surface = mux.new_workspace(None, Some((80, 8))).unwrap();
     wait_for(
         || {
             surface
@@ -2239,7 +2229,7 @@ fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
     )
     .expect("raw paste bytes");
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -2249,7 +2239,7 @@ fn new_tab_on_empty_headless_session_creates_workspace() {
     // it must create a workspace around the new tab instead of panicking.
     let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
     let mux = Mux::new("test-headless", opts);
-    let surface = mux.new_tab_as(&Actor::Daemon, None, None, None).unwrap();
+    let surface = mux.new_tab(None, None, None).unwrap();
     mux.with_state(|s| {
         assert_eq!(s.workspaces.len(), 1);
         assert_eq!(s.panes.len(), 1);
@@ -2257,8 +2247,8 @@ fn new_tab_on_empty_headless_session_creates_workspace() {
 
     // Unknown pane ids error without leaking a surface.
     let before = mux.surface_count();
-    assert!(mux.new_tab_as(&Actor::Daemon, Some(9999), None, None).is_err());
+    assert!(mux.new_tab(Some(9999), None, None).is_err());
     assert_eq!(mux.surface_count(), before);
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
 }

@@ -1373,7 +1373,7 @@ fn prune_lane_to_recovery_releases(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, crate::local_actor::TuiMuxOps};
     mod retire_tests;
     use cmux_tui_core::{Mux as TestMux, SurfaceOptions as TestSurfaceOptions};
 
@@ -1406,13 +1406,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux
-            .new_workspace_as(
-                &cmux_tui_core::Actor::local_user(),
-                Some("work".to_string()),
-                Some((20, 8)),
-            )
-            .unwrap();
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         while !surface.is_dead() {
             assert!(Instant::now() < deadline, "terminal host did not exit");
@@ -1447,8 +1441,7 @@ mod tests {
     #[test]
     fn exit_observed_after_a_failed_write_keeps_delivery_ambiguous() {
         let mux = TestMux::new("post-write-exit-delivery-test", TestSurfaceOptions::default());
-        let surface =
-            mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
         let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
         let (failure_tx, failure_rx) = std::sync::mpsc::channel();
         let dispatcher = PtyInputDispatcher::spawn(move |failure| {
@@ -2589,8 +2582,7 @@ mod tests {
             "ambiguous-local-press-recovery-test",
             cmux_tui_core::SurfaceOptions::default(),
         );
-        let surface =
-            mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
         let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
         let mut press = PtyInputEvent::input(
             surface.id,
@@ -2619,7 +2611,7 @@ mod tests {
             "lane quarantine rejected the matching recovery release"
         );
         assert!(dispatcher.shutdown(Duration::from_secs(1)));
-        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]

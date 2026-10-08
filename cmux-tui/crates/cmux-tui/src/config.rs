@@ -5995,7 +5995,7 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, crate::local_actor::TuiMuxOps};
     #[cfg(unix)]
     use crate::test_exec::write_executable;
     use ratatui::buffer::CellWidth;
@@ -6516,8 +6516,7 @@ mod tests {
             SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() },
         );
         mux.set_default_colors(defaults);
-        let surface =
-            mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 4))).unwrap();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
         surface
             .try_with_terminal(|term| {
                 term.vt_write(b"\x1b[31mR");
@@ -6566,7 +6565,7 @@ mod tests {
         assert_eq!(colors.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));
         assert_eq!(colors.selection_fg, Some(Rgb { r: 0xfe, g: 0xfe, b: 0xfe }));
 
-        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
+        mux.close_surface(surface.id).unwrap();
         mux.shutdown();
         server::cleanup(&socket);
     }

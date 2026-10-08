@@ -1,6 +1,6 @@
 //! Resize replay and kitty image alias state.
 
-use super::*;
+use {super::*, crate::local_actor::TuiMuxOps};
 
 #[test]
 fn two_views_of_one_terminal_keep_independent_scroll_offsets() {
@@ -237,8 +237,7 @@ fn real_server_attach_and_resize_preserve_kitty_number_aliases() {
             ..Default::default()
         },
     );
-    let authoritative =
-        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 4))).unwrap();
+    let authoritative = mux.new_workspace(None, Some((20, 4))).unwrap();
     authoritative
         .try_with_terminal(|terminal| {
             terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,I=77,s=1,v=1,q=2;/wAA\x1b\\");
@@ -307,7 +306,7 @@ fn real_server_attach_and_resize_preserve_kitty_number_aliases() {
     }));
 
     remote.begin_shutdown();
-    let _ = mux.close_surface_as(&cmux_tui_core::Actor::local_user(), authoritative.id);
+    let _ = mux.close_surface(authoritative.id);
     cmux_tui_core::server::cleanup(&socket);
 }
 

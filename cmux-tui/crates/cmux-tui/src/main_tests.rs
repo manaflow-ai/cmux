@@ -16,7 +16,7 @@ fn loopback_forward_denies_every_daemon_listener_port() {
 
 use std::time::Duration;
 
-use super::*;
+use {super::*, crate::local_actor::TuiMuxOps};
 
 fn args(values: &[&str]) -> Args {
     parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
@@ -462,8 +462,7 @@ fn remote_host_colors_stay_client_local_across_concurrent_attaches() {
         SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() },
     );
     mux.set_default_colors(dark);
-    let authoritative =
-        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((12, 4))).unwrap();
+    let authoritative = mux.new_workspace(None, Some((12, 4))).unwrap();
     let socket = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
 
     let existing = Session::Remote(RemoteSession::connect(&socket).unwrap());

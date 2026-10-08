@@ -1,14 +1,13 @@
 #![cfg(unix)]
-use cmux_tui_core::Actor;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::os::unix::net::UnixStream;
-use std::sync::Mutex;
-use std::sync::mpsc;
+use std::sync::{Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
-
+mod support;
 use cmux_tui_core::{BrowserStatus, Mux, SurfaceKind, SurfaceOptions, server};
+use support::DaemonMuxOps;
 use serde_json::{Value, json};
 use tungstenite::{Message, accept};
 
@@ -1017,7 +1016,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     .expect("navigate errorText surfaced as browser failure");
     assert_eq!(failed, "net::ERR_NAME_NOT_RESOLVED");
 
-    mux.close_surface_as(&Actor::Daemon, surface).unwrap();
+    mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();
@@ -1155,7 +1154,7 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
     );
 
     let close_started = Instant::now();
-    mux.close_surface_as(&Actor::Daemon, surface).unwrap();
+    mux.close_surface(surface).unwrap();
     assert!(
         close_started.elapsed() < Duration::from_millis(500),
         "wedged browser close blocked for {:?}",
@@ -1313,7 +1312,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
         "forward must not be swallowed by back through a shared latest-wins slot"
     );
 
-    mux.close_surface_as(&Actor::Daemon, surface).unwrap();
+    mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();
@@ -1437,7 +1436,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
     );
 
     release_tx.send(()).unwrap();
-    mux.close_surface_as(&Actor::Daemon, surface).unwrap();
+    mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();
@@ -1511,7 +1510,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     mux.set_cell_pixel_size(100, 100);
     let surface = mux
-        .new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((100, 100)))
+        .new_browser_tab("example.test".to_string(), None, Some((100, 100)))
         .expect("browser tab");
     let _provider = browser_provider(
         &socket_path,
@@ -1630,9 +1629,8 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let surface = mux
-        .new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5)))
-        .expect("browser tab");
+    let surface =
+        mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
     let _provider = browser_provider(
         &socket_path,
         format!("ws://{addr}/devtools/browser/fake"),
@@ -1706,9 +1704,8 @@ fn provider_disconnect_reconnects_without_closing_canonical_browser_topology() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let surface = mux
-        .new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5)))
-        .expect("browser tab");
+    let surface =
+        mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
     let tab_id = surface_tab_id(&mux, surface.id);
     let mut provider = browser_provider(
         &socket_path,
@@ -1767,7 +1764,7 @@ fn provider_disconnect_reconnects_without_closing_canonical_browser_topology() {
         assert!(state.surfaces.contains_key(&surface.id));
     });
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     drop(provider);
     mux.shutdown();
     server::cleanup(&socket_path);
@@ -1852,9 +1849,8 @@ fn provider_target_revision_reattaches_on_the_same_browser_connection() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let surface = mux
-        .new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5)))
-        .expect("browser tab");
+    let surface =
+        mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
     let tab_id = surface_tab_id(&mux, surface.id);
     let endpoint = format!("ws://{addr}/devtools/browser/shared");
     let mut provider = browser_provider(&socket_path, endpoint.clone(), &tab_id, "target-first");
@@ -1888,7 +1884,7 @@ fn provider_target_revision_reattaches_on_the_same_browser_connection() {
         assert!(state.surfaces.contains_key(&surface.id));
     });
 
-    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
+    mux.close_surface(surface.id).unwrap();
     assert_eq!(detached_rx.recv_timeout(Duration::from_secs(10)).unwrap(), "session-second");
     drop(provider);
     mux.shutdown();
@@ -1915,7 +1911,7 @@ fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     let started = Instant::now();
     let surface = mux
-        .new_browser_tab_as(&Actor::Daemon, "example.test".to_string(), None, Some((10, 5)))
+        .new_browser_tab("example.test".to_string(), None, Some((10, 5)))
         .expect("tab insertion should not wait for CDP bootstrap");
     assert!(
         started.elapsed() < test_duration(Duration::from_millis(500)),

@@ -8,6 +8,7 @@
 
 #[cfg(unix)]
 mod acp;
+mod local_actor;
 #[cfg(unix)]
 mod agent_browser_provider;
 mod agent_hook_install;
