@@ -23,8 +23,11 @@ import Testing
     }
 
     /// The people list and the transcript side by side in a see-through window.
-    static func home(light: Bool) async -> (NSWindow, HomeSidebarView, HomeNativeTranscriptView) {
-        let (window, transcript, _) = await HomeFirstRunTests.view()
+    /// - Parameter host: The window to show them in (default: the transcript's own test window).
+    static func home(light: Bool, in host: NSWindow? = nil) async -> (NSWindow, HomeSidebarView, HomeNativeTranscriptView) {
+        let (own, transcript, _) = await HomeFirstRunTests.view()
+        let window = host ?? own
+        if host != nil { own.contentView = nil; own.close() }
         let theme = scope(light: light)
         theme.adopt(window)
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 948, height: 700))
