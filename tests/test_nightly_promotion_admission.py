@@ -32,6 +32,7 @@ const sourceRun = {
   head_sha: scenario.sha,
   head_branch: 'feat-cmux-next',
   event: 'push',
+  conclusion: 'failure',
 };
 const actions = {
   listWorkflowRuns: Symbol('listWorkflowRuns'),
@@ -49,14 +50,22 @@ const github = {
   },
   paginate: async (method, params) => {
     if (method === actions.listWorkflowRuns) {
+      if (params.workflow_id !== 'cmux-next.yml' || params.event !== 'push' ||
+          params.branch !== 'feat-cmux-next' || params.head_sha !== scenario.sha) {
+        throw new Error(`workflow lookup was not exact: ${JSON.stringify(params)}`);
+      }
       calls.runs += 1;
       if (calls.runs <= scenario.emptyRuns) return [];
       return [sourceRun];
     }
     if (method === actions.listJobsForWorkflowRun) {
+      if (params.run_id !== sourceRun.id || params.filter !== 'latest') {
+        throw new Error(`job lookup was not exact: ${JSON.stringify(params)}`);
+      }
       calls.jobs += 1;
       return [{
         name: scenario.jobName,
+        status: scenario.jobStatus,
         conclusion: scenario.jobConclusion,
       }];
     }
@@ -105,13 +114,15 @@ def promotion_script() -> str:
     return next(step["with"]["script"] for step in steps if step.get("name") == "Move nightly-next")
 
 
-def run_admission(*, empty_runs: int, job_name: str, job_conclusion: str) -> dict:
+def run_admission(*, empty_runs: int, job_name: str, job_conclusion: str,
+                  job_status: str = "completed") -> dict:
     scenario = {
         "script": promotion_script(),
         "sha": SHA,
         "emptyRuns": empty_runs,
         "jobName": job_name,
         "jobConclusion": job_conclusion,
+        "jobStatus": job_status,
     }
     env = {**os.environ, "SCENARIO": json.dumps(scenario)}
     result = subprocess.run(
@@ -150,9 +161,21 @@ def test_admission_still_rejects_a_missing_successful_release_compile() -> None:
     assert "no cmux-next.yml push run" in result["failed"][0]
 
 
+def test_admission_rejects_a_success_conclusion_from_an_in_progress_job() -> None:
+    result = run_admission(
+        empty_runs=0,
+        job_name="cmux-next Release compile (Xcode 26)",
+        job_conclusion="success",
+        job_status="in_progress",
+    )
+    assert result["calls"]["updates"] == 0
+    assert result["failed"]
+
+
 def main() -> None:
     test_admission_retries_a_temporarily_missing_source_run()
     test_admission_still_rejects_a_missing_successful_release_compile()
+    test_admission_rejects_a_success_conclusion_from_an_in_progress_job()
     print("PASS: nightly promotion admission")
 
 
