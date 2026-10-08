@@ -5,7 +5,7 @@ updated: 2026-06-22. Branch `feat-codex-detection`, PR #6655 (do-not-merge
 pending on-device dogfood). Base/return point: tag `agent-session-sot-landmark`.
 
 Done: `cmux-codex-wrapper` (PATH shim, Claude-parity per-invocation `[hooks]`
-injection via `--enable codex_hooks --dangerously-bypass-hook-trust -c hooks.<event>=...`),
+injection via `--enable hooks --dangerously-bypass-hook-trust -c hooks.<event>=...`),
 codex PATH-shim install sibling to the claude shim, `WorkstreamEvent` +
 `feed.push` + `noteHookEvent` now carry `surface_id`/`transcript_path`. Two
 preflight-caught bugs fixed: phantom `fallback-*` duplicate (removed the

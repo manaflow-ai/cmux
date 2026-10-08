@@ -41,7 +41,7 @@ from claude_teams_test_utils import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-codex-wrapper"
-ACTIVATION_PREFIX = ["--enable", "codex_hooks", "--dangerously-bypass-hook-trust"]
+ACTIVATION_PREFIX = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
 # The events named in issue 12081. The CLI's own baseline (an empty hooks.json)
 # defines the complete injected set, which newer schemas extend.
 ISSUE_EVENTS = [

@@ -69,8 +69,8 @@ struct CodexHookPathSafetyTests {
         command: (String) -> String
     ) -> [String] {
         var arguments = joined
-            ? ["--enable=codex_hooks", "--dangerously-bypass-hook-trust"]
-            : ["--enable", "codex_hooks", "--dangerously-bypass-hook-trust"]
+            ? ["--enable=hooks", "--dangerously-bypass-hook-trust"]
+            : ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for (index, event) in CodexHookInjectionSchema.current.events.enumerated() {
             let value = event.configValue(command: command)
             let option = index.isMultiple(of: 2) ? "-c" : "--config"

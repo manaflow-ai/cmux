@@ -170,7 +170,7 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 ## Codex wrapper precedence
 
 When cmux launches Codex and at least one cmux event is not already covered by
-a persistent cmux handler in `hooks.json`, the wrapper adds `--enable codex_hooks`,
+a persistent cmux handler in `hooks.json`, the wrapper adds `--enable hooks`,
 `--dangerously-bypass-hook-trust`, and one `-c hooks.<event>=...` value per
 uncovered event, for that invocation only. When `cmux hooks codex install` has
 already installed every cmux handler, the wrapper adds nothing, which also

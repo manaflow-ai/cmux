@@ -294,7 +294,7 @@ struct CodexHookInjectionStrippingTests {
 
     @Test("Keeps user hook enabling flags when cmux injection is stripped")
     func keepsUserHookEnablingFlagsWhenCmuxInjectionIsStripped() {
-        // cmux splices exactly one `--enable codex_hooks` + one trust flag alongside
+        // cmux splices exactly one `--enable hooks` + one trust flag alongside
         // its marker configs; the user's own enable flag and hook config after
         // them must survive stripping so the preserved hook stays enabled.
         let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
@@ -321,6 +321,24 @@ struct CodexHookInjectionStrippingTests {
                 "--model",
                 "gpt-5.5",
             ]
+        )
+    }
+
+    @Test("Strips the deprecated Codex hooks feature alias from saved cmux argv")
+    func stripsDeprecatedCodexHooksFeatureAlias() {
+        let injected = codexWrapperHookArguments { subcommand in
+            legacyNamedScriptPath(subcommand)
+        }
+        let arguments = ["codex"] + injected
+            .enumerated()
+            .map { index, argument in index == 1 ? "codex_hooks" : argument }
+            + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
         )
     }
 
@@ -361,7 +379,7 @@ struct CodexHookInjectionStrippingTests {
         ))
         #expect(resume.contains("--dangerously-bypass-hook-trust"))
         #expect(resume.contains("--enable"))
-        #expect(resume.contains("codex_hooks"))
+        #expect(resume.contains("hooks"))
         #expect(resume.contains { $0.contains("cmux-codex-hook") })
         #expect(resume.first == codexExecutable)
         #expect(resume.contains("--dangerously-bypass-approvals-and-sandbox"))
@@ -653,8 +671,8 @@ struct CodexHookInjectionStrippingTests {
         command: (String) -> String
     ) -> [String] {
         var arguments = joined
-            ? ["--enable=codex_hooks", "--dangerously-bypass-hook-trust"]
-            : ["--enable", "codex_hooks", "--dangerously-bypass-hook-trust"]
+            ? ["--enable=hooks", "--dangerously-bypass-hook-trust"]
+            : ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for (index, event) in events.enumerated() {
             let value = event.configValue(command: command)
             let option = index.isMultiple(of: 2) ? "-c" : "--config"
@@ -714,7 +732,7 @@ struct CodexHookInjectionStrippingTests {
     /// launch-time marker proving the PATH shim wrapper spawned the process.
     private let cmuxCodexHookArgs = [
         "--enable",
-        "codex_hooks",
+        "hooks",
         "--dangerously-bypass-hook-trust",
         "-c=hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
     ]
