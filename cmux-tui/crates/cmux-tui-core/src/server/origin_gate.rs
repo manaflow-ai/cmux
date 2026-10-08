@@ -292,3 +292,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "page_access_tests.rs"]
 mod page_access_tests;
+
+#[cfg(all(test, unix))]
+#[path = "pairing_gate_tests.rs"]
+mod pairing_gate_tests;
