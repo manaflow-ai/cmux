@@ -80,4 +80,25 @@ struct WindowTopPagePaintHoldTests {
         #expect(workspace.superview === root.contentHost, "the window went empty before the page painted")
         #expect(page.alphaValue == 0)
     }
+
+    /// Cursor review (#18612): a second top page that has not painted either
+    /// keeps the workspace, not the first page, which never showed.
+    @Test func aSecondUnpaintedPageKeepsTheWorkspace() {
+        let root = root()
+        let workspace = NSView()
+        root.show(workspace)
+        let first = PanePaintHoldTests.Unpainted()
+        root.show(first)
+        let second = PanePaintHoldTests.Unpainted()
+        root.show(second)
+        #expect(root.content === second)
+        #expect(workspace.superview === root.contentHost, "the window went empty before the second page painted")
+        #expect(first.superview == nil)
+        #expect(first.alphaValue == 1, "a page view is reused; it must not stay invisible")
+        #expect(second.alphaValue == 0)
+
+        second.paint()
+        #expect(workspace.superview == nil)
+        #expect(second.alphaValue == 1)
+    }
 }
