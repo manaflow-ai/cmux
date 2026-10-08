@@ -166,9 +166,9 @@ public final class ImportStepModel {
 
     /// Checks only `preset` (the cookie import card opens the step on
     /// cookies); the person can still check the other kinds. Ignored while
-    /// an import or its consent screen runs.
+    /// an import or its consent screen runs; a finished import may be followed by another.
     public func preset(kinds preset: Set<ImportDataKind>, into target: String? = nil) {
-        guard canEditSelection || phase == .idle || phase == .detecting else { return }
+        guard !isImporting, !isConfirmingPasswords else { return }
         presetKinds = preset
         kinds = preset.filter { $0 != .passwords || passwordStore }
         mergeTarget = target
@@ -176,7 +176,7 @@ public final class ImportStepModel {
 
     /// Back to one new profile per source (the step opened from anywhere but the card).
     public func resetTarget() {
-        guard canEditSelection || phase == .idle || phase == .detecting else { return }
+        guard !isImporting, !isConfirmingPasswords else { return }
         mergeTarget = nil
     }
 
