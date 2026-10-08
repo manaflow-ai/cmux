@@ -18,7 +18,9 @@ afterEach(() => {
 async function openMenu(rendered: Rendered, key: string): Promise<HTMLElement> {
   const title = rowElement(rendered.container, key).querySelector(".row-title")!;
   await act(async () => {
-    title.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }));
+    title.dispatchEvent(
+      new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+    );
   });
   const menu = rowElement(rendered.container, key).querySelector<HTMLElement>("[role=menu]");
   if (!menu) throw new Error(`no menu opened on ${key}`);
