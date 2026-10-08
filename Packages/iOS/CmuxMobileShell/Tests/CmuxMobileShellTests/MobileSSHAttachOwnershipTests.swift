@@ -15,7 +15,7 @@ struct MobileSSHAttachOwnershipTests {
 
         let (attaches, attachContinuation) = AsyncStream<Int>.makeStream()
         private(set) var attachCount = 0
-        private var pending: [Int: CheckedContinuation<any MobileSSHAttachedTerminal, Error>] = [:]
+        private var pending: [Int: CheckedContinuation<any MobileSSHAttachedTerminal, any Error>] = [:]
         private var handlers: [Int: EventHandler] = [:]
         private(set) var detached: [Int] = []
         private(set) var writes: [Int: Data] = [:]
@@ -85,7 +85,7 @@ struct MobileSSHAttachOwnershipTests {
         try await computers.saveHost(host)
 
         let provider = DelayedProvider()
-        computers.installProviderForTesting(tmux: provider, plain: nil, hostID: host.id)
+        computers.installProviderForTesting(provider, hostID: host.id)
         await computers.refreshWorkspaces(hostID: host.id)
         let workspace = try #require(computers.workspacesByHostSnapshot(host.id)?.first)
         let terminal = try #require(workspace.terminals.first)
