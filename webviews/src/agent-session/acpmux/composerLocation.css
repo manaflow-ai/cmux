@@ -155,7 +155,8 @@
 .acpmux-composer-box {
   --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
   overflow: visible;
-  border-radius: 18px;
+  --acpmux-composer-radius: 18px;
+  border-radius: var(--acpmux-composer-radius);
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-composer-glass));
 }
 @media (prefers-reduced-transparency: reduce) {
