@@ -5229,6 +5229,7 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
     shard_take = shard_steps["Take this Mac's gui token"]
     assert "take-gui" in shard_take["run"]
     assert shard_take["env"]["GLAEDA_CANONICAL_ROOT"] == "/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root"
+    assert shard_take["env"]["CMUX_GUI_TOKEN_RUNNER"] == shards["runs-on"]
 
     def shard_take_gui(requested_runner: str, helper_status: int) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as tmp:
