@@ -11,7 +11,13 @@ export const reject = (code: string, message: string, details?: unknown): { ok: 
 
 /** Decodes params with the op's Effect Schema (pure; runs on owner and mirrors alike). */
 /** install.register_server params: install.register's plus the VM install's bound machine. */
-export const InstallRegisterServerParams = Schema.Struct({ ...InstallRegister.params.fields, bound_machine: Schema.optionalKey(MachineId), capabilities: Schema.optionalKey(ServerCapabilities) })
+export const InstallRegisterServerParams = Schema.Struct({
+  ...InstallRegister.params.fields,
+  bound_machine: Schema.optionalKey(MachineId),
+  capabilities: Schema.optionalKey(ServerCapabilities),
+  /** When the server last saw the principal's sso_team fresh (a pairing approval, a machine create; cx-44j.51). */
+  sso_seen_at: Schema.optionalKey(Schema.Int)
+})
 
 export const decodeParams = <T>(op: CloudOpDef, params: unknown): { ok: true; value: T } | ({ ok: false } & Reject) => {
   const exit = Schema.decodeUnknownExit(op.params as Schema.Codec<T, unknown>)(params ?? {})
@@ -270,10 +276,10 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       risk: "mutate-shared",
       target: "team",
       principals: ["system"],
-      params: Schema.Struct({ user: Schema.String, hosts: Schema.Array(Schema.String) }),
+      params: Schema.Struct({ user: Schema.String, hosts: Schema.Array(Schema.String), cert_valid_before: Schema.optionalKey(Schema.Int) }),
       result: Schema.Unknown,
       errors: [],
-      docs: "Internal: after a removal, TeamDO revoked the member's team SSH certificates; this marks their hosts orphaned and ends the pending cleanup (cx-44j.49).",
+      docs: "Internal: after a removal, TeamDO revoked the member's team SSH certificates; this marks their hosts orphaned, tells TeamVmDO when the member's last certificate ended (taint, cx-q4f3) and ends the pending cleanup (cx-44j.49).",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
@@ -389,10 +395,10 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       risk: "mutate-own",
       target: "install",
       principals: ["system"],
-      params: Schema.Struct({ install: InstallId }),
+      params: Schema.Struct({ install: InstallId, teams: Schema.optionalKey(Schema.Array(Schema.String)) }),
       result: Schema.Unknown,
       errors: [],
-      docs: "Internal: every team confirmed the KRL entries for a revoked install's SSH certificates.",
+      docs: "Internal: these teams (default: every team) confirmed the KRL entries for a revoked install's SSH certificates.",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef

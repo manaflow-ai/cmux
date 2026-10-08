@@ -1329,6 +1329,10 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "team_vm.accounts": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
     "team_vm.ensure_awake": {
       "scope": "team_vm:write",
       "class": "mutation"
@@ -1705,7 +1709,10 @@
     "tab.close",
     "tab_group.close",
     "team.enrollment_token.revoke",
+    "team_vm.rebuild",
+    "team_vm.retired.delete",
     "team_vm.ssh_ca.rotate",
+    "team_vm.taint.accept",
     "terminal.close",
     "terminal.history.clear",
     "terminal.renderer_grant.create",

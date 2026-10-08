@@ -14,7 +14,8 @@
 //! is safe: a protocol v4 host starts its child only after activation, which
 //! follows the durable topology commit; a live owner exact-kills an
 //! unclaimed host when its [`PrelaunchedTerminal`] drops; and a restarted
-//! owner ends every host whose terminal id the registry does not know.
+//! owner ends every such host: its record names no workspace, so it is not
+//! recovered (`orphan_hosts::recoverable`, cx-0tgl LC).
 //!
 //! The reaper uses the same pool to end several due terminals at once.
 

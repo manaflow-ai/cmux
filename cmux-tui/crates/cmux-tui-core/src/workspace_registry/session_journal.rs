@@ -8,6 +8,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
 pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
@@ -978,7 +979,7 @@ fn append_resource_journal_record_at(
         "changes": changes,
     });
     let event_id = format!("event_resource_{revision:020}");
-    let actor = resource_record_actor(transaction, idempotency_key, with_current_state)?;
+    let actor = resource_record_actor(transaction, origin, idempotency_key, with_current_state)?;
     append_journal_record(
         transaction,
         &JournalAppend {

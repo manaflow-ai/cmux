@@ -57,7 +57,11 @@ const flushFrames = () =>
     for (const callback of frames.splice(0)) callback(0);
   });
 
-function mount(wire: InstanceType<typeof AcpWireLog>, events: EventRecord[] = [], onExport?: (text: string, suggestedName: string) => Promise<ExportOutcome>) {
+function mount(
+  wire: InstanceType<typeof AcpWireLog>,
+  events: EventRecord[] = [],
+  onExport?: (text: string, suggestedName: string) => Promise<ExportOutcome>,
+) {
   const root = createRoot(dom.window.document.getElementById("root")!);
   let closed = 0;
   const render = () =>
@@ -184,9 +188,15 @@ describe("ACP inspector panel", () => {
 describe("ACP inspector export", () => {
   const copies: string[] = [];
   const document = dom.window.document as unknown as { execCommand(command: string): boolean };
-  document.execCommand = (command) => { copies.push(command); return true; };
+  document.execCommand = (command) => {
+    copies.push(command);
+    return true;
+  };
   const exportWith = async (onExport?: (text: string, suggestedName: string) => Promise<ExportOutcome>) => {
-    const wire = new AcpWireLog(() => 0, () => 0);
+    const wire = new AcpWireLog(
+      () => 0,
+      () => 0,
+    );
     wire.lifecycle("connected");
     const pane = mount(wire, [], onExport);
     await pane.render();
@@ -198,13 +208,21 @@ describe("ACP inspector export", () => {
   };
 
   test("the file name carries the session and the local time", () => {
-    expect(exportFileName("0123456789abcdef", new Date(2026, 9, 1, 9, 5, 7))).toBe("acp-01234567-20261001-090507.jsonl");
+    expect(exportFileName("0123456789abcdef", new Date(2026, 9, 1, 9, 5, 7))).toBe(
+      "acp-01234567-20261001-090507.jsonl",
+    );
     expect(exportFileName(undefined, new Date(2026, 0, 2, 3, 4, 5))).toBe("acp-20260102-030405.jsonl");
   });
 
   test("a saved export says so and copies nothing", async () => {
     const asked: string[] = [];
-    expect(await exportWith(async (text, name) => { asked.push(name); expect(text.split("\n")[0]).toContain("\"connection\":\"connected\""); return "saved"; })).toEqual(["Saved"]);
+    expect(
+      await exportWith(async (text, name) => {
+        asked.push(name);
+        expect(text.split("\n")[0]).toContain('"connection":"connected"');
+        return "saved";
+      }),
+    ).toEqual(["Saved"]);
     expect(asked[0]).toMatch(/^acp-01234567-\d{8}-\d{6}\.jsonl$/);
     expect(copies).toEqual([]);
   });

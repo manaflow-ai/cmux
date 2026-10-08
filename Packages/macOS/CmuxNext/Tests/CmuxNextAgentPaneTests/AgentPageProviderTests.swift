@@ -80,6 +80,23 @@ import Testing
         #expect(box.prepared.isEmpty)
     }
 
+    @Test func inspectorExportUsesTheSharedPageHostAndPreservesCancellation() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        var saved: [(String, String)] = []
+        model.onSaveLog = { text, name in
+            saved.append((text, name))
+            return false
+        }
+        let (router, box) = router(model)
+        let reply = await call(router, "cmux.agent.pane.saveLog", ["text": "{}\n", "suggestedName": "../trace.jsonl"])
+        #expect(reply["t"]?.stringValue == "ok")
+        #expect(reply["value"]?.boolValue == false)
+        #expect(saved.count == 1)
+        #expect(saved.first?.0 == "{}\n")
+        #expect(saved.first?.1 == "trace.jsonl")
+        #expect(box.prepared == [.saveLog(text: "{}\n", suggestedName: "trace.jsonl")])
+    }
+
     @Test func theHandshakeOpAnswersWithTheHandshake() async {
         let (router, box) = router(AgentPaneModel(host: MockAgentPaneHost()))
         let reply = await call(router, "cmux.agent.handshake")

@@ -123,6 +123,8 @@ final class TitlebarBandButton: NSButton {
     }
     private var renderedIconSize: CGFloat = 0
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
+    /// Set once `hover` follows the pointer (not during NSButton's init).
+    private var followsPointer = false
 
     init(symbol: String) {
         self.symbol = symbol
@@ -132,13 +134,22 @@ final class TitlebarBandButton: NSButton {
         imagePosition = .imageOnly
         renderSymbol()
         contentTintColor = performWithTheme { Palette.textSecondary }
-        _ = hover
+        // Hover follows the pointer and the button's frame (cx-3wu5): a band
+        // that collapses or hides under a still pointer clears it.
+        hover.followPointer(isHoverable: { [weak self] in self?.isEnabled ?? false })
+        followsPointer = true
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override var mouseDownCanMoveWindow: Bool { false }
+
+    /// Disabled under a still pointer (Back with no history left): hover
+    /// follows at once (cx-3wu5).
+    override var isEnabled: Bool {
+        didSet { if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() } }
+    }
 
     override func layout() {
         super.layout()

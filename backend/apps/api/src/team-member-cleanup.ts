@@ -5,6 +5,7 @@ import { KRL_GRACE_MS } from "./domains/team-ssh.ts"
 import { ensureSshTables } from "./team-ssh-ca.ts"
 import { ensureLoginTables } from "./team-sso-login.ts"
 import { userIdFor } from "./domains/user.ts"
+import { lastCertValidBefore } from "./team-ssh-taint.ts"
 
 export interface CleanupDeps {
   readonly state: () => TeamState
@@ -83,7 +84,11 @@ export const cleanupRemovedMembers = (deps: CleanupDeps): number => {
     // Legacy maps (an old head before team.rows_migrate) hold hosts too.
     for (const h of Object.values(deps.state().hosts ?? {})) if (h.owner_user === user && !h.orphaned && h.enrolled_at <= at && !hosts.includes(h.id)) hosts.push(h.id)
     endSsoSessions(deps, subjects.get(user) ?? [], at)
-    committed(deps.submitSystem("team.member.cleaned", { user, hosts }, `member-cleaned:${user}:${at}`))
+    // TeamVmDO taints the current VM when this certificate outlived the VM's creation (cx-q4f3). A Linux
+    // account is allocated at the first certificate request: with no record left (a certificate from before
+    // the holder record, past the 24 h issued log), assume the member held one until now.
+    const certValidBefore = lastCertValidBefore(deps.sql, user) ?? (deps.state().vm_accounts?.[user] ? Number.MAX_SAFE_INTEGER : null)
+    committed(deps.submitSystem("team.member.cleaned", { user, hosts, ...(certValidBefore === null ? {} : { cert_valid_before: certValidBefore }) }, `member-cleaned:${user}:${at}`))
   }
   return pending.length
 }

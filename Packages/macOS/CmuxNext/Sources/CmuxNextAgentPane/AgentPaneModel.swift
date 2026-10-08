@@ -118,6 +118,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
+    @ObservationIgnored private let draftStore: any AgentPaneDraftStoring
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored private let seed: AgentPaneSeedSource?
 
@@ -127,10 +128,12 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport = AgentPaneTransport(),
+        draftStore: any AgentPaneDraftStoring = UserDefaultsAgentPaneDraftStore()
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.draftStore = draftStore
         self.transport = transport
         self.sessionId = sessionId
         self.seed = seed
@@ -253,6 +256,11 @@ public final class AgentPaneModel {
                 newTab = nil
                 onSessionChange?(id)
             }
+            return AgentPaneReply.success()
+        case .readDraft(let id):
+            return AgentPaneReply.success(await draftStore.draft(for: id) ?? NSNull())
+        case .writeDraft(let id, let text):
+            await draftStore.setDraft(text, for: id)
             return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
