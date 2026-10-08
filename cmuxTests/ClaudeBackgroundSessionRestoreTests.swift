@@ -534,6 +534,48 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(spawningInput == nil, Comment(rawValue: spawningInput ?? ""))
     }
 
+    @Test("A moved Dock pane and a Dock-native viewer on one session: only the viewer attaches")
+    func dockMovedPaneDefersToNativeViewer() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let movedPanelID = UUID()
+        let viewerPanelID = UUID()
+        let sourceWorkspaceID = UUID()
+        // The moved pane comes first so a first-come choice would pick it.
+        var snapshot = dockContainer([
+            dockTerminalPanel(id: movedPanelID, SessionTerminalPanelSnapshot(
+                workingDirectory: fixture.workingDirectory.path,
+                agent: agent(fixture),
+                resumeBinding: hookBinding(fixture, autoResume: true),
+                isRemoteTerminal: false,
+                wasAgentRunning: true
+            )),
+            dockTerminalPanel(id: viewerPanelID, SessionTerminalPanelSnapshot(
+                workingDirectory: fixture.workingDirectory.path,
+                claudeBackgroundViewer: viewer(fixture)
+            )),
+        ])
+        snapshot.sourceWorkspaceIdsByPanelId = [movedPanelID: sourceWorkspaceID]
+
+        let relaunchedWorkspace = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { relaunchedWorkspace.teardownAllPanels() }
+        let dock = makeDock(fixture)
+        defer { dock.closeAllPanels() }
+        let restoredIDs = dock.restoreSessionSnapshot(
+            snapshot,
+            sourceWorkspaceResolver: { $0 == sourceWorkspaceID ? relaunchedWorkspace : nil }
+        )
+
+        let restoredMovedID = try #require(restoredIDs[movedPanelID])
+        let restoredViewerID = try #require(restoredIDs[viewerPanelID])
+        let viewerInput = try #require(dockInput(dock, panelID: restoredViewerID))
+        let movedInput = dockInput(dock, panelID: restoredMovedID)
+        #expect(viewerInput.contains("'attach' '\(jobID)'"), Comment(rawValue: viewerInput))
+        #expect(movedInput == nil, Comment(rawValue: movedInput ?? ""))
+    }
+
     @Test("With agent auto-resume off a Dock viewer pane restores as a plain shell")
     func dockAutoResumeOffDoesNotAttach() throws {
         let fixture = try makeFixture()
