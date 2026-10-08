@@ -5,7 +5,7 @@ import Foundation
 
 /// Recently closed tabs, screens, and workspaces as the daemon records them
 /// (`closed-history-v1`, state-ownership.md 2). One shared path for Reopen
-/// Closed Tab, Reopen Closed Screen, and Recently Closed: read the newest
+/// Closed Tab, Reopen Closed Screen, Reopen Closed Workspace, and Recently Closed: read the newest
 /// item from the mirrored history (`DaemonStore.closedItems`), reopen it
 /// with `closed.reopen`, and show what came back. The history lists
 /// (Recently Closed…, `history.list`, the history page) show these items
@@ -82,6 +82,11 @@ enum DaemonClosedHistory {
                 }
             } catch {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
+                if item.kind == .workspace, item.group == nil,
+                   case DaemonError.command(_, _, let code, _, _) = error, code == "resource.not_found" {
+                    services.registry.refuse(RefusalStrings.noRecentlyClosedWorkspace)
+                    return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedWorkspace)
+                }
                 return "closed.reopen: \(error)"
             }
             // A reopened workspace group forms again in the sidebar; no window changes what it shows.
@@ -91,6 +96,18 @@ enum DaemonClosedHistory {
                 return nil
             }
             await daemon.store.applied(through: await connection.eventSequence())
+            if item.kind == .workspace {
+                if let id = reopened.workspaceID,
+                   let workspace = await workspaceAfterReopen(id, in: daemon.store) {
+                    services.windows.reveal(workspaceID: workspace)
+                    return nil
+                } else {
+                    let reason = RefusalStrings.noWorkspace(reopened.workspaceID?.rawValue ?? item.id)
+                    daemon.logger.error("closed.reopen timed out waiting for its workspace: \(item.id, privacy: .public)")
+                    services.registry.refuse(reason)
+                    return ActionWorkFailure(reason, mayHaveApplied: true)
+                }
+            }
             show(reopened, kind: item.kind, daemon: daemon, services: services)
             return nil
         })

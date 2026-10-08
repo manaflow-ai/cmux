@@ -25,6 +25,7 @@ mod cloud_conversations_backend;
 mod coderouter_usage;
 mod config;
 mod headless;
+mod local_actor;
 mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
