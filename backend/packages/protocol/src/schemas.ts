@@ -26,8 +26,9 @@ export const Platform = Schema.Literals(["macos", "ios", "linux", "windows", "we
 
 /**
  * Grant classes. All but `cloud-link` are op risks. `cloud-link` (CLOUD-LINK-FOLLOWUPS 5) is a narrow
- * grant class that no op declares as its risk: it covers only cloud.machine.link_token, so the
- * iPhone app can dial its machines without general execute.
+ * grant class that no op declares as its risk: it covers only cloud.machine.link_token and a
+ * force-command restricted team_vm.ssh_cert agent certificate (cx-wb5.66), so the iPhone and Mac
+ * apps can dial their machines without general execute.
  */
 /** The risk classes an op declares (what OpDef.risk and a feed approve item carry). */
 export const OP_RISKS = ["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"] as const
