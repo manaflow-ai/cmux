@@ -5,9 +5,7 @@ use std::sync::OnceLock;
 
 use cmux_tui_core::Actor;
 #[cfg(test)]
-use cmux_tui_core::{
-    Mux, PaneId, SplitDir, Surface, SurfaceId, WorkspaceId, ZoomMode, ZoomState,
-};
+use cmux_tui_core::{Mux, PaneId, SplitDir, Surface, SurfaceId, WorkspaceId, ZoomMode, ZoomState};
 #[cfg(test)]
 use std::sync::Arc;
 
@@ -21,7 +19,12 @@ pub(crate) fn me() -> &'static Actor {
 #[cfg(test)]
 pub(crate) trait TuiMuxOps {
     fn set_viewport_pane_width(&self, pane: PaneId, width: f32) -> bool;
-    fn new_browser_tab(&self, url: String, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>>;
+    fn new_browser_tab(
+        &self,
+        url: String,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>>;
     fn close_surface(&self, target: SurfaceId) -> anyhow::Result<bool>;
     fn new_workspace(
         &self,
@@ -66,7 +69,12 @@ impl TuiMuxOps for Arc<Mux> {
         self.set_viewport_pane_width_as(me(), pane, width)
     }
 
-    fn new_browser_tab(&self, url: String, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+    fn new_browser_tab(
+        &self,
+        url: String,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         self.new_browser_tab_as(me(), url, pane, size)
     }
 
