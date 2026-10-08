@@ -57,7 +57,7 @@ class RecoveryManifestTests(unittest.TestCase):
                 source_path = lambda path: str(path if absolute else path.relative_to(source))
                 subprocess.run(
                     [sys.executable, "-c", manifest_program().replace(
-                        "${{ needs.decide.outputs.should_publish == 'true' }}", "True"
+                        "${{ needs.decide.outputs.should_publish }}", "true"
                     ).replace(
                         "${{ github.run_attempt }}", "1"
                     ), source_path(state), digest,

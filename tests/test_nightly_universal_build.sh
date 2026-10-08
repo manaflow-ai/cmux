@@ -525,6 +525,12 @@ assert "--draft=false" in auto
 assert "prune_nightly_release_assets.py" in auto
 assert "cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-" in workflow
 assert "reason=no-published-recovery-artifacts" in auto
+assert '"should_publish": "${{ needs.decide.outputs.should_publish }}" == "true"' in workflow
+assert "Verify immutable remote daemon assets" in auto
+assert "accepted recovery manifests disagree on build number" in auto
+assert "  generate-deltas:" in auto
+assert "  republish-deltas:" in auto
+assert "fetch-previous-nightly-dmgs.py" in auto
 PY
 then
   echo "FAIL: fast dogfood must skip notarization and distribution policy only after retaining signing and smoke"

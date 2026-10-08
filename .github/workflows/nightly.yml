@@ -2122,7 +2122,7 @@ jobs:
                   "schema": 1,
                   "source_run_id": "${{ github.run_id }}",
                   "source_run_attempt": "${{ github.run_attempt }}",
-                  "should_publish": ${{ needs.decide.outputs.should_publish == 'true' }},
+                  "should_publish": "${{ needs.decide.outputs.should_publish }}" == "true",
                   "channel": channel,
                   "variant": variant,
                   "release_tag": release_tag,
