@@ -12,6 +12,28 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### CJK fallback avoids repeated font collection scans
+
+- Branch: `issue-18648-cjk-fallback-latency`, based on the cmux pin
+  `17357e12a`.
+- Commits: `cf8b9d396` (regression test), `fff35f432` (fix).
+- Summary: CoreText fallback used `CTFontCollection` discovery for Japanese
+  kana and other CJK ranges. Every missing glyph could synchronously enumerate
+  and score the installed fonts before the terminal rendered it. CJK fallback
+  now uses CoreText's locale-aware `CTFontCreateForString` result directly;
+  non-CJK fallback keeps the existing collection path.
+- Coverage: `coretext CJK fallback keeps the direct codepoint result` failed on
+  the pre-fix commit with `expected 1, found 39`, then passed in the local
+  74-test Ghostty suite. The existing CJK punctuation suite also passed. The
+  hosted GhosttyKit build and its CJK, shaping, and compatibility lanes passed
+  in [run 37850926294](https://github.com/manaflow-ai/cmux/actions/runs/37850926294).
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fff35f43280f6f133ef133d8c470706a068aab55-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `b2d2528bb20da61bf882f0ba772ff6060cf29e821d5897af79c17bc1f9aee9e4`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: keep the CJK ranges on CoreText's direct fallback path so
+  locale-sensitive selection and the deferred face loading behavior remain
+  intact. Leave generic collection discovery available for other scripts.
+
 ### CJK punctuation keeps the resolver's font
 
 - Branch: `fix-10733-cjk-punctuation-width`
