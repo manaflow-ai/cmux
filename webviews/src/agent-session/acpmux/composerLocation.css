@@ -223,3 +223,57 @@
   .acpmux-location-readonly { max-width: 145px; padding-inline: 4px; }
   .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker { padding-left: 2px; }
 }
+
+/* The top row is a compact control rail. Keep the selected value visible so the
+   model, effort, and access choices can be scanned without opening a menu. */
+.acpmux-composer-bar .acpmux-chips {
+  gap: 2px;
+}
+.acpmux-composer-bar .acpmux-mode-text {
+  display: inline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-composer-bar .acpmux-access-trigger {
+  width: auto;
+  max-width: 180px;
+  gap: 5px;
+  padding-inline: 8px;
+}
+.acpmux-composer-bar .acpmux-model .acpmux-picker-button,
+.acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
+.acpmux-composer-bar .acpmux-access .acpmux-picker-button {
+  height: 30px;
+  border-radius: 8px;
+  color: var(--agent-muted);
+}
+.acpmux-composer-bar .acpmux-model .acpmux-picker-button:hover,
+.acpmux-composer-bar .acpmux-effort .acpmux-picker-button:hover,
+.acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover,
+.acpmux-composer-bar .acpmux-access .acpmux-picker-button[aria-expanded="true"] {
+  color: var(--agent-text);
+}
+.acpmux-composer-bar .acpmux-model-name,
+.acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
+.acpmux-composer-bar .acpmux-access .acpmux-picker-button {
+  font-size: 14px;
+}
+.acpmux-composer-bar .acpmux-effort,
+.acpmux-composer-bar .acpmux-access {
+  display: inline-flex;
+  align-items: center;
+}
+.acpmux-composer-bar .acpmux-effort::before,
+.acpmux-composer-bar .acpmux-access::before {
+  content: "";
+  width: 1px;
+  height: 18px;
+  margin: 0 5px;
+  background: var(--acpmux-composer-edge);
+}
+@media (max-width: 480px) {
+  .acpmux-composer-bar .acpmux-access-trigger { max-width: 112px; }
+  .acpmux-composer-bar .acpmux-mode-text { display: none; }
+}
