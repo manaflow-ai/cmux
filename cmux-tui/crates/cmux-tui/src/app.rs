@@ -97,7 +97,7 @@ use crate::ui::graphics_writer::{
     GraphicsCompletion, GraphicsProcessing, GraphicsResponseFilter, GraphicsWriter,
     GraphicsWriterShutdown, StdoutLock, graphics_fence_channel,
 };
-mod pairing_confirm;
+pub(crate) mod pairing_confirm;
 
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::{
@@ -19735,7 +19735,7 @@ impl App {
     }
 
     fn handle_pairing_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        if let Some(approve) = pairing_confirm::decision(&key) {
+        if let Some(approve) = pairing_confirm::decision(&key, &self.session) {
             self.resolve_pairing(approve);
         }
         Ok(RenderAction::Draw)

@@ -116,7 +116,9 @@ struct ProgramStatusSeenIndicatorTests {
     @Test func theTabStripItemShowsTheUnseenOutcome() throws {
         let store = try BridgeFixture.store()
         let tab = try #require(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first)
-        tab.programStatus = [ProgramStatusRecord(id: "strip", state: .error, updatedSeq: 9301)]
+        // Use a fresh record identity so a persistent shared seen store from another
+        // test run cannot make this new report look already acknowledged.
+        tab.programStatus = [ProgramStatusRecord(id: "strip-\(UUID().uuidString)", state: .error, updatedSeq: 9301)]
         #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").status == .failure)
         ProgramStatusSeenStore.shared.markSeen(tab)
         #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").status == .none)

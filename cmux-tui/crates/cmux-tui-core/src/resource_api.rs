@@ -498,7 +498,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
-        let journal_head = registry.session_journal_after(0, 1)?.head_sequence;
+        let journal_head = registry.session_journal_head()?;
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;
