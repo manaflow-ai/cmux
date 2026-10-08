@@ -250,6 +250,14 @@ pub unsafe extern "C" fn cmux_rd_bulk_sender_cancel(
         with(sender, |s| {
             s.inner.cancel(transfer);
             s.queued.retain(|e| e.0 != transfer);
+            if s.pending.as_ref().is_some_and(|pending| {
+                pending.len() >= cmux_rd_proto::STREAM_PREFIX_LEN
+                    && pending[0] == STREAM_BULK
+                    && BulkFrame::decode(&pending[cmux_rd_proto::STREAM_PREFIX_LEN..])
+                        .is_ok_and(|frame| frame.transfer == transfer)
+            }) {
+                s.pending = None;
+            }
             CMUX_RD_OK
         })
     }

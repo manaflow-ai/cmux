@@ -327,13 +327,22 @@ fn start(
             crate::trace::Trace::off()
         }
     };
-    let config = Config {
+    // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
+    // prompt, so it reads it from the turns' cache entry.
+    let claude_text =
+        crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
+    let mut config = Config {
         agent: crate::prompt::AGENT.to_owned(),
+        prompt: optchat_host::CompactPrompt::Custom(claude_text.clone()),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
         db: Some(paths.memory_db.clone()),
         ..Config::default()
     };
     let route = compact_route(env("OPTCHAT_COMPACTOR").as_deref(), &config)?;
+    if engine_choice.as_deref() == Some("native") && route == CompactRoute::Api {
+        // And the native turns' tools (never called), for the same entry.
+        config.tools = Some(crate::native::Native::tools());
+    }
     // The harness family decides each session's layout and isolation; acpmux
     // says what a harness is (its declared family, else its kind and
     // command), never its name. Only the native engine with the API
@@ -451,8 +460,6 @@ fn start(
     // (the cached layout), with or without the isolation.
     let isolate = env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0");
     // The Claude turn preset carries the Claude system text (MCP tools).
-    let claude_text =
-        crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
     let mut preset = turn_preset(paths, home, &turn_profile, family, isolate, &claude_text);
     // A harness without the project settings' env (codex) reads its tools'
     // env from the acpmux daemon and the preset: the preset pins cmux.
@@ -751,10 +758,10 @@ fn start(
             memory: chat.clone(),
             orchestrator,
             control: Some(control),
+            inspector: start_inspector(paths, &chat, &claude_text),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
-    start_inspector(paths, &chat, &claude_text);
     let status = chat.status();
     // Section 10: on start, print the view, so the log shows what the agent sees.
     log(format!(
@@ -972,10 +979,15 @@ fn spawn_probe(
 /// The read-only memory inspector (inspect/http.rs) on 127.0.0.1, its
 /// address and token in `optchat/inspector.json` for the app. Off with
 /// `OPTCHAT_INSPECTOR=0`; a failure only logs (the Chief runs without it).
-fn start_inspector(paths: &Paths, chat: &Arc<OptChat>, system_text: &str) {
+/// Returns the inspector for the tools socket's `inspect` tool too.
+fn start_inspector(
+    paths: &Paths,
+    chat: &Arc<OptChat>,
+    system_text: &str,
+) -> Option<Arc<crate::inspect::Inspector>> {
     let _ = std::fs::remove_file(&paths.inspector);
     if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
-        return;
+        return None;
     }
     let inspector = Arc::new(crate::inspect::Inspector::new(
         chat.clone(),
@@ -985,7 +997,7 @@ fn start_inspector(paths: &Paths, chat: &Arc<OptChat>, system_text: &str) {
     ));
     let started = crate::inspect::http::new_secret().and_then(|token| {
         let bind = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
-        crate::inspect::http::start(inspector, bind, token)
+        crate::inspect::http::start(inspector.clone(), bind, token)
     });
     match started.and_then(|running| {
         crate::inspect::http::publish(&paths.inspector, &running).map(|()| running)
@@ -997,6 +1009,7 @@ fn start_inspector(paths: &Paths, chat: &Arc<OptChat>, system_text: &str) {
         Ok(running) => log(format!("memory inspector on {}", running.url())),
         Err(e) => log(format!("memory inspector not started: {e}")),
     }
+    Some(inspector)
 }
 
 fn now_ms() -> u64 {

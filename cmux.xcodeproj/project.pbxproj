@@ -154,6 +154,7 @@
 				CE7A00000000000000000020 /* Bundle acpmux */,
 				CE7A00000000000000000032 /* Bundle optchat-chief */,
 				CE7A00000000000000000017 /* Embed CEF */,
+				CE7A00000000000000000041 /* Embed remote browser host */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
 			);
@@ -372,6 +373,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-cef.sh\"\n";
+		};
+		CE7A00000000000000000041 /* Embed remote browser host */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed remote browser host";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-remote-browser-host.sh\"\n";
 		};
 		CE7A00000000000000000018 /* Bundle Ghostty resources */ = {
 			isa = PBXShellScriptBuildPhase;

@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../src/optchat-inspector/App";
 import { childrenOf, hitRate, lineCuts, nextPath, parseName, segments } from "../src/optchat-inspector/model";
-import { ApiStore } from "../src/optchat-inspector/store";
+import { ApiStore, bridgeFetcher, fetcherFor, httpFetcher } from "../src/optchat-inspector/store";
 import type { TurnPrompt } from "../src/optchat-inspector/types";
 import { StoreContext } from "../src/optchat-inspector/useApi";
 
@@ -284,4 +284,22 @@ test("a timeline row opens that turn's prompt, and Live shows settle progress", 
   click(button("Live"));
   await waitFor(() => text().includes("2 of 3 view lines summarized"), "settle progress");
   expect(text()).toContain("Writing 1 summaries: 6+1");
+});
+
+test("one code path chosen by origin: the app page asks the bridge, the loopback page uses HTTP", async () => {
+  const calls: { op: string; params: unknown }[] = [];
+  const call = async (op: string, params: unknown) => {
+    calls.push({ op, params });
+    return { name: "0+8" };
+  };
+  expect(fetcherFor("http:", call)).toBe(httpFetcher);
+  expect(fetcherFor("cmux-page:", null)).toBe(httpFetcher);
+  const bridged = fetcherFor("cmux-page:", call);
+  expect(bridged).not.toBe(httpFetcher);
+  expect(await bridged("/api/node?name=0%2B8")).toEqual({ name: "0+8" });
+  expect(calls).toEqual([{ op: "cmux.chief_inspector.get", params: { path: "/api/node", query: { name: "0+8" } } }]);
+  const failing = bridgeFetcher(async () => {
+    throw new Error("chief-inspect is for the owner's trusted connection only");
+  });
+  await expect(failing("/api/status")).rejects.toThrow("owner's trusted connection");
 });
