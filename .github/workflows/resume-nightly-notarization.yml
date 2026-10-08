@@ -56,6 +56,9 @@ jobs:
           persist-credentials: false
           ref: refs/heads/main
 
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Verify trusted source workflow run
         run: |
           set -euo pipefail

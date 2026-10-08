@@ -9,12 +9,15 @@ on:
 permissions:
   {}
 
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/nightly.yml
+
 jobs:
   preflight:
     if: >-
       (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
       github.event.workflow_run.head_repository.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: read
       contents: read
@@ -130,6 +133,9 @@ jobs:
           persist-credentials: false
           ref: refs/heads/main
 
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Download exact recovery artifact
         run: |
           set -euo pipefail
@@ -223,7 +229,7 @@ jobs:
       actions: read
       contents: write
       issues: write
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     concurrency:
       group: release-publish-${{ needs.preflight.outputs.release_tag }}
       cancel-in-progress: false
@@ -509,6 +515,9 @@ jobs:
           persist-credentials: false
           ref: refs/heads/main
 
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Download accepted variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
         with:
@@ -570,7 +579,7 @@ jobs:
     permissions:
       actions: read
       contents: write
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: release
     env:
       GH_TOKEN: ${{ github.token }}
