@@ -165,15 +165,16 @@ describe("one grid of emoji and symbols", () => {
     expect(picker.getSnapshot().view).toBe("grid");
   });
 
-  test("Ctrl-Tab steps through the categories; a session opens on the current icon's kind", () => {
+  test("Ctrl-Tab steps through the categories; a session opens on All Categories or the asset sheet", () => {
     const picker = store();
     picker.stepCategory(1);
     expect(picker.getSnapshot().category).toBe(emoji.groups[0]);
     picker.stepCategory(-1);
     picker.stepCategory(-1);
     expect(picker.getSnapshot().category).toBe("symbolCategory.other");
+    picker.setCategory("flags");
     picker.reset("symbol");
-    expect(picker.getSnapshot()).toMatchObject({ view: "grid", category: "sfSymbols", query: "" });
+    expect(picker.getSnapshot()).toMatchObject({ view: "grid", category: "all", query: "" });
     picker.reset("svg");
     expect(picker.getSnapshot().view).toBe("svg");
     picker.reset("emoji");

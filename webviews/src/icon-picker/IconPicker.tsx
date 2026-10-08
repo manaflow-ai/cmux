@@ -191,7 +191,7 @@ export function IconPicker({
   );
 
   return (
-    <fieldset className="icon-picker" aria-label={t("iconPicker.title")} onKeyDown={onKeyDown}>
+    <div className="icon-picker" aria-label={t("iconPicker.title")} onKeyDown={onKeyDown}>
       <div className="icon-picker-top">
         <button
           type="button"
@@ -394,7 +394,7 @@ export function IconPicker({
           </Menu>
         </div>
       </div>
-    </fieldset>
+    </div>
   );
 }
 

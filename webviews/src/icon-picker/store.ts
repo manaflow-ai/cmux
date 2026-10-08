@@ -186,11 +186,13 @@ export class PickerStore {
     this.memberSets.clear();
   }
 
-  /** A new picker session in a reused (prewarmed) page: empty query, All Categories (or the current icon's kind). */
+  /**
+   * A new picker session in a reused (prewarmed) page: empty query, All Categories (emoji and
+   * symbols share it; Frequently Used comes first), or the image or SVG sheet for such an icon.
+   */
   reset(tab: PickerTab = "emoji") {
     const view: PickerView = tab === "image" || tab === "svg" ? tab : "grid";
-    const category = tab === "symbol" ? SYMBOLS_CATEGORY : ALL_CATEGORIES;
-    this.update({ view, category, query: "", active: 0 });
+    this.update({ view, category: ALL_CATEGORIES, query: "", active: 0 });
   }
 
   setView(view: PickerView) {

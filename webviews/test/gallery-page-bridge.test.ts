@@ -23,7 +23,7 @@ test("icon picker session arrives after the real bridge subscription is acknowle
     expect(await event.promise).toEqual(state.session);
     await host.initialEventsDelivered;
     // The variant's saved prefs (Frequently Used) come back through the real prefs operation.
-    expect(await client.call("cmux.iconPicker.prefs.load", {})).toEqual(state.prefs);
+    expect(await client.call<unknown>("cmux.iconPicker.prefs.load", {})).toEqual(state.prefs);
   } finally {
     stop?.();
     scope.webkit = savedWebkit;

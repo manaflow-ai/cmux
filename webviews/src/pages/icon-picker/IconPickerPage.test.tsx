@@ -284,7 +284,9 @@ test("no results shows the empty state", async () => {
 
 test("monochrome and hierarchical symbols are masks in the theme color; multicolor is a host image", async () => {
   await act(async () => host.open({ id: "s2", tab: "symbol", symbolStyle: "ff0000-dark" }));
-  expect(picker.store.getSnapshot().category).toBe("sfSymbols");
+  // A symbol icon opens on All Categories too (its Frequently Used row holds symbols).
+  expect(picker.store.getSnapshot().category).toBe("all");
+  await act(async () => picker.store.setCategory("sfSymbols"));
   await type("terminal");
   const cell = () => doc().querySelector<HTMLElement>(".icon-cell[data-active] .icon-symbol")!;
   expect(cell().style.maskImage).toContain("__symbol/terminal.png");

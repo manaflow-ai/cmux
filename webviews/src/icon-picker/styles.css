@@ -4,11 +4,6 @@
    (store.ts setWidth; --icon-cell on the grid frame), so the virtual layout never measures the DOM.
    The bottom bar floats over the grid as two pills; the grid keeps its last row clear of them. */
 .icon-picker {
-  /* A fieldset (the picker's one key handler groups its controls): no fieldset chrome. */
-  margin: 0;
-  border: 0;
-  padding: 0;
-  min-width: 0;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -356,6 +351,7 @@
 }
 
 .icon-bar-name {
+  flex: 0 1 auto;
   font-size: 14px;
   color: var(--page-text);
 }
@@ -365,8 +361,7 @@
 }
 
 .icon-bar-detail {
-  flex: none;
-  max-width: 40%;
+  flex: 0 1 auto;
   font-size: 12px;
   color: var(--page-text-3);
   font-family: ui-monospace, "SF Mono", monospace;

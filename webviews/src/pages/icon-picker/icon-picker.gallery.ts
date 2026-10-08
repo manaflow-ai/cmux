@@ -80,9 +80,15 @@ export default iconPickerPageEntry({
     },
     search: { note: "A search over emoji and SF Symbols in one grid.", session, prefs, query: "star" },
     symbols: {
-      note: "The SF Symbols category with a selected symbol.",
+      note: "The SF Symbols category, chosen in the All Categories menu.",
       session: { ...session, tab: "symbol" },
-      active: 8,
+      prefs,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-category-button"));
+        await ctx.click({ selector: ".icon-category-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-category-menu"));
+        await ctx.click({ selector: '.icon-category-menu [role="menuitemradio"]:last-of-type' });
+      },
     },
     categories: {
       note: "The All Categories menu open, with counts.",
