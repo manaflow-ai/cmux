@@ -15721,6 +15721,137 @@
         }
       }
     },
+    "control.error.unknownMethodOlderCLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown method %1$@: this cmux CLI is older than this app (or belongs to another cmux app). Use this app's CLI: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طريقة غير معروفة %1$@: واجهة cmux CLI هذه أقدم من هذا التطبيق (أو تتبع تطبيق cmux آخر). استخدم CLI الخاص بهذا التطبيق: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nepoznata metoda %1$@: ovaj cmux CLI je stariji od ove aplikacije (ili pripada drugoj cmux aplikaciji). Koristite CLI ove aplikacije: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukendt metode %1$@: denne cmux-CLI er ældre end denne app (eller tilhører en anden cmux-app). Brug denne apps CLI: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unbekannte Methode %1$@: Diese cmux-CLI ist älter als diese App (oder gehört zu einer anderen cmux-App). Verwende die CLI dieser App: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Método desconocido %1$@: esta CLI de cmux es más antigua que esta app (o pertenece a otra app de cmux). Usa la CLI de esta app: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Méthode inconnue %1$@ : cette CLI cmux est plus ancienne que cette app (ou appartient à une autre app cmux). Utilisez la CLI de cette app : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metodo sconosciuto %1$@: questa CLI di cmux è più vecchia di questa app (o appartiene a un'altra app cmux). Usa la CLI di questa app: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なメソッド %1$@: この cmux CLI はこのアプリより古いか、別の cmux アプリのものです。このアプリの CLI を使ってください: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វិធីសាស្ត្រមិនស្គាល់ %1$@៖ cmux CLI នេះចាស់ជាងកម្មវិធីនេះ (ឬជារបស់កម្មវិធី cmux ផ្សេង)។ ប្រើ CLI របស់កម្មវិធីនេះ៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알 수 없는 메서드 %1$@: 이 cmux CLI는 이 앱보다 오래되었거나 다른 cmux 앱의 것입니다. 이 앱의 CLI를 사용하세요: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukjent metode %1$@: denne cmux-CLI-en er eldre enn denne appen (eller tilhører en annen cmux-app). Bruk denne appens CLI: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieznana metoda %1$@: ten cmux CLI jest starszy niż ta aplikacja (lub należy do innej aplikacji cmux). Użyj CLI tej aplikacji: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Método desconhecido %1$@: esta CLI do cmux é mais antiga que este app (ou pertence a outro app cmux). Use a CLI deste app: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неизвестный метод %1$@: этот cmux CLI старше этого приложения (или относится к другому приложению cmux). Используйте CLI этого приложения: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่รู้จักเมธอด %1$@: cmux CLI นี้เก่ากว่าแอปนี้ (หรือเป็นของแอป cmux อื่น) ใช้ CLI ของแอปนี้: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bilinmeyen yöntem %1$@: bu cmux CLI bu uygulamadan daha eski (veya başka bir cmux uygulamasına ait). Bu uygulamanın CLI'ını kullanın: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Невідомий метод %1$@: цей cmux CLI старіший за цей застосунок (або належить іншому застосунку cmux). Використовуйте CLI цього застосунку: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phương thức không xác định %1$@: cmux CLI này cũ hơn ứng dụng này (hoặc thuộc một ứng dụng cmux khác). Hãy dùng CLI của ứng dụng này: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未知方法 %1$@：此 cmux CLI 比此应用旧（或属于另一个 cmux 应用）。请使用此应用的 CLI：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未知的方法 %1$@：此 cmux CLI 比此 App 舊（或屬於另一個 cmux App）。請使用此 App 的 CLI：%2$@"
+          }
+        }
+      }
+    },
     "control.error.routerStopped": {
       "extractionState": "manual",
       "localizations": {

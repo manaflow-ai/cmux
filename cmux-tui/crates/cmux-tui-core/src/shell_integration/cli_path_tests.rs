@@ -155,7 +155,7 @@ fn run_integrated(
     // escape sequences the prompt hooks wrote on the same line.
     text.split(['\r', '\n'])
         .filter_map(|line| line.find("cli=/").map(|at| &line[at..]))
-        .last()
+        .next_back()
         .unwrap_or_else(|| panic!("no probe line from {exe}: {text:?}"))
         .to_string()
 }
@@ -209,15 +209,12 @@ fn a_daemon_integrated_shell_keeps_the_bundled_cli_first_after_user_startup_file
 /// Ghostty's alone (`ZDOTDIR` and `ENV` point at Ghostty's scripts).
 #[test]
 fn without_a_bundled_cli_the_integration_is_ghosttys_alone() {
-    let zsh = super::tests::launch("zsh", &[("HOME", "/home/me")]);
+    let zsh = tests::launch("zsh", &[("HOME", "/home/me")]);
+    assert_eq!(tests::env_of(&zsh, "ZDOTDIR").as_deref(), Some("/state/shell-integration/abc/zsh"));
+    assert_eq!(tests::env_of(&zsh, "CMUX_CLI_ZSH_ZDOTDIR"), None);
+    let bash = tests::launch("/usr/local/bin/bash", &[("HOME", "/home/me")]);
     assert_eq!(
-        super::tests::env_of(&zsh, "ZDOTDIR").as_deref(),
-        Some("/state/shell-integration/abc/zsh")
-    );
-    assert_eq!(super::tests::env_of(&zsh, "CMUX_CLI_ZSH_ZDOTDIR"), None);
-    let bash = super::tests::launch("/usr/local/bin/bash", &[("HOME", "/home/me")]);
-    assert_eq!(
-        super::tests::env_of(&bash, "ENV").as_deref(),
+        tests::env_of(&bash, "ENV").as_deref(),
         Some("/state/shell-integration/abc/bash/ghostty.bash")
     );
 }
