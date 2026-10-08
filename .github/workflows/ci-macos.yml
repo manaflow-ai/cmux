@@ -223,7 +223,7 @@ jobs:
     # Picking here rather than in `changes` leaves other runs' late-placement
     # no gap to take the pinned runner first. Any failure outputs "" and
     # admission keeps pr_admission_runner on attempt 1, its label after.
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && startsWith(inputs.pr_root_runner, 'glaeda-root-') && contains(inputs.pr_owned_jobs, ' admission ') && (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (startsWith(inputs.pr_root_runner, 'glaeda-root-') || startsWith(inputs.pr_root_runner, 'glaeda-aws-root-')) && contains(inputs.pr_owned_jobs, ' admission ') && (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
@@ -1789,6 +1789,7 @@ jobs:
           OWNED_JOBS: ${{ inputs.pr_owned_jobs }}
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          ADMISSION_ROOT: ${{ inputs.pr_root_runner }}
           ADMISSION_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
           ADMISSION_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
           # Where owned gui-token jobs go when the gui runners' queue is past a round.
