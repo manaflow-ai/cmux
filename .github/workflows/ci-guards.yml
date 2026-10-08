@@ -346,7 +346,7 @@ jobs:
           python3 tests/test_pairing_scheme_lint.py
           python3 tests/test_pairing_scheme_is_explicit_in_tests.py
       - name: Validate Python test harness syntax
-        if: ${{ matrix.group == 'preflight' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
       - name: Test private R2 URL presigner
