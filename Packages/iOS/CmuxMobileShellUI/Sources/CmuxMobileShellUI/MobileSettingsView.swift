@@ -85,6 +85,7 @@ struct MobileSettingsView: View {
     /// can navigate to any screen (terminal, chat) and watch it play there.
     @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
     #endif
+    /// Renders the settings form, including the terminal keyboard correction control.
     var body: some View {
         @Bindable var displaySettings = displaySettings
         #if DEBUG
@@ -305,8 +306,7 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
 
-                    MobileKeyboardCorrectionsToggle(preference: keyboardCorrectionPreference)
-
+                    MobileKeyboardCorrectionsToggle(isEnabled: keyboardCorrectionPreference.isEnabled, setEnabled: { keyboardCorrectionPreference.isEnabled = $0 })
                     Button {
                         showingShortcuts = true
                     } label: {

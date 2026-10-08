@@ -864,6 +864,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
+    /// Creates a documentless terminal responder using the shared keyboard setting.
+    /// - Parameter keyboardCorrectionPreference: The persisted correction preference.
     init(
         keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference =
             MobileTerminalKeyboardCorrectionPreference()

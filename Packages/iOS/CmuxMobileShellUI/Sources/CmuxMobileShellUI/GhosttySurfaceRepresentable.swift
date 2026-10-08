@@ -80,6 +80,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         case false?: .authoritative
         }
     }
+    /// Creates the host controller and injects the shared keyboard preference.
     func makeUIViewController(context: Context) -> UIViewController {
         let runtime: GhosttyRuntime
         do {
@@ -154,6 +155,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         )
         return GhosttySurfaceHostViewController(hostView: host)
     }
+    /// Applies SwiftUI updates to the mounted terminal host.
     func updateUIViewController(_ controller: UIViewController, context: Context) {
         let uiView = controller.view
         // Bytes flow via the byte sink; the prop-driven mutations are the autofocus
@@ -872,7 +874,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             outputStartMinimumViewportReportID =
                 surfaceView.requestViewportReportForMount()
         }
-
         /// Called by the recovery alert's Retry action. A retry is an explicit
         /// ownership boundary, so it may clear the persistent failure latch and
         /// register a fresh stream while the UIKit surface stays mounted.
@@ -888,7 +889,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                 resetRestartFailure: true
             )
         }
-
         /// Reclaims a consumer whose stream ended while its UIKit surface stayed
         /// mounted. The stream's continuation is the authoritative ownership
         /// edge, so a fresh consumer also requests a cold replay and restores

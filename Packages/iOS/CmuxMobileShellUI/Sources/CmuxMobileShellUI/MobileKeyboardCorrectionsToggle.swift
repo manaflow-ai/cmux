@@ -1,15 +1,19 @@
 #if os(iOS)
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 
 /// Settings row for the opt-in terminal keyboard correction behavior.
 @MainActor
 struct MobileKeyboardCorrectionsToggle: View {
-    let preference: MobileTerminalKeyboardCorrectionPreference
+    /// Snapshot of the persisted setting supplied by the owning settings view.
+    let isEnabled: Bool
+    /// Applies a setting change at the owning view boundary.
+    let setEnabled: (Bool) -> Void
 
+    /// Builds the settings row without retaining an observable store in the Form subtree.
     var body: some View {
-        @Bindable var preference = preference
-        Toggle(isOn: $preference.isEnabled) {
+        Toggle(isOn: Binding(get: { isEnabled }, set: setEnabled)) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(L10n.string(
                     "mobile.settings.keyboardCorrections",

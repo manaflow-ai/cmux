@@ -37,6 +37,7 @@ import UniformTypeIdentifiers
 /// is gone because there is only one layout system (the surface).
 struct TerminalComposerView: View {
     @Bindable var store: CMUXMobileShellStore
+    /// App-scoped preference shared with the raw terminal input responder.
     let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     /// The terminal this composer serves. Focus-request consumption is keyed on
     /// it: during a terminal switch the outgoing composer is still mounted and
@@ -91,7 +92,7 @@ struct TerminalComposerView: View {
     /// `@Observable` reference type is held with `@State`; SwiftUI tracks the
     /// `state` it reads (mic button enabled/listening) automatically.
     @State private var dictation: ComposerDictationController
-
+    /// Creates the composer with its terminal store, keyboard preference, and host callbacks.
     init(
         store: CMUXMobileShellStore,
         keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference,
@@ -133,7 +134,6 @@ struct TerminalComposerView: View {
     private let composerLineLimit = 1...14
     /// Minimum height of the compose field, matching the one-line baseline.
     private let composerFieldMinHeight: CGFloat = 40
-
     /// Whether the field's text alone is empty. Drives only secondary visuals;
     /// the Send affordance keys on ``canSend`` so an images-only message (empty
     /// text, attachments staged) is still sendable.

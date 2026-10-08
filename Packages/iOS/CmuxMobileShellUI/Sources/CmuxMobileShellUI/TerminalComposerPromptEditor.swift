@@ -47,23 +47,12 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
     /// The 1...14 line growth window mirrored from the replaced `TextField`.
     private static let maximumLineCount: CGFloat = 14
 
-    static func configureTextInputTraits(
-        _ textView: UITextView,
-        textRewritingEnabled: Bool = false
-    ) {
-        textView.autocapitalizationType = .none
-        textView.autocorrectionType = textRewritingEnabled ? .yes : .no
-        textView.spellCheckingType = textRewritingEnabled ? .yes : .no
-        textView.smartQuotesType = .no
-        textView.smartDashesType = .no
-        textView.smartInsertDeleteType = textRewritingEnabled ? .yes : .no
-        textView.inlinePredictionType = textRewritingEnabled ? .yes : .no
-    }
-
+    /// Creates the coordinator that mirrors text and focus into SwiftUI bindings.
     func makeCoordinator() -> TaskComposerPromptEditorCoordinator {
         TaskComposerPromptEditorCoordinator(text: $text, isFocused: $isFocused)
     }
 
+    /// Creates the UIKit composer field and applies the initial keyboard traits.
     func makeUIView(context: Context) -> TerminalComposerPromptTextView {
         let textView = TerminalComposerPromptTextView()
         textView.delegate = context.coordinator
@@ -75,10 +64,7 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
-        Self.configureTextInputTraits(
-            textView,
-            textRewritingEnabled: isTextRewritingEnabled
-        )
+        Self.configureTextInputTraits(textView, textRewritingEnabled: isTextRewritingEnabled)
         textView.accessibilityIdentifier = "MobileComposerField"
         textView.pasteAttachments = pasteAttachments
 
@@ -99,13 +85,11 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         return textView
     }
 
+    /// Updates the field without disturbing its selection or unchanged keyboard session.
     func updateUIView(_ textView: TerminalComposerPromptTextView, context: Context) {
         context.coordinator.update(text: $text, isFocused: $isFocused)
         textView.pasteAttachments = pasteAttachments
-        Self.configureTextInputTraits(
-            textView,
-            textRewritingEnabled: isTextRewritingEnabled
-        )
+        Self.updateTextInputTraits(textView, textRewritingEnabled: isTextRewritingEnabled)
         applyState(to: textView)
 
         // Assigning the same text again resets UITextView's selection/caret
@@ -124,6 +108,7 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         }
     }
 
+    /// Measures the field within the composer's one-to-fourteen-line geometry contract.
     func sizeThatFits(
         _ proposal: ProposedViewSize,
         uiView textView: TerminalComposerPromptTextView,
@@ -149,6 +134,7 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         return CGSize(width: width, height: min(max(fitted, minimum), maximum))
     }
 
+    /// Applies visual and editability state supplied by the SwiftUI parent.
     private func applyState(to textView: TerminalComposerPromptTextView) {
         textView.placeholderLabel.text = placeholder
         textView.placeholderLabel.isHidden = !textView.text.isEmpty

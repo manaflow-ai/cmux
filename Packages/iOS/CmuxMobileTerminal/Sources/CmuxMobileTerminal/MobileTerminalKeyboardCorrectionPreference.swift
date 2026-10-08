@@ -40,8 +40,12 @@ public final class MobileTerminalKeyboardCorrectionPreference {
         self.isEnabled = defaults.bool(forKey: Self.enabledDefaultsKey)
     }
 
+    /// Returns the UIKit autocorrection trait for the current preference.
     var autocorrectionType: UITextAutocorrectionType { isEnabled ? .yes : .no }
+    /// Returns the UIKit spell-checking trait for the current preference.
     var spellCheckingType: UITextSpellCheckingType { isEnabled ? .yes : .no }
+    /// Returns the UIKit smart insertion/deletion trait for the current preference.
     var smartInsertDeleteType: UITextSmartInsertDeleteType { isEnabled ? .yes : .no }
+    /// Returns the UIKit inline prediction trait for the current preference.
     var inlinePredictionType: UITextInlinePredictionType { isEnabled ? .yes : .no }
 }
