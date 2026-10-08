@@ -139,6 +139,29 @@ struct CloudTreeHeaderActionsTests {
         menuHost.layoutSubtreeIfNeeded()
         #expect(!Self.resolvedIconViews(in: menuHost).isEmpty,
                 "The My Devices menu glyph must use the resolved AppKit renderer")
+
+        let emptyFixture = CloudSidebarOrderingFixture()
+        defer { emptyFixture.close() }
+        let emptyHost = NSHostingView(
+            rootView: CloudTreeDevicesEmptyView(
+                section: CloudTreeDevicesSection(count: 0, discoveryEnabled: true),
+                actions: emptyFixture.coordinator.nodeActions,
+                style: .compact
+            )
+        )
+        let emptyWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 120),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        emptyWindow.contentView = emptyHost
+        defer { emptyWindow.contentView = nil }
+        emptyHost.needsLayout = true
+        emptyHost.layoutSubtreeIfNeeded()
+        emptyWindow.displayIfNeeded()
+        #expect(Self.resolvedIconViews(in: emptyHost).count >= 3,
+                "The enabled device preference's checkmark must use the resolved AppKit renderer")
     }
 
     /// The header renders while Cloud Machines is off too; there it has nothing
