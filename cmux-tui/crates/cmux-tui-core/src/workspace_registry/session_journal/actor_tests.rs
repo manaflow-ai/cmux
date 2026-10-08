@@ -138,6 +138,8 @@ fn actors_for_sequences_outside_the_segment_are_ignored() {
     assert_eq!(records.len(), 1);
     let actor = journal_actor(&registry.connection, records[0].sequence).unwrap();
     assert_eq!(actor.as_deref(), Some("user:user_local"));
+    // The entry for sequence 99 names no record of this segment: never read.
+    assert_eq!(journal_actor(&registry.connection, 99).unwrap(), None);
 }
 
 #[test]
@@ -148,4 +150,62 @@ fn a_segment_record_with_an_unknown_field_still_decodes() {
     let records = registry.session_journal_after(0, 10).unwrap().records;
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].kind, "pane.focus");
+}
+
+/// A store from before actors: the ledgers have no `actor` column when the
+/// legacy `resource_events` history moves into the journal at open.
+#[test]
+fn legacy_history_migrates_before_the_ledgers_have_actor_columns() {
+    let mut registry = WorkspaceRegistry::in_memory("legacy-actorless").unwrap();
+    let tx = registry.connection.transaction().unwrap();
+    tx.execute_batch(
+        "DROP TABLE session_journal;
+         ALTER TABLE resource_mutations DROP COLUMN actor;
+         ALTER TABLE resource_effect_receipts DROP COLUMN actor;
+         CREATE TABLE resource_events (
+           revision INTEGER PRIMARY KEY NOT NULL,
+           previous_revision INTEGER NOT NULL,
+           origin TEXT NOT NULL,
+           idempotency_key TEXT NOT NULL,
+           deltas_json TEXT NOT NULL
+         );
+         UPDATE meta SET value = '4' WHERE key = 'resource_revision';
+         INSERT INTO resource_mutations(
+           origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+         ) VALUES('test', 'focus-four', 'pane.focus', '{}', '{}', 4);
+         INSERT INTO resource_events(
+           revision, previous_revision, origin, idempotency_key, deltas_json
+         ) VALUES(4, 3, 'test', 'focus-four', '[]');",
+    )
+    .unwrap();
+    migrate_resource_events_to_session_journal(&tx).unwrap();
+    tx.commit().unwrap();
+    let records = registry.session_journal_after(0, 10).unwrap().records;
+    assert_eq!(records.len(), 2);
+    assert_eq!(journal_actor(&registry.connection, records[1].sequence).unwrap(), None);
+}
+
+/// The actor stays out of the sealed record JSON (older daemons decode it).
+#[test]
+fn a_sealed_segment_keeps_actors_out_of_the_record_json() {
+    let root = temp_root("seal-json");
+    let mux = crate::Mux::open_persistent("journal-json", crate::SurfaceOptions::default(), &root)
+        .unwrap();
+    create(&mux, "journal-json-1");
+    let checkpoint = mux.create_journal_checkpoint("client_test", "checkpoint_1").unwrap();
+    let through = checkpoint.checkpoint.source_sequence;
+    mux.seal_journal_segments(through, "client_test", "segment_1").unwrap();
+    let registry = mux.workspace_registry.lock().unwrap();
+    let mut statement = registry.connection.prepare("SELECT content FROM journal_segments").unwrap();
+    let contents = statement.query_map([], |row| row.get::<_, Vec<u8>>(0)).unwrap();
+    for content in contents {
+        let mut json = String::new();
+        std::io::Read::read_to_string(&mut flate2::read::GzDecoder::new(&content.unwrap()[..]), &mut json)
+            .unwrap();
+        assert!(!json.contains("\"actor\""), "a sealed record carries an actor field");
+    }
+    drop(statement);
+    drop(registry);
+    mux.shutdown();
+    let _ = fs::remove_dir_all(root);
 }
