@@ -171,7 +171,7 @@ export function VisualMediaBoard() {
 
   return (
     <div className="cmux-gallery-media-board">
-      <div className="cmux-gallery-media-toolbar" role="toolbar" aria-label="Preview board controls">
+      <div className="cmux-gallery-media-toolbar">
         <fieldset className="cmux-gallery-media-filter">
           <legend className="cmux-gallery-media-visually-hidden">Preview type</legend>
           {(["all", "still", "sequence"] as const).map((value) => (
