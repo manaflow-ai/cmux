@@ -194,3 +194,46 @@ struct CommandPaletteCommandListRowsView: View {
         }
     }
 }
+
+struct GoToFileResultsView: View {
+    let results: [GoToFileMatch]
+    let selectedIndex: Int
+    let isSearching: Bool
+    let onRun: (String) -> Void
+
+    var body: some View {
+        Group {
+            if results.isEmpty {
+                Text(isSearching
+                    ? String(localized: "commandPalette.goToFile.searching", defaultValue: "Searching files…")
+                    : String(localized: "commandPalette.goToFile.empty", defaultValue: "No files match your search."))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                            Button { onRun(result.path) } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "doc")
+                                        .frame(width: 16)
+                                        .foregroundStyle(.secondary)
+                                    Text(result.path)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 10)
+                                .frame(height: 26)
+                                .background(index == selectedIndex ? Color.accentColor.opacity(0.14) : .clear)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 450)
+            }
+        }
+    }
+}

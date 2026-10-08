@@ -1776,6 +1776,7 @@
 		C0A714000000000000000002 /* ContentView+ComputerUseCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A714000000000000000001 /* ContentView+ComputerUseCommandPalette.swift */; };
 		F02D5E1E7F70FB44242D747A /* ContentView+CurrentWorkCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C30683E64A47DAACCBF1952 /* ContentView+CurrentWorkCommandPalette.swift */; };
 		C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */; };
+		45FBD3EEA1D101A19B7DC3A1 /* ContentView+GoToFileCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB13A8758BFB9112C57D1628 /* ContentView+GoToFileCommandPalette.swift */; };
 		4B3E7A9C0D1F2E5A6B7C8D01 /* ContentView+KeymapPresetCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B3E7A9C0D1F2E5A6B7C8D02 /* ContentView+KeymapPresetCommands.swift */; };
 		D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */; };
 		137DEBC7453F4ABBBCB8D39A /* ContentView+PaneResizeCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4CD684C40FC4F36BD3A91EE /* ContentView+PaneResizeCommands.swift */; };
@@ -2280,6 +2281,8 @@
 		3865A0153865A0153865A015 /* GlobalSearchTerminalText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0153865B0153865B015 /* GlobalSearchTerminalText.swift */; };
 		3865A0143865A0143865A014 /* GlobalSearchTerminalTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0143865B0143865B014 /* GlobalSearchTerminalTextTests.swift */; };
 		8561A0038561A0038561A003 /* GlobalSearchVisiblePopoverShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0038561B0038561B003 /* GlobalSearchVisiblePopoverShortcutTests.swift */; };
+		E6ACA1E2A2A613D303F46152 /* GoToFileSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9E60672B3C8EB9CA2D92C3E /* GoToFileSearchService.swift */; };
+		15C33DBEF2CE3B3CCB642008 /* GoToFileSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F2DFF762693F0953C3E9C22 /* GoToFileSearchTests.swift */; };
 		DD9DE998158FEA6242A9C15F /* GotoSplitActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AAA9FEEAC85B8AB216861F2 /* GotoSplitActionTests.swift */; };
 		CC000000A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */; };
 		CC2639000000000000000001 /* GotoSplitCycleUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2639000000000000000002 /* GotoSplitCycleUITestSupport.swift */; };
@@ -6229,6 +6232,7 @@
 		C0A714000000000000000001 /* ContentView+ComputerUseCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ComputerUseCommandPalette.swift"; sourceTree = "<group>"; };
 		6C30683E64A47DAACCBF1952 /* ContentView+CurrentWorkCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+CurrentWorkCommandPalette.swift"; sourceTree = "<group>"; };
 		C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ForkAgentConversation.swift"; sourceTree = "<group>"; };
+		BB13A8758BFB9112C57D1628 /* ContentView+GoToFileCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+GoToFileCommandPalette.swift"; sourceTree = "<group>"; };
 		4B3E7A9C0D1F2E5A6B7C8D02 /* ContentView+KeymapPresetCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+KeymapPresetCommands.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		B4CD684C40FC4F36BD3A91EE /* ContentView+PaneResizeCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+PaneResizeCommands.swift"; sourceTree = "<group>"; };
@@ -6733,6 +6737,8 @@
 		3865B0153865B0153865B015 /* GlobalSearchTerminalText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchTerminalText.swift; sourceTree = "<group>"; };
 		3865B0143865B0143865B014 /* GlobalSearchTerminalTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchTerminalTextTests.swift; sourceTree = "<group>"; };
 		8561B0038561B0038561B003 /* GlobalSearchVisiblePopoverShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchVisiblePopoverShortcutTests.swift; sourceTree = "<group>"; };
+		F9E60672B3C8EB9CA2D92C3E /* GoToFileSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoToFileSearchService.swift; sourceTree = "<group>"; };
+		8F2DFF762693F0953C3E9C22 /* GoToFileSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GoToFileSearchTests.swift"; sourceTree = "<group>"; };
 		7AAA9FEEAC85B8AB216861F2 /* GotoSplitActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GotoSplitActionTests.swift"; sourceTree = "<group>"; };
 		CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GotoSplitCycleUITests.swift; sourceTree = "<group>"; };
 		CC2639000000000000000002 /* GotoSplitCycleUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITests/GotoSplitCycleUITestSupport.swift; sourceTree = "<group>"; };
@@ -12010,6 +12016,8 @@
 				11E0CF443B31591C215D6955 /* TextViewUndoRegistrationLifetime.swift */,
 				4252144220782379B2B347BE /* SettingsHostingView.swift */,
 				B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */,
+				BB13A8758BFB9112C57D1628 /* ContentView+GoToFileCommandPalette.swift */,
+				F9E60672B3C8EB9CA2D92C3E /* GoToFileSearchService.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13545,6 +13553,7 @@
 				67015335076C61C9D20E1D6A /* CmuxMainStartupTests.swift */,
 				07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */,
 				74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */,
+				8F2DFF762693F0953C3E9C22 /* GoToFileSearchTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15134,6 +15143,7 @@
 				C0A714000000000000000002 /* ContentView+ComputerUseCommandPalette.swift in Sources */,
 				F02D5E1E7F70FB44242D747A /* ContentView+CurrentWorkCommandPalette.swift in Sources */,
 				C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */,
+				45FBD3EEA1D101A19B7DC3A1 /* ContentView+GoToFileCommandPalette.swift in Sources */,
 				4B3E7A9C0D1F2E5A6B7C8D01 /* ContentView+KeymapPresetCommands.swift in Sources */,
 				D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */,
 				137DEBC7453F4ABBBCB8D39A /* ContentView+PaneResizeCommands.swift in Sources */,
@@ -15482,6 +15492,7 @@
 				3865A0133865A0133865A013 /* GlobalSearchPaletteModel.swift in Sources */,
 					3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
 				3865A0153865A0153865A015 /* GlobalSearchTerminalText.swift in Sources */,
+				E6ACA1E2A2A613D303F46152 /* GoToFileSearchService.swift in Sources */,
 				CC2639000000000000000001 /* GotoSplitCycleUITestSupport.swift in Sources */,
 					5B11E5A100000000000000B1 /* GPUSpinner.swift in Sources */,
 					A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */,
@@ -18057,6 +18068,7 @@
 				3865A0123865A0123865A012 /* GlobalSearchTerminalDocumentTests.swift in Sources */,
 				3865A0143865A0143865A014 /* GlobalSearchTerminalTextTests.swift in Sources */,
 				8561A0038561A0038561A003 /* GlobalSearchVisiblePopoverShortcutTests.swift in Sources */,
+				15C33DBEF2CE3B3CCB642008 /* GoToFileSearchTests.swift in Sources */,
 				DD9DE998158FEA6242A9C15F /* GotoSplitActionTests.swift in Sources */,
 					937700020000000000000001 /* GrokVaultAgentPersistenceTests.swift in Sources */,
 				9520A0019520A0019520A001 /* HermesFirstClassSupportTests.swift in Sources */,

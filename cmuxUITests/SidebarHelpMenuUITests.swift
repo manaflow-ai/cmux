@@ -506,6 +506,30 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
+    func testGoToFileCommandOpensWorkspaceFilePickerMode() throws {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
+        openCommandPaletteCommands(app: app)
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 3.0))
+        searchField.typeText("go to file")
+        XCTAssertNotNil(
+            waitForCommandPaletteSnapshot(windowId: try XCTUnwrap(socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)), mode: "commands", query: "go to file", timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).contains { ($0["command_id"] as? String) == "palette.goToFile" }
+            }
+        )
+        searchField.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        let windowID = try XCTUnwrap(socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertNotNil(
+            waitForCommandPaletteSnapshot(windowId: windowID, mode: "go_to_file", query: "", timeout: 5.0)
+        )
+        XCTAssertTrue(app.textFields["CommandPaletteSearchField"].exists)
+    }
+
     func testCmdShiftPCheckQueryPrefersCheckForUpdatesBeforeAttemptUpdate() throws {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
