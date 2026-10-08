@@ -161,11 +161,16 @@ struct CloudWireGuardHubTests {
 
     actor ReadinessGate {
         private var waiter: CheckedContinuation<Void, Never>?
+        private var opened = false
 
         func wait() async {
             await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
-                    waiter = continuation
+                    if opened {
+                        continuation.resume()
+                    } else {
+                        waiter = continuation
+                    }
                 }
             } onCancel: {
                 Task { await self.open() }
@@ -173,6 +178,7 @@ struct CloudWireGuardHubTests {
         }
 
         func open() {
+            opened = true
             waiter?.resume()
             waiter = nil
         }
