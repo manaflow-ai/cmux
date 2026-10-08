@@ -521,3 +521,15 @@ signed-in person, per-team limit). Snapshots stay after their machine is deleted
 taken when its machine is deleted finishes first (intent order), so "snapshot, then delete" keeps the state. `size_mb` is the
 machine's disk size when it was taken (Freestyle reports no snapshot size).
 
+
+### Calls from an install token: the Mac relay (cx-wb5.65, chief decisions 2026-10-08)
+
+The Mac relay (cx-wb5.57) calls Cloud with the Mac install token (grant read, mutate-own, mutate-shared, cloud-link). Agents and automations get none of the following.
+
+- `cloud.machine.pause` and `cloud.machine.start`: allowed for a non-agent install whose grant covers mutate-shared. An install starts at most 10 times per hour (`cloud.rate_limited`, retryable, `details.retry_after_ms`); a same-key replay and a person's start do not count. Each install pause and start is in the access audit with the install id.
+- `cloud.machine.create`, `cloud.machine.resize`, `cloud.machine.delete`, `cloud.snapshot.create`, `cloud.snapshot.delete`, `cloud.snapshot.restore`: money and destructive stay never grantable to an install. The call goes through the G8 approval path, the same one integrations use:
+  1. The first call answers `approval.pending` (retryable) with `details: {request: "apr_<32 hex>", expires_at}`. Nothing runs. The person gets an approve request in their feed (poster kind integration, label Cloud, scope `system:cloud:<team>`).
+  2. The person approves or denies in the web dashboard with their own session (`integration.approval.get` shows the exact op and params; installs cannot read or answer it). The approval expires after 24 hours.
+  3. Retry with the SAME idempotency key: `approval.pending` while waiting; after an approval, the op's own answer with `replayed: true` (a result, or the op's refusal such as `cloud.quota.exceeded`); after a denial `approval.denied`; after expiry `approval.expired`. A new key asks again. The same key with other params is `idempotency.conflict`.
+  4. The approved op runs once, as the install (re-checked at run time: a revoked install or a narrowed grant runs nothing and ends denied), and only if the person is still a team member.
+- At most 5 pending requests per install and 20 per team (`approval.too_many_pending`, retryable).
