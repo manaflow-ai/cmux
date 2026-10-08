@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { RENDER_FRAME_URL, RenderCard } from "./RenderCard";
+import { RENDER_FRAME_URL, RenderCard, ranRenders } from "./RenderCard";
 import { renderCall } from "./renderCall";
 import { RENDER, turnView } from "./turns";
 
@@ -62,7 +62,21 @@ describe("render calls", () => {
     ).toBe(false);
   });
 
+  test("agent HTML waits for Run: no frame loads until the reader runs it", () => {
+    // A busy loop in agent HTML would freeze the pane, which shares the frame's process, so nothing
+    // runs on its own; a card the reader ran stays running while the pane lives.
+    const waiting = renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>wait</p>", title: "Mock" } }));
+    expect(waiting).not.toContain("<iframe");
+    expect(waiting).toContain(">Run</button>");
+    expect(waiting).toContain(">Mock</span>");
+    ranRenders.add("<p>wait</p>");
+    const running = renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>wait</p>", title: "Mock" } }));
+    expect(running).toContain(`src="${RENDER_FRAME_URL}"`);
+    expect(running).not.toContain(">Run</button>");
+  });
+
   test("the card frames the render origin sandboxed without same-origin", () => {
+    ranRenders.add("<p>x</p>");
     const html = renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>x</p>", title: "Mock" } }));
     expect(html).toContain(`src="${RENDER_FRAME_URL}"`);
     expect(html).toContain('sandbox="allow-scripts"');
