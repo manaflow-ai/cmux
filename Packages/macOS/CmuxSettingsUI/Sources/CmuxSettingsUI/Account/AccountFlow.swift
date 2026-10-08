@@ -23,6 +23,10 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Identifier of the currently selected team, or `nil` if none.
     var selectedTeamID: String? { get }
 
+    /// Team confirmed by the auth service and used for billing requests.
+    /// Unlike the picker selection, this excludes an in-flight optimistic choice.
+    var confirmedTeamID: String? { get }
+
     /// Selects a team through the host's shared auth mutation path.
     /// - Parameter id: A member team id, or `nil` to clear the explicit choice.
     func selectTeam(id: String?) async throws
@@ -99,6 +103,9 @@ public protocol AccountFlow: AccountTeamManagement {
 }
 
 extension AccountFlow {
+    /// Hosts without optimistic team selection use their selected team directly.
+    public var confirmedTeamID: String? { selectedTeamID }
+
     public func prefetchProUpgrade() {}
 
     /// Package-only hosts can use the identity and auth activity as their

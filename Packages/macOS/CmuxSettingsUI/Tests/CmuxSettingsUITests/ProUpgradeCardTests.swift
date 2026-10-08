@@ -50,6 +50,7 @@ struct ProUpgradeCardTests {
         flow.selectedTeamID = "paid-team"
         await updateCard()
         #expect(flow.refreshCount == 1)
+        #expect(model.presentation(flow: flow, key: AccountPlanRefreshKey(flow: flow)) == .checking)
 
         flow.confirmedTeamID = "paid-team"
         flow.result = (isPro: true, canManage: false)

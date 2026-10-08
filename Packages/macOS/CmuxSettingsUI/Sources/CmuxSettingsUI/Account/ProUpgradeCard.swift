@@ -12,9 +12,9 @@ import SwiftUI
 struct ProUpgradeCard: View {
     let flow: AccountFlow?
     @State private var plan = AccountPlanModel()
-    @State private var refreshGeneration = 0
-    @Environment(\.scenePhase) private var scenePhase
+    @State private var retryGeneration = 0
 
+    /// Creates the card with the host-owned account and billing state.
     init(flow: AccountFlow?) {
         self.flow = flow
     }
@@ -32,7 +32,7 @@ struct ProUpgradeCard: View {
             Spacer(minLength: 12)
             if presentation == .unavailable {
                 Button(String(localized: "settings.account.pro.retry", defaultValue: "Retry", bundle: .module)) {
-                    refreshGeneration &+= 1
+                    retryGeneration &+= 1
                 }
                 .controlSize(.small)
             } else if shouldShowAction {
@@ -62,13 +62,10 @@ struct ProUpgradeCard: View {
         .task(id: refreshKey) {
             await plan.refresh(flow: flow, key: refreshKey)
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { refreshGeneration &+= 1 }
-        }
     }
 
     private var refreshKey: AccountPlanRefreshKey {
-        AccountPlanRefreshKey(flow: flow, generation: refreshGeneration)
+        AccountPlanRefreshKey(flow: flow, generation: retryGeneration)
     }
 
     private var presentation: AccountPlanModel.Presentation {
@@ -127,15 +124,16 @@ struct AccountPlanRefreshKey: Equatable {
     let accountID: String?
     let isAuthenticated: Bool
     let isWorkingOnAuth: Bool
-    let selectedTeamID: String?
+    let confirmedTeamID: String?
     var generation = 0
 
+    /// Captures authenticated request scope; pending picker choices are not authority.
     @MainActor
     init(flow: AccountFlow?, generation: Int = 0) {
         accountID = flow?.currentIdentity?.id
         isAuthenticated = flow?.isAuthenticated == true
         isWorkingOnAuth = flow?.isWorkingOnAuth == true
-        selectedTeamID = flow?.selectedTeamID
+        confirmedTeamID = flow?.confirmedTeamID
         self.generation = generation
     }
 
@@ -156,8 +154,12 @@ final class AccountPlanModel {
     private var failedRefreshKey: AccountPlanRefreshKey?
     @ObservationIgnored private var requestID: UUID?
 
+    /// Projects the host's plan without exposing Upgrade during restoration or lookup failure.
     func presentation(flow: AccountFlow?, key: AccountPlanRefreshKey) -> Presentation {
         guard !key.isWorkingOnAuth else { return .checking }
+        // A picker change is optimistic; keep the previous entitlement hidden
+        // until the auth service confirms the team used by billing.
+        if let flow, flow.selectedTeamID != flow.confirmedTeamID { return .checking }
         guard flow?.isProStatusKnown != false else {
             return failedRefreshKey == key ? .unavailable : .checking
         }
@@ -167,6 +169,8 @@ final class AccountPlanModel {
         return .free
     }
 
+    /// Loads the authenticated plan and scopes a failed lookup to the requesting account/team.
+    /// Cancellation or a replaced request cannot overwrite the newer card's error state.
     func refresh(flow: AccountFlow?, key: AccountPlanRefreshKey) async {
         let id = UUID()
         requestID = id

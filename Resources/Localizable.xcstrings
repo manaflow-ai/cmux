@@ -294619,6 +294619,72 @@
             "state": "translated",
             "value": "Pro 구독이 활성화되어 있습니다. 결제를 관리하거나 언제든지 취소할 수 있습니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaša Pro pretplata je aktivna. Upravljajte naplatom ili otkažite u bilo kojem trenutku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit Pro-abonnement er aktivt. Administrer betaling eller opsig når som helst."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo abbonamento Pro è attivo. Gestisci la fatturazione o annulla in qualsiasi momento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជាវ Pro របស់អ្នកសកម្ម។ គ្រប់គ្រងការទូទាត់ ឬបោះបង់បានគ្រប់ពេល។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro-abonnementet ditt er aktivt. Administrer betaling eller avslutt når som helst."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja subskrypcja Pro jest aktywna. Zarządzaj płatnościami lub anuluj ją w dowolnym momencie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua assinatura Pro está ativa. Gerencie a cobrança ou cancele quando quiser."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша подписка Pro активна. Управляйте оплатой или отмените её в любое время."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสมัครสมาชิก Pro ของคุณใช้งานอยู่ จัดการการเรียกเก็บเงินหรือยกเลิกได้ทุกเมื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro aboneliğiniz etkin. Faturalandırmayı yönetin veya istediğiniz zaman iptal edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша підписка Pro активна. Керуйте оплатою або скасуйте її в будь-який час."
+          }
         }
       }
     },
