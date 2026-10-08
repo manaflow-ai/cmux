@@ -209,7 +209,8 @@ class VMResizeTests(unittest.TestCase):
                   "poolMemoryMb": 40 * 1024, "usedVcpus": 18,
                   "usedMemoryMb": 32 * 1024}
         machines = [{"id": "existing-vm", "status": "running",
-                     "resources": {"vcpus": 4, "memoryMb": 8 * 1024}}]
+                     "resources": {"vcpus": 4, "memoryMb": 8 * 1024},
+                     "resourceReservation": {"vcpus": 4, "memoryMb": 8 * 1024}}]
         with ResizeSocket(limits=limits, machines=machines) as server:
             result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--cpu", "8"])
             self.assertNotEqual(result.returncode, 0)
