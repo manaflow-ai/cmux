@@ -21,9 +21,9 @@ import CmuxTerminal
 ///   witnesses forward and return the raw v1 response for the coordinator to
 ///   parse exactly as the legacy v2 wrappers did.
 ///
-/// In release builds `ControlDebugContext` has no requirements, so the
-/// conformance is an empty extension — matching the legacy `#if DEBUG` switch
-/// cases that compiled the whole domain out.
+/// The production command-palette toggle is always available. The remaining
+/// witnesses are DEBUG-only, matching the legacy `#if DEBUG` switch cases that
+/// compiled those test surfaces out of release builds.
 #if DEBUG
 @MainActor
 func debugShowCanvasCommandScrollHint(in workspace: Workspace) -> Bool {
@@ -37,6 +37,20 @@ func debugShowCanvasCommandScrollHint(in workspace: Workspace) -> Bool {
 #endif
 
 extension TerminalController: ControlDebugContext {
+    func controlCommandPaletteToggle(windowID: UUID?) -> Bool {
+        let targetWindow: NSWindow?
+        if let windowID {
+            guard let window = AppDelegate.shared?.mainWindow(for: windowID) else {
+                return false
+            }
+            targetWindow = window
+        } else {
+            targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        }
+        NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: targetWindow)
+        return true
+    }
+
 #if DEBUG
     // MARK: - Session-snapshot benchmarks
 
@@ -262,6 +276,9 @@ extension TerminalController: ControlDebugContext {
         _ event: ControlDebugCommandPaletteEvent,
         windowID: UUID?
     ) -> Bool {
+        if case .toggle = event {
+            return controlCommandPaletteToggle(windowID: windowID)
+        }
         let targetWindow: NSWindow?
         if let windowID {
             guard let window = AppDelegate.shared?.mainWindow(for: windowID) else {

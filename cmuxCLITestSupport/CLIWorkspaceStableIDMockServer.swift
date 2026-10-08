@@ -149,6 +149,32 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
                     "workspace": workspaceRow(),
                 ]
             )
+        case "workspace.select", "surface.focus", "surface.split", "command_palette.toggle":
+            return encodedResponse(
+                id: requestID,
+                result: [
+                    "window_id": windowID,
+                    "window_ref": "window:1",
+                    "workspace_id": workspaceID,
+                    "workspace_ref": "workspace:1",
+                    "surface_id": Self.surfaceID,
+                    "surface_ref": "surface:1",
+                ]
+            )
+        case "workspace.create":
+            return encodedResponse(
+                id: requestID,
+                result: [
+                    "window_id": windowID,
+                    "window_ref": "window:1",
+                    "workspace_id": Self.createdWorkspaceID,
+                    "workspace_ref": "workspace:2",
+                ]
+            )
+        case "feed.list":
+            return encodedResponse(id: requestID, result: ["revision": 1, "items": []])
+        case "feed.permission.reply", "feed.question.reply", "feed.exit_plan.reply":
+            return encodedResponse(id: requestID, result: ["delivered": true])
         case "system.tree":
             return encodedResponse(
                 id: requestID,
@@ -287,4 +313,5 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
 
     private static let paneID = "33333333-3333-3333-3333-333333333333"
     private static let surfaceID = "44444444-4444-4444-4444-444444444444"
+    private static let createdWorkspaceID = "55555555-5555-5555-5555-555555555555"
 }

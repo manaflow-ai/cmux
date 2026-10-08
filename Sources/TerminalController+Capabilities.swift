@@ -32,6 +32,7 @@ extension TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "command_palette.toggle",
             "sidebar.custom.open",
             "system.top",
             "system.memory",

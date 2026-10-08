@@ -644226,7 +644226,66 @@
             }
           }
         }
+      },
+    "cli.help.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog|mcp> [options]\n\nDrive cmux from an agent with stable window, workspace, pane, tab and\nsurface ids. Mutations return a receipt containing the result and the\npost-action topology snapshot.\n\nCommands:\n  snapshot [--all] [--window <id|ref|index>] [--workspace <id|ref|index>]\n  workspace select <id|ref|index>\n  workspace create [--name <title>] [--cwd <path>] [--command <text>] [--focus <true|false>]\n  tab select <id|ref|index>\n  surface focus <id|ref|index>\n  surface split <left|right|up|down> [--surface <id|ref|index>] [--command <text>]\n  palette toggle [--window <id|ref|index>]\n  dialog list\n  dialog answer <request-id> (--mode <once|always|all|bypass|deny> | --selection <value>... | --plan-mode <mode>)\n  mcp\n\n`cmux agents mcp` serves the same operations as MCP tools over stdio."
+          }
+        }
       }
+    }
   },
   "version": "1.0"
 }

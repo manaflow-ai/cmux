@@ -1207,6 +1207,7 @@
 		A77A000AA1B2C3D4E5F60001 /* CMUXCLI+AgentJournalEmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A0009A1B2C3D4E5F60001 /* CMUXCLI+AgentJournalEmission.swift */; };
 		AE55A6E50000000000000003 /* CMUXCLI+AgentMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE55A6E50000000000000004 /* CMUXCLI+AgentMessages.swift */; };
 		62F42446BA18ACD0339D74CE /* CMUXCLI+AgentMessageSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B85EF1F8C40AF5C89F442A8 /* CMUXCLI+AgentMessageSettings.swift */; };
+		D4832B2645887F3778ED95AF /* CMUXCLI+AgentSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 066F90424799E73246718373 /* CMUXCLI+AgentSurface.swift */; };
 		B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */; };
 		9758B0119758B0119758B011 /* CMUXCLI+AmpExtensionSourcePart1.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758B0019758B0019758B001 /* CMUXCLI+AmpExtensionSourcePart1.swift */; };
 		9758B0129758B0129758B012 /* CMUXCLI+AmpExtensionSourcePart2.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758B0029758B0029758B002 /* CMUXCLI+AmpExtensionSourcePart2.swift */; };
@@ -5780,6 +5781,7 @@
 		A77A0009A1B2C3D4E5F60001 /* CMUXCLI+AgentJournalEmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentJournalEmission.swift"; sourceTree = "<group>"; };
 		AE55A6E50000000000000004 /* CMUXCLI+AgentMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentMessages.swift"; sourceTree = "<group>"; };
 		5B85EF1F8C40AF5C89F442A8 /* CMUXCLI+AgentMessageSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentMessageSettings.swift"; sourceTree = "<group>"; };
+		066F90424799E73246718373 /* CMUXCLI+AgentSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentSurface.swift"; sourceTree = "<group>"; };
 		B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AmpExtension.swift"; sourceTree = "<group>"; };
 		9758B0019758B0019758B001 /* CMUXCLI+AmpExtensionSourcePart1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AmpExtensionSourcePart1.swift"; sourceTree = "<group>"; };
 		9758B0029758B0029758B002 /* CMUXCLI+AmpExtensionSourcePart2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AmpExtensionSourcePart2.swift"; sourceTree = "<group>"; };
@@ -12314,6 +12316,7 @@
 				5B85EF1F8C40AF5C89F442A8 /* CMUXCLI+AgentMessageSettings.swift */,
 				6EA23FD5F4147585610132E4 /* CMUXCLI+BrowserRepl.swift */,
 				F0226FF4BE571A2BA5B5AB16 /* CMUXCLI+VPN.swift */,
+				066F90424799E73246718373 /* CMUXCLI+AgentSurface.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -14983,6 +14986,7 @@
 				875200000000000000000012 /* cmuxApp+SurfaceNavigationMenu.swift in Sources */,
 				80410000000000000000000D /* cmuxApp+WorkspaceCommandHelpers.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
+				D4832B2645887F3778ED95AF /* CMUXCLI+AgentSurface.swift in Sources */,
 				A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */,
 				A5001650 /* CmuxConfig.swift in Sources */,
 				A5FB1209 /* CmuxConfigActionDefinition.swift in Sources */,

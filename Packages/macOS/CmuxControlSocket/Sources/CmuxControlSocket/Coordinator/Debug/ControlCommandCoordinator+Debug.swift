@@ -9,6 +9,22 @@ internal import Foundation
 /// This file carries the dispatch plus the session-snapshot, shortcut, input,
 /// text-box, and command-palette methods; the rest live in `+Debug2.swift` (500-line budget).
 extension ControlCommandCoordinator {
+    /// Handles the production command-palette toggle used by agent receipts.
+    func handleCommandPalette(_ request: ControlRequest) -> ControlCallResult? {
+        guard request.method == "command_palette.toggle" else { return nil }
+        let requestedWindowID = uuid(request.params, "window_id")
+        let posted = (context as? any ControlDebugContext)?.controlCommandPaletteToggle(windowID: requestedWindowID) ?? false
+        if let requestedWindowID, !posted {
+            return .err(code: "not_found", message: "Window not found", data: .object([
+                "window_id": .string(requestedWindowID.uuidString),
+                "window_ref": ref(.window, requestedWindowID),
+            ]))
+        }
+        return .ok(.object([:]))
+    }
+}
+
+extension ControlCommandCoordinator {
     /// Runs one decoded request (`request` = the decoded envelope) if it belongs to
     /// the debug domain, returning the typed result; returns `nil` otherwise — including
     /// in release builds, where the domain does not exist — so the caller can fall

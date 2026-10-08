@@ -1,11 +1,14 @@
 import Foundation
 @testable import CmuxControlSocket
 
-// Benign default implementations of the debug-domain seam, so a test fake that
-// conforms to the full `ControlCommandContext` umbrella only has to implement
-// the domain it actually exercises (the per-domain companion to the shared
-// `ControlCommandContextTestStubs.swift`). The whole domain is DEBUG-only;
-// release test builds see an empty extension, matching the empty protocol.
+// Benign default implementations of the command-palette and debug-domain
+// seam, so a test fake that conforms to the full `ControlCommandContext`
+// umbrella only has to implement the domain it actually exercises (the
+// per-domain companion to the shared `ControlCommandContextTestStubs.swift`).
+
+extension ControlDebugContext {
+    func controlCommandPaletteToggle(windowID: UUID?) -> Bool { false }
+}
 
 #if DEBUG
 extension ControlDebugContext {
