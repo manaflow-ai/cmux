@@ -49,9 +49,6 @@ use crate::turn::{TurnOutcome, TurnStart, usage_line};
 /// The result of a local tool call in a remote-origin turn on this engine.
 const REMOTE_REFUSED: &str = "Refused: this turn started from a paired device, and running commands or editing files then needs the user's approval, which this engine cannot ask for. Say what you would run; the user can approve it from the Mac.";
 
-/// Breakpoints in the view; the request's own automatic one is the fourth
-/// (Anthropic allows four per request).
-const VIEW_BREAKPOINTS: usize = 3;
 /// Tries per model call; transient failures wait `Native::retry` between
 /// tries (fixed, not exponential: the user waits on the turn).
 const TRIES: u32 = 6;
@@ -130,10 +127,15 @@ impl Native {
         ])
     }
 
-    /// The turn's first user message: the view pieces (a breakpoint on each
-    /// of the first three) and the new messages, as `turn_blocks` cut them.
+    /// The turn's first user message: the view in blocks of 4 lines with one
+    /// breakpoint on the last whole block (spec 3.3, gist 3c190e0), then the
+    /// new messages, as `turn_blocks` cut them. The system prompt and the
+    /// request's end carry the other two.
     pub fn first_message(blocks: &[Value]) -> Value {
-        let views = blocks.len().saturating_sub(1);
+        // The view's last piece is the one that closes it.
+        let last_view = blocks
+            .iter()
+            .position(|b| b["text"].as_str().is_some_and(|t| t.ends_with("</chat>")));
         let content: Vec<Value> = blocks
             .iter()
             .enumerate()
@@ -142,7 +144,7 @@ impl Native {
                     return api_block(block);
                 }
                 let mut block = block.clone();
-                if i < views && i < VIEW_BREAKPOINTS {
+                if last_view.is_some_and(|v| v > 0 && i + 1 == v) {
                     block["cache_control"] = json!({"type": "ephemeral"});
                 }
                 block
@@ -157,7 +159,9 @@ impl Native {
             "model": self.config.model,
             "max_tokens": self.config.max_tokens,
             "stream": true,
-            "system": self.config.system,
+            // Marked: compactions send the same system prompt and tools, so
+            // they read them from this entry (spec 4).
+            "system": [{"type": "text", "text": self.config.system, "cache_control": {"type": "ephemeral"}}],
             "tools": Native::tools(),
             "messages": messages,
             // The end of each request: the next step reads it (section 8).
@@ -471,24 +475,28 @@ fn limit_text(limit: Option<Duration>) -> String {
 mod tests {
     use super::*;
 
+    /// Spec 3.3 (gist 3c190e0): the view in blocks of 4 lines, one marker on
+    /// the last whole block (the request's end carries the other).
     #[test]
-    fn at_most_three_view_breakpoints_plus_the_request_end() {
-        // A view past 100k characters: three marks cut four pieces.
+    fn one_view_breakpoint_on_the_last_whole_four_line_block() {
         let line = format!("{}\n", "x".repeat(99));
         let mut view = String::from("<chat>\n");
-        for _ in 0..1_100 {
+        for _ in 0..1_102 {
             view.push_str(&line);
         }
         view.push_str("</chat>");
         let blocks = crate::prompt::turn_blocks(&view, &["new".into()]);
-        assert_eq!(blocks.len(), 5);
+        // 275 whole blocks, the rest (two lines and the end tag), the message.
+        assert_eq!(blocks.len(), 277);
         let message = Native::first_message(&blocks);
-        let marked: Vec<bool> = message["content"]
+        let marked: Vec<usize> = message["content"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|b| b.get("cache_control").is_some())
+            .enumerate()
+            .filter(|(_, b)| b.get("cache_control").is_some())
+            .map(|(k, _)| k)
             .collect();
-        assert_eq!(marked, vec![true, true, true, false, false]);
+        assert_eq!(marked, vec![274]);
     }
 }
