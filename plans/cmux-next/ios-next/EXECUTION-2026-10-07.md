@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at implementation baseline `dd344fa661` reports 85 of 98 parity rows done, with one
+The refreshed D3 matrix at implementation baseline `5e1af976a5` reports 85 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), four seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
@@ -100,6 +100,19 @@ The active wave is intentionally independent:
 - `efe7c3c349` through `b060e3e9b4` add a transport-agnostic, bounded analytics uploader with offline
   fail-closed behavior, body/event splitting, transient retry backoff, cancellation-safe flushes,
   payload bounds and focused tests. It remains opt-in; `NoopAnalytics` is still the app default.
+- `a22b7f7327` adds cancellable steady-state WebRTC RTT sampling through the bounded path event inbox;
+  `027ed54032` adds the immutable tmux pane projection seam; and `17cc748f0f` makes the D2 result
+  manifest and provenance reproducible from either the manifest or its directory.
+- `323ef09dd3` bounds C8 picker admission and upload state with atomic batches, stable transfer ids,
+  cancellation-safe late-progress suppression, retries, malformed owner-id rejection and focused
+  tests. The picker adapter and real C4 uploader remain a seam, so the attach button stays disabled
+  in the shell composition.
+- `88c8e31c73` defines the C9 create/rename/kill tmux lifecycle protocol with server epochs, host-issued
+  ids, bounded names and idempotency keys, canonical wire parameters and durable owner receipts. It
+  does not execute SSH commands; the host adapter and live lifecycle verification remain open.
+- `5e1af976a5` sizes the default reliable terminal render credit from the latest RTT (2.5 MB/s target,
+  2 MiB cap, 256 KiB baseline), wakes blocked render senders when the path changes, and preserves
+  explicit channel budgets. Pure tests and the CmuxLink package build pass; device/WAN evidence remains open.
 
 The dedicated build host remains unavailable for interactive package tests (`cmux-lawrence-2` does not
 resolve), so native test execution, tagged pair installs, visual evidence, and live SSH/browser paths
@@ -118,14 +131,15 @@ The local bakeoff records a DEV-only loopback decision. F2 is still absent: `cmu
 split `serve` mode, iOS has no Link bench screen, and no device JSON has been captured. The V3 direct
 roam measurement is synthetic because the rig forces a direct TCP reconnect to report `.turn`, a path
 that the direct carrier cannot actually provide; it must be omitted or replaced with an alternate
-direct endpoint before it is compared with V1/V2 roaming. F3 (continuous V1 RTT and cancellable full
-channel sends), F7 (direct TCP head-of-line mitigation), and F8 (RTT-sized render credit) remain open.
+direct endpoint before it is compared with V1/V2 roaming. F8 is implemented in the session layer;
+F3 (continuous V1 RTT and cancellable full channel sends) and F7 (direct TCP head-of-line mitigation)
+remain open.
 
-The post-F1/E1 results are nested in `plans/cmux-next/ios-next/bakeoff/results/e1/`, but the default
-summarizer reads only the top-level result files. The section 3 table therefore is not reproducible
-from its documented command and the nested directory has only one full V1 run. Before relying on the
-comparison for a release choice, add an explicit result manifest or update the summarizer invocation
-and record the exact run count and commit for every row.
+The post-F1/E1 results are nested in `plans/cmux-next/ios-next/bakeoff/results/e1/`. The checked-in
+`manifest.json` enumerates the ten exact result files, labels the run groups, and records source
+commit `2aebd498ca`; `summarize.py` accepts the manifest or its directory and rejects missing or
+escaping paths. The table is reproducible, but the single full-session V1 run and the absence of
+device/WAN results remain release limitations.
 
 ## Dependency graph for this wave
 
