@@ -873,6 +873,28 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(pool.owned_pools(""), ())
         self.assertEqual(pool.owned_pools("/Applications/Xcode.app"), ())
 
+    def test_namespaced_pool_is_opt_in_through_the_explicit_order(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
+        self.assertEqual(pool.owned_pools(PR_XCODE, aws), (MINI, LIGHT, aws))
+        self.assertEqual(pool.owned_pools(PR_XCODE, f"{aws},glaeda-aws-light-xcode-26.3"),
+                         (MINI, LIGHT, aws))
+
+    def test_namespaced_pool_order_is_accepted_and_default_stays_office_only(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        self.assertEqual(pool.settings("", aws, "", "1", PR_XCODE).order,
+                         (aws,))
+        self.assertEqual(pool.settings("", "", "", "1", PR_XCODE).order,
+                         (MINI, LIGHT, pool.LARGE_RUNNER, pool.DEFAULT_RUNNER, pool.MACOS_15_RUNNER))
+
+    def test_explicit_aws_pool_can_be_selected_with_its_own_capacity(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        snap = backlog(small=0, large=0, old=0)
+        snap["pools"][aws] = {"queued": 0, "running": 0}
+        choice = choose(snap, pins=OWNED_PINS, owned="1", order=f"{aws},{MINI}", jobs=1,
+                        owned_slots=json.dumps({aws: 5, pool.root_label(aws): 2}))
+        self.assertEqual(choice.runner, aws)
+
     def test_persistent_means_a_glaeda_pool_label(self):
         self.assertTrue(pool.persistent(MINI))
         self.assertTrue(pool.persistent("glaeda-light-xcode-26.6"))
@@ -2163,6 +2185,17 @@ class WarmAffinity(unittest.TestCase):
         # A retry attempt keeps its own route.
         self.assertEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["light_side_jobs"], "")
 
+    def test_explicit_aws_order_uses_aws_light_side_runners(self):
+        aws_light = "glaeda-aws-light-xcode-26.6"
+        aws_side = pool.side_label(aws_light)
+        office_side = pool.side_label(LIGHT)
+        runners = [live_runner(1, LIGHT, office_side), live_runner(2, aws_light, aws_side)]
+        self.assertEqual(
+            pool.light_side_lanes(pool.RunJobs(False, (), ("claude-wrapper",)), runners,
+                                  {aws_light: 1, aws_side: 1}, PR_XCODE, aws_light),
+            (aws_side, ("claude-wrapper",)),
+        )
+
     def test_release_build_stays_with_the_picked_pool(self):
         # The universal Release compile never takes the light side runners ahead of the pick; the lanes
         # before it still do, and it takes the picked pool's side label.
@@ -2434,6 +2467,14 @@ class LiveCapacity(unittest.TestCase):
                          {MINI: 1, ROOT_MINI: 1})
         self.assertEqual(pool.live_owned_free([aws, office], (MINI, ROOT_MINI)),
                          {MINI: 1, ROOT_MINI: 1})
+
+    def test_explicit_aws_order_exposes_only_its_namespace_labels(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        aws_root = "glaeda-aws-root-std-xcode-26.6"
+        runners = [mini_runner("aws-m4pro-9", 0, aws, aws_root)]
+        slots = pool.routing_slots("", PR_XCODE, runners, aws)
+        self.assertEqual((slots.get(aws), slots.get(aws_root), slots.get(pool.side_label(aws))), (1, 1, 0))
+        self.assertNotIn(MINI, slots)
 
     def test_routing_labels_come_from_the_online_runners_and_the_variable_only_without_them(self):
         gui = pool.gui_label(MINI)

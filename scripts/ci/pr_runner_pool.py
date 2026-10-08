@@ -506,6 +506,17 @@ def _role_name(label: str) -> str:
     return next((role for role in ROLE_NAMES if role in parts[1:3]), "")
 
 
+def owned_class(label: str) -> str:
+    """Return an owned label's class, or ``""`` for another label."""
+    parts = (label or "").split("-")
+    return next((name for name in RUN_CLASSES if name in parts), "")
+
+
+def root_pool_label(label: str) -> bool:
+    """Whether ``label`` is a root label for a namespaced owned pool."""
+    return persistent(label) and _role_name(label) == "root"
+
+
 def root_label(label: str) -> str:
     """The root runners' label for an owned pool label, or "" for any other label."""
     if not persistent(label) or _role_name(label):
@@ -582,7 +593,7 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
 
 
 def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owned_slots: Mapping[str, int],
-                     pr_xcode_app: str | None) -> tuple[str, tuple[str, ...]]:
+                     pr_xcode_app: str | None, order: str | None = None) -> tuple[str, tuple[str, ...]]:
     """The light pool's side label and the side lanes of `plan` its idle side runners take now, one per runner.
 
     release-build (RELEASE_BUILD_JOB), a universal Release compile, is never
@@ -590,7 +601,17 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
     the light pool no machines beyond its root runners (side_runner()'s
     rule).
     """
-    light = next((label for label in owned_pools(pr_xcode_app) if label.startswith(f"glaeda-{LIGHT_CLASS}-")), "")
+    pools = owned_pools(pr_xcode_app, order)
+    requested = tuple(label.strip() for label in (order or "").split(",") if label.strip())
+    # The office route has historically used idle light side runners even
+    # when the main order omits the light pool. Once a namespaced fleet is
+    # named, keep this opportunistic claim in that namespace instead of
+    # mixing an AWS run with office side capacity.
+    if any(label.startswith("glaeda-aws-") for label in requested):
+        light = next((label for label in requested
+                      if label in pools and owned_class(label) == LIGHT_CLASS), "")
+    else:
+        light = next((label for label in pools if owned_class(label) == LIGHT_CLASS), "")
     label = side_label(light)
     if not plan.side or not label or owned_slots.get(light, 0) <= owned_slots.get(root_label(light), 0):
         return "", ()
@@ -611,12 +632,26 @@ def pool_label(label: str) -> str:
     return label
 
 
-def owned_pools(pr_xcode_app: str | None) -> tuple[str, ...]:
-    """The owned pool labels for the lane's Xcode pin; none when the pin names no version."""
+def owned_pools(pr_xcode_app: str | None, order: str | None = None) -> tuple[str, ...]:
+    """The owned pool labels for the lane's Xcode pin.
+
+    The ordinary office families are always available to the picker. Namespaced
+    families, such as ``glaeda-aws-*``, are opt-in by naming the full pool in
+    ``CI_PR_POOL_ORDER``. This keeps headless or cold capacity out of the normal
+    office route until its cache and toolchain policy has been verified.
+    """
     match = XCODE_APP.search(pr_xcode_app or "")
     if not match:
         return ()
-    return tuple(f"glaeda-{name}-xcode-{match.group(1)}" for name in RUN_CLASSES)
+    version = match.group(1)
+    base = [f"glaeda-{name}-xcode-{version}" for name in RUN_CLASSES]
+    requested: list[str] = []
+    for raw in (order or "").split(","):
+        label = raw.strip()
+        if (persistent(label) and not _role_name(label)
+                and label.endswith(f"-xcode-{version}") and label not in base):
+            requested.append(label)
+    return tuple(dict.fromkeys([*base, *requested]))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -878,7 +913,9 @@ def settings(overflow: str | None, order: str | None, max_queued: str | None,
     if (overflow or "").strip() == "0":
         return None
     use_owned = (owned or "").strip() == "1"
-    current = owned_pools(pr_xcode_app)
+    # A namespaced family is opt-in through the explicit order. Keep the
+    # default office-first route unchanged when the order is unset.
+    current = owned_pools(pr_xcode_app, order)
     default = (current + DEFAULT_ORDER) if use_owned else DEFAULT_ORDER
     labels = tuple(label.strip() for label in (order or "").split(",") if label.strip()) or default
     if not use_owned:
@@ -942,7 +979,8 @@ def slots(raw: str | None, pr_xcode_app: str | None = None) -> dict[str, int]:
 
 
 def routing_slots(raw: str | None, pr_xcode_app: str | None,
-                  runners: Sequence[Mapping[str, Any]] | None) -> dict[str, int]:
+                  runners: Sequence[Mapping[str, Any]] | None,
+                  order: str | None = None) -> dict[str, int]:
     """The owned labels that route, with their machines: the online runners carrying each when the runners
     were read (`runners`), else CI_OWNED_POOL_SLOTS (slots()).
 
@@ -954,13 +992,13 @@ def routing_slots(raw: str | None, pr_xcode_app: str | None,
     """
     if runners is None:
         return slots(raw, pr_xcode_app)
-    labels = [label for pool_name in owned_pools(pr_xcode_app)
+    labels = [label for pool_name in owned_pools(pr_xcode_app, order)
               for label in (pool_name, root_label(pool_name), side_label(pool_name), gui_label(pool_name))]
     online = live_online(runners, labels)
     # Keep zero-valued side labels so side_runner() can distinguish a live
     # listing with no side capacity from the snapshot fallback.
     return {label: count for label, count in online.items()
-            if count > 0 or label.startswith(SIDE_PREFIX)}
+            if count > 0 or label.startswith(SIDE_PREFIX) or _role_name(label) == "side"}
 
 
 def capability_slots(raw: str | None) -> dict[str, int]:
@@ -1243,11 +1281,21 @@ def runner_labels(runner: Mapping[str, Any]) -> set[str]:
 
 
 def carries_office_pool_label(runner: Mapping[str, Any], label: str) -> bool:
-    """Count generic pool labels only on non-AWS runners."""
+    """Count generic labels only on their matching fleet namespace.
+
+    AWS runners intentionally carry the generic label for compatibility with
+    older installs, but that label must not add AWS capacity to the office
+    pool. When the AWS pool is explicitly selected, its namespaced label is
+    valid and should count.
+    """
     names = runner_labels(runner)
-    return label in names and not (
-        persistent(label) and any(name.startswith("glaeda-aws-") for name in names)
-    )
+    if label not in names:
+        return False
+    if not persistent(label):
+        return True
+    aws_runner = any(name.startswith("glaeda-aws-") for name in names)
+    aws_pool = label.startswith("glaeda-aws-")
+    return aws_runner == aws_pool
 
 
 def pinned_admission(root: str, name: str) -> str:
@@ -1257,7 +1305,7 @@ def pinned_admission(root: str, name: str) -> str:
 
 def idle_warm_runner(runners: Sequence[Mapping[str, Any]], root: str, tiers: Sequence[Collection[str]]) -> str:
     """The first online, idle `root` runner of the best tier (warm_tiers()) with its own runner_label(), or ""."""
-    if not root.startswith(ROOT_PREFIX):
+    if not root_pool_label(root):
         return ""
     for tier in tiers:
         for runner in runners:
@@ -1316,7 +1364,7 @@ def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str,
     favored. Returns the labels ("" when no mini is empty) and whether the
     mini is warm.
     """
-    if not root.startswith(ROOT_PREFIX):
+    if not root_pool_label(root):
         return "", False
     busy: set[str] = set()
     idle: dict[str, list[str]] = {}
@@ -1400,7 +1448,7 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
     pools = dict(snapshot.get("pools") or {})
     capacity: dict[str, int] = {}
     for label, count in idle.items():
-        if label.startswith(ROOT_PREFIX) and label not in slot_counts:
+        if root_pool_label(label) and label not in slot_counts:
             continue
         free = max(0, int(count))
         if online is not None and label in online:
@@ -2336,7 +2384,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     route_token = (env.get("ROUTE_TOKEN") or "").strip()
     if route_token and repo and not args.snapshot and (env.get("POOL_OWNED") or "").strip() == "1":
         try:
-            labels = owned_pools(env.get(PR_XCODE_VARIABLE))
+            labels = owned_pools(env.get(PR_XCODE_VARIABLE), env.get("POOL_ORDER"))
             # Each pool's root runners too; choose() keeps those with a root count.
             labels += tuple(root_label(label) for label in labels)
             live_runners = GitHub(route_token, repo).runners() if labels else None
@@ -2347,16 +2395,18 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             live_owned = online = live_runners = None
     # Which owned labels route, and their machines: the online runners when they were read, the
     # variable only when they could not be (routing_slots()).
-    routing = routing_slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE), live_runners)
+    routing = routing_slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE), live_runners,
+                            env.get("POOL_ORDER"))
     routing_raw = env.get("OWNED_SLOTS") if live_runners is None else json.dumps(routing)
     # Gui runners route (gui_runner()): the GUI jobs then hold no root runner. The pool is not
     # picked yet, so any gui label counts here; place() below checks the picked pool's own.
-    gui_runners = any(label.startswith(GUI_PREFIX) for label in routing)
+    gui_runners = any(_role_name(label) == "gui" for label in routing)
     # As many side lanes as the light minis' side runners idle now (light_side_lanes()) take them: the pool
     # picked below then holds admission, what follows it and the other side lanes.
     light_side, side_lanes = "", ()
     if live_runners is not None and attempt in ("", "1") and event == "pull_request" and env.get("HEAD_REPO") == repo:
-        light_side, side_lanes = light_side_lanes(plan, live_runners, routing, env.get(PR_XCODE_VARIABLE))
+        light_side, side_lanes = light_side_lanes(plan, live_runners, routing, env.get(PR_XCODE_VARIABLE),
+                                                  env.get("POOL_ORDER"))
     if side_lanes:
         plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key not in side_lanes))
         jobs = owned_peak(plan, gui)
@@ -2405,7 +2455,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # run takes retry_runner. The marker's jobs are the owned machines held.
     owned_slots = routing
     gui_label_out = gui_runner(choice, owned_slots)
-    if choice.runner.startswith(f"glaeda-{LIGHT_CLASS}-"):
+    if owned_class(choice.runner) == LIGHT_CLASS:
         # The light pool's own pick places no universal Release compile; it keeps MACOS_RUNNER_26.
         plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key != RELEASE_BUILD_JOB))
     owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None,
