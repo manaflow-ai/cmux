@@ -30,20 +30,25 @@ final class AgentPaneContextMenuReporter: NSObject, WKScriptMessageHandler {
     }
 }
 
-/// A context-menu item that runs a closure.
-final class AgentPaneMenuItem: NSMenuItem {
-    private let handler: @MainActor () -> Void
+/// The target of a context-menu item that runs a closure; the item keeps it alive
+/// (`representedObject`, since `target` is weak).
+final class AgentPaneMenuAction: NSObject {
+    private let handler: () -> Void
 
-    init(title: String, handler: @escaping @MainActor () -> Void) {
+    init(handler: @escaping () -> Void) {
         self.handler = handler
-        super.init(title: title, action: #selector(run), keyEquivalent: "")
-        target = self
     }
 
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    @objc func run() { handler() }
 
-    @objc private func run() { handler() }
+    /// An item titled `title` that runs `handler`.
+    static func item(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
+        let action = AgentPaneMenuAction(handler: handler)
+        let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
+        item.target = action
+        item.representedObject = action
+        return item
+    }
 }
 
 extension AgentPaneView {

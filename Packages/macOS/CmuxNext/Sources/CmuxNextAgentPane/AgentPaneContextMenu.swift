@@ -49,13 +49,13 @@ enum AgentPaneContextMenu {
         menu.removeAllItems()
         var copies = edits
         if let target {
-            copies.append(AgentPaneMenuItem(title: AgentPaneMenuStrings.copyMessage) { actions.copy(target.text) })
+            copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage) { actions.copy(target.text) })
             if let markdown = target.markdown {
-                copies.append(AgentPaneMenuItem(title: AgentPaneMenuStrings.copyAsMarkdown) { actions.copy(markdown) })
+                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyAsMarkdown) { actions.copy(markdown) })
             }
         }
         let fork: [NSMenuItem] = target?.forkSeq.map { seq in
-            [AgentPaneMenuItem(title: AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) }]
+            [AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) }]
         } ?? []
         let groups: [[NSMenuItem]] = [copies, fork, inspect.map { [$0] } ?? []]
         for group in groups where !group.isEmpty {
