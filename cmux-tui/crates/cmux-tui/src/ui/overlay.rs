@@ -68,7 +68,8 @@ pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
     let deny_w = label_width(deny_label);
     let approve_w = label_width(approve_label);
     let approve_x = x + width - 2 - approve_w;
-    let deny_x = if can_approve { approve_x.saturating_sub(deny_w + 2) } else { approve_x - deny_w };
+    let deny_x =
+        if can_approve { approve_x.saturating_sub(deny_w + 2) } else { approve_x - deny_w };
     let button_y = y + 8;
     dialog.approve = Rect { x: approve_x, y: button_y, width: approve_w, height: 1 };
     dialog.deny = Rect { x: deny_x, y: button_y, width: deny_w, height: 1 };

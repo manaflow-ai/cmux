@@ -6,16 +6,16 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::session::Session;
+use super::OrderedSession;
 
 /// Whether this TUI can approve a pairing: only the TUI that runs the
 /// daemon (or the verified app) may (cx-ehrq). An attached TUI may deny.
-pub(crate) fn can_approve(session: &Session) -> bool {
-    !matches!(session, Session::Remote(_))
+pub(crate) fn can_approve(session: &OrderedSession) -> bool {
+    !session.remote
 }
 
 /// `Some(true)` approves, `Some(false)` denies, `None` leaves the dialog.
-pub(super) fn decision(key: &KeyEvent, session: &Session) -> Option<bool> {
+pub(super) fn decision(key: &KeyEvent, session: &OrderedSession) -> Option<bool> {
     let chord =
         key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
     match key.code {
