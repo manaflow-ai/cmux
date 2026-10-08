@@ -6,9 +6,9 @@ import SwiftUI
 /// as a floating card, without rebuilding it.
 ///
 /// The whole point is that the two modes share one mounted subtree. cmux keeps
-/// the AppKit workspace table alive behind a zero-width shell while the sidebar
-/// is hidden (see `retainsDefaultAppKitSidebarWhenHidden` in `ContentView`), so
-/// revealing it is a frame and opacity change, never a cold start. Peek rides
+/// the AppKit workspace table alive, parked off the leading edge, while the
+/// sidebar is hidden (see `retainsDefaultAppKitSidebarWhenHidden` in
+/// `ContentView`), so revealing it is a move, never a cold start. Peek rides
 /// on that: the reveal has no table to build, which is what lets it be
 /// instant instead of merely fast.
 struct SidebarPeekPresentation: ViewModifier {
@@ -85,14 +85,12 @@ struct SidebarPeekPresentation: ViewModifier {
                 value: showsCard
             )
         } else {
-            // Hidden, the pane keeps its full width, parked just past the
-            // window's leading edge: its rows never re-lay out, and a toggle
-            // slide (which translates the content root on the render server,
-            // see SidebarToggleAnimator) carries it in and out as it is.
+            // The pane keeps its full width and its slot whether shown or
+            // hidden: its host parks it by drawing only (see
+            // SidebarDockedPaneHost), and the toggle's slide carries it in
+            // and out as it is.
             content
                 .frame(width: width, alignment: .leading)
-                .clipped()
-                .offset(x: isRevealed ? 0 : -width)
                 .allowsHitTesting(isRevealed)
                 .accessibilityHidden(!isRevealed)
         }

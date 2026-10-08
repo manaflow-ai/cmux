@@ -1868,7 +1868,7 @@ struct ContentView: View {
         // Inner insets: panes sit inside the workspace card, clear of its
         // rounded border.
         .padding(.top, WorkspaceCardMetrics.bandGap)
-        .padding(.leading, WorkspaceCardMetrics.paneInset)
+        // No leading inset: the panes meet the sidebar edge.
         .padding(.trailing, WorkspaceCardMetrics.paneInset)
         .padding(.bottom, WorkspaceCardMetrics.paneInset)
         // Reserves the titlebar band's height inside the card, so the band
@@ -1901,7 +1901,7 @@ struct ContentView: View {
         fileExplorerState.isVisible
     }
 
-    private var rightSidebarWidth: CGFloat {
+    var rightSidebarWidth: CGFloat {
         rightSidebarVisible ? fileExplorerWidth : 0
     }
 
@@ -1957,10 +1957,16 @@ struct ContentView: View {
                 // the tint inside the sidebar column.
                 hidesBackdrop: true
             ) {
-                // The retained docked list stays live while hidden, so a show
-                // slides in painted rows from its first frame.
-                sidebarView(isPresented: sidebarState.occupiesLayout
-                    || (retainsDefaultAppKitSidebarWhenHidden && sidebarState.presentationMode == .docked))
+                // The retained docked list stays live while hidden, in its own
+                // host that parks it by drawing only, so a show slides in
+                // painted rows from its first frame.
+                SidebarDockedPaneHost(
+                    parkedOffset: sidebarState.presentationMode == .docked && sidebarLayout.docksSidebar ? 0 : width,
+                    content: AnyView(sidebarEnvironment(sidebarView(isPresented: sidebarState.occupiesLayout
+                        || (retainsDefaultAppKitSidebarWhenHidden && sidebarState.presentationMode == .docked))
+                        .environment(\.colorScheme, appearance.sidebarContentColorScheme)
+                        .environment(\.sidebarReadabilityBackdrop, appearance.sidebarReadabilityBackdrop)))
+                )
             }
         }
     }

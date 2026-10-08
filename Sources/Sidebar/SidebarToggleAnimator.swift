@@ -25,11 +25,12 @@ final class SidebarToggleAnimator: ObservableObject {
     private weak var layout: SidebarLayoutModel?
     private var window: () -> NSWindow? = { nil }
     private var canSlide: () -> Bool = { false }
+    private var trailingStillWidth: () -> CGFloat = { 0 }
     private var isPeekPresenting: () -> Bool = { false }
     private var machine = SidebarToggleSlideMachine(docked: true)
-    /// Layers carrying the running slide, captured when it starts and kept
-    /// for every retarget until it lands.
-    private var slideLayers: [CALayer] = []
+    /// What carries the running slide, captured when it starts and kept for
+    /// every retarget until it lands.
+    private var session: SlideSession?
     /// Effects are being carried out; a press arriving meanwhile (the atomic
     /// commit runs the run loop once) waits its turn.
     private var isExecuting = false
@@ -42,12 +43,14 @@ final class SidebarToggleAnimator: ObservableObject {
         layout: SidebarLayoutModel,
         window: @escaping () -> NSWindow?,
         canSlide: @escaping () -> Bool,
+        trailingStillWidth: @escaping () -> CGFloat,
         isPeekPresenting: @escaping () -> Bool
     ) {
         self.sidebarState = sidebarState
         self.layout = layout
         self.window = window
         self.canSlide = canSlide
+        self.trailingStillWidth = trailingStillWidth
         self.isPeekPresenting = isPeekPresenting
         machine = SidebarToggleSlideMachine(docked: sidebarState.isVisible)
         layout.docksSidebar = sidebarState.isVisible
@@ -71,7 +74,7 @@ final class SidebarToggleAnimator: ObservableObject {
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
               canSlide(),
               let window = window(),
-              isSliding || Self.slidingLayers(in: window) != nil else {
+              isSliding || Self.slidingViews(in: window) != nil else {
             return false
         }
         // Docking over an already-revealed peek card swaps in place: the
@@ -162,34 +165,44 @@ final class SidebarToggleAnimator: ObservableObject {
     /// reach the screen in one frame, and the terminal resizes once.
     private func commitAtomically(in window: NSWindow, _ mutate: () -> Void, layers: () -> Void) {
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize(owner: self, in: window)
+#if DEBUG
+        let before = SidebarToggleSlideProbe.terminalFrameX(in: window)
+#endif
+        // One explicit transaction around everything: SwiftUI applies the
+        // new layout (and the portal moves the terminals) inside the run loop
+        // pass, but nothing reaches the screen until the layer change is in
+        // too. Otherwise the content shows one frame at the wrong offset.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         mutate()
-        layers()
         RunLoop.current.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.001))
         window.contentView?.layoutSubtreeIfNeeded()
+#if DEBUG
+        let after = SidebarToggleSlideProbe.terminalFrameX(in: window)
+        let container = SidebarToggleSlideProbe.paneContainerX(in: window)
+#endif
+        // The portal follows SwiftUI's anchors on its own queue; move the
+        // terminals now so they land with the layout.
+        TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(window)]?
+            .synchronizeAllEntriesFromExternalGeometryChange()
+        layers()
         window.displayIfNeeded()
+        CATransaction.commit()
         CATransaction.flush()
         TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: self)
+#if DEBUG
+        SidebarNavigationTimings.record("toggle.commit terminalX before=\(before) afterLayout=\(after) paneContainerX=\(container) afterFlush=\(SidebarToggleSlideProbe.terminalFrameX(in: window))")
+#endif
     }
 
     private func addSlideAnimation(_ slide: SidebarToggleSlideMachine.Slide, in window: NSWindow) {
-        if slideLayers.isEmpty {
-            slideLayers = Self.slidingLayers(in: window) ?? []
+        if session == nil, let views = Self.slidingViews(in: window) {
+            session = SlideSession(views: views, trailingStillWidth: trailingStillWidth())
         }
-        let spring = machine.spring
+        guard let session else { return }
         let distance = slide.to - slide.from
-        for (index, layer) in slideLayers.enumerated() {
-            let animation = CASpringAnimation(keyPath: "transform.translation.x")
-            animation.fromValue = slide.from
-            animation.toValue = slide.to
-            animation.mass = 1
-            animation.stiffness = spring.stiffness
-            animation.damping = spring.damping
-            animation.initialVelocity = distance == 0 ? 0 : slide.velocity / distance
-            animation.duration = slide.duration
-            // No begin time: the spring starts when its transaction commits,
-            // so a slow keypress commit delays the motion, never skips it.
-            animation.fillMode = .both
-            animation.isRemovedOnCompletion = false
+        for (index, layer) in session.movingLayers.enumerated() {
+            let animation = slideSpring(from: slide.from, to: slide.to, velocity: distance == 0 ? 0 : slide.velocity / distance, duration: slide.duration)
             if index == 0 {
                 animation.delegate = SlideLandingDelegate { [weak self] in
                     self?.land(generation: slide.generation)
@@ -197,17 +210,39 @@ final class SidebarToggleAnimator: ObservableObject {
             }
             layer.add(animation, forKey: Self.animationKey)
         }
+        // The masks run the same spring backwards, so their edge stays put on
+        // screen while the content under them moves.
+        for mask in session.masks {
+            let animation = slideSpring(from: -slide.from, to: -slide.to, velocity: distance == 0 ? 0 : slide.velocity / distance, duration: slide.duration)
+            mask.add(animation, forKey: Self.animationKey)
+        }
         // A missed delegate callback must not strand the layout: land anyway.
-        DispatchQueue.main.asyncAfter(deadline: .now() + slide.duration + 0.1) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + slide.duration / Double(Self.speed) + 0.1) { [weak self] in
             self?.land(generation: slide.generation)
         }
     }
 
+    private func slideSpring(from: Double, to: Double, velocity: Double, duration: Double) -> CASpringAnimation {
+        let spring = machine.spring
+        let animation = CASpringAnimation(keyPath: "transform.translation.x")
+        animation.fromValue = from
+        animation.toValue = to
+        animation.mass = 1
+        animation.stiffness = spring.stiffness
+        animation.damping = spring.damping
+        animation.initialVelocity = velocity
+        animation.duration = duration
+        // No begin time: the spring starts when its transaction commits,
+        // so a slow keypress commit delays the motion, never skips it.
+        animation.fillMode = .both
+        animation.isRemovedOnCompletion = false
+        animation.speed = Self.speed
+        return animation
+    }
+
     private func removeSlideAnimations() {
-        for layer in slideLayers {
-            layer.removeAnimation(forKey: Self.animationKey)
-        }
-        slideLayers = []
+        session?.tearDown(animationKey: Self.animationKey)
+        session = nil
     }
 
     /// Idempotent: a stale or repeated landing does nothing.
@@ -226,7 +261,7 @@ final class SidebarToggleAnimator: ObservableObject {
         syncPendingVisibility()
 #if DEBUG
         SidebarToggleSlideProbe.current?.didLand(cpu: SidebarToggleSlideProbe.threadCPU() - landingCPU)
-        assert(slideLayers.allSatisfy { $0.animation(forKey: Self.animationKey) == nil })
+        assert(session == nil)
         assert(layout?.docksSidebar == machine.docked)
 #endif
     }
@@ -241,7 +276,7 @@ final class SidebarToggleAnimator: ObservableObject {
     /// collapse, the instant path): drop any slide and follow it.
     private func visibilityDidCommit(_ visible: Bool) {
         guard !isCommittingVisibility else { return }
-        if machine.slide != nil {
+        if session != nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             removeSlideAnimations()
@@ -261,10 +296,10 @@ final class SidebarToggleAnimator: ObservableObject {
         }
     }
 
-    /// The layers that move: the window content root (the sidebar column and
+    /// The views that move: the window content root (the sidebar column and
     /// the workspace card live in it) and the terminal and browser portal
     /// hosts stacked above it, which draw the terminals.
-    private static func slidingLayers(in window: NSWindow) -> [CALayer]? {
+    private static func slidingViews(in window: NSWindow) -> [NSView]? {
         guard let portal = TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(window)],
               let reference = portal.installedReferenceView,
               let container = reference.superview else { return nil }
@@ -273,14 +308,87 @@ final class SidebarToggleAnimator: ObservableObject {
             views.append(portal.hostView)
         }
         views.append(contentsOf: container.subviews.filter { $0 is WindowBrowserHostView })
-        let layers = views.compactMap(\.layer)
-        return layers.count == views.count ? layers : nil
+        return views.allSatisfy({ $0.layer != nil }) ? views : nil
     }
+
+    /// DEBUG-only slow motion (`CMUX_SIDEBAR_SLIDE_SLOWDOWN=20`) for checking
+    /// captured frames by eye.
+    private static let speed: Float = {
+#if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["CMUX_SIDEBAR_SLIDE_SLOWDOWN"],
+           let slowdown = Float(raw), slowdown > 0 {
+            return 1 / slowdown
+        }
+#endif
+        return 1
+    }()
 
 #if DEBUG
     var debugWindow: NSWindow? { window() }
     var debugSidebarState: SidebarState? { sidebarState }
 #endif
+}
+
+/// The layers a slide moves, plus what keeps an open right sidebar still.
+///
+/// The right sidebar lives in the moving content root. While a slide runs,
+/// every moving layer is masked off at the right sidebar's leading edge (the
+/// mask runs the same spring backwards, so the edge stays put on screen) and
+/// a snapshot of the column is shown in its place, above everything. The
+/// terminal reads as sliding under the right sidebar, which never moves.
+@MainActor
+private final class SlideSession {
+    let movingLayers: [CALayer]
+    let masks: [CALayer]
+    private let stillOverlay: NSView?
+
+    init(views: [NSView], trailingStillWidth: CGFloat) {
+        movingLayers = views.compactMap(\.layer)
+        guard trailingStillWidth > 0,
+              let reference = views.first,
+              let container = reference.superview else {
+            masks = []
+            stillOverlay = nil
+            return
+        }
+        let stillRect = NSRect(
+            x: reference.bounds.maxX - trailingStillWidth,
+            y: reference.bounds.minY,
+            width: trailingStillWidth,
+            height: reference.bounds.height
+        )
+        if let rep = reference.bitmapImageRepForCachingDisplay(in: stillRect) {
+            reference.cacheDisplay(in: stillRect, to: rep)
+            let overlay = NSView(frame: container.convert(stillRect, from: reference))
+            overlay.wantsLayer = true
+            overlay.layer?.contents = rep.cgImage
+            overlay.layer?.contentsGravity = .resize
+            container.addSubview(overlay, positioned: .above, relativeTo: nil)
+            stillOverlay = overlay
+        } else {
+            stillOverlay = nil
+        }
+        let bleed: CGFloat = 10_000
+        var masks: [CALayer] = []
+        for view in views {
+            guard let layer = view.layer else { continue }
+            let edge = view.convert(NSPoint(x: stillRect.minX, y: 0), from: reference).x
+            let mask = CALayer()
+            mask.backgroundColor = NSColor.black.cgColor
+            mask.frame = CGRect(x: -bleed, y: -bleed, width: edge + bleed, height: layer.bounds.height + 2 * bleed)
+            layer.mask = mask
+            masks.append(mask)
+        }
+        self.masks = masks
+    }
+
+    func tearDown(animationKey: String) {
+        for layer in movingLayers {
+            layer.removeAnimation(forKey: animationKey)
+            layer.mask = nil
+        }
+        stillOverlay?.removeFromSuperview()
+    }
 }
 
 /// Lands the slide when its spring finishes. Core Animation retains its
@@ -301,167 +409,3 @@ private final class SlideLandingDelegate: NSObject, CAAnimationDelegate {
         }
     }
 }
-
-#if DEBUG
-/// DEBUG-only numbers per press into `CMUX_NAV_TIMINGS_LOG`: main-thread CPU
-/// of the keypress turn and of the landing, keypress to first frame, frame
-/// intervals and main-thread CPU per frame while moving, and how many
-/// visible sidebar rows had no title on the first frame of a show.
-/// `notifyutil -p com.cmuxterm.debug.sidebar-toggle` presses the toggle in
-/// the frontmost window, so this runs without driving the pointer.
-@MainActor
-final class SidebarToggleSlideProbe: NSObject {
-    static weak var current: SidebarToggleSlideProbe?
-    private static var live: SidebarToggleSlideProbe?
-
-    private let name: String
-    private let visible: Bool
-    private weak var window: NSWindow?
-    private let startWall = CACurrentMediaTime()
-    private let startCPU = SidebarToggleSlideProbe.threadCPU()
-    private var keypressCPU = 0.0
-    private var landingCPU: Double?
-    private var link: CADisplayLink?
-    private var last: (wall: CFTimeInterval, cpu: Double)?
-    private var firstFrameMs: Double?
-    private var blankRows: Int?
-    private var intervals: [Double] = []
-    private var cpu: [Double] = []
-    private var landedWall: CFTimeInterval?
-    private var finished = false
-
-    static func threadCPU() -> Double {
-        Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1_000_000
-    }
-
-    static func begin(visible: Bool, window: NSWindow, animator: SidebarToggleAnimator) -> SidebarToggleSlideProbe? {
-        guard SidebarNavigationTimings.isEnabled, let view = window.contentView else { return nil }
-        live?.finish()
-        let probe = SidebarToggleSlideProbe(visible: visible, window: window)
-        let link = view.displayLink(target: probe, selector: #selector(tick(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        probe.link = link
-        live = probe
-        current = probe
-        return probe
-    }
-
-    private init(visible: Bool, window: NSWindow) {
-        self.visible = visible
-        self.name = visible ? "toggle.show" : "toggle.hide"
-        self.window = window
-        super.init()
-    }
-
-    func keypressDidFinish() {
-        keypressCPU = Self.threadCPU() - startCPU
-    }
-
-    func didLand(cpu: Double) {
-        landingCPU = cpu
-        landedWall = CACurrentMediaTime()
-    }
-
-    @objc private func tick(_ link: CADisplayLink) {
-        let now = (wall: CACurrentMediaTime(), cpu: Self.threadCPU())
-        if firstFrameMs == nil {
-            firstFrameMs = (now.wall - startWall) * 1000
-            if visible { blankRows = countBlankSidebarRows() }
-        } else if let last {
-            intervals.append((now.wall - last.wall) * 1000)
-            cpu.append(now.cpu - last.cpu)
-        }
-        last = now
-        if let landedWall, now.wall - landedWall > 0.15 { finish() }
-        if now.wall - startWall > 2 { finish() }
-    }
-
-    private func countBlankSidebarRows() -> Int {
-        guard let root = window?.contentView,
-              let table = Self.sidebarTable(in: root) else { return -1 }
-        let range = table.rows(in: table.visibleRect)
-        var blank = 0
-        for row in range.location..<(range.location + range.length) {
-            guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false),
-                  NSStringFromClass(type(of: cell)).contains("WorkspaceRow") else { continue }
-            if !Self.hasText(cell) { blank += 1 }
-        }
-        return blank
-    }
-
-    private static func sidebarTable(in view: NSView) -> NSTableView? {
-        if let table = view as? NSTableView,
-           NSStringFromClass(type(of: table)).contains("Sidebar")
-            || NSStringFromClass(type(of: table.enclosingScrollView?.superview ?? table)).contains("SidebarWorkspaceTable") {
-            return table
-        }
-        for subview in view.subviews {
-            if let table = sidebarTable(in: subview) { return table }
-        }
-        return nil
-    }
-
-    private static func hasText(_ view: NSView) -> Bool {
-        if let field = view as? NSTextField, !field.isHidden, !field.stringValue.isEmpty { return true }
-        return view.subviews.contains { hasText($0) }
-    }
-
-    func finish() {
-        guard !finished else { return }
-        finished = true
-        link?.invalidate()
-        link = nil
-        if Self.live === self { Self.live = nil }
-        let period = 1000.0 / Double(max(1, window?.screen?.maximumFramesPerSecond ?? 60))
-        let dropped = intervals.reduce(0) { $0 + max(0, Int(($1 / period).rounded()) - 1) }
-        let f = { (value: Double) in String(format: "%.2f", value) }
-        let average = intervals.isEmpty ? 0 : intervals.reduce(0, +) / Double(intervals.count)
-        let moving = cpu.dropLast(landingCPU == nil ? 0 : 1)
-        let cpuAverage = moving.isEmpty ? 0 : moving.reduce(0, +) / Double(moving.count)
-        SidebarNavigationTimings.record(
-            "nav.frames interaction=\(name) frames=\(intervals.count + 1) " +
-            "keypressCpu=\(f(keypressCPU)) firstFrameMs=\(f(firstFrameMs ?? -1)) " +
-            "landingCpu=\(f(landingCPU ?? -1)) landed=\(landingCPU == nil ? 0 : 1) " +
-            "intervalAvg=\(f(average)) intervalMax=\(f(intervals.max() ?? 0)) dropped=\(dropped) period=\(f(period)) " +
-            "movingCpuAvg=\(f(cpuAverage)) movingCpuMax=\(f(moving.max() ?? 0)) " +
-            "blankRows=\(blankRows ?? -1)"
-        )
-        SidebarNavigationTimings.record(
-            "nav.frames.detail interaction=\(name) intervals=" +
-            intervals.map { String(format: "%.1f", $0) }.joined(separator: ",") +
-            " cpu=" + cpu.map { String(format: "%.1f", $0) }.joined(separator: ",")
-        )
-    }
-
-    private static func toggleIfFrontmost(_ animator: SidebarToggleAnimator) {
-        let frontmost = NSApp.mainWindow ?? NSApp.orderedWindows.first { $0.isVisible && $0.contentView != nil }
-        guard let window = animator.debugWindow, window === frontmost else { return }
-        animator.debugSidebarState?.toggle()
-    }
-
-    private static var triggerTargets: [ObjectIdentifier: () -> SidebarToggleAnimator?] = [:]
-
-    static func installTrigger(for animator: SidebarToggleAnimator) {
-        guard SidebarNavigationTimings.isEnabled else { return }
-        triggerTargets[ObjectIdentifier(animator)] = { [weak animator] in animator }
-        guard triggerTargets.count == 1 else { return }
-        CFNotificationCenterAddObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            nil,
-            { _, _, _, _, _ in
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        for target in SidebarToggleSlideProbe.triggerTargets.values {
-                            if let animator = target() { SidebarToggleSlideProbe.toggleIfFrontmost(animator) }
-                        }
-                    }
-                }
-            },
-            "com.cmuxterm.debug.sidebar-toggle" as CFString,
-            nil,
-            .deliverImmediately
-        )
-    }
-}
-#endif

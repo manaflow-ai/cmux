@@ -2,6 +2,8 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSidebar
+import Bonsplit
+import CmuxSettingsUI
 import SwiftUI
 
 extension Notification.Name {
@@ -193,16 +195,14 @@ extension ContentView {
                 }
             ))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
-            .environmentObject(fileExplorerState)
-            .environmentObject(cmuxConfigStore)
-            .environment(\.sessionDragRegistry, sessionDragRegistryEnv)
-            .environment(\.tabDragTransferRegistry, tabDragTransferRegistryEnv)
-            .environment(\.settingsRuntime, settingsRuntimeEnv)
-            .cmuxFontMagnificationEnvironment()
+            .modifier(SidebarHostedEnvironment(contentView: self))
+    }
+
+    /// The environment ContentView's own hosting view gives the sidebar, for
+    /// a sidebar hosted in its own NSHostingView (the docked pane's host, the
+    /// peek card's window), which inherits none of it.
+    func sidebarEnvironment<Content: View>(_ content: Content) -> some View {
+        content.modifier(SidebarHostedEnvironment(contentView: self))
     }
 
     /// The invisible leading-edge strip that arms the hover-reveal.
@@ -239,9 +239,13 @@ extension ContentView {
                     sidebarState: sidebarState,
                     layout: sidebarLayout,
                     window: { observedWindow },
-                    // The right sidebar would ride along with the content
-                    // root and snap back on landing; toggle instantly there.
-                    canSlide: { retainsDefaultAppKitSidebarWhenHidden && !rightSidebarVisible },
+                    // The Dock's terminals live in the moving portal and
+                    // cannot be held still; toggle instantly there.
+                    canSlide: {
+                        retainsDefaultAppKitSidebarWhenHidden
+                            && !(rightSidebarVisible && fileExplorerState.mode == .dock)
+                    },
+                    trailingStillWidth: { rightSidebarWidth },
                     isPeekPresenting: { sidebarPeek.presentsPanel }
                 )
                 sidebarPeek.setPolicy(SidebarCustomizationSettings.peekPolicy())
@@ -308,6 +312,46 @@ extension ContentView {
             .overlay(alignment: .leading) {
                 // Same slot and layering as the resizer overlay, which is
                 // the proven way in this codebase to receive pointer
+
+/// Mirrors what AppDelegate injects into ContentView's hosting view.
+struct SidebarHostedEnvironment: ViewModifier {
+    let tabManager: TabManager
+    let notificationStore: TerminalNotificationStore
+    let sidebarState: SidebarState
+    let sidebarSelectionState: SidebarSelectionState
+    let fileExplorerState: FileExplorerState
+    let cmuxConfigStore: CmuxConfigStore
+    let sessionDragRegistry: SessionDragRegistry?
+    let tabDragTransferRegistry: TabDragTransferRegistry?
+    let settingsRuntime: SettingsRuntime?
+
+    @MainActor
+    init(contentView: ContentView) {
+        tabManager = contentView.tabManager
+        notificationStore = contentView.notificationStore
+        sidebarState = contentView.sidebarState
+        sidebarSelectionState = contentView.sidebarSelectionState
+        fileExplorerState = contentView.fileExplorerState
+        cmuxConfigStore = contentView.cmuxConfigStore
+        sessionDragRegistry = contentView.sessionDragRegistryEnv
+        tabDragTransferRegistry = contentView.tabDragTransferRegistryEnv
+        settingsRuntime = contentView.settingsRuntimeEnv
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(sidebarState)
+            .environmentObject(sidebarSelectionState)
+            .environmentObject(fileExplorerState)
+            .environmentObject(cmuxConfigStore)
+            .environment(\.sessionDragRegistry, sessionDragRegistry)
+            .environment(\.tabDragTransferRegistry, tabDragTransferRegistry)
+            .environment(\.settingsRuntime, settingsRuntime)
+            .cmuxFontMagnificationEnvironment()
+    }
+}
                 // events over the portal-hosted terminal. A strip placed
                 // inside the layout stack can end up beneath the terminal's
                 // AppKit view and never see the pointer at all.
