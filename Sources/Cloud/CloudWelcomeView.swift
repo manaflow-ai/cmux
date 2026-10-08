@@ -18,7 +18,7 @@ enum CloudWelcomeNextStep: Equatable {
     }
 }
 
-/// "Work wherever you go": shown once on the 0.65.1 launch for users who
+/// "Your work, wherever you go": shown once on the 0.65.1 launch for users who
 /// can use Cloud. A compact introduction above feature clips and the next step.
 ///
 /// Takes plain values (no app objects) so the same view renders in the app and
@@ -201,7 +201,7 @@ private struct CloudWelcomeHeader: View {
                 Capsule(style: .continuous)
                     .strokeBorder(Color.accentColor.opacity(0.18), lineWidth: 0.5)
             }
-            Text(String(localized: "cloud.welcome.title", defaultValue: "Work wherever you go"))
+            Text(String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go"))
                 .cmuxFont(size: 30, weight: .bold)
                 .tracking(-0.35)
                 .multilineTextAlignment(.center)

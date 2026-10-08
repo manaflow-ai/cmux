@@ -624414,55 +624414,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work wherever you go"
+            "value": "Your work, wherever you go"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اعمل أينما ذهبت"
+            "value": "عملك، أينما ذهبت"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeite, wo immer du bist"
+            "value": "Deine Arbeit, wo auch immer du bist"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trabaja dondequiera que vayas"
+            "value": "Tu trabajo, estés donde estés"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Travaillez où que vous soyez"
+            "value": "Votre travail, où que vous soyez"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どこにいても作業できる"
+            "value": "どこにいても、あなたの仕事を"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "어디서든 작업하세요"
+            "value": "어디서든 이어지는 작업"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "随时随地工作"
+            "value": "随时随地，继续你的工作"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "隨時隨地工作"
+            "value": "隨時隨地，繼續你的工作"
           }
         }
       }
