@@ -1157,6 +1157,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_notarization_recovery_manifest.py
 
+      - name: Validate accepted nightly DMG artifact aliases
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_artifact_alias.py
+
       - name: Validate Sparkle delta finalization
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_finalize_sparkle_deltas.sh
