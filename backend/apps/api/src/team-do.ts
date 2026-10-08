@@ -314,6 +314,8 @@ export class TeamDO extends OwnerDO<TeamState> {
    * that install (and only that user's) goes into the KRL, and the install gets no new one.
    */
   async revokeInstallCerts(entity: string, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> {
+    // A team that never existed here issued nothing; never create its storage for a notice (cx-44j.50).
+    if (!this.isBound(entity)) return { ok: true, revoked: [] }
     return revokeInstallCerts(this.sshDeps(entity), user, install)
   }
 

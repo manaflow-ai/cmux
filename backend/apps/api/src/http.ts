@@ -462,7 +462,7 @@ const AuthorizationLive = Layer.succeed(Authorization)(
         if (!authed || !authed.user || !authed.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
         // Team policy (P17-4): the principal's team and the team that owns the user's email domain refuse
         // sessions and installs not from their SSO.
-        const gate = yield* Effect.promise(() => ssoGate(env, authed))
+        const gate = yield* Effect.tryPromise({ try: () => ssoGate(env, authed), catch: unreachable })
         if (gate.refusal) return yield* new PolicyRefused(gate.refusal)
         const p = gate.principal
         const shape: CurrentPrincipalShape = {

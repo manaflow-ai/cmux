@@ -253,4 +253,10 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     await removeMember(owner.team, member.user)
     expect(await sessions()).toEqual(["rt_other"])
   })
+
+  it("a KRL notice to a team that does not exist creates nothing there", async () => {
+    const ghost = `team_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
+    expect(await team(ghost).revokeInstallCerts(ghost, "user_x", "inst_x")).toEqual({ ok: true, revoked: [] })
+    expect(await inDO(team(ghost), async (instance) => instance.isBound(ghost))).toBe(false)
+  })
 })

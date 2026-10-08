@@ -72,11 +72,11 @@ const ssoSessions = new Map<string, number>()
  * session (TeamDO's record, keyed by the Stack-signed refresh_token_id). Only confirmed sessions are
  * cached (30 s per isolate); a refusal is asked again on the next request.
  */
-export const withSsoSession = async (env: Env, principal: Principal, team: string): Promise<Principal> => {
+export const withSsoSession = async (env: Env, principal: Principal, team: string, fresh = false): Promise<Principal> => {
   if (principal.kind !== "session" || !principal.stack_session || !principal.stack_user_id) return principal
   const key = `${team}\u0000${principal.stack_session}\u0000${principal.stack_user_id}`
   const at = ssoSessions.get(key)
-  if (at !== undefined && Date.now() - at < TTL_MS) return { ...principal, sso_team: team }
+  if (!fresh && at !== undefined && Date.now() - at < TTL_MS) return { ...principal, sso_team: team }
   const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { ssoSession(e: string, s: string, u: string): Promise<boolean> }
   if (!(await stub.ssoSession(team, principal.stack_session, principal.stack_user_id))) return principal
   if (ssoSessions.size > 5000) ssoSessions.clear()
@@ -92,7 +92,8 @@ export const withSsoSession = async (env: Env, principal: Principal, team: strin
 export const withAnySsoSession = async (env: Env, principal: Principal): Promise<Principal> => {
   if (principal.kind !== "session" || principal.sso_team !== undefined || !principal.stack_session) return principal
   for (const { team } of await ssoTeams(env, principal)) {
-    const p = await withSsoSession(env, principal, team)
+    // Fresh: a new install keeps sso_team for good, so never from a cached answer a removal already ended (cx-44j.50).
+    const p = await withSsoSession(env, principal, team, true)
     if (p.sso_team !== undefined) return p
   }
   return principal
@@ -105,10 +106,13 @@ export const withAnySsoSession = async (env: Env, principal: Principal): Promise
  */
 export const ssoGate = async (env: Env, principal: Principal): Promise<{ principal: Principal; refusal?: GateRefusal }> => {
   if ((principal.kind !== "session" && principal.kind !== "install") || !principal.user) return { principal }
-  let p = await withLiveSsoTeam(env, principal)
+  let p = principal
+  let live = false
   for (const { team, domain } of await ssoTeams(env, principal)) {
     const rules = await signInRules(env, team, principal.user, domain)
     if (!rules.sso_required) continue
+    // An install token's sso_team claim counts only as UserDO holds it now (a removal drops it); asked once, only when a rule needs it.
+    if (!live) [p, live] = [await withLiveSsoTeam(env, p), true]
     if (p.kind === "session" && p.sso_team === undefined) p = await withSsoSession(env, p, team)
     const refusal = ssoRefusal(p, rules, team)
     if (refusal) return { principal: p, refusal }
