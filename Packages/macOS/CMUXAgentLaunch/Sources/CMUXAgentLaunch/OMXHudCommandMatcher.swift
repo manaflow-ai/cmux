@@ -22,7 +22,7 @@ public struct OMXHudCommandMatcher: Sendable {
     private let javaScriptRuntimeNames: Set<String> = ["node", "nodejs", "bun"]
     private let scriptExtensions = [".js", ".mjs", ".cjs"]
     /// Unquoted characters that make a shell run, chain or redirect something.
-    private let shellOperatorCharacters: Set<Character> = [";", "&", "|", "<", ">", "(", ")", "$", "`", "#"]
+    private let shellOperators: Set<Unicode.Scalar> = [";", "&", "|", "<", ">", "(", ")", "$", "`"]
 
     /// Creates a matcher for the HUD invocations OMX is known to produce.
     public init() {}
@@ -74,15 +74,19 @@ public struct OMXHudCommandMatcher: Sendable {
     ///
     /// Single quotes are literal. Inside double quotes a `$` or backtick still
     /// substitutes, so those are refused there as well as unquoted.
+    ///
+    /// The scan is over Unicode scalars, as a shell reads them: a combining
+    /// mark after a quote or `;` would fold into one `Character` with it and
+    /// hide it from a `Character` comparison.
     private func simpleCommandWords(_ command: String) -> [String]? {
         var words: [String] = []
-        var current = ""
+        var current = String.UnicodeScalarView()
         var hasCurrent = false
-        var quote: Character?
+        var quote: Unicode.Scalar?
         var escaping = false
 
-        for character in command {
-            if character.isNewline { return nil }
+        for character in command.unicodeScalars {
+            if CharacterSet.newlines.contains(character) || character == "\0" { return nil }
             if escaping {
                 current.append(character)
                 escaping = false
@@ -109,10 +113,11 @@ public struct OMXHudCommandMatcher: Sendable {
                     escaping = true
                     hasCurrent = true
                 } else if character == " " || character == "\t" {
-                    if hasCurrent { words.append(current) }
-                    current = ""
+                    if hasCurrent { words.append(String(current)) }
+                    current = String.UnicodeScalarView()
                     hasCurrent = false
-                } else if shellOperatorCharacters.contains(character) {
+                } else if shellOperators.contains(character) || (character == "#" && !hasCurrent) {
+                    // `#` starts a comment only at the start of a word.
                     return nil
                 } else {
                     current.append(character)
@@ -122,7 +127,7 @@ public struct OMXHudCommandMatcher: Sendable {
         }
 
         guard quote == nil, !escaping else { return nil }
-        if hasCurrent { words.append(current) }
+        if hasCurrent { words.append(String(current)) }
         return words
     }
 

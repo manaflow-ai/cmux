@@ -23,6 +23,7 @@ struct OMXHudCommandMatcherTests {
         // OMX quotes an apostrophe in a path as '\\''.
         "node '/Users/o'\\''brien/oh-my-codex/dist/cli/omx.js' hud --watch",
         "  omx   hud\t--watch  ",
+        "env OMX_NOTE=a#b omx hud --watch",
     ])
     func omxHudInvocationsMatch(command: String) {
         #expect(matcher.matches(command: command))
@@ -72,6 +73,13 @@ struct OMXHudCommandMatcherTests {
         "omx hud --watch # trailing",
         "omx hud --watch 'unterminated",
         "omx hud --watch \\",
+        // A combining mark after a quote or operator must not hide it.
+        "omx hud --watch 'a'\u{301}; touch marker; echo 'b'\u{301}",
+        "omx hud --watch \"a\"\u{301}; touch marker; echo \"b\"\u{301}",
+        "omx hud --watch ;\u{200D}touch marker",
+        "omx hud --watch &\u{FE0F} touch marker",
+        "omx hud --watch\u{2028}touch marker",
+        "omx hud --watch\u{0}",
     ])
     func compoundCommandsDoNotMatch(command: String) {
         #expect(!matcher.matches(command: command))
