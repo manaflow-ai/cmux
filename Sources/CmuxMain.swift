@@ -21,9 +21,32 @@ enum CmuxMain {
         // First: nothing may read preferences before an app-host test process
         // switches to its own domain.
         TestProcessDefaults.installIfHostingTests()
-        installCrashOnExceptionsPolicy()
-        FileDescriptorLimitController().raiseSoftLimitIfNeeded()
-        AppHostProcessReceipt.writeIfRequired()
+        runStartup()
+    }
+
+    /// Runs the ordered startup steps shared by the process entry point and its
+    /// startup-order regression test.
+    static func runStartup(
+        defaults: UserDefaults = .standard,
+        raiseFileDescriptorLimit: () -> Void = {
+            FileDescriptorLimitController().raiseSoftLimitIfNeeded()
+        },
+        writeAppHostReceipt: () -> Void = {
+            AppHostProcessReceipt.writeIfRequired()
+        },
+        routeWorkers: () -> Void = {
+            CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
+        },
+        preloadSigningSecret: () -> Void = {
+            SurfaceResumeApprovalStore.preloadSigningSecret()
+        },
+        launchApp: () -> Void = {
+            cmuxApp.main()
+        }
+    ) {
+        installCrashOnExceptionsPolicy(defaults: defaults)
+        raiseFileDescriptorLimit()
+        writeAppHostReceipt()
 #if DEBUG
         // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
         // debug log file. Route bonsplit through the shared writer so the
@@ -32,9 +55,9 @@ enum CmuxMain {
         // appenders, concurrent lines interleaved and landed out of order.
         Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
 #endif
-        CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
-        SurfaceResumeApprovalStore.preloadSigningSecret()
-        cmuxApp.main()
+        routeWorkers()
+        preloadSigningSecret()
+        launchApp()
     }
 
     /// Installs the AppKit policy that makes exceptions escaping the run loop fatal.
