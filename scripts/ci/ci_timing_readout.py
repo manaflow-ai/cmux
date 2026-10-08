@@ -38,6 +38,9 @@ STEP_FLOOR_SECONDS = 20
 HEADLINE_FLOOR_SECONDS = 30
 STEPS_PER_JOB = 3
 QUANTILE_POINTS = (10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99)
+# GitHub includes these runner bookends in a job's step list. They are not
+# workflow work, so leave them out when measuring runner setup and teardown.
+RUNNER_BOOKEND_STEPS = {"set up job", "complete job"}
 
 
 def parse_time(value: str | None) -> dt.datetime | None:
@@ -142,9 +145,38 @@ class Job:
         out = []
         for step in self.raw.get("steps") or []:
             start, end = parse_time(step.get("started_at")), parse_time(step.get("completed_at"))
-            if start and end and step.get("name"):
-                out.append((step["name"], (end - start).total_seconds()))
+            name = step.get("name") or ""
+            if start and end and name and name.casefold() not in RUNNER_BOOKEND_STEPS:
+                out.append((name, (end - start).total_seconds()))
         return out
+
+    @property
+    def setup_seconds(self) -> float | None:
+        """Time from runner start until the first workflow step starts."""
+        if not self.fresh or self.started is None:
+            return None
+        starts = [
+            start for step in self.raw.get("steps") or []
+            if step.get("name", "").casefold() not in RUNNER_BOOKEND_STEPS
+            and (start := parse_time(step.get("started_at"))) is not None
+        ]
+        if not starts:
+            return None
+        return max(0.0, (min(starts) - self.started).total_seconds())
+
+    @property
+    def cleanup_seconds(self) -> float | None:
+        """Time from the last workflow step until the job completes."""
+        if not self.fresh or self.completed is None:
+            return None
+        ends = [
+            end for step in self.raw.get("steps") or []
+            if step.get("name", "").casefold() not in RUNNER_BOOKEND_STEPS
+            and (end := parse_time(step.get("completed_at"))) is not None
+        ]
+        if not ends:
+            return None
+        return max(0.0, (self.completed - max(ends)).total_seconds())
 
 
 def critical_path(jobs: list[Job]) -> list[Job]:
@@ -267,8 +299,8 @@ def build_readout(raw_jobs: list[dict], stats: dict | None, seg: str, run_attemp
     lines += [f"**{headline}**", ""]
 
     lines += [
-        "| critical path | where | queue | run | run vs last 7 days | p50 last 24 h vs 6 d before |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| critical path | where | queue | run | runner setup | runner cleanup | run vs last 7 days | p50 last 24 h vs 6 d before |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for job in chain:
         run_series = history.find("run", job.name)
@@ -279,7 +311,8 @@ def build_readout(raw_jobs: list[dict], stats: dict | None, seg: str, run_attemp
             queue = flag(f"{queue} ({queue_rank})", queue_high)
         vs = flag(f"{run_rank} ({run_ref})", run_high) if run_rank else "-"
         lines.append(
-            f"| {cell(job.name)} | {cell(where(job.raw))} | {queue} | {fmt_duration(job.run)} | {vs} | {trend(run_series) or '-'} |"
+            f"| {cell(job.name)} | {cell(where(job.raw))} | {queue} | {fmt_duration(job.run)} | "
+            f"{fmt_duration(job.setup_seconds)} | {fmt_duration(job.cleanup_seconds)} | {vs} | {trend(run_series) or '-'} |"
         )
 
     step_rows = []
@@ -312,6 +345,7 @@ def build_readout(raw_jobs: list[dict], stats: dict | None, seg: str, run_attemp
         notes.append(f"history: `{seg}` runs over the last 7 days from the controller's webhook feed")
     else:
         notes.append(f"no history ({stats_note or 'unavailable'})")
+    notes.append("setup is runner start to first workflow step; cleanup is last workflow step to job completion")
     lines += ["", "<sub>" + "; ".join(notes) + ".</sub>"]
     return "\n".join(lines) + "\n"
 
