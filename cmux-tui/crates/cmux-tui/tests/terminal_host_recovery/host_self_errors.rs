@@ -6,8 +6,9 @@
 use super::*;
 
 /// Catchable signals whose default action ends a process, besides the four
-/// that L0 already records (TERM, HUP, INT, QUIT).
-const DEFAULT_TERMINATING_SIGNALS: [libc::c_int; 8] = [
+/// that L0 already records (TERM, HUP, INT, QUIT). `SIGPIPE` is not here:
+/// the host already ignores it.
+const DEFAULT_TERMINATING_SIGNALS: [libc::c_int; 7] = [
     libc::SIGUSR1,
     libc::SIGUSR2,
     libc::SIGALRM,
@@ -15,7 +16,6 @@ const DEFAULT_TERMINATING_SIGNALS: [libc::c_int; 8] = [
     libc::SIGPROF,
     libc::SIGXCPU,
     libc::SIGXFSZ,
-    libc::SIGPIPE,
 ];
 
 fn run_cat(socket: &Path, id: u64, name: &str) -> (String, u64) {
@@ -91,6 +91,21 @@ fn set_descriptor_limit(pid: u32, soft: u64) -> u64 {
     old.rlim_cur
 }
 
+/// Restores a host's descriptor limit when the test ends, also on a failed
+/// assert, so teardown can still adopt and end the host.
+#[cfg(target_os = "linux")]
+struct LimitRestore {
+    pid: u32,
+    previous: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for LimitRestore {
+    fn drop(&mut self) {
+        set_descriptor_limit(self.pid, self.previous);
+    }
+}
+
 /// Descriptor exhaustion makes the host's `accept` fail with EMFILE. That is
 /// a transient condition of the host, never a reason to end its shell: once
 /// descriptors are free again, the pending and later clients are served.
@@ -104,7 +119,10 @@ fn descriptor_exhaustion_on_accept_never_ends_the_shell() {
 
     let open = open_descriptors(record.host_pid);
     let lowest_free = (0..).find(|fd| !open.contains(fd)).unwrap();
-    let previous = set_descriptor_limit(record.host_pid, lowest_free);
+    let restore = LimitRestore {
+        pid: record.host_pid,
+        previous: set_descriptor_limit(record.host_pid, lowest_free),
+    };
     // Clients the host cannot accept now: each wakes its accept loop.
     let pending = (0..4)
         .map(|_| UnixStream::connect(&record.endpoint).expect("connect to the host endpoint"))
@@ -114,15 +132,31 @@ fn descriptor_exhaustion_on_accept_never_ends_the_shell() {
         assert_host_live(&record_path, &record, "an accept failed with EMFILE");
         std::thread::sleep(Duration::from_millis(20));
     }
-    set_descriptor_limit(record.host_pid, previous);
+    // Proof that the accepts failed: an accepted client would hold a
+    // descriptor in the host until its hello times out; none was added.
+    let during = open_descriptors(record.host_pid);
+    assert!(
+        during.len() <= open.len(),
+        "the host accepted clients under its limit {lowest_free}: {open:?} -> {during:?}"
+    );
+    drop(restore);
     drop(pending);
 
     echo_round_trip(&harness.socket, surface, "after-emfile");
     assert_host_live(&record_path, &record, "descriptors were free again");
-    // The accept loop still serves new clients.
-    let probe = UnixStream::connect(&record.endpoint).expect("connect after EMFILE");
+    // The accept loop still serves new clients: a malformed hello is
+    // accepted and refused (EOF); without an accept the read times out.
+    let mut probe = UnixStream::connect(&record.endpoint).expect("connect after EMFILE");
     probe.set_read_timeout(Some(test_timeout(Duration::from_secs(5)))).unwrap();
-    drop(probe);
+    probe.write_all(&[0xff; 64]).unwrap();
+    let mut reply = [0u8; 64];
+    let read = std::io::Read::read(&mut probe, &mut reply);
+    let refused = match &read {
+        Ok(0) => true,
+        Err(error) => error.kind() == std::io::ErrorKind::ConnectionReset,
+        Ok(_) => false,
+    };
+    assert!(refused, "the host did not accept a client after EMFILE: {read:?}");
     let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
     assert_eq!(resolved["terminal_id"], terminal_id.as_str(), "{resolved}");
 }

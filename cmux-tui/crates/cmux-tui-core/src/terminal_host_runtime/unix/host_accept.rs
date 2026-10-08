@@ -1,16 +1,17 @@
 //! Errors of a terminal host's own listener (cx-0tgl LB).
 //!
 //! A host ends only by its owner's `Terminate` or its child's exit. A failed
-//! `accept` (descriptor exhaustion, `ECONNABORTED`, kernel memory), a failed
+//! `accept` (descriptor exhaustion, kernel memory), a failed
 //! thread start for one client, or a failed `poll` is a condition of this
 //! moment, never a reason to end the shell: the host drops that one client,
 //! waits on its accept waker for a bounded, growing backoff (so a listener
-//! that stays readable under `EMFILE` does not spin), and accepts again.
+//! that stays readable under `EMFILE` does not spin), and accepts again. An
+//! aborted connection (`ECONNABORTED`) is retried at once, like `EINTR`.
 
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::{HostShared, serve_client};
 
@@ -44,13 +45,30 @@ impl AcceptBackoff {
         if self.failures == 1 {
             eprintln!("terminal-host: accepting a client failed; retrying: {error}");
         }
-        let timeout = i32::try_from(self.next.as_millis()).unwrap_or(i32::MAX);
-        let mut fds =
-            [libc::pollfd { fd: shared.accept_waker.fd(), events: libc::POLLIN, revents: 0 }];
-        // SAFETY: the waker descriptor stays open as long as `shared`.
-        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, timeout) };
-        if ready > 0 && fds[0].revents != 0 {
-            shared.accept_waker.drain();
+        let deadline = Instant::now() + self.next;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let timeout = i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX);
+            let mut fds =
+                [libc::pollfd { fd: shared.accept_waker.fd(), events: libc::POLLIN, revents: 0 }];
+            // SAFETY: the waker descriptor stays open as long as `shared`.
+            let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, timeout) };
+            if ready > 0 {
+                shared.accept_waker.drain();
+                break;
+            }
+            if ready == 0 {
+                break;
+            }
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                // `poll` itself failed: wait out the backoff without the waker,
+                // so a lasting failure cannot spin.
+                thread::sleep(remaining);
+                break;
+            }
         }
         self.next = (self.next * 2).min(MAX_BACKOFF);
     }

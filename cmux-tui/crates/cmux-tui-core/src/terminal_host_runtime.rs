@@ -4925,13 +4925,21 @@ mod unix {
                         if error.kind() != std::io::ErrorKind::Interrupted {
                             backoff.after_error(&shared, &error);
                         }
+                    } else {
+                        // The listener drained without error: a later error
+                        // starts a new streak.
+                        backoff.reset();
                     }
                     if fds[1].revents != 0 {
                         shared.accept_waker.drain();
                     }
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                // EMFILE, ENFILE, ECONNABORTED, ENOMEM: never end the shell.
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
+                    ) => {}
+                // EMFILE, ENFILE, ENOBUFS, ENOMEM: never end the shell.
                 Err(error) => backoff.after_error(&shared, &error),
             }
         }
