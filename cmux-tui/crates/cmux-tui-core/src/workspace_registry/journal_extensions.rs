@@ -408,7 +408,8 @@ pub(super) fn create_journal_extensions_schema(
            content BLOB NOT NULL,
            uncompressed_bytes INTEGER NOT NULL CHECK(uncompressed_bytes > 0),
            sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
-           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0)
+           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0),
+           actors_json TEXT
          );
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments

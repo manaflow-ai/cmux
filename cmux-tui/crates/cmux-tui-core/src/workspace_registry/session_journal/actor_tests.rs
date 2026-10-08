@@ -10,11 +10,11 @@ use sha2::{Digest, Sha256};
 
 use super::*;
 
-fn temp_root(label: &str) -> std::path::PathBuf {
+fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cmux-journal-actor-{label}-{}", new_uuid_v4()))
 }
 
-fn create(mux: &std::sync::Arc<crate::Mux>, key: &str) {
+fn create(mux: &Arc<crate::Mux>, key: &str) {
     let request = json!({
         "protocol": "cmux.protocol/2",
         "type": "request",
@@ -55,7 +55,7 @@ fn a_record_keeps_its_actor_through_seal_and_reopen() {
         crate::Mux::open_persistent("journal-actor", crate::SurfaceOptions::default(), &root).unwrap();
     assert_eq!(actor_of(&mux, "journal-actor-1").as_deref(), Some("user:user_local"));
     mux.shutdown();
-    let _ = std::fs::remove_dir_all(root);
+    let _ = fs::remove_dir_all(root);
 }
 
 /// One hot record, archived by hand as segment `segment_id` with `records`

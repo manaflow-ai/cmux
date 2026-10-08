@@ -469,6 +469,7 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            content BLOB,
            resource_revision INTEGER UNIQUE,
            previous_resource_revision INTEGER,
+           actor TEXT,
            CHECK(
              (resource_revision IS NULL AND previous_resource_revision IS NULL)
              OR (
@@ -2181,4 +2182,6 @@ use digest_reader::DigestReader;
 #[cfg(test)]
 mod actor_tests;
 
-pub(crate) use actors::{journal_actor, ledger_actor, segment_actors_json};
+#[cfg(test)]
+pub(crate) use actors::journal_actor;
+pub(crate) use actors::{ledger_actor, segment_actors_json};
