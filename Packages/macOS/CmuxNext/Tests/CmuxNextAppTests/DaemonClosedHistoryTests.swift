@@ -42,11 +42,16 @@ import Testing
         for task in work { #expect(await task.value == nil) }
     }
 
+    func shutdown(_ services: AppServices) {
+        for controller in services.windows.controllers { controller.window?.close() }
+        services.daemon.shutdownConnection()
+    }
+
     @Test func reopenClosedTabReopensTheNewestClosedTabOnTheDaemon() async throws {
         let daemon = try StateDaemon(state: Self.state, reply: Self.reopenReply)
         defer { daemon.stop() }
         let services = try await services(daemon)
-        defer { services.daemon.shutdownConnection() }
+        defer { shutdown(services) }
         #expect(services.daemon.store.closedItems.map(\.id) == ["closed_tab", "closed_screen", "closed_ws"])
 
         await run(services, "reopenClosedBrowserPanel")
@@ -62,7 +67,7 @@ import Testing
         let daemon = try StateDaemon(state: Self.state, reply: Self.reopenReply)
         defer { daemon.stop() }
         let services = try await services(daemon)
-        defer { services.daemon.shutdownConnection() }
+        defer { shutdown(services) }
         let closed = services.history.closedEntries()
         #expect(Set(closed.map(\.title)) == ["logs", "build", "old"])
         let workspace = try #require(closed.first { $0.title == "old" })
@@ -75,7 +80,7 @@ import Testing
         let daemon = try StateDaemon(state: Self.state, reply: Self.reopenReply)
         defer { daemon.stop() }
         let services = try await services(daemon)
-        defer { services.daemon.shutdownConnection() }
+        defer { shutdown(services) }
 
         await run(services, "reopenClosedWorkspace")
         #expect(daemon.params(of: "closed.reopen")?["closed"] == .string("closed_ws"))
@@ -86,7 +91,7 @@ import Testing
         let daemon = try StateDaemon(state: "{}")
         defer { daemon.stop() }
         let services = try await services(daemon)
-        defer { services.daemon.shutdownConnection() }
+        defer { shutdown(services) }
         var refusals: [String] = []
         services.registry.refusalObserver = { message, _ in refusals.append(message) }
 
@@ -117,7 +122,7 @@ import Testing
         })
         defer { daemon.stop() }
         let services = try await services(daemon)
-        defer { services.daemon.shutdownConnection() }
+        defer { shutdown(services) }
         var refusals: [String] = []
         services.registry.refusalObserver = { message, _ in refusals.append(message) }
 
@@ -137,7 +142,7 @@ import Testing
         })
         defer { daemon.stop() }
         let services = try await services(daemon)
-        defer { services.daemon.shutdownConnection() }
+        defer { shutdown(services) }
         #expect(services.daemon.store.workspace(resourceID: ResourceID(rawValue: "ws_w")) != nil)
 
         let work = services.registry.capturingWork { _ = services.registry.perform("reopenClosedWorkspace") }
@@ -147,5 +152,37 @@ import Testing
             #expect(failure?.mayHaveApplied == true)
             #expect(failure?.message == RefusalStrings.noWorkspace("ws_missing"))
         }
+    }
+
+    @Test func aLaterMirrorEventFindsTheExactWorkspaceAfterAnUnrelatedOne() async throws {
+        let store = DaemonStore()
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(ReopenClosedTabTests.identify.utf8))
+        _ = store.apply(.connected(identity, generationChanged: false))
+        let clock = ManualClock()
+        let wait = Task { await DaemonClosedHistory.workspaceAfterReopen(ResourceID(rawValue: "ws_restored"), in: store, clock: clock) }
+        await clock.sleepers()
+        let tree = #"{"workspace_revision":1,"generation":"GEN","registry_id":"r","workspaces":[{"id":1,"name":"other","resource_id":"ws_other","screens":[]},{"id":2,"name":"restored","resource_id":"ws_restored","screens":[]}]}"#
+        store.apply(snapshot: try JSONDecoder().decode(DaemonTree.self, from: Data(tree.utf8)))
+        let restored = try #require(store.workspace(resourceID: ResourceID(rawValue: "ws_restored")))
+        #expect(await wait.value == restored.id)
+        #expect(restored.id != store.workspaces.first?.id)
+    }
+
+    @Test func aMissingWorkspaceWaitEndsAtItsDeadline() async {
+        let store = DaemonStore()
+        let clock = ManualClock()
+        let wait = Task { await DaemonClosedHistory.workspaceAfterReopen(ResourceID(rawValue: "ws_missing"), in: store, clock: clock) }
+        await clock.sleepers()
+        clock.advance(by: .seconds(5))
+        #expect(await wait.value == nil)
+    }
+
+    @Test func cancellingAWorkspaceWaitDoesNotWaitForTheDeadline() async {
+        let store = DaemonStore()
+        let clock = ManualClock()
+        let wait = Task { await DaemonClosedHistory.workspaceAfterReopen(ResourceID(rawValue: "ws_missing"), in: store, clock: clock) }
+        await clock.sleepers()
+        wait.cancel()
+        #expect(await wait.value == nil)
     }
 }

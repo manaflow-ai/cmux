@@ -96,12 +96,17 @@ enum DaemonClosedHistory {
                 return nil
             }
             await daemon.store.applied(through: await connection.eventSequence())
-            if item.kind == .workspace,
-               reopened.workspaceID.flatMap({ daemon.store.workspace(resourceID: $0) }) == nil {
-                let reason = RefusalStrings.noWorkspace(reopened.workspaceID?.rawValue ?? item.id)
-                daemon.logger.error("closed.reopen applied without a mirrored workspace: \(item.id, privacy: .public)")
-                services.registry.refuse(reason)
-                return ActionWorkFailure(reason, mayHaveApplied: true)
+            if item.kind == .workspace {
+                if let id = reopened.workspaceID,
+                   let workspace = await workspaceAfterReopen(id, in: daemon.store) {
+                    services.windows.reveal(workspaceID: workspace)
+                    return nil
+                } else {
+                    let reason = RefusalStrings.noWorkspace(reopened.workspaceID?.rawValue ?? item.id)
+                    daemon.logger.error("closed.reopen timed out waiting for its workspace: \(item.id, privacy: .public)")
+                    services.registry.refuse(reason)
+                    return ActionWorkFailure(reason, mayHaveApplied: true)
+                }
             }
             show(reopened, kind: item.kind, daemon: daemon, services: services)
             return nil
