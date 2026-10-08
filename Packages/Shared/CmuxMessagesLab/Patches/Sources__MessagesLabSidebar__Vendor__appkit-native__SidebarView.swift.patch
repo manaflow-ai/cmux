@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
-@@ -836,6 +836,9 @@
+@@ -918,6 +918,9 @@
      }
  
      // MARK: Hover
@@ -10,7 +10,7 @@
  
      func mouseMoved(_ p: CGPoint?) {
          let h = p.flatMap(hit)
-@@ -846,6 +849,9 @@
+@@ -928,6 +931,9 @@
      private func updateHover() {
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
