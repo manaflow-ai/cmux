@@ -50,9 +50,7 @@ export function ComputerUseCard() {
     <section className="group" data-card="computer-use" data-phase={state.phase}>
       <h3 className="group-title">{t("settingsWindow.computerUse.title")}</h3>
       <div className="row-help">
-        {state.helper
-          ? t("settingsWindow.computerUse.helpNamed", state.helper)
-          : t("settingsWindow.computerUse.help")}
+        {state.helper ? t("settingsWindow.computerUse.helpNamed", state.helper) : t("settingsWindow.computerUse.help")}
       </div>
       <div className="rows">
         {row("accessibility", state.accessibility, "palette.computerUse.accessibility")}
