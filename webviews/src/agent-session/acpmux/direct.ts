@@ -1395,6 +1395,10 @@ export class AcpmuxDirectClient {
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
   }
+  /** A copy of the selected session's recorded events, oldest first, for the inspector. */
+  sessionEvents(): EventRecord[] {
+    return this.events.slice();
+  }
   /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;

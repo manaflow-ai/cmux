@@ -63,6 +63,7 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import { Inspector } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
@@ -1038,6 +1039,14 @@ function AcpmuxPane() {
       sessionMoves,
     );
   }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
+  const closeInspector = useCallback(() => setInspectorOpen(false), []);
+  useLayoutEffect(() => {
+    if (inspectorOpen || !inspectorOpener.current) return;
+    inspectorOpener.current.focus();
+    inspectorOpener.current = undefined;
+  }, [inspectorOpen]);
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -1048,16 +1057,15 @@ function AcpmuxPane() {
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
-  const openDiff = useCallback<OpenDiff>(
-    (rowId, path, opener) =>
-      setDiffView({
-        sessionId: sessionIdRef.current,
-        rowId,
-        path,
-        opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
-      }),
-    [],
-  );
+  const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
+    setInspectorOpen(false);
+    setDiffView({
+      sessionId: sessionIdRef.current,
+      rowId,
+      path,
+      opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
+    });
+  }, []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -1917,6 +1925,18 @@ function AcpmuxPane() {
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const chat: ChatMenuItem[] = [
+      {
+        key: "inspector",
+        label: t("inspector.title"),
+        icon: "code",
+        onSelect: () => {
+          inspectorOpener.current = Array.from(
+            document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
+          ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
+          setDiffView(undefined);
+          setInspectorOpen(true);
+        },
+      },
       ...(forkable && lastForkSeq !== undefined
         ? [
             {
@@ -2327,7 +2347,9 @@ function AcpmuxPane() {
             />
           ) : (
             <>
-              <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
+              <div
+                className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
+              >
                 <header className="acpmux-header">
                   <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools">
@@ -2389,6 +2411,13 @@ function AcpmuxPane() {
                   <EmptyState project={projectName(snapshot.summary?.cwd)} />
                 ) : (
                   transcript
+                )}
+                {inspectorOpen && (
+                  <Inspector
+                    snapshot={snapshot}
+                    sessionEvents={() => directClient.current?.sessionEvents() ?? []}
+                    onClose={closeInspector}
+                  />
                 )}
                 {diffView && diffFiles && (
                   <DiffPanel

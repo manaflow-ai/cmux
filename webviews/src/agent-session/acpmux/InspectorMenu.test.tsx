@@ -54,7 +54,10 @@ Object.assign(globals, {
 // The changes view renders @pierre/diffs and @pierre/trees web components, which reach for
 // DOM classes (HTMLTemplateElement, SVGElement, ...) by their global names.
 const domClasses = Object.getOwnPropertyNames(dom.window).filter(
-  (key) => /^(HTML|SVG|CSS|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|getComputedStyle)/.test(key) && !(key in globals),
+  (key) =>
+    /^(HTML|SVG|CSS|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|getComputedStyle)/.test(
+      key,
+    ) && !(key in globals),
 );
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
 afterAll(() => {
@@ -69,8 +72,6 @@ const { act, createElement } = await import("react").then((react) => ({
 const { createRoot } = await import("react-dom/client");
 const { AcpmuxApp } = await import("./App");
 
-
-
 test("the chat menu opens the wire inspector and Escape returns focus to the menu", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
@@ -79,10 +80,10 @@ test("the chat menu opens the wire inspector and Escape returns focus to the men
     expect(menu).not.toBeNull();
     await act(async () => {
       menu.click();
-      await new Promise((resolve) => setTimeout(resolve, 170));
     });
-    const row = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-      .find((item) => item.textContent?.includes("ACP inspector"));
+    const row = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+      item.textContent?.includes("ACP inspector"),
+    );
     expect(row).toBeDefined();
     await act(async () => row!.click());
     expect(dom.window.document.querySelector(".acpmux-inspector")).not.toBeNull();
