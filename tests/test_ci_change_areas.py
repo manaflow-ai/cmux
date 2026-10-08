@@ -5242,6 +5242,7 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
 
     assert shard_take_gui("blacksmith-12vcpu-macos-26", 1).returncode == 0
     assert shard_take_gui("glaeda-gui-std-xcode-26.6", 1).returncode != 0
+    assert shard_take_gui("glaeda-root-std-xcode-26.6", 1).returncode != 0
     first_test = names.index("Prepare isolated DerivedData")
     assert take_gui == first_test - 1
     # The product is packaged, uploaded and seeded before any test can fail.
