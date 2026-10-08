@@ -18399,10 +18399,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 app.executableURL,
                 mainExecutableURL: Self.bundleExecutableURL(of: app)
             ) else { continue }
-            let replacementAuthorized = replacementLease?.authorizes(
-                bundleURL: Bundle.main.bundleURL,
-                processIdentifier: app.processIdentifier
-            ) == true
+            let replacementAuthorized = app.bundleURL.map { bundleURL in
+                replacementLease?.authorizes(
+                    bundleURL: bundleURL,
+                    processIdentifier: app.processIdentifier
+                ) == true
+            } == true
             switch SingleInstanceConflictPolicy(environment: environment).action(
                 currentBundleURL: Bundle.main.bundleURL,
                 existingBundleURL: app.bundleURL,
