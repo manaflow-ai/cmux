@@ -295,3 +295,21 @@ owner supplies this durable adapter, so this slice cannot claim create/rename/ki
 parity. Three focused tests cover wire round trips, hostile fields and bounds; Swift
 parsing, mobile concurrency/crash guards and diff checks are the verification gate while
 native execution and live SSH lifecycle behavior remain unverified.
+
+### On-demand history page contract (2026-10-08)
+
+`SSHTmuxHistoryRequest`, `SSHTmuxHistoryPage`, and `SSHTmuxHistoryBuffer` define the
+renderer-independent contract for fetching older normal-screen rows after attach. A request is
+bound to the host-issued server epoch, window id, and pane id, and caps each page at 256 rows.
+Pages are oldest-to-newest and carry an absolute row cursor; the buffer prepends only an exact
+cursor continuation, rejects stale generations, wrong panes, overlaps, and terminal-page replay,
+and caps the assembled history at 4,096 rows. Row bytes are bounded before they can reach a
+renderer, and empty pages are terminal. This keeps a future owner RPC or control-mode adapter
+from mixing history from a replaced tmux server into parser state or growing memory without
+bound.
+
+Four deterministic Swift Testing cases cover page ordering and cursor advancement, stale and
+overlapping page refusal, request/page bounds, and terminal replay. The model has no SSH or tmux
+I/O and does not claim that a host can serve history yet: host pagination, parser-state snapshots,
+and Ghostty history rendering remain open. Swift parsing and diff checks pass; native execution,
+live SSH history, and simulator/device verification remain unverified.

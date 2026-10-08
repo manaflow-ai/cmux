@@ -133,8 +133,10 @@ Open implementation gaps, grouped by owner:
   single-pane matching-grid windows; discovery now also validates and exposes bounded read-only split
   layout metadata. The pane-composition seam preserves pane-id renderer/parser identity, maps grid
   input to pane-local coordinates, and reconciles add/remove/update operations deterministically.
-  Multi-pane renderer composition, history, complete parser-state restore, and SSH create/rename/kill
-  remain explicit gaps; E3 still supplies the screen and cmux-tui paths.
+  The renderer-independent on-demand history request/page contract is landed with bounded,
+  epoch-checked cursor assembly, but its host adapter is not. Multi-pane renderer composition,
+  complete parser-state restore, and SSH create/rename/kill remain explicit gaps; E3 still supplies
+  the screen and cmux-tui paths.
 - C14: local port forwarding, simulator/browser seams and the credentialed generic SOCKS route are
   landed. `CmuxMobileTunnel` is now a direct `CmuxiOSWebCore` dependency; `WebRoute.startSocks` keeps
   loopback routing on the authenticated machine tunnel and requires an explicit direct backend for
