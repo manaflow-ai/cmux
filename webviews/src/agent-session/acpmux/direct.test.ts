@@ -1324,7 +1324,9 @@ describe("direct client session state", () => {
     expect(attach.params.kinds).toEqual(["transcript", "available_commands_update", "usage_update"]);
     expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     expect(texts()).toEqual(["a five"]);
-    expect(latest().commands).toEqual([{ name: "review", description: "review help", hint: undefined }]);
+    expect(latest().commands).toEqual([
+      { name: "review", description: "review help", hint: undefined, source: "agent" },
+    ]);
     ScriptedSocket.current.notify("session/update", {
       sessionId: "a",
       update: {
