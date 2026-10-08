@@ -274,7 +274,7 @@ impl Mux {
                 .with_state(|state| state.active_pane())
                 .context("no focused pane to reopen into")?,
         };
-        let outcome = self.reopen_saved_tab_group(saved_id, target, None)?;
+        let outcome = self.reopen_saved_tab_group_as(&mutation.actor, saved_id, target, None)?;
         let group = outcome.group.context("reopened group is missing")?.id;
         self.commit_state(
             mutation,
