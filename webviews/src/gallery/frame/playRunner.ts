@@ -103,10 +103,22 @@ function syntheticKey(key: string): void {
   // The focused element, inside open shadow roots too (a web component's focused row).
   let target: Element = document.activeElement ?? document.body;
   while (target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
-  for (const type of ["keydown", "keyup"])
-    target.dispatchEvent(
-      new KeyboardEvent(type, { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }),
-    );
+  const keydown = new KeyboardEvent("keydown", {
+    key: name,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    ...modifiers,
+  });
+  target.dispatchEvent(keydown);
+  target.dispatchEvent(new KeyboardEvent("keyup", { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }));
+  // KeyboardEvent dispatch does not run the browser's default button activation.
+  // Reproduce it for the shell runner so a native button behaves like the trusted
+  // Playwright path used by the matrix runner.
+  if (!keydown.defaultPrevented && (name === "Enter" || name === " ") && target instanceof HTMLElement) {
+    const role = target.getAttribute("role");
+    if (target instanceof HTMLButtonElement || role === "button") target.click();
+  }
 }
 
 /** Measures one step: anchors before and after, layout shifts and frame times during it. */
@@ -225,9 +237,14 @@ export async function runPlay(
       else synthetic(element, kind);
     }).then((step) => steps.push(step));
   };
-  const gesture = async (name: string, target: Element | null, run: () => void | Promise<void>): Promise<void> => {
+  const gesture = async (
+    name: string,
+    action: PlayAction,
+    target: Element | null,
+    run: () => void | Promise<void>,
+  ): Promise<void> => {
     steps.push(
-      await measured(name, target, anchors, checks, async () => {
+      await measured(name, action, target, anchors, checks, async () => {
         await run();
       }),
     );
@@ -247,7 +264,7 @@ export async function runPlay(
     },
     scroll: async (target, position) => {
       const element = find(target) as HTMLElement;
-      await gesture(`scroll ${describeTarget(target)} to ${String(position)}`, element, () => {
+      await gesture(`scroll ${describeTarget(target)} to ${String(position)}`, "scroll", element, () => {
         const top =
           typeof position === "number"
             ? position
@@ -260,7 +277,7 @@ export async function runPlay(
     },
     selectText: async (target) => {
       const element = find(target);
-      await gesture(`select text in ${describeTarget(target)}`, element, () => {
+      await gesture(`select text in ${describeTarget(target)}`, "select", element, () => {
         const selection = document.getSelection();
         if (!selection) return;
         const range = document.createRange();

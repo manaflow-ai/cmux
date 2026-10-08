@@ -532,6 +532,12 @@ export default agentPaneEntry({
     "keyboard-focus": {
       note: "Play: focus the Worked for disclosure and press Enter; the tool details open without leaving the transcript.",
       snapshot: chat(keyboardRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.25,
+          reason: "Opening the disclosure intentionally reveals its folded tool rows below the focused control.",
+        },
+      },
       play: async (ctx) => {
         const worked = { selector: ".cv-worked" };
         await ctx.focus(worked);
