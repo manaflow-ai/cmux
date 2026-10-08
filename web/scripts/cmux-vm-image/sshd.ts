@@ -182,6 +182,9 @@ export function sshdBakeCommand(workUser: string): string {
     `install -m 0644 /dev/null ${SSH_CA_FILE}`,
     `install -m 0644 /dev/null ${SSH_PRINCIPALS_DIR}/${workUser}`,
     `rm -f ${SSH_KRL_FILE} ${SSH_TRUST_FILE} && ssh-keygen -q -k -f ${SSH_KRL_FILE} && chmod 0644 ${SSH_KRL_FILE}`,
+    // Ubuntu's sshd stack ships `pam_env.so user_readenv=1`: the user could replace SSH_AUTH_INFO_0, which the
+    // session recorder trusts (sshdPamProblems). Turn it off; pam_env keeps reading the system files.
+    `sed -i 's/user_readenv=1/user_readenv=0/g' ${SSHD_PAM_FILE}`,
     `{ grep -qxF ${sq(SSHD_PAM_LINE)} ${SSHD_PAM_FILE} || { sed -i -e '$a\\' ${SSHD_PAM_FILE} && printf '%s\\n' ${sq(SSHD_PAM_LINE)} >> ${SSHD_PAM_FILE}; }; }`,
     "sshd -t",
     // Ubuntu 24.04 activates sshd through ssh.socket; its generator turns ListenAddress into the socket's listen list.
