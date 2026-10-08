@@ -16,7 +16,8 @@ When we change the fork, update this document and the parent submodule SHA.
 
 - Branch: `issue-18648-cjk-fallback-latency`, based on the cmux pin
   `17357e12a`.
-- Commits: `cf8b9d396` (regression test), `fff35f432` (fix).
+- Commits: `cf8b9d396` (regression test), `fff35f432` (fix),
+  `76f5f8c7c` (backend coverage guard).
 - Summary: CoreText fallback used `CTFontCollection` discovery for Japanese
   kana and other CJK ranges. Every missing glyph could synchronously enumerate
   and score the installed fonts before the terminal rendered it. CJK fallback
@@ -24,12 +25,14 @@ When we change the fork, update this document and the parent submodule SHA.
   non-CJK fallback keeps the existing collection path.
 - Coverage: `coretext CJK fallback keeps the direct codepoint result` failed on
   the pre-fix commit with `expected 1, found 39`, then passed in the local
-  74-test Ghostty suite. The existing CJK punctuation suite also passed. The
-  hosted GhosttyKit build and its CJK, shaping, and compatibility lanes passed
-  in [run 37850926294](https://github.com/manaflow-ai/cmux/actions/runs/37850926294);
+  74-test Ghostty suite. The test now runs only for CoreText backends without
+  FreeType, matching the direct lookup implementation. The existing CJK
+  punctuation suite also passed. The hosted GhosttyKit build and its CJK,
+  shaping, and compatibility lanes passed in
+  [run 37850926294](https://github.com/manaflow-ai/cmux/actions/runs/37850926294);
   the hosted regression step passed in
   [run 37852501997](https://github.com/manaflow-ai/cmux/actions/runs/37852501997).
-- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fff35f43280f6f133ef133d8c470706a068aab55-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-76f5f8c7cc614d4f42cf67031cda488cbf8bae0f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
 - SHA-256 `b2d2528bb20da61bf882f0ba772ff6060cf29e821d5897af79c17bc1f9aee9e4`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: keep the CJK ranges on CoreText's direct fallback path so
