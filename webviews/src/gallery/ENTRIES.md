@@ -148,8 +148,9 @@ checks: { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compi
 ```
 
 The report is `window.cmuxGalleryPlayReport` (and `data-gallery-play` on the stage's root). The
-matrix index shows a layout shift cell and a long frames cell (pass, warn or fail, with the
-numbers) for each case; click a cell for each step's details. A failing play fails the run. The
+matrix index shows layout shift and long frames cells (pass, warn or fail, with the numbers), plus
+action-to-settled p50 / p95 / max latency and sample count when a case has play steps; click a cell
+for each step's details. A failing play fails the run. The
 checks are real only in the matrix runner (Freestyle or CI). The shell shows the same report as a
 live line for the person who opens it.
 
