@@ -5,7 +5,10 @@
 
 use serde_json::json;
 
-use super::tests::{Session, empty_workspace, error_code, mutate, read, send};
+use super::tests::{
+    Session, empty_workspace, error_code, mutate, placements_by_id, read, replayed_placements,
+    revision, send,
+};
 use crate::mux::*;
 use crate::state::prelude::*;
 
@@ -35,6 +38,8 @@ fn group(mux: &Arc<Mux>, name: &str) -> String {
 fn a_group_slot_between_loose_rows_orders_the_personal_workspace_list() {
     let session = Session::new("mixed-slot");
     let mux = session.open();
+    // Made in sidebar order (workspaces.newPlacement bottom).
+    let _bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
     let a = empty_workspace(&mux, "a");
     let b = empty_workspace(&mux, "b");
     let c = empty_workspace(&mux, "c");
@@ -164,8 +169,14 @@ fn a_new_workspace_from_any_client_lands_at_the_top_by_default() {
         json!({"workspace_group": work, "top_index": 1}),
         "work-below-home",
     );
+    let (start, before) = (placements_by_id(&mux), revision(&mux));
     let b = empty_workspace(&mux, "b");
     let c = empty_workspace(&mux, "c");
+    assert_eq!(
+        replayed_placements(&mux, start, before),
+        placements_by_id(&mux),
+        "session.events does not carry every moved placement"
+    );
     let ids = [home.as_str(), a.as_str(), b.as_str(), c.as_str()];
     let expected = [home.as_str(), c.as_str(), b.as_str(), a.as_str()];
     assert_eq!(listed(&mux, Some("personal"), &ids), expected, "new workspaces not on top");
@@ -186,5 +197,51 @@ fn a_new_workspace_from_any_client_lands_at_the_top_by_default() {
     drop(mux);
     let mux = session.open();
     assert_eq!(listed(&mux, Some("personal"), &ids), expected, "the top place is not stored");
+    mux.shutdown();
+}
+
+/// `afterCurrent`: right after the session's active workspace, inside its
+/// group; Home (or no current workspace) falls back to top. `bottom`: last.
+#[test]
+fn a_new_workspace_follows_the_after_current_and_bottom_settings() {
+    use crate::user_settings::NewWorkspacePlacement;
+    let session = Session::new("new-after-current");
+    let mux = session.open();
+    let home = send(&mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]
+        ["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let work = group(&mux, "Work");
+    mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
+    // Personal order now: home, b, then Work [a] after every loose row.
+    let after = NewWorkspacePlacement::AfterCurrent.set_for_test();
+    mutate(&mux, "workspace.focus", json!({"workspace": b}), "focus-b");
+    let c = empty_workspace(&mux, "c");
+    mutate(&mux, "workspace.focus", json!({"workspace": a}), "focus-a");
+    let d = empty_workspace(&mux, "d");
+    mutate(&mux, "workspace.focus", json!({"workspace": home}), "focus-home");
+    let e = empty_workspace(&mux, "e");
+    drop(after);
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let f = empty_workspace(&mux, "f");
+    drop(bottom);
+    let ids = [&home, &a, &b, &c, &d, &e, &f].map(String::as_str);
+    let [home, a, b, c, d, e, f] = ids;
+    assert_eq!(listed(&mux, Some("personal"), &ids), [home, e, b, c, f, a, d]);
+    let placements = read(&mux, "workspace.placement.list", json!({}));
+    let group_of = |id: &str| {
+        placements
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["workspace"]["workspace_id"] == id)
+            .map(|row| row["group_id"].clone())
+            .unwrap()
+    };
+    assert_eq!(group_of(d), json!(work), "after a grouped workspace: in its group");
+    assert!(group_of(c).is_null() && group_of(e).is_null() && group_of(f).is_null());
     mux.shutdown();
 }
