@@ -217,14 +217,14 @@ impl Mux {
         if self.control_clients.attach_observation(&[runtime_view]).0 {
             return Ok(ReapOutcome::Attached);
         }
-        // ARCHIVE-1: keep the screen and the running program before the
-        // close stops it. A terminal that is placed or kept again by the
-        // close below keeps running; its archive is replaced at its next stop.
-        if let Some(runtime) =
-            public_id.as_ref().and_then(|public_id| self.terminal_resource_surface(public_id))
-        {
-            self.archive_terminal_runtimes(&[runtime]);
-        }
+        // ARCHIVE-1: capture the screen and the running program before the
+        // close stops it; store them only if the close commits (a terminal
+        // placed or kept again in between keeps running, unarchived).
+        let archives = public_id
+            .as_ref()
+            .and_then(|public_id| self.terminal_resource_surface(public_id))
+            .map(|runtime| self.capture_terminal_archives(&[runtime]))
+            .unwrap_or_default();
         match self.close_terminal_guarded(
             terminal_id,
             None,
@@ -235,6 +235,7 @@ impl Mux {
         ) {
             Ok(result) => {
                 if !result.already_closed {
+                    self.store_terminal_archives(archives);
                     self.emit(MuxEvent::TerminalReaped {
                         terminal_id: terminal_id.to_string(),
                         terminal: public_id.map(|public_id| public_id.as_str().to_string()),

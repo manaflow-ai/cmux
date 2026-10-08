@@ -987,6 +987,10 @@ pub fn foreground_job_name(pid: u32) -> Option<String> {
         return None;
     }
     let name = process_name(leader)?;
+    // Linux reads argv[0], which a program that sets its title can fill
+    // with arguments: keep only its first word.
+    #[cfg(target_os = "linux")]
+    let name = name.split_whitespace().next()?.to_string();
     let base = Path::new(&name).file_name()?.to_string_lossy().into_owned();
     (!base.is_empty()).then_some(base)
 }

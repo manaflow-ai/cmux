@@ -4,8 +4,10 @@
 //! A close ends a terminal that still runs in one of two places: the reaper
 //! ends a terminal whose last tab closed (Cmd-W, after the reap grace), and a
 //! batch close with `end_terminals` (Close Workspace) ends it in the close
-//! commit. Both call [`Mux::archive_terminal_runtimes`] before the host is
-//! asked to stop. It keeps, per terminal:
+//! commit. Both capture with [`Mux::capture_terminal_archives`] before the
+//! host is asked to stop and store only once the close committed. Only a
+//! terminal that closed history can reopen is archived. It keeps, per
+//! terminal:
 //!
 //! - the screen with its scrollback (bounded `cmux.vt-replay.v1`), stored as
 //!   the terminal's exit snapshot, the same record a process end keeps;
@@ -24,34 +26,56 @@ use super::*;
 use crate::workspace_registry::JournalContentBlob;
 use crate::workspace_registry::relaunch_store::RelaunchKind;
 
+/// Captures that saw output arrive mid-capture are retried this many times.
+const CAPTURE_ATTEMPTS: usize = 3;
+
 /// What one archived terminal keeps (see the module docs).
 pub(crate) struct TerminalArchive {
     /// The public terminal id.
     pub(crate) terminal_id: String,
     /// The incarnation the close stops.
     pub(crate) generation: String,
-    pub(crate) screen: Option<JournalContentBlob>,
+    /// The screen and the journaled output offset it covers, read with it.
+    pub(crate) screen: Option<(JournalContentBlob, u64)>,
     pub(crate) stopped: Option<String>,
 }
 
 impl Mux {
-    /// Archive `runtimes`, the terminals a committed close is about to stop.
-    /// Best effort: a failure costs the reopened tab its screen, never the
-    /// close.
-    pub(crate) fn archive_terminal_runtimes(&self, runtimes: &[Arc<Surface>]) {
-        if runtimes.is_empty() {
-            return;
+    /// Capture the archives of `runtimes`, the terminals a close is about
+    /// to stop, keeping only terminals that closed history can reopen (a
+    /// terminal of an ephemeral workspace, an unplaced API terminal or a
+    /// close kept out of history is never archived). Unix only: only Unix
+    /// reopens a terminal seeded with its archive. Store them with
+    /// [`Self::store_terminal_archives`] once the close committed.
+    pub(crate) fn capture_terminal_archives(
+        &self,
+        runtimes: &[Arc<Surface>],
+    ) -> Vec<TerminalArchive> {
+        if !cfg!(unix) || runtimes.is_empty() {
+            return Vec::new();
         }
-        // The replay and the journaled output must describe the same bytes.
-        if let Err(error) = self.flush_terminal_journal() {
-            eprintln!("cmux-tui: archive could not settle terminal output: {error:#}");
+        let reopenable = {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            runtimes
+                .iter()
+                .filter(|runtime| {
+                    runtime.terminal_public_id().is_some_and(|public_id| {
+                        registry
+                            .closed_history_mentions_terminal(public_id.as_str())
+                            .unwrap_or(false)
+                    })
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        if reopenable.is_empty() {
+            return Vec::new();
         }
-        let archives =
-            runtimes.iter().filter_map(|runtime| self.capture_terminal_archive(runtime)).collect();
-        self.store_terminal_archives(archives);
+        reopenable.iter().filter_map(|runtime| self.capture_terminal_archive(runtime)).collect()
     }
 
-    /// Store `archives` in one registry transaction.
+    /// Store `archives` in one registry transaction. Best effort: a failure
+    /// costs the reopened tab its screen, never the close.
     pub(crate) fn store_terminal_archives(&self, archives: Vec<TerminalArchive>) {
         if archives.is_empty() {
             return;
@@ -65,23 +89,18 @@ impl Mux {
         }
     }
 
-    /// The archive of one live PTY runtime; the caller flushed the journal.
-    pub(crate) fn capture_terminal_archive(
-        &self,
-        runtime: &Arc<Surface>,
-    ) -> Option<TerminalArchive> {
+    /// The archive of one live PTY runtime.
+    fn capture_terminal_archive(&self, runtime: &Arc<Surface>) -> Option<TerminalArchive> {
         if runtime.kind() != SurfaceKind::Pty {
             return None;
         }
         let public_id = runtime.terminal_public_id()?.clone();
         let identity = self.resource_terminal_host_identity(runtime)?;
-        let screen = match crate::journal_checkpoint::terminal_replay_blob(runtime, &public_id) {
-            Ok(blob) => Some(blob),
-            Err(error) => {
-                eprintln!("cmux-tui: terminal {public_id} archive has no screen: {error:#}");
-                None
-            }
-        };
+        let screen = (0..CAPTURE_ATTEMPTS)
+            .find_map(|_| self.capture_archive_screen(runtime, &public_id, &identity.incarnation));
+        if screen.is_none() {
+            eprintln!("cmux-tui: terminal {public_id} archive has no screen");
+        }
         let stopped = runtime.process_id().and_then(|pid| {
             crate::platform::foreground_job_name(pid).or_else(|| {
                 // A command terminal's own child is the program.
@@ -97,6 +116,27 @@ impl Mux {
             screen,
             stopped,
         })
+    }
+
+    /// One capture of the screen and the output offset it covers: settle
+    /// the journal, read the offset, capture, and accept only when no output
+    /// arrived in between (the per-terminal ingress epoch did not move).
+    fn capture_archive_screen(
+        &self,
+        runtime: &Arc<Surface>,
+        public_id: &TerminalPublicId,
+        generation: &str,
+    ) -> Option<(JournalContentBlob, u64)> {
+        self.flush_terminal_journal().ok()?;
+        let epoch = runtime.terminal_journal_capture_epoch()?;
+        let covered = {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            registry.terminal_journal_offset(public_id.as_str(), generation).ok()?
+        };
+        let blob =
+            crate::journal_checkpoint::terminal_replay_blob_with(runtime, public_id, true).ok()?;
+        (runtime.terminal_journal_capture_epoch() == Some(epoch) && epoch & 1 == 0)
+            .then_some((blob, covered))
     }
 
     /// How Reopen Closed starts a closed terminal tab `tab` (its closed
@@ -139,6 +179,13 @@ impl Mux {
                 eprintln!("cmux-tui: terminal {closed_terminal} stop is unreadable: {error:#}");
                 None
             });
+            // A stop names a program of the archived screen's incarnation
+            // only; a screen a later process end stored has no stop.
+            let stopped = stopped
+                .filter(|(generation, _)| {
+                    screen.as_ref().is_none_or(|screen| &screen.generation == generation)
+                })
+                .map(|(_, program)| program);
             (screen, stopped)
         };
         let marker = crate::terminal_respawn_text::reopened_marker(stopped.as_deref());

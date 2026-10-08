@@ -232,3 +232,91 @@ fn a_closed_workspace_reopens_its_running_terminal_with_screen_directory_and_sto
     assert_restored(&harness, surface, "ws-archive", &dir_text);
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// A second tab in a new workspace `name` of a daemon that reaps at once:
+/// (surface, internal terminal id).
+fn second_tab(harness: &RecoveryHarness, name: &str) -> (u64, String) {
+    request(&harness.socket, serde_json::json!({"cmd":"new-workspace","name":name}));
+    let pane = tree(harness)["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == name)
+        .and_then(|workspace| workspace["screens"][0]["panes"][0]["id"].as_u64())
+        .expect("the workspace has a pane");
+    let added = request(&harness.socket, serde_json::json!({"cmd":"new-tab","pane":pane}));
+    let surface = added["surface"].as_u64().expect("new-tab returned no surface");
+    let terminal_id =
+        tab_of_surface(harness, surface)["terminal_id"].as_str().expect("terminal id").to_string();
+    (surface, terminal_id)
+}
+
+fn close_tab_and_reopen(
+    harness: &RecoveryHarness,
+    surface: u64,
+    terminal_id: &str,
+    key: &str,
+) -> u64 {
+    request(
+        &harness.socket,
+        serde_json::json!({"cmd":"close-tabs","surfaces":[surface],"end_terminals":false}),
+    );
+    wait_for_end(harness, terminal_id);
+    let reopened = reopen_newest(harness, key);
+    let tab_id = reopened["tab_ids"][0].as_str().expect("reopen returned no tab").to_string();
+    surface_of_tab(harness, &tab_id)
+}
+
+/// c. A full-screen program (alternate screen) keeps its screen: the
+/// reopened tab shows it above the stop line, and the stop line names the
+/// program, never its arguments.
+#[test]
+fn a_closed_full_screen_program_reopens_with_its_screen_and_no_argument() {
+    let _exclusive = exclusive_process_test();
+    let harness =
+        RecoveryHarness::start_with_args("archive-alt", &["--terminal-reap-grace-seconds", "0"]);
+    let (surface, terminal_id) = second_tab(&harness, "arcalt");
+    // The typed line reads `alt-%s`, so only the program's output reads
+    // `alt-shown`.
+    send_line(
+        &harness.socket,
+        surface,
+        "printf '\\033[?1049h\\033[Halt-%s\\n' shown; sh -c 'exec sleep 1000' ARCHIVESECRETARG",
+    );
+    wait_for_screen(&harness.socket, surface, "alt-shown");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let info =
+            request(&harness.socket, serde_json::json!({"cmd":"process-info","surface":surface}));
+        if info["foreground_executable"].as_str().is_some_and(|name| name.ends_with("sleep")) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "sleep never became the foreground job: {info}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let surface = close_tab_and_reopen(&harness, surface, &terminal_id, "alt");
+    let text = wait_for_screen(&harness.socket, surface, STOPPED);
+    let stopped_at = text.find(STOPPED).unwrap_or_else(|| panic!("no stop line: {text}"));
+    let shown_at = text.find("alt-shown").unwrap_or(usize::MAX);
+    assert!(shown_at < stopped_at, "the full-screen program's screen is gone: {text}");
+    let stop_line = text[stopped_at..].lines().next().unwrap_or_default();
+    assert!(!stop_line.contains("ARCHIVESECRETARG"), "the stop line shows an argument: {text}");
+}
+
+/// d. An idle shell stops nothing: the reopened tab says only that it was
+/// reopened.
+#[test]
+fn a_closed_idle_shell_reopens_without_a_stopped_program() {
+    let _exclusive = exclusive_process_test();
+    let harness =
+        RecoveryHarness::start_with_args("archive-idle", &["--terminal-reap-grace-seconds", "0"]);
+    let (surface, terminal_id) = second_tab(&harness, "arcidle");
+    send_line(&harness.socket, surface, "echo idle-$((40+2))");
+    wait_for_screen(&harness.socket, surface, "idle-42\n");
+    let surface = close_tab_and_reopen(&harness, surface, &terminal_id, "idle");
+    let text = wait_for_screen(&harness.socket, surface, "tab reopened");
+    assert!(text.contains("tab reopened"), "no reopen line: {text}");
+    assert!(!text.contains("was stopped"), "an idle shell named a stopped program: {text}");
+    assert!(text.find("idle-42").unwrap_or(usize::MAX) < text.find("tab reopened").unwrap_or(0));
+}

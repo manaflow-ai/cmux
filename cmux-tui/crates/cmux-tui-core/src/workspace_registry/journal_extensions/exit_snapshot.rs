@@ -15,7 +15,7 @@ impl WorkspaceRegistry {
         blob: &JournalContentBlob,
     ) -> anyhow::Result<bool> {
         let tx = self.connection.transaction()?;
-        let inserted = put_exit_snapshot_in(&tx, terminal_id, generation, blob)?;
+        let inserted = put_exit_snapshot_in(&tx, terminal_id, generation, blob, None)?;
         tx.commit()?;
         Ok(inserted)
     }
@@ -33,32 +33,44 @@ impl WorkspaceRegistry {
         let now = unix_epoch_ms()?;
         let tx = self.connection.transaction()?;
         for archive in archives {
-            if let Some(blob) = archive.screen.as_ref() {
-                put_exit_snapshot_in(&tx, &archive.terminal_id, &archive.generation, blob)?;
-            }
-            if let Some(program) = archive.stopped.as_deref() {
-                terminal_archive_store::record_stop(
+            if let Some((blob, covered)) = archive.screen.as_ref() {
+                put_exit_snapshot_in(
                     &tx,
                     &archive.terminal_id,
                     &archive.generation,
-                    program,
-                    now,
+                    blob,
+                    Some(*covered),
                 )?;
             }
+            terminal_archive_store::record_stop(
+                &tx,
+                &archive.terminal_id,
+                &archive.generation,
+                archive.stopped.as_deref(),
+                now,
+            )?;
         }
         tx.commit()?;
         Ok(())
     }
+
+    /// The journaled output offset of terminal `terminal_id`'s incarnation
+    /// `generation` (0: none journaled).
+    pub(crate) fn terminal_journal_offset(
+        &self,
+        terminal_id: &str,
+        generation: &str,
+    ) -> anyhow::Result<u64> {
+        journal_offset(&self.connection, terminal_id, generation)
+    }
 }
 
-/// [`WorkspaceRegistry::put_terminal_exit_snapshot`] inside `tx`.
-fn put_exit_snapshot_in(
-    tx: &Transaction<'_>,
+fn journal_offset(
+    connection: &Connection,
     terminal_id: &str,
     generation: &str,
-    blob: &JournalContentBlob,
-) -> anyhow::Result<bool> {
-    let covered_through = tx
+) -> anyhow::Result<u64> {
+    connection
         .query_row(
             "SELECT next_offset FROM journal_terminal_streams
              WHERE terminal_id = ?1 AND generation = ?2",
@@ -68,8 +80,25 @@ fn put_exit_snapshot_in(
         .optional()?
         .map(u64::try_from)
         .transpose()
-        .context("terminal journal offset is negative")?
-        .unwrap_or(0);
+        .context("terminal journal offset is negative")
+        .map(Option::unwrap_or_default)
+}
+
+/// [`WorkspaceRegistry::put_terminal_exit_snapshot`] inside `tx`.
+/// `covered` is the output offset read with the capture of a terminal that
+/// still runs (archive on close); `None` reads it now (the process ended,
+/// so no output follows the capture).
+fn put_exit_snapshot_in(
+    tx: &Transaction<'_>,
+    terminal_id: &str,
+    generation: &str,
+    blob: &JournalContentBlob,
+    covered: Option<u64>,
+) -> anyhow::Result<bool> {
+    let covered_through = match covered {
+        Some(covered) => covered,
+        None => journal_offset(tx, terminal_id, generation)?,
+    };
     if covered_through == 0 {
         // The generation journaled no output; there is nothing for the
         // snapshot to cover and record reads stay exact without it.

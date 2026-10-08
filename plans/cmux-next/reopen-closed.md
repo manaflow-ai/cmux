@@ -490,7 +490,12 @@ touch it.
   TERMINFO, COLORTERM, TERM_PROGRAM, TERM_PROGRAM_VERSION, CMUX_SOCKET_PATH, CMUX_BUNDLE_ID and
   CMUX_TAG, and any key containing TOKEN, KEY, SECRET, PASSWORD, AUTH, COOKIE or CREDENTIAL is
   dropped even when allowlisted (`relaunch_store`, nxdog62). Inherited and user env is not kept.
-  Not yet: the blob budget (2 GB) and its eviction; agent resume offer on reopen (L2 has it).
+  Only a terminal a closed-history group names is archived (never an ephemeral workspace's, an
+  unplaced API terminal's, or a close kept out of history); the reaper stores only after its
+  guarded close commits. A full-screen program (alternate screen) is kept as the plain text of its
+  visible rows. Unix only.
+  Not yet: the blob budget (2 GB) and its eviction (journal content blobs cannot be deleted today);
+  the reopened shell starts at the pane size, not the archived size; agent resume offer on reopen.
 - S4 (Swift): S4.0 repro of today's Cmd-Shift-T failure on cmux-lawrence-2; `history.reopenClosed`
   with the alias; Reopen Closed… page; catalog presets of 5.3 on one shared path; app-local kinds
   (agent, page, viewer, local browser) push restore state and restore through the provider registry;
