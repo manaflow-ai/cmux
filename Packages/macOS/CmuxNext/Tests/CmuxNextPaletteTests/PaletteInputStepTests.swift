@@ -9,7 +9,7 @@ import Testing
 /// the system beep. Dogfood report: "Rename Tab Group", then Return, beeped
 /// and did nothing.
 @MainActor
-@Suite struct PaletteInputStepTests {
+@Suite(.paletteRanker) struct PaletteInputStepTests {
     static let captured: [ActionTargetRef] = [
         ActionTargetRef(kind: .tabGroup, id: "g1"), ActionTargetRef(kind: .tab, id: "t1"),
         ActionTargetRef(kind: .pane, id: "p1"), ActionTargetRef(kind: .screen, id: "s1"),

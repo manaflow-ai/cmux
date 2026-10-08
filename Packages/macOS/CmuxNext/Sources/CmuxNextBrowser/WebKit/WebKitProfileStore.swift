@@ -59,6 +59,9 @@ public final class WebKitProfileStore {
         return store
     }
 
+    /// Whether `profile` is off the record (an incognito window).
+    public func isOffTheRecord(_ profile: BrowserProfileID) -> Bool { offTheRecord.isOffTheRecord(profile) }
+
     /// Profiles with a live store in this process.
     public var loadedProfiles: Set<BrowserProfileID> {
         Set(stores.keys)

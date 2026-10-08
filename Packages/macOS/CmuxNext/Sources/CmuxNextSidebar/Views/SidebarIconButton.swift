@@ -39,6 +39,8 @@ final class SidebarIconButton: NSButton {
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
+        // Hover follows the pointer and the button's frame (cx-3wu5).
+        hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
     }
 
     @available(*, unavailable)
@@ -69,18 +71,10 @@ final class SidebarIconButton: NSButton {
         hover.refresh(animated: false)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        hover.updateTrackingAreas()
-    }
-
     private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
         change(&hover.state)
         needsDisplay = true
     }
-
-    override func mouseEntered(with event: NSEvent) { changeHover { $0.hovering = true } }
-    override func mouseExited(with event: NSEvent) { changeHover { $0.hovering = false } }
 
     /// NSButton tracks the click inside `super.mouseDown` and returns on release.
     override func mouseDown(with event: NSEvent) {
@@ -91,9 +85,16 @@ final class SidebarIconButton: NSButton {
     }
 
     /// A button hidden under the pointer (the header + while the sidebar
-    /// is not hovered) gets no exit event; it reappears without the fill.
+    /// is not hovered) gets no exit event; the hover owner clears it, and it
+    /// reappears with the hover the pointer gives it then.
     override func viewDidHide() {
         super.viewDidHide()
-        changeHover { $0.hovering = false; $0.pressed = false }
+        changeHover { $0.pressed = false }
+        hover.pointer?.refresh()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover.pointer?.refresh()
     }
 }

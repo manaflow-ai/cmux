@@ -41,8 +41,8 @@ nonisolated extension CloudHomeSource {
         case .setTyping(let conversation, _):
             // Answered by `submit` before binding; nothing to send.
             return HomeOpResult(rev: 0, conversation: conversation)
-        case .setPinned, .setMuted, .createChief:
-            // inbox.pin, inbox.mute and chief.create are not cloud-conversation-op kinds yet
+        case .setPinned, .setMuted, .createChief, .answerQuestion:
+            // inbox.pin, inbox.mute, chief.create and question.answer are not cloud-conversation-op kinds yet
             // (home-cloud-proxy.md section 8); refused here exactly as the daemon would.
             throw HomeRejection.invalid("unsupported_op")
         case .createGroup(let title, let ids):

@@ -8,7 +8,8 @@ import CmuxNextUpdater
 /// into an update, then terminates. R138 check update-relaunch-no-prompt.
 /// `{action: "stage", version?, changes?}` shows a staged update with fake
 /// release notes (UPDATE-CARD screenshots; nothing downloads or installs);
-/// `{action: "unstage"}` follows the real updater again.
+/// `{action: "unstage"}` follows the real updater again. `{action: "tip",
+/// id?}` shows a "Did you know" tip; `{action: "untip"}` hides it.
 @MainActor
 enum DebugUpdater {
     static func run(_ params: [String: JSONValue], _ services: AppServices,
@@ -25,11 +26,17 @@ enum DebugUpdater {
             let count = max(0, Int(params["changes"]?.doubleValue ?? 12))
             services.updater.debugStage(version: version, notes: fakeNotes(version: version, changes: count))
             return .object(["staged": .string(version), "changes": JSONValue(count)])
+        case "tip":
+            services.updater.debugShowTip(params["id"]?.stringValue ?? TipCatalog.all.first?.id)
+            return .object(["tip": services.updater.tip.map { .string($0.id) } ?? .null])
+        case "untip":
+            services.updater.debugShowTip(nil)
+            return .object(["tip": .null])
         case "unstage":
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
         default:
-            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\" or \"unstage\"")
+            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"tip\" or \"untip\"")
         }
     }
 

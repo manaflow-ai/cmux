@@ -57,6 +57,12 @@ impl ExitSettleTimer {
         let _ = self.mux.set(mux);
     }
 
+    /// The owner this timer is bound to, while it lives (also used by other
+    /// deferred owner work, such as a terminal respawn).
+    pub(super) fn owner(&self) -> Option<Arc<Mux>> {
+        self.mux.get().and_then(Weak::upgrade)
+    }
+
     fn take_due(&self, now_ms: u64) -> Vec<(String, u32)> {
         let mut state = self.state.lock().unwrap();
         let due = state

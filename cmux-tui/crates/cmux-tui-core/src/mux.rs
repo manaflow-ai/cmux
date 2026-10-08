@@ -2,8 +2,13 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+mod agent_roster_restore;
 mod browser_tab_create;
 mod closed_workspace_replay;
+#[cfg(test)]
+mod test_actor_wrappers;
+mod topology_edit;
+mod topology_ops;
 pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
     FrontendTabPlacement, frontend_fields as frontend_browser_fields,
@@ -18,6 +23,7 @@ mod host_close;
 mod host_death_tests;
 mod idle_close;
 mod journal_plugin_host;
+mod journal_retention;
 mod kitty_reservation;
 use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
@@ -43,13 +49,19 @@ mod tab_workspace_name;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+mod loss_causes;
+mod orphan_hosts;
 mod pending_terminals;
+pub(crate) mod terminal_archive;
 mod terminal_directory;
 mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_reap;
+#[cfg(unix)]
+mod terminal_rehost;
 mod terminal_relaunch;
+mod terminal_respawn;
 mod terminal_work;
 mod topology_result;
 
@@ -105,6 +117,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
+use crate::Actor;
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::browser_provider::{
     BrowserProviderRegistration, BrowserProviderRegistry, BrowserProviderSnapshot,
@@ -268,13 +281,13 @@ impl<T> SignaledMutex<T> {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                anyhow::bail!("mutex deadline expired");
+                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
             let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
             epoch = next;
             if result.timed_out() && *epoch == observed {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                anyhow::bail!("mutex deadline expired");
+                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
         }
     }
@@ -344,6 +357,8 @@ type WorkspaceDeltaBeforeEmitHook = Arc<dyn Fn(u64) + Send + Sync>;
 type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
+/// Startup diagnostics kept until the frontend installs its sink.
+const MAX_PENDING_DIAGNOSTICS: usize = 8;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
@@ -1415,62 +1430,6 @@ fn parse_projection_agent_state(value: &str) -> AgentState {
 struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
-}
-
-/// Restore the roster from its persisted snapshot and fold the journal tail
-/// committed after the cursor. A reducer-version mismatch discards the
-/// snapshot and re-folds from the journal head. Deltas produced here are
-/// dropped deliberately: their projection commits and change broadcasts
-/// already happened when the events first committed, and the durable
-/// projection restores itself independently.
-fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
-    use crate::journal_reducers::{
-        AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
-    };
-    let (mut host, mut needs_repair) =
-        match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
-            Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
-                match AgentRoster::restore(&snapshot) {
-                    Some(roster) => (AgentRosterHost { roster, cursor }, false),
-                    // The cursor is meaningful only with the snapshot that was
-                    // captured at the same fold boundary. Replaying from zero
-                    // is the safe recovery path for malformed persisted state.
-                    None => (AgentRosterHost::default(), true),
-                }
-            }
-            Some(_) => (AgentRosterHost::default(), true),
-            None => (AgentRosterHost::default(), false),
-        };
-    // A cursor beyond the current journal head cannot describe a retained
-    // snapshot boundary. Treat it like any other rejected checkpoint so a
-    // metadata write or journal repair cannot make startup fail permanently.
-    if host.cursor > 0 {
-        let journal_head = registry.session_journal_head()?;
-        if host.cursor > journal_head {
-            host = AgentRosterHost::default();
-            needs_repair = true;
-        }
-    }
-    let started_at = host.cursor;
-    loop {
-        let page = registry.session_journal_after(host.cursor, 512)?;
-        if page.records.is_empty() {
-            break;
-        }
-        for record in &page.records {
-            host.roster.apply(&RosterEvent::from_record(record));
-            host.cursor = host.cursor.max(record.sequence);
-        }
-    }
-    if needs_repair || host.cursor != started_at {
-        registry.put_journal_reducer_state(
-            AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION,
-            host.cursor,
-            &host.roster.snapshot().to_string(),
-        )?;
-    }
-    Ok(host)
 }
 
 fn agent_provider_identity(ingress: &crate::JournalIngress) -> Option<String> {
@@ -2679,13 +2638,14 @@ pub struct Mux {
     /// per-terminal reporting would emit N warnings for one underlying
     /// condition. Cleared when a reconnect checkpoint succeeds again.
     reconnect_checkpoint_skip_reported: AtomicBool,
+    journal_retention: journal_retention::JournalRetention,
     /// Frontend-owned sink for diagnostics emitted by background core work.
     /// `OnceLock` keeps the callback immutable after startup and avoids a
     /// mutex on the reconnect hot path. Startup can adopt a hosted surface
-    /// before the frontend installs the sink, so one diagnostic is retained
-    /// in a per-mux slot until the first reporter arrives.
+    /// before the frontend installs the sink, so the first diagnostics are
+    /// retained per mux until the first reporter arrives.
     diagnostic_reporter: OnceLock<DiagnosticReporter>,
-    pending_diagnostic: Mutex<Option<String>>,
+    pending_diagnostics: Mutex<Vec<String>>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -2707,6 +2667,8 @@ pub struct Mux {
     /// Typed ends (`TerminalEnd::wire_json`) of ended terminals that have no
     /// runtime surface, keyed by public terminal id. A leaf lock.
     terminal_ends: Mutex<HashMap<String, Value>>,
+    /// Cause of each terminal's last host loss, by public id (cx-0tgl).
+    terminal_loss_causes: Mutex<loss_causes::LossCauses>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
@@ -2718,6 +2680,7 @@ pub struct Mux {
     /// Detaches of live signal exits that wait out the session shutdown
     /// lead (`session-shutdown`, logout race).
     exit_settles: Arc<exit_settle::ExitSettleTimer>,
+    terminal_respawns: terminal_respawn::TerminalRespawns,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -2971,7 +2934,7 @@ impl Mux {
 
     pub(crate) fn from_workspace_registry(
         session: String,
-        mut surface_options: SurfaceOptions,
+        surface_options: SurfaceOptions,
         registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
@@ -2996,7 +2959,10 @@ impl Mux {
             notification_ledger,
             notification_reads,
         } = restore_public_projections(&state, registry.public_projections()?)?;
-        let agent_roster = restore_agent_roster(&registry)?;
+        let agent_roster_restore::RestoredAgentRoster {
+            host: agent_roster,
+            diagnostic: agent_roster_diagnostic,
+        } = agent_roster_restore::restore_agent_roster(&registry)?;
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
@@ -3009,7 +2975,6 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
-        surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
             workspace_registry: SignaledMutex::new(registry),
@@ -3138,8 +3103,9 @@ impl Mux {
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
+            journal_retention: Default::default(),
             diagnostic_reporter: OnceLock::new(),
-            pending_diagnostic: Mutex::new(None),
+            pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -3152,6 +3118,7 @@ impl Mux {
             terminal_adoptions: Mutex::new(HashSet::new()),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
+            terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
             terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
@@ -3169,6 +3136,7 @@ impl Mux {
             shutting_down: AtomicBool::new(false),
             session_shutdown,
             exit_settles: Arc::default(),
+            terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             activity: Default::default(),
@@ -3221,6 +3189,9 @@ impl Mux {
         // after restored surfaces exist, and repeat at the end of asynchronous
         // terminal adoption for hosts that were not available yet.
         mux.reconcile_agent_roster_projections();
+        if let Some(diagnostic) = agent_roster_diagnostic {
+            mux.report_internal_diagnostic(diagnostic);
+        }
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
             if Instant::now() >= recovery_deadline {
@@ -3523,6 +3494,9 @@ impl Mux {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_exit_records(root)?,
             None => Vec::new(),
         };
+        if let Some(root) = options.terminal_host_root.as_deref() {
+            crate::terminal_host_runtime::sweep_released_pty_locks(root);
+        }
         let records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_records(root)?,
             None => Vec::new(),
@@ -3531,6 +3505,7 @@ impl Mux {
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
+        let mut recovery_workspace = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
         // completion cannot collapse the exact status into "host missing".
@@ -3614,6 +3589,15 @@ impl Mux {
                     )?;
                     self.emit_terminal_registry_changed(&registry, revision);
                     terminal = Some(imported);
+                } else if orphan_hosts::recoverable(&options, &record_path, &record) {
+                    match self.recover_orphan_terminal(&record, &mut recovery_workspace) {
+                        Ok(recovered) => terminal = Some(recovered),
+                        Err(error) => {
+                            // The host and its record stay for a later start.
+                            eprintln!("cmux-tui: terminal {terminal_id} not recovered: {error:#}");
+                            continue;
+                        }
+                    }
                 } else {
                     if !cleanup_terminal_host_record(&record, &record_path) {
                         self.schedule_terminal_adoption(options.clone(), record, record_path);
@@ -3838,15 +3822,12 @@ impl Mux {
     /// appears includes the terminal it names.
     #[cfg(unix)]
     fn complete_template_adoption(&self, terminal_id: &str) -> anyhow::Result<()> {
-        let is_template = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .terminal_record(terminal_id)?
-            .is_some_and(|terminal| is_template_terminal(&terminal));
-        if !is_template {
+        let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
+        // A recovered terminal (cx-0tgl LC) is placed the same way; only a
+        // Cloud template gets the identity binding below.
+        let Some(terminal) = terminal.filter(orphan_hosts::placed_on_adoption) else {
             return Ok(());
-        }
+        };
         anyhow::ensure!(
             !self.consume_template_completion_failure(),
             "injected template completion failure"
@@ -3856,7 +3837,7 @@ impl Mux {
             serde_json::json!({}),
         )?;
         let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
-        if let Some(path) = bound_file {
+        if let Some(path) = bound_file.filter(|_| is_template_terminal(&terminal)) {
             self.publish_template_binding(terminal_id, &path)?;
         }
         Ok(())
@@ -3954,6 +3935,9 @@ impl Mux {
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
         self.clear_pending_terminal(terminal_id);
+        if self.terminal_is_respawning(terminal_id) {
+            return Ok(());
+        }
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         let Some(terminal) = terminal else { return Ok(()) };
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
@@ -4039,7 +4023,7 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if is_template_terminal(&terminal) && !has_restored_placements {
+        if orphan_hosts::placed_on_adoption(&terminal) && !has_restored_placements {
             // Cloud snapshot template, first adoption: its builder's placement
             // was wiped with the builder's registry, so it gets a new one here.
             // The template marker stays on the durable row, so a later daemon
@@ -4186,13 +4170,13 @@ impl Mux {
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
-                    let terminal = mux
-                        .workspace_registry
-                        .lock()
-                        .unwrap()
-                        .terminal_record(&terminal_id)
-                        .ok()
-                        .flatten();
+                    // A failed read proves nothing about the host: retry.
+                    let Ok(terminal) =
+                        mux.workspace_registry.lock().unwrap().terminal_record(&terminal_id)
+                    else {
+                        delay = (delay * 2).min(Duration::from_secs(5));
+                        continue;
+                    };
                     let Some(terminal) = terminal else {
                         if cleanup_terminal_host_record(&record, &record_path) {
                             break;
@@ -4721,21 +4705,6 @@ impl Mux {
             tab: Some(public_id.to_string()),
             ..Self::ordinary_resource_selectors()
         })
-    }
-
-    pub(crate) fn commit_ordinary_topology_operation(
-        self: &Arc<Self>,
-        operation: ResourceOperation,
-        selectors: crate::ResourceSelectors,
-        fields: Map<String, Value>,
-    ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_resource_topology_operation(
-            operation,
-            selectors,
-            fields,
-            None,
-            &WorkspaceMutation::local("cmux-tui"),
-        )
     }
 
     fn nullable_name_fields(name: String) -> Map<String, Value> {
@@ -5567,15 +5536,15 @@ impl Mux {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_resource_effect(
         &self,
-        idempotency_key: &str,
+        mutation: &WorkspaceMutation,
         operation: &str,
         fingerprint: &Value,
         intent: &Value,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<ResourceEffectPreparation> {
-        self.workspace_registry.lock().unwrap().prepare_resource_effect(
-            idempotency_key,
+        self.workspace_registry.lock().unwrap().prepare_resource_effect_for(
+            mutation,
             operation,
             fingerprint,
             intent,
@@ -5682,7 +5651,7 @@ impl Mux {
         operation: &'static str,
         result: Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let fingerprint = serde_json::json!({"operation":operation,"result":result});
         self.commit_full_resource_projection_with_mutation(
             &mutation,
@@ -6239,7 +6208,7 @@ impl Mux {
         let commit_from = Instant::now();
         let remaining = deadline.saturating_duration_since(Instant::now());
         let commits = if remaining.is_zero() {
-            Err(anyhow::anyhow!("session journal commit deadline expired"))
+            Err(crate::JournalContention::COMMIT_DEADLINE.into())
         } else {
             registry.append_journal_ingress_events_with_deadline(
                 events,
@@ -6380,6 +6349,11 @@ impl Mux {
         revision: u64,
     ) -> anyhow::Result<crate::workspace_registry::ResourceEventPage> {
         self.workspace_registry.lock().unwrap().resource_events_after(revision)
+    }
+
+    /// The journal head without decoding any record or sealed segment.
+    pub(crate) fn session_journal_head(&self) -> anyhow::Result<u64> {
+        self.workspace_registry.lock().unwrap().session_journal_head()
     }
 
     pub(crate) fn session_journal_after(
@@ -6680,6 +6654,8 @@ impl Mux {
         } else {
             format!("cmux-hook-sequence:{sequence}")
         };
+        let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
+        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended);
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
@@ -6887,7 +6863,7 @@ impl Mux {
         };
         let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
-        let mutation = match WorkspaceMutation::new(
+        let mutation = match WorkspaceMutation::daemon(
             format!("roster-{}", crate::workspace_registry::new_uuid_v4()),
             "journal-reducer",
         ) {
@@ -7063,8 +7039,9 @@ impl Mux {
     }
 
     /// Sends a diagnostic to the frontend-owned sink without writing to a
-    /// frontend terminal. One message is retained when startup races sink
-    /// installation.
+    /// frontend terminal. The first messages are retained when startup races
+    /// sink installation, so a later startup message cannot replace an
+    /// earlier one (the agent roster restore reports before hook retries).
     pub(crate) fn report_internal_diagnostic(&self, message: impl Into<String>) {
         let message = message.into();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
@@ -7076,12 +7053,12 @@ impl Mux {
         // frontend has a chance to install its reporter. Recheck under the
         // pending slot lock so a concurrent setter cannot leave this message
         // stranded between the initial lookup and the store.
-        let mut pending = self.pending_diagnostic.lock().unwrap();
+        let mut pending = self.pending_diagnostics.lock().unwrap();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             drop(pending);
             reporter(&message);
-        } else {
-            *pending = Some(message);
+        } else if pending.len() < MAX_PENDING_DIAGNOSTICS {
+            pending.push(message);
         }
     }
 
@@ -7115,8 +7092,8 @@ impl Mux {
         if self.diagnostic_reporter.set(reporter).is_err() {
             return false;
         }
-        let pending = self.pending_diagnostic.lock().unwrap().take();
-        if let Some(message) = pending {
+        let pending = std::mem::take(&mut *self.pending_diagnostics.lock().unwrap());
+        for message in pending {
             pending_reporter(&message);
         }
         true
@@ -8226,6 +8203,8 @@ impl Mux {
                     Arc::downgrade(self),
                     Some(terminal_id),
                     cell_pixels,
+                    // Reopen Closed of an archived terminal (ARCHIVE-1).
+                    &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
                 ),
             };
             let surface = match spawned {
@@ -10626,7 +10605,7 @@ impl Mux {
             Some(terminal_incarnation),
             None,
             None,
-            &WorkspaceMutation::local("cmux-tui"),
+            &WorkspaceMutation::daemon_local("cmux-tui"),
         )
     }
 
@@ -11320,7 +11299,7 @@ impl Mux {
                     "source": source.as_str(),
                 });
                 self.prepare_resource_effect(
-                    idempotency_key,
+                    &WorkspaceMutation::daemon(idempotency_key, "resource-api")?,
                     OPERATION,
                     &fingerprint,
                     &intent,
@@ -11633,7 +11612,7 @@ impl Mux {
         origin: AgentReportOrigin,
         agent_adapter: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
-        let mutation = WorkspaceMutation::new(
+        let mutation = WorkspaceMutation::daemon(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
             "raw-control",
         )?;
@@ -12326,7 +12305,6 @@ impl Mux {
     pub fn update_surface_options(&self, update: impl FnOnce(&mut SurfaceOptions)) {
         let mut options = self.surface_options.lock().unwrap();
         update(&mut options);
-        options.browser_session_name = self.session.clone();
     }
 
     /// The latest machine-level model spend readout, or `None` when the
@@ -13878,29 +13856,6 @@ impl Mux {
         Ok((true, None))
     }
 
-    /// Create a workspace with one screen holding one pane with one tab.
-    /// Returns the tab's surface. `size` is the expected content size in
-    /// cells, when the caller knows it (spawning at the final size avoids
-    /// shell redraw artifacts).
-    pub fn new_workspace(
-        self: &Arc<Self>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let mut fields =
-            Map::from_iter([("initial_content".into(), Value::String("terminal".into()))]);
-        Self::insert_optional_string(&mut fields, "name", name);
-        Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(
-            ResourceOperation::WorkspaceCreate,
-            Self::ordinary_resource_selectors(),
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::WorkspaceCreate, &commit);
-        self.ordinary_created_surface(&commit)
-    }
-
     /// Add an ordered workspace-registry entry without creating a PTY,
     /// screen, or pane. Detached GUI frontends use this when a user creates
     /// an empty workspace in Chrome.
@@ -13910,7 +13865,7 @@ impl Mux {
         key: Option<String>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<WorkspacePlacement> {
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         self.create_empty_workspace_with_mutation(name, key, None, expected_revision, &mutation)
     }
 
@@ -14140,100 +14095,6 @@ impl Mux {
         Ok(placement)
     }
 
-    pub fn run_command_surface(
-        self: &Arc<Self>,
-        argv: Vec<String>,
-        pane: Option<PaneId>,
-        new_workspace: bool,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<RunPlacement> {
-        self.run_command_surface_with_options(
-            argv,
-            RunCommandOptions { pane, new_workspace, workspace_key: None, cwd, name, size },
-        )
-    }
-
-    /// Runs a command and optionally creates its workspace with a caller-owned
-    /// stable key. The key is only meaningful when `new_workspace` is true.
-    pub(crate) fn run_command_surface_with_options(
-        self: &Arc<Self>,
-        argv: Vec<String>,
-        options: RunCommandOptions,
-    ) -> anyhow::Result<RunPlacement> {
-        self.run_command_result_with_options(argv, options)?
-            .placement
-            .context("command exited before its surface could be returned")
-    }
-
-    pub(crate) fn run_command_result_with_options(
-        self: &Arc<Self>,
-        argv: Vec<String>,
-        options: RunCommandOptions,
-    ) -> anyhow::Result<RunCommandResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let RunCommandOptions { pane, new_workspace, workspace_key, cwd, name, size } = options;
-        if workspace_key.is_some() && !new_workspace {
-            anyhow::bail!("workspace key requires a new workspace");
-        }
-        let (operation, selectors) = if new_workspace {
-            (ResourceOperation::WorkspaceCreate, Self::ordinary_resource_selectors())
-        } else {
-            let state = self.state.lock().unwrap();
-            let target = match pane {
-                Some(id) => {
-                    if !state.panes.contains_key(&id) {
-                        anyhow::bail!("unknown pane {id}");
-                    }
-                    Some(id)
-                }
-                None => state.active_pane(),
-            };
-            if let Some(target) = target {
-                drop(state);
-                (
-                    ResourceOperation::PaneRun,
-                    self.ordinary_pane_selectors(target)
-                        .with_context(|| format!("unknown pane {target}"))?,
-                )
-            } else if let Some(workspace) = state.workspaces.get(state.active_workspace) {
-                let workspace = workspace.id;
-                drop(state);
-                (
-                    ResourceOperation::WorkspaceRun,
-                    self.ordinary_workspace_selectors(workspace)
-                        .with_context(|| format!("unknown workspace {workspace}"))?,
-                )
-            } else {
-                (ResourceOperation::WorkspaceCreate, Self::ordinary_resource_selectors())
-            }
-        };
-        let mut fields = Map::from_iter([(
-            "argv".into(),
-            Value::Array(argv.into_iter().map(Value::String).collect()),
-        )]);
-        if operation == ResourceOperation::WorkspaceCreate {
-            fields.insert("initial_content".into(), Value::String("terminal".into()));
-            Self::insert_optional_string(&mut fields, "name", name.clone());
-            Self::insert_optional_string(&mut fields, "workspace_key", workspace_key);
-            Self::insert_optional_string(&mut fields, "terminal_name", name);
-        } else {
-            Self::insert_optional_string(&mut fields, "name", name);
-        }
-        Self::insert_optional_string(&mut fields, "cwd", cwd);
-        Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
-        self.emit_resource_topology_legacy_events(operation, &commit);
-        let terminal_id = self.created_terminal_host_id(&commit.result)?;
-        let surface = self.ordinary_created_surface(&commit).ok();
-        drop(_creation_handoff);
-        if let Some(surface) = surface.as_ref() {
-            self.reap_if_dead(surface);
-        }
-        self.created_terminal_run_result(&terminal_id)
-    }
-
     fn created_terminal_host_id(&self, created_path: &Value) -> anyhow::Result<String> {
         let terminal_id = TerminalPublicId::parse(
             created_path["terminal_id"]
@@ -14306,216 +14167,6 @@ impl Mux {
             surface.activate_hosted_launch_stream()?;
         }
         Ok(())
-    }
-
-    /// Create a screen in a workspace (default: the active one) with one
-    /// pane/tab, and make it active. Returns the tab's surface.
-    pub fn new_screen(
-        self: &Arc<Self>,
-        workspace: Option<WorkspaceId>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_screen_with_cwd(workspace, None, size)
-    }
-
-    pub(crate) fn new_screen_with_cwd(
-        self: &Arc<Self>,
-        workspace: Option<WorkspaceId>,
-        cwd: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_screen_named(workspace, None, TerminalSpawnOptions::new(cwd, Vec::new()), size)
-    }
-
-    /// New screen with a name (set in the creating commit) and the spawn
-    /// options (directory, env, terminal id, program) of its first terminal.
-    pub(crate) fn new_screen_named(
-        self: &Arc<Self>,
-        workspace: Option<WorkspaceId>,
-        name: Option<String>,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let selectors = match workspace {
-            Some(workspace) => self
-                .ordinary_workspace_selectors(workspace)
-                .with_context(|| format!("unknown workspace {workspace}"))?,
-            None => {
-                let active = self.with_state(|state| {
-                    state.workspaces.get(state.active_workspace).map(|workspace| workspace.id)
-                });
-                active
-                    .and_then(|workspace| self.ordinary_workspace_selectors(workspace))
-                    .unwrap_or_else(Self::ordinary_resource_selectors)
-            }
-        };
-        let mut fields = Map::new();
-        Self::insert_optional_string(&mut fields, "name", name);
-        Self::insert_spawn_options(&mut fields, spawn);
-        Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(
-            ResourceOperation::ScreenCreate,
-            selectors,
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::ScreenCreate, &commit);
-        self.ordinary_created_surface(&commit)
-    }
-
-    /// Create a tab in a pane (default: the active pane of the active
-    /// screen). When the session has no workspaces yet (headless before
-    /// any command), a workspace is created around the new tab.
-    pub fn new_tab(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        cwd: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_tab_with_env(pane, cwd, Vec::new(), size)
-    }
-
-    /// `new_tab` with extra environment for the new terminal's child only.
-    pub fn new_tab_with_env(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        cwd: Option<String>,
-        env: Vec<(String, String)>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_tab_with_options(pane, TerminalSpawnOptions::new(cwd, env), size)
-    }
-
-    /// `new_tab` with a directory, extra environment, and an optional
-    /// caller-chosen terminal id (`terminal-placement-env-v1`).
-    pub fn new_tab_with_options(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let selectors = {
-            let state = self.state.lock().unwrap();
-            let target = match pane {
-                Some(id) => {
-                    if !state.panes.contains_key(&id) {
-                        anyhow::bail!("unknown pane {id}");
-                    }
-                    Some(id)
-                }
-                None => state.active_pane(),
-            };
-            if let Some(target) = target {
-                drop(state);
-                self.ordinary_pane_selectors(target)
-                    .with_context(|| format!("unknown pane {target}"))?
-            } else if let Some(workspace) = state.workspaces.get(state.active_workspace) {
-                let workspace = workspace.id;
-                drop(state);
-                self.ordinary_workspace_selectors(workspace)
-                    .with_context(|| format!("unknown workspace {workspace}"))?
-            } else {
-                Self::ordinary_resource_selectors()
-            }
-        };
-        let mut fields = Map::new();
-        Self::insert_cell_size(&mut fields, size);
-        Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation(
-            ResourceOperation::TabCreateTerminal,
-            selectors,
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::TabCreateTerminal, &commit);
-        self.ordinary_created_surface(&commit)
-    }
-
-    /// Create a terminal in a specific workspace without changing the mux's
-    /// active workspace. An empty workspace gets its first screen and pane;
-    /// otherwise the new surface becomes a tab in that workspace's active
-    /// pane. The target is re-resolved under the attach lock so concurrent
-    /// first-terminal requests cannot accidentally create another workspace.
-    pub fn create_terminal_in_workspace(
-        self: &Arc<Self>,
-        workspace: WorkspaceId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<RunPlacement> {
-        self.create_terminal_surface_in_workspace(workspace, argv, cwd, name, size)
-            .map(|(_, placement)| placement)
-    }
-
-    pub(crate) fn create_terminal_result_in_workspace(
-        self: &Arc<Self>,
-        workspace: WorkspaceId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<RunCommandResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let selectors = self
-            .ordinary_workspace_selectors(workspace)
-            .with_context(|| format!("unknown workspace {workspace}"))?;
-        let operation = if argv.is_some() {
-            ResourceOperation::WorkspaceRun
-        } else {
-            ResourceOperation::TabCreateTerminal
-        };
-        let mut fields = Map::new();
-        if let Some(argv) = argv {
-            fields
-                .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
-        }
-        Self::insert_optional_string(&mut fields, "cwd", cwd);
-        Self::insert_optional_string(&mut fields, "name", name);
-        Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
-        self.emit_resource_topology_legacy_events(operation, &commit);
-        let terminal_id = self.created_terminal_host_id(&commit.result)?;
-        let surface = self.ordinary_created_surface(&commit).ok();
-        drop(_creation_handoff);
-        if let Some(surface) = surface.as_ref() {
-            self.reap_if_dead(surface);
-        }
-        self.created_terminal_run_result(&terminal_id)
-    }
-
-    fn create_terminal_surface_in_workspace(
-        self: &Arc<Self>,
-        workspace: WorkspaceId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let selectors = self
-            .ordinary_workspace_selectors(workspace)
-            .with_context(|| format!("unknown workspace {workspace}"))?;
-        let operation = if argv.is_some() {
-            ResourceOperation::WorkspaceRun
-        } else {
-            ResourceOperation::TabCreateTerminal
-        };
-        let mut fields = Map::new();
-        if let Some(argv) = argv {
-            fields
-                .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
-        }
-        Self::insert_optional_string(&mut fields, "cwd", cwd);
-        Self::insert_optional_string(&mut fields, "name", name);
-        Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
-        self.emit_resource_topology_legacy_events(operation, &commit);
-        let surface = self.ordinary_created_surface(&commit)?;
-        let placement = self
-            .with_state(|state| run_placement_for_surface(state, surface.id))
-            .context("created terminal has no placement")?;
-        Ok((surface, placement))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -14894,67 +14545,6 @@ impl Mux {
         Ok((placement, terminal.workspace_key, changed, created_path))
     }
 
-    /// Create a browser tab in a pane (default: the active pane). When
-    /// the session has no workspaces yet, a workspace is created around
-    /// the browser tab.
-    pub fn new_browser_tab(
-        self: &Arc<Self>,
-        url: String,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_browser_tab_with_fields(url, pane, size, Map::new())
-    }
-
-    pub(crate) fn new_browser_tab_with_fields(
-        self: &Arc<Self>,
-        url: String,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-        extra_fields: Map<String, Value>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let selectors = {
-            let state = self.state.lock().unwrap();
-            let target = match pane {
-                Some(id) => {
-                    if !state.panes.contains_key(&id) {
-                        anyhow::bail!("unknown pane {id}");
-                    }
-                    Some(id)
-                }
-                None => state.active_pane(),
-            };
-            if let Some(target) = target {
-                drop(state);
-                self.ordinary_pane_selectors(target)
-                    .with_context(|| format!("unknown pane {target}"))?
-            } else if let Some(workspace) = state.workspaces.get(state.active_workspace) {
-                let workspace = workspace.id;
-                drop(state);
-                self.ordinary_workspace_selectors(workspace)
-                    .with_context(|| format!("unknown workspace {workspace}"))?
-            } else {
-                Self::ordinary_resource_selectors()
-            }
-        };
-        let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
-        fields.extend(extra_fields);
-        if let Some((cols, rows)) = size {
-            let (cell_width, cell_height) = self.cell_pixel_size();
-            fields.insert("width_px".into(), Value::from(u64::from(cols) * u64::from(cell_width)));
-            fields
-                .insert("height_px".into(), Value::from(u64::from(rows) * u64::from(cell_height)));
-        }
-        let commit = self.commit_ordinary_topology_operation(
-            ResourceOperation::TabCreateBrowser,
-            selectors,
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::TabCreateBrowser, &commit);
-        self.ordinary_created_surface(&commit)
-    }
-
     fn create_browser_surface_in_workspace(
         self: &Arc<Self>,
         workspace: WorkspaceId,
@@ -15202,162 +14792,6 @@ impl Mux {
         Some(state.workspaces[workspace].key.clone())
     }
 
-    /// Split the screen containing `target`, putting a new single-tab
-    /// pane after it. Returns the new pane's surface. `size` is the
-    /// expected content size of the new pane, when the caller knows it.
-    pub fn split(
-        self: &Arc<Self>,
-        target: PaneId,
-        dir: SplitDir,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.split_with(target, dir, None, Vec::new(), size)
-    }
-
-    /// `split` with an optional directory and extra environment for the new
-    /// terminal's child only.
-    pub fn split_with(
-        self: &Arc<Self>,
-        target: PaneId,
-        dir: SplitDir,
-        cwd: Option<String>,
-        env: Vec<(String, String)>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.split_with_options(target, dir, TerminalSpawnOptions::new(cwd, env), size)
-    }
-
-    /// `split` with a directory, extra environment, and an optional
-    /// caller-chosen terminal id (`terminal-placement-env-v1`).
-    pub fn split_with_options(
-        self: &Arc<Self>,
-        target: PaneId,
-        dir: SplitDir,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let selectors = self
-            .ordinary_pane_selectors(target)
-            .with_context(|| format!("unknown pane {target}"))?;
-        let direction = match dir {
-            SplitDir::Right => "right",
-            SplitDir::Down => "down",
-        };
-        let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
-        Self::insert_cell_size(&mut fields, size);
-        Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation(
-            ResourceOperation::PaneSplit,
-            selectors,
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneSplit, &commit);
-        self.ordinary_created_surface(&commit)
-    }
-
-    /// Add a terminal as a viewport-width column after the target's column.
-    ///
-    /// Updated frontends render the new column at `width` times their own
-    /// viewport width. The ordinary split ratio remains valid fallback data
-    /// for older clients.
-    pub fn new_pane_right(
-        self: &Arc<Self>,
-        target: PaneId,
-        width: f32,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_pane_right_with_options(target, width, TerminalSpawnOptions::default(), size)
-    }
-
-    /// `new_pane_right` with a directory, extra environment, and an optional
-    /// caller-chosen terminal id (`terminal-placement-env-v1`).
-    pub fn new_pane_right_with_options(
-        self: &Arc<Self>,
-        target: PaneId,
-        width: f32,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        if !width.is_finite()
-            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return Err(ViewportWidthError::OutOfRange { width }.into());
-        }
-        let selectors = self
-            .ordinary_pane_selectors(target)
-            .with_context(|| format!("unknown pane {target}"))?;
-        let mut fields = Map::from_iter([
-            ("direction".into(), Value::String("right".into())),
-            ("viewport_width".into(), Value::from(width)),
-        ]);
-        Self::insert_cell_size(&mut fields, size);
-        Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self
-            .commit_ordinary_topology_operation(ResourceOperation::PaneSplit, selectors, fields)
-            .map_err(|error| {
-                // Caller input errors stay visible; spawn failures keep the
-                // generic message.
-                let message = error.to_string();
-                if message.starts_with("bad request") || message.starts_with("terminal_id_exists") {
-                    return error;
-                }
-                eprintln!("cmux-tui: viewport pane PTY creation failed: {error:#}");
-                anyhow::anyhow!("pane creation failed")
-            })?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneSplit, &commit);
-        self.ordinary_created_surface(&commit)
-    }
-
-    /// Create a pane and reapply Zellij's default pane distribution to the
-    /// containing screen. The screen stores creation order independently of
-    /// the mutable split tree, so swaps and directional splits cannot reorder
-    /// terminals when automatic layout resumes.
-    pub fn new_pane(
-        self: &Arc<Self>,
-        target: PaneId,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_pane_with_options(target, TerminalSpawnOptions::default(), size)
-    }
-
-    /// `new_pane` with a directory, extra environment, and an optional
-    /// caller-chosen terminal id (`terminal-placement-env-v1`).
-    pub fn new_pane_with_options(
-        self: &Arc<Self>,
-        target: PaneId,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let selectors = self
-            .ordinary_pane_selectors(target)
-            .with_context(|| format!("unknown pane {target}"))?;
-        let mut fields = Map::new();
-        Self::insert_cell_size(&mut fields, size);
-        Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation(
-            ResourceOperation::PaneCreate,
-            selectors,
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneCreate, &commit);
-        self.ordinary_created_surface(&commit)
-    }
-
-    /// Close one tab. When it was the pane's last tab, the pane collapses
-    /// out of its split tree; when it was the workspace's last tab, the
-    /// workspace closes in the same commit (LAST-TAB-CLOSES-WORKSPACE).
-    pub fn close_surface(self: &Arc<Self>, target: SurfaceId) -> anyhow::Result<bool> {
-        let Some(selectors) = self.ordinary_tab_selectors(target) else { return Ok(false) };
-        let commit = self
-            .commit_ordinary_topology_operation(ResourceOperation::TabClose, selectors, Map::new())
-            .with_context(|| format!("close surface {target}"))?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::TabClose, &commit);
-        Ok(true)
-    }
-
     pub(crate) fn close_surface_for_resource_effect(
         &self,
         target: SurfaceId,
@@ -15531,33 +14965,9 @@ impl Mux {
         Ok(true)
     }
 
-    /// Close a pane and every tab in it.
-    pub fn close_pane(self: &Arc<Self>, target: PaneId) -> anyhow::Result<bool> {
-        let Some(selectors) = self.ordinary_pane_selectors(target) else { return Ok(false) };
-        let commit = self
-            .commit_ordinary_topology_operation(ResourceOperation::PaneClose, selectors, Map::new())
-            .with_context(|| format!("close pane {target}"))?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneClose, &commit);
-        Ok(true)
-    }
-
     pub(crate) fn close_pane_for_resource_effect(&self, target: PaneId) -> anyhow::Result<bool> {
         self.close_tree_target(TreeCloseTarget::Pane(target))
             .with_context(|| format!("close pane {target}"))
-    }
-
-    /// Close a screen and every pane/tab in it.
-    pub fn close_screen(self: &Arc<Self>, target: ScreenId) -> anyhow::Result<bool> {
-        let Some(selectors) = self.ordinary_screen_selectors(target) else { return Ok(false) };
-        let commit = self
-            .commit_ordinary_topology_operation(
-                ResourceOperation::ScreenClose,
-                selectors,
-                Map::new(),
-            )
-            .with_context(|| format!("close screen {target}"))?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::ScreenClose, &commit);
-        Ok(true)
     }
 
     pub(crate) fn close_screen_for_resource_effect(
@@ -15698,7 +15108,7 @@ impl Mux {
         let Some((resolved_target, _)) = resolved else {
             return Ok(None);
         };
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let result = self.close_workspace_with_mutation_inner(
             id,
             key,
@@ -15994,7 +15404,7 @@ impl Mux {
         let Some((resolved_target, _)) = resolved else {
             return Ok(None);
         };
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let result = self.rename_workspace_with_mutation_inner(
             id,
             key,
@@ -16090,127 +15500,6 @@ impl Mux {
         Ok(result)
     }
 
-    /// Set a pane's user-visible name. An empty name clears it (the pane
-    /// falls back to its active tab's title).
-    pub fn rename_pane(self: &Arc<Self>, target: PaneId, name: String) -> bool {
-        let Some(selectors) = self.ordinary_pane_selectors(target) else { return false };
-        if self
-            .commit_ordinary_topology_operation(
-                ResourceOperation::PaneRename,
-                selectors,
-                Self::nullable_name_fields(name),
-            )
-            .is_err()
-        {
-            return false;
-        }
-        self.emit(MuxEvent::TreeChanged);
-        true
-    }
-
-    /// Set a tab's user-visible name. An empty name clears it (the tab
-    /// falls back to its process title/number label).
-    pub fn rename_surface(self: &Arc<Self>, target: SurfaceId, name: String) -> bool {
-        let Some(selectors) = self.ordinary_tab_selectors(target) else { return false };
-        if self
-            .commit_ordinary_topology_operation(
-                ResourceOperation::TabRename,
-                selectors,
-                Self::nullable_name_fields(name),
-            )
-            .is_err()
-        {
-            return false;
-        }
-        // A kept tab (keep-layout) has no surface after a restart; its tree
-        // entry still carries the renamed tab.
-        let notifications = self.tree_decorations();
-        let delta = {
-            let state = self.state.lock().unwrap();
-            (|| {
-                let pane = state.pane_of(target)?;
-                let (wi, si) = state.screen_of(pane)?;
-                let entity = crate::server::tree_entity_json(
-                    &state,
-                    &notifications,
-                    TreeDeltaKind::TabRenamed,
-                    target,
-                )?;
-                Some(TreeDelta {
-                    kind: TreeDeltaKind::TabRenamed,
-                    workspace: state.workspaces[wi].id,
-                    screen: Some(state.workspaces[wi].screens[si].id),
-                    pane: Some(pane),
-                    surface: Some(target),
-                    index: None,
-                    entity,
-                    workspace_revision: None,
-                    transaction: None,
-                })
-            })()
-        };
-        match delta {
-            Some(delta) => self.emit(MuxEvent::TreeDelta(delta)),
-            None => self.emit(MuxEvent::TreeChanged),
-        }
-        true
-    }
-
-    /// Set a screen's user-visible name. An empty name clears it (the
-    /// screen falls back to its number).
-    pub fn rename_screen(self: &Arc<Self>, target: ScreenId, name: String) -> bool {
-        let Some(selectors) = self.ordinary_screen_selectors(target) else { return false };
-        if self
-            .commit_ordinary_topology_operation(
-                ResourceOperation::ScreenRename,
-                selectors,
-                Self::nullable_name_fields(name),
-            )
-            .is_err()
-        {
-            return false;
-        }
-        let notifications = self.tree_decorations();
-        let renamed = {
-            let state = self.state.lock().unwrap();
-            let Some(wi) = state
-                .workspaces
-                .iter()
-                .enumerate()
-                .find_map(|(wi, workspace)| {
-                    workspace
-                        .screens
-                        .iter()
-                        .position(|screen| screen.id == target)
-                        .map(|si| (wi, si))
-                })
-                .map(|(wi, _)| wi)
-            else {
-                return false;
-            };
-            let entity = crate::server::tree_entity_json(
-                &state,
-                &notifications,
-                TreeDeltaKind::ScreenRenamed,
-                target,
-            )
-            .expect("renamed screen is present in tree snapshot");
-            TreeDelta {
-                kind: TreeDeltaKind::ScreenRenamed,
-                workspace: state.workspaces[wi].id,
-                screen: Some(target),
-                pane: None,
-                surface: None,
-                index: None,
-                entity,
-                workspace_revision: None,
-                transaction: None,
-            }
-        };
-        self.emit(MuxEvent::TreeDelta(renamed));
-        true
-    }
-
     /// Reconcile a surface whose child exited before its tree insert
     /// completed. Hosted terminals commit their exit and detach every view;
     /// local terminals are reaped after the creator closes the insert race.
@@ -16272,42 +15561,21 @@ impl Mux {
         true
     }
 
-    /// Make `pane` the active pane of its screen (and that screen and
-    /// workspace active).
-    pub fn focus_pane(self: &Arc<Self>, pane: PaneId) -> bool {
-        let layout_changed = self.with_state(|state| {
-            let (workspace, screen) = state.screen_of(pane)?;
-            let screen = &state.workspaces[workspace].screens[screen];
-            (screen.active_pane != pane
-                && (screen.root.contains_stack_pane(screen.active_pane)
-                    || screen.root.contains_stack_pane(pane)))
-            .then_some(screen.id)
-        });
-        let Some(selectors) = self.ordinary_pane_selectors(pane) else { return false };
-        if self
-            .commit_ordinary_topology_operation(ResourceOperation::PaneFocus, selectors, Map::new())
-            .is_err()
-        {
-            return false;
-        }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
-        if let Some(screen) = layout_changed {
-            self.emit(MuxEvent::LayoutChanged(screen));
-        } else {
-            self.emit(MuxEvent::TreeChanged);
-        };
-        true
-    }
-
     /// Set the deepest split ratio in `dir` on the path to `pane`.
-    pub fn set_ratio(self: &Arc<Self>, pane: PaneId, dir: SplitDir, ratio: f32) -> bool {
-        self.set_ratio_checked(pane, dir, ratio).is_ok()
+    pub fn set_ratio_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        pane: PaneId,
+        dir: SplitDir,
+        ratio: f32,
+    ) -> bool {
+        self.set_ratio_checked_as(actor, pane, dir, ratio).is_ok()
     }
 
     /// Set a pane-addressed split ratio while preserving rejection details.
-    pub fn set_ratio_checked(
+    pub fn set_ratio_checked_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         dir: SplitDir,
         ratio: f32,
@@ -16322,46 +15590,51 @@ impl Mux {
                     .and_then(|screen| screen.root.deepest_split_for_pane(pane, dir))
             })
             .ok_or(LayoutRatioError::UnknownPaneSplit { pane })?;
-        self.set_split_ratio_inner(split, ratio, None, true).map_err(|error| match error {
+        self.set_split_ratio_inner(actor, split, ratio, None, true).map_err(|error| match error {
             LayoutRatioError::UnknownSplit { .. } => LayoutRatioError::UnknownPaneSplit { pane },
             error => error,
         })
     }
 
     /// Set one split ratio by its stable split-tree node id.
-    pub fn set_split_ratio(self: &Arc<Self>, split: SplitId, ratio: f32) -> bool {
-        self.set_split_ratio_checked(split, ratio).is_ok()
+    pub fn set_split_ratio_as(self: &Arc<Self>, actor: &Actor, split: SplitId, ratio: f32) -> bool {
+        self.set_split_ratio_checked_as(actor, split, ratio).is_ok()
     }
 
     /// Set one split ratio while preserving rejection details.
-    pub fn set_split_ratio_checked(
+    pub fn set_split_ratio_checked_as(
         self: &Arc<Self>,
+        actor: &Actor,
         split: SplitId,
         ratio: f32,
     ) -> Result<(), LayoutRatioError> {
-        self.set_split_ratio_inner(split, ratio, None, false)
+        self.set_split_ratio_inner(actor, split, ratio, None, false)
     }
 
     /// Set one split ratio as part of a client-scoped resize transaction.
-    pub fn set_split_ratio_in_transaction(
+    pub fn set_split_ratio_in_transaction_as(
         self: &Arc<Self>,
+        actor: &Actor,
         split: SplitId,
         ratio: f32,
         client: u64,
         transaction: u64,
     ) -> bool {
-        self.set_split_ratio_in_transaction_checked(split, ratio, client, transaction).is_ok()
+        self.set_split_ratio_in_transaction_checked_as(actor, split, ratio, client, transaction)
+            .is_ok()
     }
 
     /// Set one transactional split ratio while preserving rejection details.
-    pub fn set_split_ratio_in_transaction_checked(
+    pub fn set_split_ratio_in_transaction_checked_as(
         self: &Arc<Self>,
+        actor: &Actor,
         split: SplitId,
         ratio: f32,
         client: u64,
         transaction: u64,
     ) -> Result<(), LayoutRatioError> {
         self.set_split_ratio_inner(
+            actor,
             split,
             ratio,
             Some((LayoutResizeOwner::ControlClient(client), transaction)),
@@ -16371,14 +15644,16 @@ impl Mux {
 
     /// Set one in-process transactional split ratio without sharing the
     /// control-client ownership namespace.
-    pub fn set_split_ratio_in_process_transaction_checked(
+    pub fn set_split_ratio_in_process_transaction_checked_as(
         self: &Arc<Self>,
+        actor: &Actor,
         split: SplitId,
         ratio: f32,
         owner: u64,
         transaction: u64,
     ) -> Result<(), LayoutRatioError> {
         self.set_split_ratio_inner(
+            actor,
             split,
             ratio,
             Some((LayoutResizeOwner::InProcess(owner), transaction)),
@@ -16388,6 +15663,7 @@ impl Mux {
 
     fn set_split_ratio_inner(
         self: &Arc<Self>,
+        actor: &Actor,
         split: SplitId,
         ratio: f32,
         transaction: Option<(LayoutResizeOwner, u64)>,
@@ -16469,7 +15745,8 @@ impl Mux {
             fields.insert("resize_transaction".into(), Value::from(transaction));
         }
         let commit = self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(
+                actor,
                 ResourceOperation::PaneSplitRatioSet,
                 selectors,
                 fields,
@@ -16496,40 +15773,55 @@ impl Mux {
     }
 
     /// Set the width of the horizontal viewport column containing `pane`.
-    pub fn set_viewport_pane_width(self: &Arc<Self>, pane: PaneId, width: f32) -> bool {
-        self.set_viewport_pane_width_checked(pane, width).is_ok()
+    pub fn set_viewport_pane_width_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        pane: PaneId,
+        width: f32,
+    ) -> bool {
+        self.set_viewport_pane_width_checked_as(actor, pane, width).is_ok()
     }
 
     /// Set a viewport column width while preserving rejection details.
-    pub fn set_viewport_pane_width_checked(
+    pub fn set_viewport_pane_width_checked_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         width: f32,
     ) -> Result<(), ViewportWidthError> {
-        self.set_viewport_pane_width_inner(pane, width, None)
+        self.set_viewport_pane_width_inner(actor, pane, width, None)
     }
 
     /// Set a viewport column width as part of a client-scoped resize transaction.
-    pub fn set_viewport_pane_width_in_transaction(
+    pub fn set_viewport_pane_width_in_transaction_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         width: f32,
         client: u64,
         transaction: u64,
     ) -> bool {
-        self.set_viewport_pane_width_in_transaction_checked(pane, width, client, transaction)
-            .is_ok()
+        self.set_viewport_pane_width_in_transaction_checked_as(
+            actor,
+            pane,
+            width,
+            client,
+            transaction,
+        )
+        .is_ok()
     }
 
     /// Set a transactional viewport width while preserving rejection details.
-    pub fn set_viewport_pane_width_in_transaction_checked(
+    pub fn set_viewport_pane_width_in_transaction_checked_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         width: f32,
         client: u64,
         transaction: u64,
     ) -> Result<(), ViewportWidthError> {
         self.set_viewport_pane_width_inner(
+            actor,
             pane,
             width,
             Some((LayoutResizeOwner::ControlClient(client), transaction)),
@@ -16538,14 +15830,16 @@ impl Mux {
 
     /// Set one in-process transactional viewport width without sharing the
     /// control-client ownership namespace.
-    pub fn set_viewport_pane_width_in_process_transaction_checked(
+    pub fn set_viewport_pane_width_in_process_transaction_checked_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         width: f32,
         owner: u64,
         transaction: u64,
     ) -> Result<(), ViewportWidthError> {
         self.set_viewport_pane_width_inner(
+            actor,
             pane,
             width,
             Some((LayoutResizeOwner::InProcess(owner), transaction)),
@@ -16554,6 +15848,7 @@ impl Mux {
 
     fn set_viewport_pane_width_inner(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         width: f32,
         transaction: Option<(LayoutResizeOwner, u64)>,
@@ -16595,7 +15890,8 @@ impl Mux {
             fields.insert("resize_transaction".into(), Value::from(transaction));
         }
         let commit = self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(
+                actor,
                 ResourceOperation::PaneViewportWidthSet,
                 selectors,
                 fields,
@@ -16689,122 +15985,6 @@ impl Mux {
                 state.panes.get(&candidate).map(|pane| pane.focused_at).unwrap_or_default()
             }))
         })
-    }
-
-    pub fn focus_direction(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        dir: Direction,
-    ) -> anyhow::Result<PaneId> {
-        let target = self.with_state(|state| pane.or_else(|| state.active_pane()));
-        let Some(target) = target else {
-            anyhow::bail!("no active pane");
-        };
-        let selectors = self
-            .ordinary_pane_selectors(target)
-            .with_context(|| format!("unknown pane {target}"))?;
-        let direction = match dir {
-            Direction::Left => "left",
-            Direction::Right => "right",
-            Direction::Up => "up",
-            Direction::Down => "down",
-        };
-        let commit = self.commit_ordinary_topology_operation(
-            ResourceOperation::PaneFocusDirection,
-            selectors,
-            Map::from_iter([("direction".into(), Value::String(direction.into()))]),
-        )?;
-        let public_id = PanePublicId::parse(
-            commit.result["pane"]
-                .as_str()
-                .context("pane focus result omitted its pane id")?
-                .to_string(),
-        )?;
-        let next = self
-            .with_state(|state| state.resource_indexes.panes.get(&public_id).copied())
-            .context("focused pane disappeared")?;
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
-        self.emit(MuxEvent::TreeChanged);
-        Ok(next)
-    }
-
-    pub fn swap_panes(self: &Arc<Self>, pane: PaneId, target: PaneId) -> bool {
-        if pane == target {
-            return false;
-        }
-        let Some(selectors) = self.ordinary_pane_selectors(pane) else { return false };
-        let Some((other_workspace, other_screen, other_pane)) = self.with_state(|state| {
-            let first = state.screen_of(pane)?;
-            let second = state.screen_of(target)?;
-            if first != second {
-                return None;
-            }
-            Some((
-                state.workspaces[second.0].public_id.to_string(),
-                state.workspaces[second.0].screens[second.1].public_id.to_string(),
-                state.resource_indexes.pane_ids.get(&target)?.to_string(),
-            ))
-        }) else {
-            return false;
-        };
-        let fields = Map::from_iter([
-            ("other_workspace".into(), Value::String(other_workspace)),
-            ("other_screen".into(), Value::String(other_screen)),
-            ("other_pane".into(), Value::String(other_pane)),
-        ]);
-        let Ok(commit) =
-            self.commit_ordinary_topology_operation(ResourceOperation::PaneSwap, selectors, fields)
-        else {
-            return false;
-        };
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneSwap, &commit);
-        true
-    }
-
-    pub fn zoom_pane(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        mode: ZoomMode,
-    ) -> anyhow::Result<ZoomState> {
-        let (target, next, changed) = self.with_state(|state| {
-            let target = pane.or_else(|| state.active_pane()).context("no active pane")?;
-            let (workspace, screen) =
-                state.screen_of(target).with_context(|| format!("unknown pane {target}"))?;
-            let current = state.workspaces[workspace].screens[screen].zoomed_pane;
-            let next = match mode {
-                ZoomMode::Toggle if current == Some(target) => None,
-                ZoomMode::Toggle | ZoomMode::On => Some(target),
-                ZoomMode::Off => None,
-            };
-            Ok::<_, anyhow::Error>((target, next, current != next))
-        })?;
-        if !changed {
-            return Ok(ZoomState { pane: target, zoomed: next.is_some(), zoomed_pane: next });
-        }
-        let selectors = self
-            .ordinary_pane_selectors(target)
-            .with_context(|| format!("unknown pane {target}"))?;
-        let fields = match mode {
-            ZoomMode::Toggle => Map::new(),
-            ZoomMode::On => Map::from_iter([("enabled".into(), Value::Bool(true))]),
-            ZoomMode::Off => Map::from_iter([("enabled".into(), Value::Bool(false))]),
-        };
-        let commit = self.commit_ordinary_topology_operation(
-            ResourceOperation::PaneZoom,
-            selectors,
-            fields,
-        )?;
-        self.emit_resource_topology_legacy_events(ResourceOperation::PaneZoom, &commit);
-        let zoomed_pane = self.with_state(|state| {
-            state
-                .screen_of(target)
-                .and_then(|(workspace, screen)| {
-                    state.workspaces.get(workspace)?.screens.get(screen)
-                })
-                .and_then(|screen| screen.zoomed_pane)
-        });
-        Ok(ZoomState { pane: target, zoomed: zoomed_pane.is_some(), zoomed_pane })
     }
 
     /// Undo the latest structural layout transaction on `pane`'s screen.
@@ -17208,7 +16388,7 @@ impl Mux {
                     None,
                     None,
                     WorkspacePublicId::random()?,
-                    &WorkspaceMutation::local("cmux-tui-layout-workspace"),
+                    &WorkspaceMutation::daemon_local("cmux-tui-layout-workspace"),
                     false,
                 )?
                 .workspace,
@@ -17363,7 +16543,7 @@ impl Mux {
                 }
                 let terminal_id = TerminalId::random()?;
                 let terminal_hex = terminal_id.to_hex();
-                let mutation = WorkspaceMutation::local("cmux-tui-layout-terminal");
+                let mutation = WorkspaceMutation::daemon_local("cmux-tui-layout-terminal");
                 let reservation = TerminalReservationRequest {
                     terminal_id,
                     mutation,
@@ -17455,7 +16635,7 @@ impl Mux {
             |closed_public_ids| {
                 registry
                     .close_terminals_atomically(
-                        &WorkspaceMutation::local("cmux-tui-layout-discard"),
+                        &WorkspaceMutation::daemon_local("cmux-tui-layout-discard"),
                         &hosted,
                     )
                     .map(|batch| (batch, closed_public_ids))
@@ -17753,79 +16933,6 @@ impl Mux {
         Ok((Some(placement), true))
     }
 
-    /// Move an existing tab to `index` in `pane`. The surface is kept
-    /// alive; if moving it empties the source pane, that pane collapses
-    /// out of its split tree.
-    pub fn move_tab(self: &Arc<Self>, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
-        if self.with_state(|state| {
-            let Some(source) = state.pane_of(surface) else { return false };
-            if source != pane {
-                return false;
-            }
-            let Some(pane) = state.panes.get(&pane) else { return false };
-            let Some(old_index) = pane.tabs.iter().position(|candidate| *candidate == surface)
-            else {
-                return false;
-            };
-            let final_index = if index > old_index { index.saturating_sub(1) } else { index }
-                .min(pane.tabs.len().saturating_sub(1));
-            final_index == old_index
-        }) {
-            return false;
-        }
-        let Some(selectors) = self.ordinary_tab_selectors(surface) else { return false };
-        let Some((destination_workspace, destination_screen, destination_pane, changed_screen)) =
-            self.with_state(|state| {
-                let (workspace, screen) = state.screen_of(pane)?;
-                let source_pane = state.pane_of(surface)?;
-                let source_screen = (source_pane != pane
-                    && state.panes.get(&source_pane)?.tabs.len() == 1)
-                    .then(|| {
-                        state.screen_of(source_pane).map(|(workspace, screen)| {
-                            state.workspaces[workspace].screens[screen].id
-                        })
-                    })
-                    .flatten();
-                Some((
-                    state.workspaces[workspace].public_id.to_string(),
-                    state.workspaces[workspace].screens[screen].public_id.to_string(),
-                    state.resource_indexes.pane_ids.get(&pane)?.to_string(),
-                    source_screen,
-                ))
-            })
-        else {
-            return false;
-        };
-        let fields = Map::from_iter([
-            ("destination_workspace".into(), Value::String(destination_workspace)),
-            ("destination_screen".into(), Value::String(destination_screen)),
-            ("destination_pane".into(), Value::String(destination_pane)),
-            ("index".into(), Value::from(u64::try_from(index).unwrap_or(u64::MAX))),
-        ]);
-        let Ok(commit) =
-            self.commit_ordinary_topology_operation(ResourceOperation::TabMove, selectors, fields)
-        else {
-            return false;
-        };
-        if let Some(surface) = self.surface(surface)
-            && let Some(workspace_key) = self.workspace_key_for_pane(pane)
-        {
-            let _ = surface.persist_host_workspace(&workspace_key);
-        }
-        self.emit_resource_topology_legacy_events(ResourceOperation::TabMove, &commit);
-        if let Some(screen) = changed_screen.filter(|source| {
-            self.with_state(|state| {
-                state
-                    .workspaces
-                    .iter()
-                    .any(|workspace| workspace.screens.iter().any(|screen| screen.id == *source))
-            })
-        }) {
-            self.emit(MuxEvent::LayoutChanged(screen));
-        }
-        true
-    }
-
     /// Reorder a workspace. The active workspace follows the moved entry.
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> bool {
         self.move_workspace_at_revision(workspace, index, None)
@@ -17858,7 +16965,7 @@ impl Mux {
                 return Ok(Some((state.workspace_revision, false)));
             }
         }
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
         let result = self.move_workspace_with_mutation(
             Some(workspace),
             None,
@@ -17995,41 +17102,6 @@ impl Mux {
         self.emit(MuxEvent::TreeChanged);
     }
 
-    /// Select a screen in the active workspace by index or relative delta.
-    pub fn select_screen(self: &Arc<Self>, index: Option<usize>, delta: Option<isize>) {
-        let screen = {
-            let state = self.state.lock().unwrap();
-            let active = state.active_workspace;
-            let Some(ws) = state.workspaces.get(active) else { return };
-            let len = ws.screens.len();
-            if len == 0 {
-                return;
-            }
-            let selected = if let Some(index) = index.filter(|index| *index < len) {
-                index
-            } else if let Some(delta) = delta {
-                ((ws.active_screen as isize + delta).rem_euclid(len as isize)) as usize
-            } else {
-                ws.active_screen
-            };
-            ws.screens[selected].id
-        };
-        let Some(selectors) = self.ordinary_screen_selectors(screen) else { return };
-        if self
-            .commit_ordinary_topology_operation(
-                ResourceOperation::ScreenFocus,
-                selectors,
-                Map::new(),
-            )
-            .is_err()
-        {
-            return;
-        }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
-        self.emit(MuxEvent::TreeChanged);
-    }
-
     /// Remember one client's reported focus for its own later reconnection.
     /// Most-recent-first eviction keeps the memory bounded.
     pub fn remember_client_focus(&self, client_id: String, pane: PaneId, tab: Option<usize>) {
@@ -18063,39 +17135,6 @@ impl Mux {
     pub fn session_focus(&self) -> Option<(PaneId, Option<usize>)> {
         let record = (*self.last_reported_focus.lock().unwrap())?;
         self.with_state(|state| state.panes.contains_key(&record.0)).then_some(record)
-    }
-
-    /// Select a workspace by index or relative delta.
-    pub fn select_workspace(self: &Arc<Self>, index: Option<usize>, delta: Option<isize>) {
-        let workspace = {
-            let state = self.state.lock().unwrap();
-            let len = state.workspaces.len();
-            if len == 0 {
-                return;
-            }
-            let selected = if let Some(index) = index.filter(|index| *index < len) {
-                index
-            } else if let Some(delta) = delta {
-                ((state.active_workspace as isize + delta).rem_euclid(len as isize)) as usize
-            } else {
-                state.active_workspace
-            };
-            state.workspaces[selected].id
-        };
-        let Some(selectors) = self.ordinary_workspace_selectors(workspace) else { return };
-        if self
-            .commit_ordinary_topology_operation(
-                ResourceOperation::WorkspaceFocus,
-                selectors,
-                Map::new(),
-            )
-            .is_err()
-        {
-            return;
-        }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
-        self.emit(MuxEvent::TreeChanged);
     }
 }
 
@@ -18296,7 +17335,7 @@ fn commit_terminal_transition(
     operation: &str,
     terminal: &RegistryTerminal,
 ) -> anyhow::Result<u64> {
-    let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
     let commit = registry.commit_terminal(
         &mutation,
         &serde_json::json!({
@@ -18342,7 +17381,7 @@ fn commit_terminal_lifecycle(
         terminal.incarnation = Some(incarnation.to_string());
     }
     terminal.exit = exit;
-    let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
     let commit = registry.commit_terminal(
         &mutation,
         &serde_json::json!({
@@ -18379,7 +17418,7 @@ fn commit_terminal_workspace(
         anyhow::bail!("terminal is already closed");
     }
     terminal.workspace_key = workspace_key.to_string();
-    let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
     let commit = registry.commit_terminal(
         &mutation,
         &serde_json::json!({
@@ -19873,6 +18912,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    mod agent_roster_restore;
     mod column_update;
     mod dock_columns;
     mod kitty_reservation;
@@ -20551,7 +19591,7 @@ mod tests {
             usize::MAX,
             Some("second view".into()),
             None,
-            &WorkspaceMutation::local("selector-multiview"),
+            &WorkspaceMutation::daemon_local("selector-multiview"),
         )
         .unwrap();
 
@@ -20608,7 +19648,7 @@ mod tests {
             0,
             Some("projected".into()),
             None,
-            &WorkspaceMutation::local("projection-complete-delta"),
+            &WorkspaceMutation::daemon_local("projection-complete-delta"),
         )
         .unwrap();
 
@@ -20773,7 +19813,7 @@ mod tests {
                 Some("target".into()),
                 None,
                 Some(0),
-                &WorkspaceMutation::new("selector-race-first", "test").unwrap(),
+                &WorkspaceMutation::daemon("selector-race-first", "test").unwrap(),
             )
             .unwrap();
         let second = mux
@@ -20781,7 +19821,7 @@ mod tests {
                 Some("other".into()),
                 None,
                 Some(1),
-                &WorkspaceMutation::new("selector-race-second", "test").unwrap(),
+                &WorkspaceMutation::daemon("selector-race-second", "test").unwrap(),
             )
             .unwrap();
         let first_id =
@@ -20812,7 +19852,7 @@ mod tests {
                     "renamed".into(),
                     None,
                     Some(2),
-                    &WorkspaceMutation::new("selector-race-selected", "test").unwrap(),
+                    &WorkspaceMutation::daemon("selector-race-selected", "test").unwrap(),
                 )
             })
         };
@@ -20827,7 +19867,7 @@ mod tests {
                     "target".into(),
                     None,
                     None,
-                    &WorkspaceMutation::new("selector-race-direct", "test").unwrap(),
+                    &WorkspaceMutation::daemon("selector-race-direct", "test").unwrap(),
                 )
             })
         };
@@ -21106,7 +20146,7 @@ mod tests {
     #[test]
     fn resource_state_patch_commits_before_infallible_projection_and_replays_once() {
         let mux = test_mux();
-        let mutation = WorkspaceMutation::new("create-once", "test-client").unwrap();
+        let mutation = WorkspaceMutation::daemon("create-once", "test-client").unwrap();
         let first = mux
             .resource_create_empty_workspace(Some("API".into()), None, Some(0), &mutation)
             .unwrap();
@@ -21145,7 +20185,7 @@ mod tests {
                 Some("Never visible".into()),
                 None,
                 Some(0),
-                &WorkspaceMutation::new("fail-create", "test-client").unwrap(),
+                &WorkspaceMutation::daemon("fail-create", "test-client").unwrap(),
             )
             .unwrap_err();
         assert!(error.to_string().contains("forced resource patch failure"));
@@ -21167,7 +20207,7 @@ mod tests {
         let expected_revision = mux.with_state(|state| state.resource_revision);
         assert!(matches!(
             mux.prepare_resource_effect(
-                idempotency_key,
+                &WorkspaceMutation::daemon(idempotency_key, "test").unwrap(),
                 operation,
                 &fingerprint,
                 &serde_json::json!({}),
@@ -21586,9 +20626,9 @@ mod tests {
     #[test]
     fn resource_idempotency_is_session_global_and_rejects_changed_input() {
         let mux = test_mux();
-        let first = WorkspaceMutation::new("global-key", "client-a").unwrap();
+        let first = WorkspaceMutation::daemon("global-key", "client-a").unwrap();
         mux.resource_create_empty_workspace(Some("One".into()), None, Some(0), &first).unwrap();
-        let reused = WorkspaceMutation::new("global-key", "client-b").unwrap();
+        let reused = WorkspaceMutation::daemon("global-key", "client-b").unwrap();
         let error = mux
             .resource_create_empty_workspace(Some("Two".into()), None, Some(1), &reused)
             .unwrap_err();
@@ -21607,7 +20647,7 @@ mod tests {
                 Some("Public".into()),
                 None,
                 Some(0),
-                &WorkspaceMutation::new("public-only", "test").unwrap(),
+                &WorkspaceMutation::daemon("public-only", "test").unwrap(),
             )
             .unwrap()
             .result;
@@ -21662,7 +20702,7 @@ mod tests {
             let mut registry = mux.workspace_registry.lock().unwrap();
             let commit = registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-thousand", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-thousand", "test").unwrap(),
                     "session.seed",
                     &serde_json::json!({"count":WORKSPACE_COUNT}),
                     None,
@@ -21692,7 +20732,7 @@ mod tests {
                 "Renamed".into(),
                 None,
                 Some(1),
-                &WorkspaceMutation::new("rename-thousand", "test").unwrap(),
+                &WorkspaceMutation::daemon("rename-thousand", "test").unwrap(),
             )
             .unwrap();
         assert_eq!(renamed.revision, 2);
@@ -21715,7 +20755,7 @@ mod tests {
                 WORKSPACE_COUNT - 1,
                 None,
                 Some(2),
-                &WorkspaceMutation::new("move-thousand", "test").unwrap(),
+                &WorkspaceMutation::daemon("move-thousand", "test").unwrap(),
             )
             .unwrap();
         assert_eq!(moved.revision, 3);
@@ -21848,7 +20888,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "restart").unwrap();
             registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-restart", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-restart", "test").unwrap(),
                     "session.restore_fixture",
                     &serde_json::json!({"fixture":"nested-columns"}),
                     None,
@@ -22286,7 +21326,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "undo-restart").unwrap();
             registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-undo-restart", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-undo-restart", "test").unwrap(),
                     "session.restore_fixture",
                     &serde_json::json!({"fixture":"layout-undo-restart"}),
                     None,
@@ -22344,7 +21384,7 @@ mod tests {
                 selectors.clone(),
                 preview_fields,
                 Some(durable_before.revision),
-                &WorkspaceMutation::new("restart-undo-preview", "test").unwrap(),
+                &WorkspaceMutation::daemon("restart-undo-preview", "test").unwrap(),
             )
             .unwrap_err();
         let preview_revision = preview_error
@@ -22404,7 +21444,7 @@ mod tests {
             "selectors":selectors,
             "fields":confirm_fields,
         });
-        let confirm_mutation = WorkspaceMutation::new("restart-undo-confirm", "test").unwrap();
+        let confirm_mutation = WorkspaceMutation::daemon("restart-undo-confirm", "test").unwrap();
 
         let error = reopened
             .resource_topology_operation(
@@ -22502,7 +21542,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "secret-test").unwrap();
             registry
                 .commit(
-                    &WorkspaceMutation::new("workspace", "test").unwrap(),
+                    &WorkspaceMutation::daemon("workspace", "test").unwrap(),
                     &serde_json::json!({"op":"create-workspace"}),
                     None,
                     Some(0),
@@ -22520,7 +21560,7 @@ mod tests {
                 .unwrap();
             registry
                 .commit_terminal(
-                    &WorkspaceMutation::new("create", "browser").unwrap(),
+                    &WorkspaceMutation::daemon("create", "browser").unwrap(),
                     &fingerprint,
                     None,
                     Some(0),
@@ -22680,7 +21720,7 @@ mod tests {
         let terminal_hex = terminal_id.to_hex();
         let reservation = TerminalReservationRequest {
             terminal_id,
-            mutation: WorkspaceMutation::new("cell-pixel-failure", "test").unwrap(),
+            mutation: WorkspaceMutation::daemon("cell-pixel-failure", "test").unwrap(),
             fingerprint: serde_json::json!({"test":"cell-pixel-failure"}),
             expected_generation: None,
             expected_revision: None,
@@ -24081,7 +23121,7 @@ mod tests {
             usize::MAX,
             None,
             None,
-            &WorkspaceMutation::local("test-terminal-projection"),
+            &WorkspaceMutation::daemon_local("test-terminal-projection"),
         )
         .unwrap();
         mux.with_state(|state| {
@@ -24423,7 +23463,7 @@ mod tests {
         ];
         assert!(mux.close_pane(primary_pane).unwrap());
 
-        let mutation = WorkspaceMutation::new(
+        let mutation = WorkspaceMutation::daemon(
             "selector-fallback-receipt-00000001".to_string(),
             "selector-fallback-test".to_string(),
         )
@@ -24465,7 +23505,7 @@ mod tests {
             session: pane_selectors.session.clone(),
             ..crate::ResourceSelectors::default()
         };
-        let mutation = WorkspaceMutation::new(
+        let mutation = WorkspaceMutation::daemon(
             "selector-fallback-receipt-00000002".to_string(),
             "selector-fallback-test".to_string(),
         )
@@ -24956,7 +23996,7 @@ mod tests {
                     AgentSource::Hook,
                     Some("racing-hook".into()),
                     None,
-                    &WorkspaceMutation::new("racing-hook", "resource-test").unwrap(),
+                    &WorkspaceMutation::daemon("racing-hook", "resource-test").unwrap(),
                 )
                 .unwrap()
             })
@@ -25531,7 +24571,7 @@ mod tests {
         let revision_before = mux.with_state(|state| state.resource_revision);
         let epoch_before = mux.resource_event_epoch();
 
-        let mutation = WorkspaceMutation::new("ack-a-1", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("ack-a-1", "test").unwrap();
         let ack =
             mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&oldest)).unwrap();
         assert!(!ack.replayed);
@@ -25553,7 +24593,7 @@ mod tests {
         assert_eq!(mux.with_state(|state| state.resource_revision), revision_before + 1);
 
         // A second client keeps its own state and sees the merged set.
-        let mutation_b = WorkspaceMutation::new("ack-b-1", "test").unwrap();
+        let mutation_b = WorkspaceMutation::daemon("ack-b-1", "test").unwrap();
         let unknown = NotificationPublicId::random().unwrap();
         let ack_b = mux
             .ack_notifications(
@@ -25595,7 +24635,7 @@ mod tests {
                     .contains(&serde_json::json!("mac-b"))
         }));
 
-        let bad = WorkspaceMutation::new("ack-bad", "test").unwrap();
+        let bad = WorkspaceMutation::daemon("ack-bad", "test").unwrap();
         assert!(mux.ack_notifications(&bad, None, "has space", &[oldest]).is_err());
     }
 
@@ -25658,14 +24698,14 @@ mod tests {
             .cloned()
             .unwrap();
         assert_eq!(row_a["subtitle"], "sub", "subtitle rides the row");
-        let mutation = WorkspaceMutation::new("ack-a", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("ack-a", "test").unwrap();
         let ledger = mux.resource_notifications(8);
         let id_b = ledger.iter().find(|entry| entry.title == "b").unwrap().id.clone();
         mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&id_b)).unwrap();
         let revision_before = mux.with_state(|state| state.resource_revision);
 
         // Clear one terminal: its two rows go, the other terminal's row stays.
-        let clear = WorkspaceMutation::new("clear-first", "test").unwrap();
+        let clear = WorkspaceMutation::daemon("clear-first", "test").unwrap();
         let commit = mux.clear_notifications(&clear, None, Some(&first_terminal)).unwrap();
         assert!(!commit.replayed);
         assert_eq!(commit.result["cleared"].as_array().unwrap().len(), 2);
@@ -25703,7 +24743,7 @@ mod tests {
         assert_eq!(titles, vec!["b"], "cleared rows must not come back from the receipts");
         assert_eq!(mux.notification_read_by(&id_b), vec!["mac-a".to_string()]);
         // Clear everything.
-        let all = WorkspaceMutation::new("clear-all", "test").unwrap();
+        let all = WorkspaceMutation::daemon("clear-all", "test").unwrap();
         mux.clear_notifications(&all, None, None).unwrap();
         assert!(mux.resource_notifications(8).is_empty());
         assert!(mux.notification_read_by(&id_b).is_empty());
@@ -25735,7 +24775,7 @@ mod tests {
         mux.post_notification("kept".into(), "".into(), NotificationLevel::Info, Some(surface_id))
             .unwrap();
         let kept = mux.resource_notifications(1)[0].id.clone();
-        let mutation = WorkspaceMutation::new("ack-restart", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("ack-restart", "test").unwrap();
         mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&kept)).unwrap();
         drop(mux);
 
@@ -25774,7 +24814,7 @@ mod tests {
         // The prune rides the committed create that evicted `kept`, not an
         // acknowledgement, and only once the receipts no longer retain it.
         let newest = mux.resource_notifications(1)[0].id.clone();
-        let prune = WorkspaceMutation::new("ack-newest", "test").unwrap();
+        let prune = WorkspaceMutation::daemon("ack-newest", "test").unwrap();
         mux.ack_notifications(&prune, None, "mac-a", std::slice::from_ref(&newest)).unwrap();
         let stale_rows = mux
             .workspace_registry
@@ -25851,7 +24891,8 @@ mod tests {
                         .collect::<Vec<_>>();
                     ack_counter += 1;
                     let mutation =
-                        WorkspaceMutation::new(format!("fuzz-ack-{ack_counter}"), "test").unwrap();
+                        WorkspaceMutation::daemon(format!("fuzz-ack-{ack_counter}"), "test")
+                            .unwrap();
                     mux.ack_notifications(&mutation, None, client, &ids).unwrap();
                     for id in &ids {
                         expected.get_mut(id).unwrap().insert(client.to_string());
@@ -27845,7 +26886,7 @@ mod tests {
             ContentPublicId::Terminal(public_id) => public_id.clone(),
             ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
         };
-        let mutation = WorkspaceMutation::new("lost-host-close-reply", "legacy-client").unwrap();
+        let mutation = WorkspaceMutation::daemon("lost-host-close-reply", "legacy-client").unwrap();
         let resource_revision = mux.with_state(|state| state.resource_revision);
 
         let host_close = mux
@@ -27895,7 +26936,7 @@ mod tests {
             .lock()
             .unwrap()
             .close_terminal(
-                &WorkspaceMutation::new("closed-host", "legacy-client").unwrap(),
+                &WorkspaceMutation::daemon("closed-host", "legacy-client").unwrap(),
                 None,
                 None,
                 &host.terminal_id,
@@ -27903,7 +26944,7 @@ mod tests {
             )
             .unwrap();
         let mutation =
-            WorkspaceMutation::new("lost-resource-close-reply", "resource-client").unwrap();
+            WorkspaceMutation::daemon("lost-resource-close-reply", "resource-client").unwrap();
         let fingerprint = serde_json::json!({
             "op":"close-terminal",
             "terminal_id":host.terminal_id,
@@ -28981,7 +28022,7 @@ mod tests {
             "selectors":selectors,
             "fields":fields,
         });
-        let mutation = WorkspaceMutation::new("read-only-undo-preview", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("read-only-undo-preview", "test").unwrap();
         let before_registry =
             mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
 
@@ -29030,7 +28071,7 @@ mod tests {
             "fields":missing_token_fields,
         });
         let missing_token_mutation =
-            WorkspaceMutation::new("missing-token-undo-confirm", "test").unwrap();
+            WorkspaceMutation::daemon("missing-token-undo-confirm", "test").unwrap();
         let missing_token = mux
             .resource_topology_operation(
                 ResourceOperation::ScreenLayoutUndo,
@@ -29057,7 +28098,7 @@ mod tests {
             "fields":missing_revision_fields,
         });
         let missing_revision_mutation =
-            WorkspaceMutation::new("missing-revision-undo-confirm", "test").unwrap();
+            WorkspaceMutation::daemon("missing-revision-undo-confirm", "test").unwrap();
         let missing_revision = mux
             .resource_topology_operation(
                 ResourceOperation::ScreenLayoutUndo,
@@ -29110,7 +28151,7 @@ mod tests {
             "selectors":selectors,
             "fields":stale_fields,
         });
-        let stale_mutation = WorkspaceMutation::new("stale-undo-confirm", "test").unwrap();
+        let stale_mutation = WorkspaceMutation::daemon("stale-undo-confirm", "test").unwrap();
         let stale = mux
             .resource_topology_operation(
                 ResourceOperation::ScreenLayoutUndo,
@@ -29155,7 +28196,7 @@ mod tests {
                 selectors,
                 confirmed_fields,
                 Some(refreshed_revision),
-                &WorkspaceMutation::new("fresh-undo-confirm", "test").unwrap(),
+                &WorkspaceMutation::daemon("fresh-undo-confirm", "test").unwrap(),
             )
             .unwrap();
         assert!(!committed.replayed);
@@ -31227,7 +30268,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "recover-terminal").unwrap();
             registry
                 .commit(
-                    &WorkspaceMutation::new("workspace", "test").unwrap(),
+                    &WorkspaceMutation::daemon("workspace", "test").unwrap(),
                     &serde_json::json!({"op":"create-workspace"}),
                     None,
                     Some(0),
@@ -31245,7 +30286,7 @@ mod tests {
                 .unwrap();
             registry
                 .commit_terminal(
-                    &WorkspaceMutation::new("reserve", "test").unwrap(),
+                    &WorkspaceMutation::daemon("reserve", "test").unwrap(),
                     &serde_json::json!({"op":"create-terminal","terminal_id":TERMINAL}),
                     None,
                     Some(0),
@@ -31380,7 +30421,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
             registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-terminal-exit", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-terminal-exit", "test").unwrap(),
                     "workspace.create",
                     &serde_json::json!({"fixture":"terminal-exit"}),
                     None,
@@ -31593,7 +30634,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
             registry
                 .commit_resource_patch(
-                    &WorkspaceMutation::new("seed-keep-exit", "test").unwrap(),
+                    &WorkspaceMutation::daemon("seed-keep-exit", "test").unwrap(),
                     "workspace.create",
                     &serde_json::json!({"fixture":"keep-exit"}),
                     None,
@@ -31735,7 +30776,7 @@ mod tests {
             let mut registry = WorkspaceRegistry::open(&root, "recover-exited").unwrap();
             registry
                 .commit(
-                    &WorkspaceMutation::new("workspace", "test").unwrap(),
+                    &WorkspaceMutation::daemon("workspace", "test").unwrap(),
                     &serde_json::json!({"op":"create-workspace"}),
                     None,
                     Some(0),
@@ -32124,7 +31165,7 @@ mod tests {
                 None,
                 None,
                 Some(1),
-                &WorkspaceMutation::new("move-during-launch", "browser").unwrap(),
+                &WorkspaceMutation::daemon("move-during-launch", "browser").unwrap(),
             )
             .unwrap();
         assert_eq!(moved.placement, None);
@@ -32540,7 +31581,7 @@ mod tests {
             .unwrap();
         }
         let events = mux.subscribe();
-        let first_move = WorkspaceMutation::new("move-one", "browser").unwrap();
+        let first_move = WorkspaceMutation::daemon("move-one", "browser").unwrap();
         let moved = mux
             .move_terminal_with_mutation(TERMINAL, &second.key, None, None, Some(1), &first_move)
             .unwrap();
@@ -32556,7 +31597,7 @@ mod tests {
             None,
             None,
             Some(2),
-            &WorkspaceMutation::new("move-two", "browser").unwrap(),
+            &WorkspaceMutation::daemon("move-two", "browser").unwrap(),
         )
         .unwrap();
         let replay = mux
@@ -32609,7 +31650,7 @@ mod tests {
                     None,
                     None,
                     Some(2),
-                    &WorkspaceMutation::new("move-race-one", "browser").unwrap(),
+                    &WorkspaceMutation::daemon("move-race-one", "browser").unwrap(),
                 )
             })
         };
@@ -32627,7 +31668,7 @@ mod tests {
                     None,
                     None,
                     None,
-                    &WorkspaceMutation::new("move-race-two", "browser").unwrap(),
+                    &WorkspaceMutation::daemon("move-race-two", "browser").unwrap(),
                 );
                 second_done_tx.send(result).unwrap();
             })
@@ -32681,7 +31722,7 @@ mod tests {
                     None,
                     None,
                     Some(2),
-                    &WorkspaceMutation::new("move-before-close", "browser").unwrap(),
+                    &WorkspaceMutation::daemon("move-before-close", "browser").unwrap(),
                 )
             })
         };
@@ -32751,7 +31792,7 @@ mod tests {
                 None,
                 None,
                 Some(1),
-                &WorkspaceMutation::new("move-missing", "browser").unwrap(),
+                &WorkspaceMutation::daemon("move-missing", "browser").unwrap(),
             )
             .unwrap_err();
         assert!(error.to_string().contains("workspace is missing or closed"));
@@ -32904,6 +31945,7 @@ mod tests {
             let mux = mux.clone();
             move || {
                 mux.create_terminal_surface_in_workspace(
+                    &Actor::Daemon,
                     workspace.workspace,
                     None,
                     Some("/tmp".into()),
@@ -32918,6 +31960,7 @@ mod tests {
             let mux = mux.clone();
             move || {
                 mux.create_terminal_surface_in_workspace(
+                    &Actor::Daemon,
                     workspace.workspace,
                     None,
                     None,
@@ -32943,6 +31986,7 @@ mod tests {
         let workspace = mux.create_empty_workspace(Some("cwd".into()), None, None).unwrap();
         let (first, _) = mux
             .create_terminal_surface_in_workspace(
+                &Actor::Daemon,
                 workspace.workspace,
                 None,
                 Some("/tmp".into()),
@@ -32957,6 +32001,7 @@ mod tests {
         first.set_test_pwd(Some("file://localhost/usr".into()));
         let (second, _) = mux
             .create_terminal_surface_in_workspace(
+                &Actor::Daemon,
                 workspace.workspace,
                 None,
                 None,
@@ -32974,6 +32019,7 @@ mod tests {
         first.set_test_pwd(Some("file://other-host/etc".into()));
         let (third, _) = mux
             .create_terminal_surface_in_workspace(
+                &Actor::Daemon,
                 workspace.workspace,
                 None,
                 None,
@@ -33004,6 +32050,7 @@ mod tests {
             let mux = mux.clone();
             move || {
                 mux.create_terminal_surface_in_workspace(
+                    &Actor::Daemon,
                     workspace.workspace,
                     None,
                     None,
@@ -33019,7 +32066,7 @@ mod tests {
 
         let (close_started_tx, close_started_rx) = std::sync::mpsc::sync_channel(1);
         let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
-        let close_mutation = WorkspaceMutation::new("close-target", "browser").unwrap();
+        let close_mutation = WorkspaceMutation::daemon("close-target", "browser").unwrap();
         let close = std::thread::spawn({
             let mux = mux.clone();
             let close_mutation = close_mutation.clone();
@@ -33105,6 +32152,7 @@ mod tests {
                 let mux = mux.clone();
                 move || {
                     mux.create_terminal_surface_in_workspace(
+                        &Actor::Daemon,
                         workspace,
                         None,
                         None,
@@ -33612,6 +32660,7 @@ mod tests {
         let workspace = mux.create_empty_workspace(Some("pty".into()), None, None).unwrap();
         let (surface, _) = mux
             .create_terminal_surface_in_workspace(
+                &Actor::Daemon,
                 workspace.workspace,
                 Some(vec![
                     "sh".into(),

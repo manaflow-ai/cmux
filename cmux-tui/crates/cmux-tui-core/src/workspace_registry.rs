@@ -33,6 +33,7 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+mod mutation_ledger;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
@@ -47,9 +48,11 @@ mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
+pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
+pub(crate) mod terminal_respawn_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
@@ -73,6 +76,8 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
+pub(crate) use mutation_ledger::insert_resource_mutation;
+pub use mutation_ledger::{Actor, WorkspaceMutation};
 pub use personal_browser_profiles::{BrowserProfileInput, BrowserProfileUpdate};
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
@@ -133,7 +138,7 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // binary content to journal rows. Version 14 gives resource API frontend
 // projections one owned envelope instead of storing anonymous projection JSON.
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
-const SCHEMA_VERSION: i64 = 15;
+pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
@@ -160,7 +165,7 @@ const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cl
 const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
-const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+pub(crate) const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
 /// An extra write that runs inside a workspace-registry commit transaction.
 pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
@@ -306,25 +311,6 @@ pub struct RegistrySnapshot {
     pub session_id: SessionPublicId,
     pub next_numeric_id: u64,
     pub workspaces: Vec<RegistryWorkspace>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspaceMutation {
-    pub id: String,
-    pub origin: String,
-}
-
-impl WorkspaceMutation {
-    pub fn new(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
-        let mutation = Self { id: id.into(), origin: origin.into() };
-        validate_identifier("mutation id", &mutation.id)?;
-        validate_identifier("mutation origin", &mutation.origin)?;
-        Ok(mutation)
-    }
-
-    pub fn local(origin: &str) -> Self {
-        Self { id: new_uuid_v4(), origin: origin.to_string() }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2735,6 +2721,7 @@ impl WorkspaceRegistry {
             create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
+            mutation_ledger::migrate_add_actor_columns(&tx)?;
             recover_resource_effects(&tx)?;
             // cx-1a6: no terminal env value rests in the exactly-once receipts.
             scrubbed = receipt_env::scrub_stored_receipts(&tx, &resource_effect_pepper)?;
@@ -3541,18 +3528,13 @@ impl WorkspaceRegistry {
             sqlite_resource_revision,
             resource_revision,
         ) {
-            tx.execute(
-                "INSERT INTO resource_mutations(
-                   origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    mutation.origin,
-                    mutation.id,
-                    event_kind,
-                    fingerprint,
-                    result_json,
-                    sqlite_resource_revision,
-                ],
+            insert_resource_mutation(
+                &tx,
+                mutation,
+                event_kind,
+                &fingerprint,
+                &result_json,
+                sqlite_resource_revision,
             )?;
             let resource_deltas = normalized_workspace_resource_deltas(
                 &self.session_id,
@@ -5212,6 +5194,7 @@ fn prepare_terminal_host_root_for_reset(
         .filter(|(_, record)| record.record_version >= 2)
         .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
         .collect::<HashSet<_>>();
+    crate::terminal_host_runtime::sweep_released_pty_locks(root);
     for entry in fs::read_dir(root)
         .with_context(|| format!("read terminal host state {}", root.display()))?
     {
@@ -6068,3 +6051,6 @@ mod receipt_env_tests;
 
 #[cfg(test)]
 mod personal_tests;
+
+#[cfg(test)]
+mod actor_migration_tests;

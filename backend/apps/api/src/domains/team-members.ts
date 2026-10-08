@@ -72,6 +72,19 @@ export interface RowsWithScan extends RowReader {
 export const listMembers = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, after: string | undefined, limit: number): { items: Array<Member>; next: string | null } =>
   page(Object.values(s.members ?? {}).map((m) => [m.user, m] as const), rows?.scanFrom?.<Member>(TABLE_MEMBER, after, limit + 1) ?? [], after, limit)
 
+/** The owner with the smallest user id (deterministic), or undefined; scans at most `maxPages` pages. */
+export const firstOwner = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, maxPages = 50): string | undefined => {
+  let after: string | undefined
+  for (let i = 0; i < maxPages; i++) {
+    const { items, next } = listMembers(s, rows, after, 200)
+    const owner = items.find((m) => m.role === "owner")
+    if (owner) return owner.user
+    if (!next) return undefined
+    after = next
+  }
+  return undefined
+}
+
 /** One page of hosts by host id (keyset). */
 export const listHosts = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, after: string | undefined, limit: number): { items: Array<HostRecord>; next: string | null } =>
   page(Object.values(s.hosts ?? {}).map((h) => [h.id, h] as const), rows?.scanFrom?.<HostRecord>(TABLE_HOST, after, limit + 1) ?? [], after, limit)
@@ -92,3 +105,15 @@ export const teamIndexItem = (team: { readonly id: string; readonly kind: string
   payload: { team: team.id, role, kind: team.kind },
   target: { class: "UserDO", name: user, coalesce: `team-index:${team.id}` }
 })
+
+/**
+ * What a member's removal tells the other owners (cx-44j.47): the user's team index entry goes,
+ * UserDO revokes the installs bound to the team, and the team's ConnectionDO ends the user's
+ * pending integration approvals. Each carries the removal's tx (no coalescing with a later
+ * re-join) and time `at`: a late delivery touches only what existed at removal.
+ */
+export const memberLeftItems = (team: { readonly id: string; readonly kind: string }, user: string, tx: string, at: number) => [
+  teamIndexItem(team, user, null, tx),
+  { kind: "user.team_left", entity: `team-left:${team.id}:${user}:${tx}`, payload: { team: team.id, at }, target: { class: "UserDO", name: user } },
+  { kind: "connections.member_left", entity: `member-left:${team.id}:${user}:${tx}`, payload: { team: team.id, user, at }, target: { class: "ConnectionDO", name: team.id } }
+]

@@ -47,7 +47,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// True when this view came from ``PageHostPool`` and may be rebound to another bundled page.
     public let isPooled: Bool
     var pooledOwner: PagePooledOwner?
-    /// Whether a pooled host has received user input or a page operation since its claim.
+    /// Whether a pooled host has received real user input (a key or mouse event) since its claim.
+    /// Page messages do not count: a parked page mounts when it is shown, so every claim starts
+    /// with its own subscriptions and reads; the parking reset drops those and clears storage.
     public internal(set) var touched = false
     /// Prepared page activity does not count as user activity while the view is parked.
     public internal(set) var countsTouches = true
@@ -80,6 +82,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    let claimState = PageClaimState()
 
     public var pageID: String { descriptor.id }
 
@@ -204,12 +207,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
         #endif
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
-            self?.paintedUptime = ProcessInfo.processInfo.systemUptime
+            guard let self else { return }
+            paintedUptime = ProcessInfo.processInfo.systemUptime
+            let waiters = paintWaiters
+            paintWaiters = []
+            waiters.forEach { $0() }
         }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
+        installDocumentStartTheme()
         if load { webView.load(URLRequest(url: descriptor.url(route: route))) }
     }
 
@@ -297,8 +305,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
-    public private(set) var paintedUptime: TimeInterval?
+    public internal(set) var paintedUptime: TimeInterval?
     public var hasPainted: Bool { paintedUptime != nil }
+    /// Callbacks for the current document's first frame (`whenPainted`).
+    var paintWaiters: [() -> Void] = []
 
     private func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
@@ -306,7 +316,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             return nil
         }
         guard let body = JSONValue(foundation: message.body) else { return nil }
-        if let type = body["t"]?.stringValue, type != "ok", type != "err" { noteTouch() }
         let reply = await router.handle(body)
         return reply.isNull ? nil : reply.foundationObject
     }
@@ -372,6 +381,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // A new document: the old one's subscriptions and host calls end with it, and it has not
         // painted yet.
         router.reset()
+        _ = claimState.end()
         loaded = false
         paintedUptime = nil
         let bridge = bridge

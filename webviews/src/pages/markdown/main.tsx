@@ -71,6 +71,9 @@ function editorHost(
   const imageURL = (src: string) => resolveImageURL(src, config()?.assetBase, config()?.remoteImageBase);
   return {
     openLink: follow,
+    get githubRepository() {
+      return config()?.githubRepository;
+    },
     links: {
       resolved: (path) => resolver.get(path),
       requestLinks: (paths) => resolver.request(paths),

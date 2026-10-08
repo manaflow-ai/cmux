@@ -36,7 +36,7 @@ enum DebugOnboarding {
         case "back": model.back()
         case "skip": model.skipStep()
         // The close button: leaves the first run unfinished. `skip_all` is Escape.
-        case "close": onboarding.controller?.close()
+        case "close": onboarding.controller?.closeWithCloseButton()
         case "skip_all": model.finish(completed: false)
         case "first_task": if let task = params["task"]?.stringValue.flatMap(FirstTask.init(rawValue:)) { model.firstTask.pick(task) }
         case "toggle_project":
@@ -111,6 +111,7 @@ enum DebugOnboarding {
                      "kinds": .array(profile.importableKinds.map { .string($0.rawValue) })])
         })
         result["kinds"] = .array(model.importer.kinds.map(\.rawValue).sorted().map(JSONValue.string))
+        result["merge_target"] = model.importer.mergeTarget.map(JSONValue.string) ?? .null
         if case .finished(let summary) = model.importer.phase {
             let counts = summary.counts
             result["counts"] = .object(["bookmarks": JSONValue(counts.bookmarks), "history": JSONValue(counts.history),

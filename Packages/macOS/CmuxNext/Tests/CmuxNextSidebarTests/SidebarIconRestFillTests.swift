@@ -25,23 +25,39 @@ import Testing
         return region
     }
 
-    static func entered(_ view: NSView) -> NSEvent {
-        NSEvent.enterExitEvent(with: .mouseEntered, location: NSPoint(x: view.bounds.midX, y: view.bounds.midY), modifierFlags: [],
-                               timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+    /// Hosts `view`'s region in a window and rests the injected pointer on
+    /// `view` (`PointerHover`, cx-3wu5). The caller closes the window.
+    static func hover(_ view: NSView) throws -> NSWindow {
+        var root = view
+        while let parent = root.superview { root = parent }
+        // A region sizes only its rows; give it room so the rows are visible.
+        if root.frame.height < 1 { root.frame = NSRect(x: 0, y: 0, width: 240, height: 400) }
+        let window = SidebarHoverOwnerTests.window()
+        window.contentView!.addSubview(root)
+        do {
+            try SidebarHoverOwnerTests.rest(on: view, at: SidebarHoverOwnerTests.center(view))
+        } catch {
+            PointerHover.clearDebugPointer(in: window)
+            window.close()
+            throw error
+        }
+        return window
     }
 
     @Test(arguments: [SectionArrangement(layout: .inline, align: .fill), SectionArrangement(layout: .inline, align: .leading)])
     func theAccountHasNoFillUntilHoverInAnInlineLine(_ arrangement: SectionArrangement) throws {
         let view = try #require(Self.region(arrangement).itemView(Self.account))
         #expect(view.fill == nil, "no background at rest")
-        view.mouseEntered(with: Self.entered(view))
+        let window = try Self.hover(view)
+        defer { PointerHover.clearDebugPointer(in: window); window.close() }
         #expect(view.fill != nil, "hover shows the background")
     }
 
     @Test func aGridTileHasNoFillUntilHover() throws {
         let view = try #require(Self.region(SectionArrangement(layout: .grid, align: .fill, columns: 8)).itemView(Self.account))
         #expect(view.fill == nil)
-        view.mouseEntered(with: Self.entered(view))
+        let window = try Self.hover(view)
+        defer { PointerHover.clearDebugPointer(in: window); window.close() }
         #expect(view.fill != nil)
     }
 
@@ -65,31 +81,30 @@ import Testing
                 "one gap between Settings and the account")
     }
 
-    /// SIDEBAR-FOOTER-MINIMAL: the default footer line is the avatar, then the gear, both bare
-    /// icons at the leading inset with one gap between them; no fill until hover, and the glyph
-    /// goes from the secondary to the primary text color on hover.
-    @Test func theDefaultFooterIsTheAvatarThenTheGearAsBareIcons() throws {
+    /// SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2: the default footer line is the account
+    /// alone, a bare icon at the leading inset; no fill until hover, and the glyph goes from
+    /// the secondary to the primary text color on hover. (With the App's profile avatar it
+    /// draws the profile control, SidebarProfileControlTests.)
+    @Test func theDefaultFooterIsTheAccountAsABareIcon() throws {
         let bottom = try #require(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
-        #expect(bottom.items.map(\.id.rawValue) == ["itm_account", "itm_settings"])
+        #expect(bottom.items.map(\.id.rawValue) == ["itm_account"])
         #expect(bottom.items.allSatisfy { !$0.showsLabel && $0.span == nil })
         let region = SidebarRegionView(region: .bottom)
         let metrics = SidebarRegionMetrics.standard
         region.update(SidebarRegionView.Content(sections: [bottom], infos: [:], collapsed: [], look: .quiet,
                                                 metrics: metrics, drawsLines: true), width: 240)
         let account = try #require(region.itemView(Self.account))
-        let gear = try #require(region.itemView(LayoutItemID("itm_settings")))
-        #expect(account.style == .icon && gear.style == .icon)
-        #expect(account.frame.minX == metrics.inset, "leading: \(account.frame)")
-        #expect(abs(gear.frame.minX - account.frame.maxX - metrics.tileGap) < 0.5, "the gear right after the avatar")
-        #expect(account.frame.minY == gear.frame.minY && account.frame.height == gear.frame.height)
-        for view in [account, gear] {
-            #expect(view.fill == nil, "no background at rest")
-            view.updateLayer()
-            #expect(view.glyphTint == view.performWithTheme { Palette.textSecondary })
-            view.mouseEntered(with: Self.entered(view))
-            view.updateLayer()
-            #expect(view.fill != nil, "hover shows the background")
-            #expect(view.glyphTint == view.performWithTheme { Palette.textPrimary }, "full strength on hover")
-        }
+        #expect(account.style == .icon)
+        // Leading, its glyph on the rows' glyph column (F1).
+        let column = SidebarStyle.horizontalInset * 2 + SidebarStyle.iconBox / 2
+        #expect(abs(account.frame.midX - column) <= 0.5, "leading: \(account.frame)")
+        #expect(account.fill == nil, "no background at rest")
+        account.updateLayer()
+        #expect(account.glyphTint == account.performWithTheme { Palette.textSecondary })
+        let window = try Self.hover(account)
+        defer { PointerHover.clearDebugPointer(in: window); window.close() }
+        account.updateLayer()
+        #expect(account.fill != nil, "hover shows the background")
+        #expect(account.glyphTint == account.performWithTheme { Palette.textPrimary }, "full strength on hover")
     }
 }

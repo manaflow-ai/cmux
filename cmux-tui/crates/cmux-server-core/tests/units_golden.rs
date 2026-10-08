@@ -2,10 +2,10 @@
 
 use cmux_server_core::layout::{Layout, LayoutEnv, layout};
 use cmux_server_core::units::{
-    UnitError, host_run_argv, launch_agent_plist, launch_daemon_plist, scheduled_task_xml,
-    systemd_app_server_template, systemd_system_unit, systemd_update_path_unit,
-    systemd_update_service_unit, systemd_user_unit, windows_service_create_argv,
-    windows_service_failure_argv,
+    UnitError, app_service_agent_plist, host_run_argv, host_run_argv_with_mode, launch_agent_plist,
+    launch_daemon_plist, scheduled_task_xml, systemd_app_server_template, systemd_system_unit,
+    systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
+    windows_service_create_argv, windows_service_failure_argv,
 };
 use cmux_server_core::{InstallMode, Platform};
 
@@ -41,8 +41,7 @@ After=network-online.target
 [Service]
 Type=notify
 NotifyAccess=main
-ExecStart=\"/home/ana/.local/share/cmux/current/bin/cmux\" host run
-Environment=CMUX_SERVER_MODE=user
+ExecStart=\"/home/ana/.local/share/cmux/current/bin/cmux\" host run --mode user
 Restart=always
 RestartSec=2
 # The session host keeps its terminal hosts across a restart: stop only the
@@ -73,8 +72,7 @@ Type=notify
 NotifyAccess=main
 User=cmux
 Group=cmux
-ExecStart=\"/opt/cmux/current/bin/cmux\" host run
-Environment=CMUX_SERVER_MODE=system
+ExecStart=\"/opt/cmux/current/bin/cmux\" host run --mode system
 Restart=always
 RestartSec=2
 KillMode=process
@@ -190,56 +188,118 @@ fn launch_agent_plist_golden() {
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
 <plist version=\"1.0\">
 <dict>
-  <key>Label</key>
-  <string>com.cmux.server</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/Users/ana/Library/Application Support/cmux/current/bin/cmux</string>
-    <string>host</string>
-    <string>run</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>CMUX_SERVER_MODE</key>
-    <string>user</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>ProcessType</key>
-  <string>Standard</string>
-  <key>ThrottleInterval</key>
-  <integer>2</integer>
-  <key>StandardOutPath</key>
-  <string>/Users/ana/Library/Application Support/cmux/server/logs/server.log</string>
-  <key>StandardErrorPath</key>
-  <string>/Users/ana/Library/Application Support/cmux/server/logs/server.log</string>
+\t<key>KeepAlive</key>
+\t<dict>
+\t\t<key>SuccessfulExit</key>
+\t\t<false/>
+\t</dict>
+\t<key>Label</key>
+\t<string>com.cmux.server</string>
+\t<key>ProcessType</key>
+\t<string>Standard</string>
+\t<key>ProgramArguments</key>
+\t<array>
+\t\t<string>/Users/ana/Library/Application Support/cmux/current/bin/cmux</string>
+\t\t<string>host</string>
+\t\t<string>run</string>
+\t\t<string>--mode</string>
+\t\t<string>user</string>
+\t</array>
+\t<key>RunAtLoad</key>
+\t<true/>
+\t<key>StandardErrorPath</key>
+\t<string>/Users/ana/Library/Application Support/cmux/server/logs/server.log</string>
+\t<key>StandardOutPath</key>
+\t<string>/Users/ana/Library/Application Support/cmux/server/logs/server.log</string>
+\t<key>ThrottleInterval</key>
+\t<integer>10</integer>
 </dict>
 </plist>
 "
     );
 }
 
+fn app_layout() -> Layout {
+    let env = LayoutEnv {
+        home: Some("/Users/ana".to_owned()),
+        uid: Some(501),
+        mac_app_bundle: Some("/Applications/cmux.app".to_owned()),
+        ..LayoutEnv::default()
+    };
+    layout(InstallMode::User, Platform::MacOs, &env).unwrap()
+}
+
+/// One golden, two writers: scripts/cmux-next/bundle-server-helper.sh writes
+/// the same bytes with plutil for this bundle id
+/// (scripts/cmux-next/tests/bundle-server-helper.test.sh compares them).
 #[test]
-fn launch_daemon_and_app_variants() {
+fn app_service_agent_plist_matches_the_bundled_golden() {
+    assert_eq!(
+        app_service_agent_plist(&app_layout(), "com.cmuxterm.app.debug.testtag").unwrap(),
+        include_str!("fixtures/app-service-agent.plist")
+    );
+}
+
+#[test]
+fn app_service_agent_plist_needs_the_app_layout_and_a_plain_bundle_id() {
+    let app = app_layout();
+    // The app plist carries a per-build label, so the label-less renderer
+    // refuses the app layout.
+    assert_eq!(launch_agent_plist(&app), Err(UnitError::WrongLayout));
+    for bad in ["", ".cmux", "cmux.", "com.cmux app", "com.cmux</string>", "com.cmux\n"] {
+        assert_eq!(app_service_agent_plist(&app, bad), Err(UnitError::BadBundleId), "{bad:?}");
+    }
+    let headless = unix(InstallMode::User, Platform::MacOs, "/Users/ana");
+    assert_eq!(app_service_agent_plist(&headless, "com.cmuxterm.app"), Err(UnitError::WrongLayout));
+}
+
+#[test]
+fn host_run_argv_with_mode_appends_the_mode() {
+    assert_eq!(
+        host_run_argv_with_mode("/x/cmux", InstallMode::User),
+        ["/x/cmux", "host", "run", "--mode", "user"]
+    );
+    assert_eq!(
+        host_run_argv_with_mode("Contents/Resources/bin/cmux", InstallMode::System),
+        ["Contents/Resources/bin/cmux", "host", "run", "--mode", "system"]
+    );
+}
+
+#[test]
+fn launchd_plists_carry_the_mode_as_an_argument() {
+    // launchd passes a plist environment to every child, including the
+    // user's shells, so the mode is an argument and no plist has one.
+    let user = unix(InstallMode::User, Platform::MacOs, "/Users/ana");
+    let system = unix(InstallMode::System, Platform::MacOs, "/var/root");
+    let plists = [
+        launch_agent_plist(&user).unwrap(),
+        launch_daemon_plist(&user, "ana").unwrap(),
+        launch_daemon_plist(&system, "_cmux").unwrap(),
+        app_service_agent_plist(&app_layout(), "com.cmuxterm.app.nightly").unwrap(),
+    ];
+    for plist in &plists {
+        assert!(!plist.contains("EnvironmentVariables"), "{plist}");
+        assert!(!plist.contains("CMUX_SERVER_MODE"), "{plist}");
+    }
+    let mode = |p: &str| -> String {
+        let tail = &p[p.find("<string>--mode</string>\n").expect("--mode")..];
+        tail.lines().nth(1).unwrap().trim().to_owned()
+    };
+    assert_eq!(mode(&plists[0]), "<string>user</string>");
+    assert_eq!(mode(&plists[1]), "<string>user</string>");
+    assert_eq!(mode(&plists[2]), "<string>system</string>");
+    assert_eq!(mode(&plists[3]), "<string>user</string>");
+}
+
+#[test]
+fn launch_daemon_and_escaping() {
     let l = unix(InstallMode::User, Platform::MacOs, "/Users/a&b");
     let daemon = launch_daemon_plist(&l, "ana").unwrap();
-    assert!(daemon.contains("  <key>UserName</key>\n  <string>ana</string>\n"));
+    assert!(daemon.contains("\t<key>UserName</key>\n\t<string>ana</string>\n"));
     assert!(daemon.contains(
         "<string>/Users/a&amp;b/Library/Application Support/cmux/current/bin/cmux</string>"
     ));
     assert_eq!(launch_daemon_plist(&l, "ana</string>"), Err(UnitError::BadUser));
-
-    let mut env =
-        LayoutEnv { home: Some("/Users/ana".to_owned()), uid: Some(501), ..LayoutEnv::default() };
-    env.mac_app_bundle = Some("/Applications/cmux.app".to_owned());
-    let app = layout(InstallMode::User, Platform::MacOs, &env).unwrap();
-    let plist = launch_agent_plist(&app).unwrap();
-    assert!(
-        plist.contains("<key>BundleProgram</key>\n  <string>Contents/Resources/bin/cmux</string>")
-    );
-    assert!(plist.contains("<string>/Applications/cmux.app/Contents/Resources/bin/cmux</string>"));
 
     let system = unix(InstallMode::System, Platform::MacOs, "/var/root");
     assert_eq!(launch_agent_plist(&system), Err(UnitError::WrongLayout));
@@ -260,7 +320,7 @@ fn windows_service_argv_golden() {
             "create",
             "cmux-server",
             "binPath=",
-            r#""C:\Program Files\cmux\current\bin\cmux.exe" host run"#,
+            r#""C:\Program Files\cmux\current\bin\cmux.exe" host run --mode system"#,
             "start=",
             "auto",
             "obj=",
@@ -294,7 +354,7 @@ fn scheduled_task_xml_golden_parts() {
     assert!(xml.contains("    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n"));
     assert!(xml.contains("    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>\n"));
     assert!(xml.contains(
-        "      <Command>C:\\Users\\ana\\AppData\\Local\\cmux\\current\\bin\\cmux.exe</Command>\n      <Arguments>host run</Arguments>\n"
+        "      <Command>C:\\Users\\ana\\AppData\\Local\\cmux\\current\\bin\\cmux.exe</Command>\n      <Arguments>host run --mode user</Arguments>\n"
     ));
     assert_eq!(scheduled_task_xml(&l, "ana<x>"), Err(UnitError::BadUser));
     assert_eq!(scheduled_task_xml(&l, r"\ana"), Err(UnitError::BadUser));

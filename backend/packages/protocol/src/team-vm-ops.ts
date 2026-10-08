@@ -167,7 +167,7 @@ export const TeamVmDriverResultParams = Schema.Struct({
 export const TeamVmLeasesExpireParams = Schema.Struct({ now: Schema.Int })
 
 /** The install of the VM's own `cmux` (after bind) for one epoch; only that install may append to the journal. */
-export const TeamVmBindInstallParams = Schema.Struct({ install: InstallId, epoch: Schema.Int })
+export const TeamVmBindInstallParams = Schema.Struct({ install: InstallId, epoch: Schema.Int, vm: Schema.optionalKey(Schema.String) })
 
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
   ({

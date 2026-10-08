@@ -2,6 +2,7 @@
 
 use std::ffi::{CString, c_char, c_int, c_void};
 
+use cmux_remote_browser::proto::HistoryOp;
 use cmux_remote_browser::rp_input::RpCall;
 use cmux_remote_browser::session::ScreenSize;
 
@@ -58,6 +59,32 @@ pub struct RbCallbacks {
         ),
     >,
     pub on_needs_begin_frames: Option<unsafe extern "C" fn(*mut c_void, c_int, c_int)>,
+    /// browser, token, kind, origin, message, default text (NULL unless a
+    /// prompt), is_reload.
+    pub on_dialog: Option<
+        unsafe extern "C" fn(
+            *mut c_void,
+            c_int,
+            i64,
+            *const c_char,
+            *const c_char,
+            *const c_char,
+            *const c_char,
+            c_int,
+        ),
+    >,
+    pub on_dialog_reset: Option<unsafe extern "C" fn(*mut c_void, c_int)>,
+    /// browser, surface, kind, visible, x, y, width, height (page DIP).
+    pub on_surface: Option<
+        unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, c_int, c_int, c_int, c_int, c_int),
+    >,
+    pub on_surface_frame: Option<unsafe extern "C" fn(*mut c_void, c_int, *const RbFrame)>,
+    /// browser, loading, can_go_back, can_go_forward.
+    pub on_loading_state: Option<unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, c_int)>,
+    /// browser, `cef_cursor_type_t`.
+    pub on_cursor: Option<unsafe extern "C" fn(*mut c_void, c_int, c_int)>,
+    /// browser, target URL, `cef_window_open_disposition_t`, user gesture.
+    pub on_open_tab: Option<unsafe extern "C" fn(*mut c_void, c_int, *const c_char, c_int, c_int)>,
 }
 
 unsafe extern "C" {
@@ -131,8 +158,26 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn rb_shim_ime_finish(browser: c_int, keep_selection: c_int) -> c_int;
     pub fn rb_shim_ime_cancel(browser: c_int) -> c_int;
+    pub fn rb_shim_set_active(browser: c_int, active: c_int) -> c_int;
+    pub fn rb_shim_surface_capture(surface: c_int) -> c_int;
+    pub fn rb_shim_surface_send_mouse(
+        surface: c_int,
+        kind: c_int,
+        x: f64,
+        y: f64,
+        button: c_int,
+        click_count: c_int,
+        modifiers: c_int,
+    ) -> c_int;
+    pub fn rb_shim_surface_close(surface: c_int) -> c_int;
     pub fn rb_shim_context_menu_result(token: i64, command_id: c_int) -> c_int;
     pub fn rb_shim_popup_menu_result(token: i64, indices: *const c_int, count: c_int) -> c_int;
+    pub fn rb_shim_dialog_result(token: i64, accept: c_int, text: *const c_char) -> c_int;
+    pub fn rb_shim_load_url(browser: c_int, url: *const c_char) -> c_int;
+    pub fn rb_shim_go_back(browser: c_int) -> c_int;
+    pub fn rb_shim_go_forward(browser: c_int) -> c_int;
+    pub fn rb_shim_reload(browser: c_int, ignore_cache: c_int) -> c_int;
+    pub fn rb_shim_stop_load(browser: c_int) -> c_int;
 }
 
 fn cstr(s: &str) -> CString {
@@ -206,8 +251,20 @@ impl Presentation for ShimPresentation {
             RpCall::PageMouse { kind, x, y, button, click_count, modifiers } => unsafe {
                 rb_shim_send_mouse(browser, *kind, *x, *y, *button, *click_count, *modifiers)
             },
-            // Popup surfaces (RP7) are not in the shim ABI yet.
-            RpCall::SurfaceMouse { .. } => 0,
+            RpCall::SurfaceMouse { surface, kind, x, y, button, click_count, modifiers } => {
+                let surface = c_int::try_from(*surface).unwrap_or(c_int::MAX);
+                unsafe {
+                    rb_shim_surface_send_mouse(
+                        surface,
+                        *kind,
+                        *x,
+                        *y,
+                        *button,
+                        *click_count,
+                        *modifiers,
+                    )
+                }
+            }
             RpCall::SendWheel { x, y, dx, dy, precise, phase, momentum_phase, modifiers } => unsafe {
                 rb_shim_send_wheel(
                     browser,
@@ -257,6 +314,51 @@ impl Presentation for ShimPresentation {
         let id = command.and_then(|c| c_int::try_from(c).ok()).unwrap_or(-1);
         // SAFETY: plain values.
         unsafe { rb_shim_context_menu_result(fork_token, id) == 1 }
+    }
+
+    fn dialog_result(&mut self, fork_token: i64, accept: bool, text: Option<&str>) -> bool {
+        let text = text.map(cstr);
+        let ptr = text.as_ref().map_or(std::ptr::null(), |t| t.as_ptr());
+        // SAFETY: `text` outlives the call; the shim copies it.
+        unsafe { rb_shim_dialog_result(fork_token, c_int::from(accept), ptr) == 1 }
+    }
+
+    fn set_active(&mut self, browser: i32, active: bool) -> bool {
+        // SAFETY: plain values; UI thread.
+        unsafe { rb_shim_set_active(browser, c_int::from(active)) == 1 }
+    }
+
+    fn surface_capture(&mut self, surface: u32) -> bool {
+        let Ok(surface) = c_int::try_from(surface) else { return false };
+        // SAFETY: plain value; UI thread.
+        unsafe { rb_shim_surface_capture(surface) == 1 }
+    }
+
+    fn surface_close(&mut self, surface: u32) {
+        if let Ok(surface) = c_int::try_from(surface) {
+            // SAFETY: plain value; UI thread.
+            unsafe { rb_shim_surface_close(surface) };
+        }
+    }
+
+    fn load_url(&mut self, browser: i32, url: &str) -> bool {
+        let url = cstr(url);
+        // SAFETY: `url` outlives the call; UI thread.
+        unsafe { rb_shim_load_url(browser, url.as_ptr()) == 1 }
+    }
+
+    fn history(&mut self, browser: i32, op: HistoryOp) -> bool {
+        // SAFETY: plain values; UI thread.
+        let done = unsafe {
+            match op {
+                HistoryOp::Back => rb_shim_go_back(browser),
+                HistoryOp::Forward => rb_shim_go_forward(browser),
+                HistoryOp::Reload => rb_shim_reload(browser, 0),
+                HistoryOp::ReloadNoCache => rb_shim_reload(browser, 1),
+                HistoryOp::Stop => rb_shim_stop_load(browser),
+            }
+        };
+        done == 1
     }
 
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool {

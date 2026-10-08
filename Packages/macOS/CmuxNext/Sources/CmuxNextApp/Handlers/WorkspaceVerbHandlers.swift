@@ -100,6 +100,8 @@ enum WorkspaceVerbHandlers {
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
         spawn.onListed = then
+        // `then` places it itself (New Workspace in New Group): no second write.
+        spawn.placesBySetting = then == nil
         spawn.opensNewTabPage = newTabPage
         let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }
         context.services.registry.track(Task {

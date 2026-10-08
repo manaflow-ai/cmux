@@ -183,10 +183,19 @@ function transform(
       return value;
     case "enum": {
       const values = schema.values;
-      if (!Array.isArray(values) || !values.includes(value)) {
-        return failure(path, "is not an allowed enum value");
+      if (!Array.isArray(values)) return failure(path, "is not an allowed enum value");
+      if (values.includes(value)) return value;
+      // A string value this SDK does not know decodes as the fallback;
+      // encoding stays strict.
+      if (
+        direction === "decode"
+        && typeof value === "string"
+        && typeof schema.fallback === "string"
+        && values.includes(schema.fallback)
+      ) {
+        return schema.fallback;
       }
-      return value;
+      return failure(path, "is not an allowed enum value");
     }
     case "alias":
       return transform(schema.target, value, direction, path, context);

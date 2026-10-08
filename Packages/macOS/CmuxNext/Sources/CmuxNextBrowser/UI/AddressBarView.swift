@@ -40,7 +40,7 @@ public final class AddressBarView: NSView {
     private var fieldToEdge: NSLayoutConstraint!
     private var fieldToBadge: NSLayoutConstraint!
     let panel = OmniboxSuggestionPanel()
-    private let density = DensityBinding()
+    let density = DensityBinding()
 
     private var reportedURL: URL?
     /// The page's URL changed (the host refreshes the bookmark star).
@@ -156,7 +156,7 @@ public final class AddressBarView: NSView {
         density.update { [unowned self] in
             field.font = OmnibarStyle.font
             field.setPlaceholder(Strings.omnibarPlaceholder)
-            field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
+            field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
             updateChrome()
         }
         density.start()
@@ -260,6 +260,26 @@ public final class AddressBarView: NSView {
             guard let editor = field.currentEditor() as? NSTextView else { return }
             editor.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
         }
+    }
+
+    /// Verification hook (`debug.omnibar_type`): types `text` as `debugType`
+    /// does, then (with `commit`) gives the field editor a Return key-down,
+    /// so the commit takes the path a real Return takes once the key reaches
+    /// the field (`OmnibarFieldEditor.keyDown`, then the omnibar reducer).
+    /// The window need not be key. Returns false when the field did not
+    /// start editing.
+    @discardableResult
+    public func debugTypeAndCommit(_ text: String, commit: Bool = true) -> Bool {
+        debugType(text)
+        guard let editor = field.currentEditor() as? NSTextView else { return false }
+        guard commit else { return true }
+        guard let enter = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window?.windowNumber ?? 0, context: nil, characters: "\r",
+            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36
+        ) else { return false }
+        editor.keyDown(with: enter)
+        return true
     }
 
     var fieldEditor: OmnibarFieldEditor? { field.editor }

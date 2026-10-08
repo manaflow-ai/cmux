@@ -311,7 +311,7 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   await run(vm, `chown -R ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${PROBE_DIR}`);
   result.timings.mcpMs = await inTerminal(vm, "mcp", terminalScript("mcp", lines.join("\n")), 600);
   for (const name of Object.keys(calls)) {
-    let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean }> } | null = null;
+    let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean }> };
     try {
       report = JSON.parse(await readGuest(vm, `${PROBE_DIR}/mcp-${name}.json`));
     } catch (error) {

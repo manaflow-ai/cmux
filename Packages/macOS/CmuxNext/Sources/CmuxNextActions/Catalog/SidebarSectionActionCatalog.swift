@@ -198,8 +198,12 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("search_chats", t("argument.sidebar.builtin.searchChats", "Search Chats")),
             ("customize", t("argument.sidebar.builtin.customize", "Customize Appearance")),
         ]
-        return ActionArgument(name: "item", title: t("argument.sidebar.item", "Item"),
-                              kind: .enumeration(cases.map { ActionEnumCase(value: $0.0, title: $0.1) }))
+        // Free text with the built-ins offered: `workspace:<id>` and
+        // `app:<publisher>/<name>` put any workspace or app in the top rows
+        // (PINNED-ITEMS-END-TO-END P1).
+        return ActionArgument(name: "item", title: t("argument.sidebar.item", "Item"), kind: .string,
+                              suggestions: ActionSuggestions(source: ActionSuggestions.sidebarItems,
+                                                             pinned: cases.map { ActionEnumCase(value: $0.0, title: $0.1) }))
     }
 
     private static var sectionArgument: ActionArgument {

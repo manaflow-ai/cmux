@@ -256,6 +256,13 @@ final class WindowOverlayLayer {
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
         let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
         catchers.update(dividerAreas, active: placement == .overlayWindow && !blocked)
+        // The panels pass hover through to the layout, and moving them under
+        // a still pointer sends no event: the layout recomputes now (cx-ww20).
+        for plane in planes {
+            guard let root = plane.home as? LayoutRootView else { continue }
+            root.hoverPassThroughWindows = { [weak catchers] in catchers?.windowNumbers ?? [] }
+            root.refreshDividerHover()
+        }
     }
 
     /// Every Chromium page of this window re-applies geometry, clip and
