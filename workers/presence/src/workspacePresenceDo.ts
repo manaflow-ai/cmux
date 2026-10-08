@@ -16,7 +16,10 @@ export class WorkspacePresence extends DurableObject {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
     pair[1].serializeAttachment({ scope, identity, expiresAt, viewingUntil: 0 } satisfies ViewerLease);
-    this.snapshot(pair[1]);
+    // Passive rows are part of the roster too. Broadcast the new lease so
+    // existing viewers see its dimmed head immediately, before the client’s
+    // first `active: false` acknowledgement arrives.
+    this.broadcast();
     await this.schedule();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
