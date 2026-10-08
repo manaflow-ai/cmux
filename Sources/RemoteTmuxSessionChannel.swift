@@ -308,6 +308,7 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {
         underlying.setPaneColors(colors, paneId: paneId)
     }
+    func subscribePaneTitlesIfNeeded() { underlying.subscribePaneTitlesIfNeeded() }
     func removePaneColors(paneId: Int) { underlying.removePaneColors(paneId: paneId) }
     func retainWindowSizeClaims(for liveWindowIDs: Set<Int>) {
         // Scope the GC to this session's windows: the shared stream also holds sibling

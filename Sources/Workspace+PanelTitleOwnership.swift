@@ -83,16 +83,27 @@ extension Workspace {
 
         applyFocusedPanelTitle(panelId: panelId)
 
-        let tabId = surfaceIdFromPanelId(panelId)
-            ?? (remoteTmuxPane == nil ? nil : TabID(uuid: panelId))
-        guard let panel = panels[panelId] ?? remoteTmuxPane?.pane.panel,
-              let tabId else { return true }
-        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        bonsplitController.updateTab(
-            tabId,
-            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
-            hasCustomTitle: panelCustomTitles[panelId] != nil
-        )
+        if let remoteTmuxPane, let windowMirror = remoteTmuxPane.windowMirror {
+            let title = trimmed.isEmpty
+                ? windowMirror.title(forPane: remoteTmuxPane.pane.tmuxPaneID)
+                : trimmed
+            windowMirror.updatePaneTabTitle(
+                title,
+                forPane: remoteTmuxPane.pane.tmuxPaneID,
+                hasCustomTitle: !trimmed.isEmpty
+            )
+        } else {
+            let tabId = surfaceIdFromPanelId(panelId)
+                ?? (remoteTmuxPane == nil ? nil : TabID(uuid: panelId))
+            guard let panel = panels[panelId] ?? remoteTmuxPane?.pane.panel,
+                  let tabId else { return true }
+            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+            bonsplitController.updateTab(
+                tabId,
+                title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
+        }
         // A remote tmux mirror tab rename propagates to `rename-window`.
         if propagateToRemoteTmux {
             if remoteTmuxPane != nil {

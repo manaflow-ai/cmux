@@ -9829,11 +9829,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// are tmux-authoritative; unlike a `%window-renamed`, this settles and
     /// clears a local pending pane-title intent.
     func updateRemoteTmuxPaneTitle(panelId: UUID, title: String) {
-        guard remoteTmuxControlPane(surfaceID: panelId) != nil else { return }
-        let tabId = TabID(uuid: panelId)
+        guard let remoteTmuxPane = remoteTmuxControlPane(surfaceID: panelId) else { return }
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
         panelTitles[panelId] = title
+        if let windowMirror = remoteTmuxPane.windowMirror {
+            windowMirror.updatePaneTabTitle(
+                title,
+                forPane: remoteTmuxPane.pane.tmuxPaneID,
+                hasCustomTitle: false
+            )
+            return
+        }
+        let tabId = TabID(uuid: panelId)
         guard let existing = bonsplitController.tab(tabId),
               existing.title != title || existing.hasCustomTitle else { return }
         bonsplitController.updateTab(tabId, title: title, hasCustomTitle: false)
