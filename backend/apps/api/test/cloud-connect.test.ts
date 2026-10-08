@@ -1,10 +1,11 @@
 import { CloudConnectInfo, overlayAddress } from "@cmux/protocol"
-import { env } from "cloudflare:workers"
+import { runInDurableObject } from "cloudflare:test"
 import { Exit, Schema } from "effect"
-import type { SubmitResult } from "../src/owner-do.ts"
 import { describe, expect, it } from "vitest"
 import { bindFile, cloudStub, createdAndBound, DAEMON, ensureUser, frame, person, post, reply, signedInWithInstall, SIZE, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 import { SHARED_TEAM } from "./setup/cloud-teams.ts"
+
+const runIn = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any) => Promise<T>) => Promise<T>
 
 /**
  * Part 3: cloud.machine.connect_info (state-placement.md 5.8 items 3-4, contract 1.7, decision
@@ -60,12 +61,12 @@ describe("part 3: connect_info", { timeout: 60_000 }, () => {
     const bob = { ...person().p, team: alice.team }
     expect(await alice.stub.readOp(alice.team, bob, "cloud.machine.connect_info", { machine })).toMatchObject({ ok: false, code: "auth.forbidden" })
 
-    // A team machine binds only while its creator is a member of the team (cx-44j.51): TeamDO must list
-    // the owner. team.ensure_personal is the one op that seeds a member row without an invite flow.
+    // A team machine binds only while its creator is a member of the team (cx-44j.51). No op adds a member
+    // to a shared team yet, so the owner's membership is stubbed (the refusal is tested in team-authority-leftovers).
     const owner = person(SHARED_TEAM)
-    const teams = (env as unknown as { TEAM_DO: DurableObjectNamespace }).TEAM_DO
-    const teamDO = teams.get(teams.idFromName(SHARED_TEAM)) as unknown as { submit(e: string, p: unknown, f: unknown): Promise<SubmitResult> }
-    expect(reply(await teamDO.submit(SHARED_TEAM, owner.p, { t: "op", op: "team.ensure_personal", params: {}, idempotency_key: `seed:${owner.user}`, origin: "cli" })).t).toBe("result")
+    await runIn(owner.stub, async (instance) => {
+      instance.creatorIsMember = async (team: string, user: string) => team === SHARED_TEAM && user === owner.user
+    })
     const shared = await createdAndBound(owner)
     const member = { ...person().p, team: SHARED_TEAM }
     const r = await owner.stub.readOp(SHARED_TEAM, member, "cloud.machine.connect_info", { machine: shared.machine })
