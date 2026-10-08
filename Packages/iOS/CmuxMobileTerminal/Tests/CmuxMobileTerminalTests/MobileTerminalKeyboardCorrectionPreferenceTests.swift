@@ -84,5 +84,19 @@ struct MobileTerminalKeyboardCorrectionPreferenceTests {
 
         #expect(committed == ["git stauts"])
     }
+
+    @Test("raw replacement accepts a new zero-length commit")
+    func replacementAcceptsNewCommit() throws {
+        let defaults = try freshDefaults("replacement-commit")
+        let preference = MobileTerminalKeyboardCorrectionPreference(defaults: defaults)
+        let view = TerminalInputTextView(keyboardCorrectionPreference: preference)
+        var committed: [String] = []
+        view.onText = { committed.append($0) }
+
+        let insertionRange = try #require(view.textRange(from: view.endOfDocument, to: view.endOfDocument))
+        view.replace(insertionRange, withText: "dictated command")
+
+        #expect(committed == ["dictated command"])
+    }
 }
 #endif
