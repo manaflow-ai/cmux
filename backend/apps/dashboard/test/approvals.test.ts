@@ -62,6 +62,8 @@ describe("integration approval feed items", () => {
     expect(a).toMatchObject({ item: "fi_1", request: REQUEST, digest: DIGEST, team: "team_1", op: "mail.send", target: "ann@example.com", summary: "Q3 numbers", risk: "send-external", expiresAt: NOW + 24 * HOUR })
     expect(parseApproval(feedItem({ poster: { kind: "agent", scope: "agent:x", label: "Claude" } }))).toBeNull()
     expect(parseApproval(feedItem({ kind: "confirm" }))).toBeNull()
+    // Only the team named in the approval may have posted it (the API ignores any other answer).
+    expect(parseApproval(feedItem({ poster: { kind: "integration", scope: "system:connections:team_2", label: "Integrations" } }))).toBeNull()
     expect(parseApproval(feedItem({ prompt: { action: { input: { approval: { team: "team_1", request: "apr_bad", digest: DIGEST } } } } }))).toBeNull()
   })
 })
@@ -71,6 +73,8 @@ describe("request digest", () => {
     expect(await requestDigest("mail.send", params)).toBe(DIGEST)
     const shuffled = { nested: { a: [{ b: 3, y: 2 }], z: 1 }, body: "secret body", subject: "Q3 numbers", to: ["ann@example.com"], connection: "conn_1" }
     expect(await requestDigest("mail.send", shuffled)).toBe(DIGEST)
+    const edge = { connection: "c", skipped: undefined, n: [-0, 1.5, 1e21, 0.1], deep: [[{ b: null, a: [] }]], "10": "x", "2": "y" }
+    expect(await requestDigest("x.op", edge)).toBe(serverDigest("x.op", edge))
   })
   it("refuses a view whose params, op or digest differ from the feed request", async () => {
     expect(await checkDigest(approval(), view())).toBe("match")
@@ -107,7 +111,13 @@ describe("approval status", () => {
     expect(approvalStatus(approval({ state: "answered", answer: { value: { decision: "deny" }, at: NOW } }), view(), "match", NOW)).toBe("denied")
     expect(approvalStatus(approval({ state: "cancelled", cancel: { reason: "declined", at: NOW } }), view(), "match", NOW)).toBe("denied")
     expect(approvalStatus(approval({ state: "cancelled", cancel: { reason: "poster", at: NOW } }), null, null, NOW)).toBe("withdrawn")
-    expect(approvalStatus(approval({ state: "answered", answer: { value: { decision: "allow" }, at: NOW } }), null, null, NOW)).toBe("approved")
+    // Approved, but this session cannot read the outcome (another team, pruned, a failed read): never claim it ran.
+    expect(approvalStatus(approval({ state: "answered", answer: { value: { decision: "allow" }, at: NOW } }), null, null, NOW)).toBe("answered")
+  })
+  it("tells an approved request whose caller lost its grant apart from a denial", () => {
+    const allowed = approval({ state: "answered", answer: { value: { decision: "allow", scope: "once" }, at: NOW } })
+    expect(approvalStatus(allowed, view({ state: "denied", params: {} }), null, NOW)).toBe("revoked")
+    expect(approvalStatus(approval({ state: "answered", answer: { value: { decision: "deny" }, at: NOW } }), view({ state: "denied", params: {} }), null, NOW)).toBe("denied")
   })
 })
 
@@ -119,7 +129,7 @@ describe("localized strings", () => {
     expect(pickLocale([])).toBe("en")
   })
   it("translates every status into Japanese", () => {
-    for (const s of ["pending", "running", "approved", "denied", "expired", "stale", "withdrawn"] as const) {
+    for (const s of ["pending", "running", "answered", "approved", "revoked", "denied", "expired", "stale", "withdrawn"] as const) {
       expect(approvalText("ja", `status.${s}`)).not.toBe(approvalText("en", `status.${s}`))
     }
   })
@@ -134,7 +144,10 @@ describe("approval card", () => {
   it("marks the integration poster and offers Approve and Deny while pending, with the expiry", () => {
     const html = render()
     expect(html).toContain('data-poster="integration"')
-    expect(html).toContain(">Approve<")
+    // Closed: the full request is not on screen, so only Review and Deny.
+    expect(html).not.toContain(">Approve<")
+    expect(html).toContain(">Review<")
+    expect(render({ open: true })).toContain(">Approve<")
     expect(html).toContain(">Deny<")
     expect(html).toContain("mail.send")
     expect(html).toContain("ann@example.com")
@@ -147,19 +160,28 @@ describe("approval card", () => {
     expect(html).toContain(DIGEST)
   })
   it("offers no Approve for a stale digest, and no answer at all for a final state", () => {
-    const stale = render({ view: view({ params: { ...params, body: "changed" } }), digest: "mismatch" })
+    const stale = render({ open: true, view: view({ params: { ...params, body: "changed" } }), digest: "mismatch" })
     expect(stale).not.toContain(">Approve<")
     expect(stale).toContain(">Deny<")
     expect(stale).toContain('data-status="stale"')
+    // The API refused the approval (digest mismatch): the item is answered, so no Deny either, and the text says so.
+    const refused = render({ approval: approval({ state: "answered", answer: { value: { decision: "allow" }, at: NOW } }), digest: "mismatch" })
+    expect(refused).not.toContain(">Deny<")
+    expect(refused).toContain("It ends when it expires.")
     for (const state of ["done", "denied", "expired"] as const) {
-      const html = render({ view: view({ state, params: {} }), digest: null })
+      const html = render({ open: true, view: view({ state, params: {} }), digest: null })
       expect(html).not.toContain(">Approve<")
       expect(html).not.toContain(">Deny<")
     }
     expect(render({ view: view({ state: "done", params: {} }), digest: null })).toContain('data-status="approved"')
   })
+  it("never offers Approve when this browser cannot check the digest", () => {
+    const html = render({ open: true, digest: "error" })
+    expect(html).not.toContain(">Approve<")
+    expect(html).toContain("could not check the request digest")
+  })
   it("renders in Japanese", () => {
-    const html = render({ locale: "ja" })
+    const html = render({ locale: "ja", open: true })
     expect(html).toContain(">承認<")
     expect(html).toContain(">拒否<")
   })

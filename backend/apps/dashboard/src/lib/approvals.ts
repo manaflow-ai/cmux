@@ -9,8 +9,9 @@
  * and found it equal to the feed request's digest, so the person approves what they read.
  */
 
-export type ApprovalStatus = "pending" | "running" | "approved" | "denied" | "expired" | "stale" | "withdrawn"
-export type DigestCheck = "match" | "mismatch" | null
+export type ApprovalStatus = "pending" | "running" | "answered" | "approved" | "revoked" | "denied" | "expired" | "stale" | "withdrawn"
+/** "error": this browser could not hash (no secure context); Approve stays off. Null: nothing to check (final). */
+export type DigestCheck = "match" | "mismatch" | "error" | null
 
 /** integration.approval.get (packages/protocol/src/integrations.ts IntegrationApprovalGet). */
 export interface ApprovalView {
@@ -57,6 +58,8 @@ export const parseApproval = (item: unknown): ParsedApproval | null => {
   const input = obj(action?.input)
   const a = obj(input?.approval)
   if (!a || !REQUEST.test(str(a.request)) || !DIGEST.test(str(a.digest)) || !str(a.team)) return null
+  // The same check the API makes (feed-approvals.ts): only the posting team's ConnectionDO hears the answer.
+  if (obj(i.poster)?.scope !== `system:connections:${str(a.team)}`) return null
   const answer = obj(obj(i.answer)?.value)?.decision
   return {
     item: str(i.id),
@@ -96,21 +99,26 @@ export const requestDigest = async (op: string, params: unknown): Promise<string
 export const checkDigest = async (a: ParsedApproval, view: ApprovalView): Promise<DigestCheck> => {
   if (view.state !== "pending") return null
   if (view.op !== a.op || view.digest !== a.digest) return "mismatch"
-  return (await requestDigest(view.op, view.params)) === a.digest ? "match" : "mismatch"
+  try {
+    return (await requestDigest(view.op, view.params)) === a.digest ? "match" : "mismatch"
+  } catch {
+    return "error"
+  }
 }
 
 /**
- * What the person sees. The API's final states win (approved = ran once, denied, expired); a
- * digest that does not match is refused (stale); otherwise the feed answer shows until the API
- * settles it. Without a view (pruned, or another team) the feed item decides.
+ * What the person sees. The API's final states win (approved = sent once; denied, or revoked when
+ * the person approved but the caller lost its grant; expired); a digest that does not match is
+ * stale; otherwise the feed answer shows until the API settles it. Without a view (pruned, another
+ * team, a failed read) the feed item decides, and an approval's outcome stays unknown (answered).
  */
 export const approvalStatus = (a: ParsedApproval, view: ApprovalView | null, digest: DigestCheck, now: number): ApprovalStatus => {
   if (view?.state === "done") return "approved"
-  if (view?.state === "denied") return "denied"
+  if (view?.state === "denied") return a.answer === "allow" ? "revoked" : "denied"
   if (view?.state === "expired") return "expired"
   if (digest === "mismatch") return "stale"
   if (a.answer === "deny" || a.cancelReason === "declined") return "denied"
-  if (a.answer === "allow") return view ? "running" : "approved"
+  if (a.answer === "allow") return view ? "running" : "answered"
   if (a.feedState === "cancelled") return "withdrawn"
   if (a.feedState === "expired" || now >= (view?.expires_at ?? a.expiresAt)) return "expired"
   return "pending"

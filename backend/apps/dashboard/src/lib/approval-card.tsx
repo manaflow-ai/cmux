@@ -21,7 +21,9 @@ const pill = (color: string): CSSProperties => ({ display: "inline-block", paddi
 const STATUS_COLOR: Record<ApprovalStatus, string> = {
   pending: "var(--accent)",
   running: "var(--accent)",
+  answered: "var(--fg)",
   approved: "var(--fg)",
+  revoked: "var(--bad)",
   denied: "var(--bad)",
   expired: "var(--muted)",
   stale: "var(--bad)",
@@ -41,6 +43,10 @@ export function ApprovalCard({ approval: a, view, digest, now, locale, open, bus
   const live = status === "pending" || status === "stale" || status === "running"
   const target = view?.target || a.target
   const summary = view?.summary || a.summary
+  // Approve only from the open card, where the full request and its digest check are on screen.
+  const approvable = open && canApprove(status, digest)
+  const deniable = canDeny(a, status)
+  const detail: ApprovalTextKey = status === "stale" && !deniable ? "detail.stale_closed" : `detail.${status}`
   return (
     <div className="card" data-poster="integration" data-status={status} style={{ borderLeft: "3px solid var(--accent)" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -72,17 +78,17 @@ export function ApprovalCard({ approval: a, view, digest, now, locale, open, bus
         {RISKS.has(a.risk) && (live || status === "expired") ? " · " : null}
         {live ? t("time.expires", { when: relativeTime(locale, expiresAt, now) }) : status === "expired" ? t("time.expired", { when: relativeTime(locale, expiresAt, now) }) : null}
       </div>
-      <p className={status === "stale" || status === "denied" ? "error" : undefined} style={{ margin: "6px 0" }}>
-        {t(`detail.${status}`)}
+      <p className={status === "stale" || status === "denied" || status === "revoked" ? "error" : undefined} style={{ margin: "6px 0" }}>
+        {t(detail)}
       </p>
-      {canApprove(status, digest) || canDeny(a, status) ? (
+      {approvable || deniable ? (
         <div style={{ display: "flex", gap: 8 }}>
-          {canApprove(status, digest) ? (
+          {approvable ? (
             <button disabled={busy} onClick={onApprove} style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
               {t("action.approve")}
             </button>
           ) : null}
-          {canDeny(a, status) ? (
+          {deniable ? (
             <button className="danger" disabled={busy} onClick={onDeny}>
               {t("action.deny")}
             </button>
@@ -122,7 +128,7 @@ function ApprovalDetail({ approval: a, view, digest, locale }: Pick<ApprovalCard
           </tr>
         </tbody>
       </table>
-      <p className={digest === "mismatch" ? "error" : "muted"}>{final ? t("digest.final") : digest === "match" ? t("digest.match") : digest === "mismatch" ? t("detail.stale") : t("digest.checking")}</p>
+      <p className={digest === "mismatch" || digest === "error" ? "error" : "muted"}>{final ? t("digest.final") : digest === "match" ? t("digest.match") : digest === "mismatch" ? t("detail.stale") : digest === "error" ? t("digest.error") : t("digest.checking")}</p>
       {final ? null : (
         <>
           <strong>{t("field.params")}</strong>

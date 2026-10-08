@@ -12,14 +12,20 @@ interface Row {
   readonly digest: DigestCheck
 }
 
-/** Newest first; older ones stay in the feed. */
-const LIMIT = 20
+/** Every open request (20 per connection at most, by urgency), then the most recent closed ones. */
+const OPEN_LIMIT = 200
+const CLOSED_LIMIT = 10
 
-const loadRows = async (): Promise<Array<Row>> => {
-  const r = await read({ data: { op: "feed.list", params: { poster_kind: "integration", kind: "approve", state: "all", order: "recent", limit: LIMIT } } })
+const listItems = async (params: Record<string, unknown>): Promise<Array<unknown>> => {
+  const r = await read({ data: { op: "feed.list", params: { poster_kind: "integration", kind: "approve", ...params } } })
   if (r.status === 401) setSignedIn(false)
   if (r.status !== 200) throw new Error(`feed.list ${r.status}`)
-  const items = ((r.body.value as { items?: Array<unknown> } | null)?.items ?? []).map(parseApproval).filter((a): a is ParsedApproval => a !== null)
+  return (r.body.value as { items?: Array<unknown> } | null)?.items ?? []
+}
+
+const loadRows = async (): Promise<Array<Row>> => {
+  const [open, closed] = await Promise.all([listItems({ state: "open", order: "urgent", limit: OPEN_LIMIT }), listItems({ state: "closed", order: "recent", limit: CLOSED_LIMIT })])
+  const items = [...open, ...closed].map(parseApproval).filter((a): a is ParsedApproval => a !== null)
   return Promise.all(
     items.map(async (approval) => {
       // Only this session reads the full request (G8); a request of another team or a pruned one reads as not found.
@@ -46,11 +52,16 @@ export function IntegrationApprovals() {
     setBusy(a.item)
     setError(null)
     const value = decision === "allow" ? { decision: "allow", scope: "once" } : { decision: "deny" }
-    const r = await mutate({ data: { op: "feed.answer", params: { item: a.item, answer: value }, idempotency_key: newKey() } })
-    if (r.status === 401) setSignedIn(false)
-    else if (!r.body.ok) setError(t("error.answer", { error: `${r.body.error?.code ?? r.status}: ${r.body.error?.message ?? ""}` }))
-    setBusy(null)
-    rows.reload()
+    try {
+      const r = await mutate({ data: { op: "feed.answer", params: { item: a.item, answer: value }, idempotency_key: newKey() } })
+      if (r.status === 401) setSignedIn(false)
+      else if (!r.body.ok) setError(t("error.answer", { error: `${r.body.error?.code ?? r.status}: ${r.body.error?.message ?? ""}` }))
+    } catch (e) {
+      setError(t("error.answer", { error: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setBusy(null)
+      rows.reload()
+    }
   }
 
   const now = Date.now()
