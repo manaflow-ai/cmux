@@ -125,6 +125,11 @@ pub struct Inputs {
     pub state_dir: PathBuf,
     /// The tag's helper socket the cmux app exported, if any.
     pub cua: Option<crate::cua_socket::Socket>,
+    /// The helper v2 endpoint folder, only while the helper v2 runs
+    /// (`endpoint.json` exists): sessions then get `acpmux cua-mcp`.
+    pub cua_v2: Option<PathBuf>,
+    /// This acpmux executable (the `cua-mcp` bridge command).
+    pub acpmux: Option<PathBuf>,
 }
 
 impl Inputs {
@@ -143,6 +148,8 @@ impl Inputs {
             cmux_json: std::fs::read_to_string(config).ok(),
             state_dir: crate::config::home().join("agent-tools"),
             cua: crate::cua_socket::from_env(),
+            cua_v2: crate::cua_v2::active_dir(crate::cua_v2::dir_from_env()),
+            acpmux: std::env::current_exe().ok(),
         }
     }
 }
@@ -207,7 +214,18 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     let executable = |name: &str| {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
-    if let Some(cua) = executable("cmux-cua") {
+    // RED STUB (commit 1): the helper v2 is never chosen.
+    if let (Some(dir), Some(acpmux), true) = (&inputs.cua_v2, &inputs.acpmux, false) {
+        // The helper v2: this acpmux as the agent's MCP server. Only the
+        // folder goes in its env; the bridge reads the socket and secret
+        // from endpoint.json there when it connects.
+        servers.push(McpServer {
+            name: crate::cua_v2::SERVER_NAME.into(),
+            command: acpmux.clone(),
+            args: vec!["cua-mcp".into()],
+            env: vec![(crate::cua_v2::ENDPOINT_DIR_ENV.into(), dir.to_string_lossy().into_owned())],
+        });
+    } else if let Some(cua) = executable("cmux-cua") {
         let mut args = vec!["mcp".to_owned()];
         let mut socket_env: Vec<(String, String)> = Vec::new();
         if let Some(socket) = &inputs.cua {

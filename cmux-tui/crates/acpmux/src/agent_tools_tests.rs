@@ -46,6 +46,8 @@ fn inputs(bin: &Path, cmux_json: Option<&str>, state: &Path) -> Inputs {
         cmux_json: cmux_json.map(str::to_owned),
         state_dir: state.to_path_buf(),
         cua: None,
+        cua_v2: None,
+        acpmux: None,
     }
 }
 
@@ -243,4 +245,28 @@ fn the_helper_token_is_never_on_a_command_line_and_its_config_file_is_private() 
         home.path().join("run/mcp/___x.json"),
         "a session id never leaves the folder"
     );
+}
+
+#[test]
+fn a_running_helper_v2_gives_sessions_the_acpmux_bridge_instead_of_cmux_cua() {
+    let bin = bin_with(&["cmux-cua"]);
+    let state = Temp::new();
+    let mut with_v2 = inputs(bin.path(), None, state.path());
+    with_v2.cua = crate::cua_socket::select(Some("/tmp/tag/cmux-cua.sock".into()), Some("agent-token".into()));
+    with_v2.cua_v2 = Some(PathBuf::from("/tmp/cmux-cua-v2/scope"));
+    with_v2.acpmux = Some(PathBuf::from("/Applications/cmux DEV.app/Contents/Resources/bin/acpmux"));
+    let tools = resolve(&with_v2);
+    let cua: Vec<_> = tools.servers.iter().filter(|s| s.name == "cmux-cua").collect();
+    assert_eq!(cua.len(), 1, "one computer use server: {:?}", tools.servers);
+    assert_eq!(cua[0].command, PathBuf::from("/Applications/cmux DEV.app/Contents/Resources/bin/acpmux"));
+    assert_eq!(cua[0].args, ["cua-mcp"]);
+    // Only the folder: the socket and secret stay in endpoint.json, never in argv or env.
+    assert_eq!(cua[0].env, [(crate::cua_v2::ENDPOINT_DIR_ENV.to_owned(), "/tmp/cmux-cua-v2/scope".to_owned())]);
+    assert!(!tools.mcp_config().unwrap().to_string().contains("agent-token"));
+
+    // The helper v2 not running (no endpoint.json): the legacy server, unchanged.
+    with_v2.cua_v2 = None;
+    let legacy = resolve(&with_v2);
+    assert_eq!(legacy.servers[0].command, bin.path().join("cmux-cua"));
+    assert_eq!(legacy.servers[0].args, ["mcp", "--socket", "/tmp/tag/cmux-cua.sock"]);
 }

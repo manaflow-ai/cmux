@@ -220,6 +220,10 @@ pub enum Command {
     /// Serve the local CodeRouter in a separate process.
     #[command(subcommand)]
     Router(RouterCmd),
+    /// The cmux Computer Use helper v2 bridge: an MCP stdio server for one
+    /// agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    CuaMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
