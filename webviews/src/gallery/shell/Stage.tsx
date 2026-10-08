@@ -20,7 +20,7 @@ import { stageHeight, type GalleryEntry } from "../format";
 import { themeIsDark } from "../theme/ghostty";
 import type { PlayReport } from "../play";
 import { entryPaneSize, fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
-import { readScrollPosition, restoreScrollPositionIfUnchanged, scrollTargetFor } from "./scroll";
+import { readScrollPosition, restoreScrollPositionUnlessMoved, SCROLL_KEYS, scrollTargetFor } from "./scroll";
 import metrics from "virtual:cmux-gallery/metrics";
 import themes from "virtual:cmux-gallery/themes";
 
@@ -139,10 +139,27 @@ export function Stage({
     const scrollTarget = scrollTargetFor(iframe);
     const initialScroll = readScrollPosition(scrollTarget);
     let restored = false;
+    let userMoved = false;
+    const intentTarget: EventTarget = scrollTarget ?? window;
+    const markUserMoved = () => {
+      userMoved = true;
+    };
+    const markKeyboardScroll = (event: KeyboardEvent) => {
+      if (SCROLL_KEYS.has(event.key)) markUserMoved();
+    };
+    for (const type of ["wheel", "touchstart", "touchmove", "pointerdown"])
+      intentTarget.addEventListener(type, markUserMoved, { passive: true });
+    addEventListener("keydown", markKeyboardScroll, true);
+    const removeIntentListeners = () => {
+      for (const type of ["wheel", "touchstart", "touchmove", "pointerdown"])
+        intentTarget.removeEventListener(type, markUserMoved);
+      removeEventListener("keydown", markKeyboardScroll, true);
+    };
     const restore = () => {
       if (restored) return;
       restored = true;
-      restoreScrollPositionIfUnchanged(scrollTarget, initialScroll);
+      restoreScrollPositionUnlessMoved(scrollTarget, initialScroll, userMoved);
+      removeIntentListeners();
     };
     const receive = (event: MessageEvent) => {
       const data = event.data as { type?: string; status?: string; report?: PlayReport } | null;
@@ -155,6 +172,7 @@ export function Stage({
     addEventListener("message", receive);
     return () => {
       removeEventListener("message", receive);
+      removeIntentListeners();
     };
   }, []);
   const note = entry.variants[state]?.note;

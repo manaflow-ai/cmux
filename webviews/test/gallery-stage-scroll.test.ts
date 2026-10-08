@@ -3,7 +3,8 @@ import { JSDOM } from "jsdom";
 import {
   readScrollPosition,
   restoreScrollPosition,
-  restoreScrollPositionIfUnchanged,
+  restoreScrollPositionUnlessMoved,
+  SCROLL_KEYS,
   scrollTargetFor,
 } from "../src/gallery/shell/scroll";
 
@@ -31,12 +32,22 @@ describe("gallery stage scroll restoration", () => {
     expect(readScrollPosition(main)).toEqual({ x: 12, y: 34 });
   });
 
-  test("does not reset a target that moved after the iframe mounted", () => {
+  test("restores an iframe-induced move when no user input occurred", () => {
     const initial = { x: 12, y: 34 };
     main.scrollLeft = initial.x;
     main.scrollTop = initial.y;
     main.scrollTop = 99;
-    expect(restoreScrollPositionIfUnchanged(main, initial)).toBe(false);
+    expect(restoreScrollPositionUnlessMoved(main, initial, false)).toBe(true);
+    expect(readScrollPosition(main)).toEqual(initial);
+  });
+
+  test("preserves a target moved by intentional input", () => {
+    const initial = { x: 12, y: 34 };
+    main.scrollLeft = initial.x;
+    main.scrollTop = 99;
+    expect(restoreScrollPositionUnlessMoved(main, initial, true)).toBe(false);
     expect(readScrollPosition(main)).toEqual({ x: 12, y: 99 });
+    expect(SCROLL_KEYS.has("PageDown")).toBe(true);
+    expect(SCROLL_KEYS.has("a")).toBe(false);
   });
 });

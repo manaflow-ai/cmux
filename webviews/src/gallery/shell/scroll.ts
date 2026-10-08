@@ -25,10 +25,25 @@ export function restoreScrollPosition(target: HTMLElement | null, position: Gall
   }
 }
 
-/** Restore a mount position only when nothing has intentionally moved the scroll target since. */
-export function restoreScrollPositionIfUnchanged(target: HTMLElement | null, position: GalleryScrollPosition): boolean {
-  const current = readScrollPosition(target);
-  if (current.x !== position.x || current.y !== position.y) return false;
+/** Restore a mount position unless the reviewer intentionally scrolled while the frame loaded. */
+export function restoreScrollPositionUnlessMoved(
+  target: HTMLElement | null,
+  position: GalleryScrollPosition,
+  userMoved: boolean,
+): boolean {
+  if (userMoved) return false;
   restoreScrollPosition(target, position);
   return true;
 }
+
+export const SCROLL_KEYS = new Set([
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "End",
+  "Home",
+  "PageDown",
+  "PageUp",
+  " ",
+]);
