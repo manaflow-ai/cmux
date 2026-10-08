@@ -11,6 +11,7 @@ public struct AgentFeedDecisionPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .feed
     @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .feed)
     @State private var path: [String] = []
+    @State private var stressMonitor = AgentFeedScrollStressFrameMonitor()
     @State private var stressMetrics = "state=idle"
     @State private var referenceDate: Date
     @State private var items: [MobileAgentFeedItem]
@@ -42,7 +43,8 @@ public struct AgentFeedDecisionPreviewView: View {
                     pendingTerminalReplyItemIDs: [],
                     refreshesOnAppear: false,
                     actions: actions,
-                    searchText: searchCoordinator.searchDestinationText(for: .feed)
+                    searchText: searchCoordinator.searchDestinationText(for: .feed),
+                    performanceObserver: UITestConfig.agentFeedDecisionPreviewScrollStressEnabled ? stressMonitor : nil
                 )
                 .toolbar { rootToolbar }
                 .navigationDestination(for: String.self) { destination in
@@ -238,7 +240,7 @@ public struct AgentFeedDecisionPreviewView: View {
     private func runScrollStressIfEnabled() async {
         guard UITestConfig.agentFeedDecisionPreviewScrollStressEnabled else { return }
 
-        let monitor = AgentFeedScrollStressFrameMonitor()
+        let monitor = stressMonitor
         monitor.start()
         stressMetrics = monitor.markerValue(state: "running")
         let clock = ContinuousClock()
