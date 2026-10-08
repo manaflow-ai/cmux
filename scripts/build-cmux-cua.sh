@@ -3,11 +3,13 @@ set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
 CMUX_CUA_PINNED_SHA="e0f738807dbff2f35fe67d7fbcc99c7082cffc23"
+CMUX_CUA_PATCH_RELATIVE_PATH="scripts/cmux-cua-codex-delivery-mode.patch"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
 CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-helper-v2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CMUX_CUA_PATCH_FILE="$REPO_ROOT/$CMUX_CUA_PATCH_RELATIVE_PATH"
 
 # Xcode build phases do not inherit a login-shell PATH, so fall back to
 # rustup's conventional bin directory, then the standard Homebrew prefixes.
@@ -328,6 +330,12 @@ if [[ "$ACTUAL_SHA" != "$CMUX_CUA_PINNED_SHA" ]]; then
   echo "error: cmux-cua checkout is at $ACTUAL_SHA, expected $CMUX_CUA_PINNED_SHA" >&2
   exit 1
 fi
+
+# The pinned engine already owns the native delivery ladder, but its Codex
+# compatibility adapter predates the public delivery_mode field. Apply the
+# small, reviewed compatibility patch after the SHA gate so the bundled helper
+# exposes the recovery mode documented by its native click/drag tools.
+"$REPO_ROOT/scripts/apply-cmux-cua-patch.sh" "$SRC_ROOT" "$CMUX_CUA_PATCH_FILE"
 release_src_lock
 
 CARGO_ROOT="$SRC_ROOT/libs/cmux-cua/rust"
