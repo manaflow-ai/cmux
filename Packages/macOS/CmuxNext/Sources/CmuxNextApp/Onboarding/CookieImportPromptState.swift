@@ -52,6 +52,6 @@ struct CookieImportPage: Equatable {
     var isChromium: Bool
     /// The person's own profile: not incognito, not agent-driven, not the agent profile.
     var isPersonal: Bool
-    /// Another notice (a Chromium fallback, a moved tab) already sits at the bottom of the page.
+    /// A page notice (a Chromium fallback, a moved tab) already sits at the bottom; window toasts lift the card instead.
     var showsOtherNotice: Bool
 }
