@@ -58,11 +58,17 @@ pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
     buf.set_stringn(x + 2, y + 6, &peer, (width - 4) as usize, base);
 
     let deny_label = copy.deny;
-    let approve_label = copy.approve;
+    // An attached TUI cannot approve (cx-ehrq): no Approve, a pointer to
+    // where approval happens, and Deny alone.
+    let can_approve = crate::app::pairing_confirm::can_approve(&app.session);
+    if !can_approve {
+        buf.set_stringn(x + 2, y + 7, copy.approve_elsewhere, (width - 4) as usize, base);
+    }
+    let approve_label = if can_approve { copy.approve } else { "" };
     let deny_w = label_width(deny_label);
     let approve_w = label_width(approve_label);
     let approve_x = x + width - 2 - approve_w;
-    let deny_x = approve_x.saturating_sub(deny_w + 2);
+    let deny_x = if can_approve { approve_x.saturating_sub(deny_w + 2) } else { approve_x - deny_w };
     let button_y = y + 8;
     dialog.approve = Rect { x: approve_x, y: button_y, width: approve_w, height: 1 };
     dialog.deny = Rect { x: deny_x, y: button_y, width: deny_w, height: 1 };
