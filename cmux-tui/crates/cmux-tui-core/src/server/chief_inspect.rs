@@ -16,13 +16,11 @@
 //! started without a tools socket answers the owner `chief.not_configured`.
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::{ClientTransport, MessageWriter, Mux, Response, send_response};
 use crate::conversation_store::LOCAL_USER;
@@ -45,13 +43,16 @@ const PATHS: [&str; 7] = [
     "/api/search",
 ];
 /// The brain refuses answers above 4 MiB; a reply line above this is refused.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) const MAX_REPLY_BYTES: usize = 5 * 1024 * 1024;
-const TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(unix)]
+const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// The tools socket taken from the environment at startup (`take_from_env`).
 static TAKEN: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) struct Params {
     pub path: String,
     #[serde(default)]
@@ -105,7 +106,7 @@ pub unsafe fn take_tools_socket_from_env() {
 }
 
 /// Whether this daemon can forward (the brain's tools socket is configured).
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) fn configured() -> bool {
     tools_socket().is_some()
 }
@@ -129,6 +130,7 @@ fn require_owner(mux: &Mux, client: u64) -> anyhow::Result<()> {
 
 /// The socket, checked: a Unix socket (not a symlink) owned by this
 /// daemon's user.
+#[cfg(unix)]
 fn checked(path: &Path) -> anyhow::Result<std::os::unix::net::UnixStream> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     let meta = std::fs::symlink_metadata(path)
@@ -158,11 +160,17 @@ pub(super) fn inspect_with(
         Some(path) => path.to_owned(),
         None => tools_socket().ok_or(NotConfigured)?,
     };
-    let stream = checked(&path)?;
+    forward(&path, &params)
+}
+
+/// Sends one `inspect` line to the brain's tools socket and reads its answer.
+#[cfg(unix)]
+fn forward(path: &Path, params: &Params) -> anyhow::Result<Value> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let stream = checked(path)?;
     stream.set_read_timeout(Some(TIMEOUT))?;
     stream.set_write_timeout(Some(TIMEOUT))?;
-    let request =
-        json!({"tool": "inspect", "method": "GET", "path": params.path, "query": params.query});
+    let request = serde_json::json!({"tool": "inspect", "method": "GET", "path": params.path, "query": params.query});
     (&stream).write_all(format!("{request}\n").as_bytes())?;
     let mut line = String::new();
     BufReader::new((&stream).take(MAX_REPLY_BYTES as u64 + 1)).read_line(&mut line)?;
@@ -171,6 +179,13 @@ pub(super) fn inspect_with(
     let answer: Value = serde_json::from_str(&line)?;
     anyhow::ensure!(answer.get("status").is_some_and(Value::is_u64), "not an inspector answer");
     Ok(answer)
+}
+
+/// The brain's tools socket is a Unix socket: a daemon on another platform
+/// speaks the command but is never configured for it.
+#[cfg(not(unix))]
+fn forward(_path: &Path, _params: &Params) -> anyhow::Result<Value> {
+    Err(NotConfigured.into())
 }
 
 /// The asynchronous request path: the forward runs on its own thread (it
@@ -218,6 +233,6 @@ fn respond(writer: &MessageWriter, id: Option<Value>, answer: anyhow::Result<Val
     send_response(writer, response)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "chief_inspect_tests.rs"]
 mod tests;
