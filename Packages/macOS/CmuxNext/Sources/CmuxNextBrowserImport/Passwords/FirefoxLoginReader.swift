@@ -1,5 +1,9 @@
 public import Foundation
 
+// CMUX_NO_PASSWORD_IMPORT (set only by the cx-f58x notary test build,
+// nightly.yml input notary_test_without_password_import) compiles out the
+// browser password readers. Default builds include them.
+#if !CMUX_NO_PASSWORD_IMPORT
 /// Reads a Firefox-family profile's saved passwords: `logins.json` (the
 /// encrypted entries) and `key4.db` (the NSS key store, read from a private
 /// copy). Only the encrypted values the source keeps on disk are read from
@@ -54,7 +58,7 @@ public struct FirefoxLoginReader {
                 skipped.undecryptable += 1
                 continue
             }
-            guard password.withUnsafeBytes(ChromiumPasswordCrypto.isUTF8) else {
+            guard password.withUnsafeBytes({ $0.isValidUTF8 }) else {
                 skipped.undecryptable += 1
                 continue
             }
@@ -76,3 +80,4 @@ public struct FirefoxLoginReader {
         return (order.compactMap { byKey[$0] }, skipped)
     }
 }
+#endif
