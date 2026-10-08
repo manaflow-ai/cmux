@@ -53,7 +53,7 @@ public struct BenchServeDescriptor: Codable, Hashable, Sendable {
         self.bulkRecordBytes = max(1, bulkRecordBytes)
     }
 
-    /// The peer hints understood by `DirectHintsResolver`.
+    /// Carrier-specific peer hints understood by the selected split adapter.
     public var peer: LinkPeer {
         var hints = ["direct.hostKey": hostKey]
         if !address.isEmpty, port != 0 {
