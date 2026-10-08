@@ -27,12 +27,14 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 }
 
 /// The agent pane's native context menu. The pane is app chrome, so WebKit's default menu (Reload,
-/// Back, Look Up, Share...) never shows: Copy (WebKit adds it on a selection), Copy Message and
-/// Copy as Markdown for the message under the pointer, Fork from Here when its turn can be forked,
-/// and Inspect Element in builds with developer tools.
+/// Back, Look Up, Share...) never shows: Cut, Copy and Paste where WebKit offers them (Copy on a
+/// selection, Cut and Paste in the composer), Copy Message and Copy as Markdown for the message
+/// under the pointer, Fork from Here when its turn can be forked, and Inspect Element in builds
+/// with developer tools.
 @MainActor
 enum AgentPaneContextMenu {
-    static let copyItem = "WKMenuItemIdentifierCopy"
+    /// WebKit's edit items the pane keeps, in WebKit's order.
+    static let editItems: Set<String> = ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierPaste"]
     static let inspectItem = "WKMenuItemIdentifierInspectElement"
 
     struct Actions {
@@ -42,10 +44,10 @@ enum AgentPaneContextMenu {
 
     /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators.
     static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, devTools: Bool, actions: Actions) {
-        let copy = menu.items.first { $0.identifier?.rawValue == copyItem }
+        let edits = menu.items.filter { editItems.contains($0.identifier?.rawValue ?? "") }
         let inspect = devTools ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         menu.removeAllItems()
-        var copies = copy.map { [$0] } ?? []
+        var copies = edits
         if let target {
             copies.append(AgentPaneMenuItem(title: AgentPaneMenuStrings.copyMessage) { actions.copy(target.text) })
             if let markdown = target.markdown {

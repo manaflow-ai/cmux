@@ -52,6 +52,8 @@ extension AgentPaneView {
 
     /// Routes WebKit's context menu through the pane and listens for the page's reports.
     func installContextMenu() {
+        // A page host view can come back from its pool: never add the handler twice (WebKit throws).
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
         webView.configuration.userContentController.add(AgentPaneContextMenuReporter(view: self), contentWorld: .page,
                                                         name: Self.contextMenuHandler)
         let edit: @MainActor (NSMenu) -> Void = { [weak self] menu in self?.editContextMenu(menu) }

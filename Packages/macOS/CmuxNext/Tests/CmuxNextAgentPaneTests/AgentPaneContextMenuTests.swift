@@ -60,6 +60,19 @@ import WebKit
         #expect(Self.titles(menu) == ["WKMenuItemIdentifierCopy", AgentPaneMenuStrings.copyMessage])
     }
 
+    /// Right-click in the composer: WebKit's Cut, Copy and Paste stay, its other items go.
+    @Test func theComposerKeepsCutCopyAndPaste() {
+        let menu = NSMenu()
+        for id in ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierPaste",
+                   "WKMenuItemIdentifierSpellingMenu", "WKMenuItemIdentifierReload"] {
+            let item = NSMenuItem(title: id, action: nil, keyEquivalent: "")
+            item.identifier = NSUserInterfaceItemIdentifier(id)
+            menu.addItem(item)
+        }
+        AgentPaneContextMenu.rebuild(menu, target: nil, devTools: false, actions: .init(copy: { _ in }, fork: { _ in }))
+        #expect(Self.titles(menu) == ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierPaste"])
+    }
+
     @Test func choosingAnItemActsOnTheReportedMessage() throws {
         let (menu, copies, forks) = rebuilt(target: Self.reply, devTools: false)
         for title in [AgentPaneMenuStrings.copyMessage, AgentPaneMenuStrings.copyAsMarkdown, AgentPaneMenuStrings.forkFromHere] {
