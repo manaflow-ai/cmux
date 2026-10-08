@@ -50,17 +50,14 @@ pub(crate) trait TuiMuxOps {
     fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> bool;
     fn focus_pane(&self, pane: PaneId) -> bool;
     fn close_pane(&self, target: PaneId) -> anyhow::Result<bool>;
-    fn swap_panes(&self, pane: PaneId, target: PaneId) -> bool;
     fn select_screen(&self, index: Option<usize>, delta: Option<isize>);
     fn rename_surface(&self, target: SurfaceId, name: String) -> bool;
-    fn rename_screen(&self, target: ScreenId, name: String) -> bool;
     fn new_pane_right(
         &self,
         target: PaneId,
         width: f32,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>>;
-    fn close_screen(&self, target: ScreenId) -> anyhow::Result<bool>;
 }
 
 #[cfg(test)]
@@ -131,20 +128,12 @@ impl TuiMuxOps for Arc<Mux> {
         self.close_pane_as(me(), target)
     }
 
-    fn swap_panes(&self, pane: PaneId, target: PaneId) -> bool {
-        self.swap_panes_as(me(), pane, target)
-    }
-
     fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
         self.select_screen_as(me(), index, delta);
     }
 
     fn rename_surface(&self, target: SurfaceId, name: String) -> bool {
         self.rename_surface_as(me(), target, name)
-    }
-
-    fn rename_screen(&self, target: ScreenId, name: String) -> bool {
-        self.rename_screen_as(me(), target, name)
     }
 
     fn new_pane_right(
@@ -154,9 +143,5 @@ impl TuiMuxOps for Arc<Mux> {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.new_pane_right_as(me(), target, width, size)
-    }
-
-    fn close_screen(&self, target: ScreenId) -> anyhow::Result<bool> {
-        self.close_screen_as(me(), target)
     }
 }
