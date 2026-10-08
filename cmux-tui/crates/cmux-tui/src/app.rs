@@ -26593,7 +26593,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -26652,17 +26652,17 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn tab_workspace_menu_moves_the_clicked_inactive_tab_and_drag_creates_workspace() {
         let (mux, first) = test_mux("tab-workspace-move-test", None);
-        let second = mux.new_tab(None, None, Some((80, 24))).unwrap();
-        let target = mux.new_workspace(Some("destination".into()), Some((80, 24))).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), None, None, Some((80, 24))).unwrap();
+        let target = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("destination".into()), Some((80, 24))).unwrap();
         let destination = mux.with_state(|state| state.workspaces[state.active_workspace].id);
-        mux.select_workspace(Some(0), None);
+        mux.select_workspace_as(&cmux_tui_core::Actor::local_user(), Some(0), None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_view = SidebarView::Workspaces;
         app.replace_tree(app.session.tree());
@@ -26722,7 +26722,7 @@ mod tests {
         assert_eq!(app.tree.active_screen().unwrap().panes[0].tabs[0].surface, first.id);
         assert!(Arc::ptr_eq(&first, &mux.surface(first.id).unwrap()));
         for surface in [first.id, second.id, target.id] {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -26753,7 +26753,7 @@ mod tests {
         assert_eq!(app.tree.active_screen().unwrap().panes.len(), before + 1);
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -26761,7 +26761,7 @@ mod tests {
     fn pane_context_maximize_focuses_the_explicit_inactive_pane() {
         let (mux, first) = test_mux("context-maximize-focus-test", None);
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second = mux.split_as(&cmux_tui_core::Actor::local_user(), first_pane, SplitDir::Right, Some((40, 24))).unwrap();
         let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
         assert_eq!(mux.with_state(|state| state.active_pane()), Some(second_pane));
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -26777,7 +26777,7 @@ mod tests {
         let zoomed_pane = app.session.tree().active_screen().unwrap().zoomed_pane;
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
         assert_eq!(zoomed_pane, Some(first_pane));
         assert_eq!(active_pane, first_pane);
@@ -26787,13 +26787,13 @@ mod tests {
     fn pane_context_maximize_preserves_its_explicit_intent_after_remote_state_changes() {
         let (mux, first) = test_mux("context-maximize-intent-test", None);
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second = mux.split_as(&cmux_tui_core::Actor::local_user(), first_pane, SplitDir::Right, Some((40, 24))).unwrap();
         let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
 
         let menu_intent = MenuAction::TogglePaneZoom { pane: second_pane, zoomed: false };
-        mux.zoom_pane(Some(second_pane), ZoomMode::On).unwrap();
+        mux.zoom_pane_as(&cmux_tui_core::Actor::local_user(), Some(second_pane), ZoomMode::On).unwrap();
         app.activate_menu(menu_intent).unwrap();
         while app.session.has_pending_mutations() {
             let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -26803,7 +26803,7 @@ mod tests {
         let zoomed_pane = app.session.tree().active_screen().unwrap().zoomed_pane;
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
         assert_eq!(zoomed_pane, Some(second_pane));
     }
@@ -26890,14 +26890,14 @@ mod tests {
                 action.definition().label_en
             );
         }
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn single_surface_client_rejects_hidden_pane_closure() {
         let (mux, attached) = test_mux("single-surface-close-pane-test", None);
         let pane = mux.with_state(|state| state.pane_of(attached.id).unwrap());
-        let hidden = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let hidden = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((80, 24))).unwrap();
         mux.select_tab(Some(pane), Some(0), None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.surface_only = Some(attached.id);
@@ -26911,8 +26911,8 @@ mod tests {
 
         assert!(mux.surface(attached.id).is_some());
         assert!(mux.surface(hidden.id).is_some());
-        mux.close_surface(attached.id).unwrap();
-        mux.close_surface(hidden.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), attached.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), hidden.id).unwrap();
     }
 
     #[cfg(unix)]
@@ -27042,7 +27042,7 @@ mod tests {
         assert_eq!(right[0].fg, Some(Color::Indexed(114)));
 
         for surface in mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>()) {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -27080,7 +27080,7 @@ mod tests {
         assert_eq!(app.action_display_label(Action::user_command(0).unwrap()), "Sleeper");
 
         for surface in mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>()) {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -27102,16 +27102,16 @@ mod tests {
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         assert_eq!(surfaces.len(), initial_surfaces);
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn close_tab_action_honors_its_explicit_pane_target() {
         let mux = Mux::new("explicit-close-tab-target-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second = mux.split_as(&cmux_tui_core::Actor::local_user(), first_pane, SplitDir::Right, Some((40, 24))).unwrap();
         assert_eq!(mux.active_surface(), Some(second.id));
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -27132,7 +27132,7 @@ mod tests {
         });
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -27152,7 +27152,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -27185,7 +27185,7 @@ mod tests {
         app.session.pending_mutations.store(0, Ordering::Release);
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -27259,7 +27259,7 @@ mod tests {
             app.status_message.as_deref(),
             Some(localization::catalog().terminal.deferred_input_destination_changed)
         );
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -27275,7 +27275,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let original = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let original = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mux_events = mux.subscribe();
         let (mut app, session_events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -27380,7 +27380,7 @@ mod tests {
         let tree = app.session.tree();
         assert_eq!(tree.workspaces()[0].screens[0].panes.len(), 1);
         assert_eq!(tree.active_surface(), Some(original.id));
-        mux.close_surface(original.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), original.id).unwrap();
     }
 
     #[test]
@@ -27396,7 +27396,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let original = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let original = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let (mut app, session_events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
 
@@ -27466,7 +27466,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            let _ = mux.close_surface(surface);
+            let _ = mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface);
         }
         assert!(!mux.with_state(|state| state.surfaces.contains_key(&original.id)));
     }
@@ -27513,7 +27513,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -27570,7 +27570,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -27597,14 +27597,14 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn doubled_prefix_keeps_the_focused_sidebar_plugin_target() {
         let (mux, sidebar_surface) = test_mux("sidebar-send-prefix-test", None);
-        mux.new_workspace(Some("pane".to_string()), Some((20, 8))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("pane".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
@@ -27624,7 +27624,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -27694,7 +27694,7 @@ mod tests {
     #[test]
     fn opening_shortcut_help_releases_an_active_pty_mouse_press() {
         let mux = Mux::new("shortcut-help-pty-release-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.drag = Some(Drag::PtyMouse {
             surface: surface.id,
@@ -27713,7 +27713,7 @@ mod tests {
         assert!(app.shortcut_help.is_some());
         assert!(app.drag.is_none());
         assert_eq!(app.encode_buf, b"fallback-release");
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -27722,7 +27722,7 @@ mod tests {
             format!("shortcut-help-browser-release-test-{}", std::process::id()),
             SurfaceOptions::default(),
         );
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         let (dispatcher, received) = BrowserInputDispatcher::blocked(1);
         app.browser_input = dispatcher;
@@ -27754,7 +27754,7 @@ mod tests {
             received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
             Some(BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
         ));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -27898,7 +27898,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -27924,7 +27924,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -28192,7 +28192,7 @@ mod tests {
         assert!(area.bar.is_none());
         assert!(area.track.is_none());
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28211,7 +28211,7 @@ mod tests {
         assert!(!rendered.contains("screens"), "{rendered}");
         assert_eq!(terminal.backend().buffer()[(0, 7)].fg, Color::Red);
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28275,13 +28275,13 @@ mod tests {
     #[test]
     fn directional_focus_uses_client_history_and_visible_geometry() {
         let mux = Mux::new("directional-focus-memory-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 30))).unwrap();
         let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        mux.split_as(&cmux_tui_core::Actor::local_user(), left, SplitDir::Right, Some((40, 30))).unwrap();
         let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        mux.split_as(&cmux_tui_core::Actor::local_user(), top_right, SplitDir::Down, Some((40, 15))).unwrap();
         let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        assert!(mux.focus_pane(left));
+        assert!(mux.focus_pane_as(&cmux_tui_core::Actor::local_user(), left));
 
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -28329,16 +28329,16 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn viewport_pane_overflows_the_existing_tiled_layout() {
         let mux = Mux::new("viewport-pane-layout-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.split(left, SplitDir::Right, Some((40, 24))).unwrap();
+        mux.split_as(&cmux_tui_core::Actor::local_user(), left, SplitDir::Right, Some((40, 24))).unwrap();
         let right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
 
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -28358,7 +28358,7 @@ mod tests {
         assert_eq!(app.pane_areas.len(), 2);
         assert!(app.pane_areas.iter().all(|area| area.rect.width == 40));
 
-        mux.new_pane_right(right, 2.0 / 3.0, Some((51, 22))).unwrap();
+        mux.new_pane_right_as(&cmux_tui_core::Actor::local_user(), right, 2.0 / 3.0, Some((51, 22))).unwrap();
         app.replace_tree(app.session.tree());
         let appended = app
             .tree
@@ -28456,7 +28456,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -28464,7 +28464,7 @@ mod tests {
     fn horizontal_status_bar_reserves_terminal_cells_for_wide_messages() {
         let (mux, first) = test_mux("wide-status-message-test", None);
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        mux.new_pane_right(first_pane, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+        mux.new_pane_right_as(&cmux_tui_core::Actor::local_user(), first_pane, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
             .unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -28512,7 +28512,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -28621,7 +28621,7 @@ mod tests {
         assert_eq!(selection.anchor, (0, 1));
         assert_eq!(selection.range(), ((0, 1), (2, 1)));
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28648,7 +28648,7 @@ mod tests {
             "double-clicking a wrapped glyph head must select its word"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28675,7 +28675,7 @@ mod tests {
             "a double click must highlight the complete word"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28688,7 +28688,7 @@ mod tests {
             .expect("a word click must return the terminal selection range");
         assert_eq!(selection.range(), ((0, 0), (4, 0)));
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28722,7 +28722,7 @@ mod tests {
             "Shift double click must select the complete word when bypassing PTY mouse reporting"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28752,7 +28752,7 @@ mod tests {
             "Shift triple click must select the complete line when bypassing PTY mouse reporting"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28775,7 +28775,7 @@ mod tests {
 
         app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
             .unwrap();
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28815,7 +28815,7 @@ mod tests {
         );
         app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
             .unwrap();
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28842,7 +28842,7 @@ mod tests {
             "double click must select the full whitespace run between words"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28881,7 +28881,7 @@ mod tests {
             "double-click drag must start at the selected word and end at the whole target word"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28927,7 +28927,7 @@ mod tests {
             "a double-click drag must use the second press as its word anchor"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -28966,7 +28966,7 @@ mod tests {
             "reverse double-click drags must include both complete words"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -29013,7 +29013,7 @@ mod tests {
         .unwrap();
         assert!(app.selection.is_none(), "release must not copy or retain stale semantic text");
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -29052,7 +29052,7 @@ mod tests {
             "a click after a selection drag must remain a plain click"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -29091,7 +29091,7 @@ mod tests {
             "a padding drag must prevent the next click from becoming a double click"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -29131,7 +29131,7 @@ mod tests {
             "triple-click drag must extend the line selection onto a blank line"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -29182,7 +29182,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -29232,7 +29232,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -29280,10 +29280,10 @@ mod tests {
     #[test]
     fn viewport_columns_resize_with_shortcuts_and_mouse_drag() {
         let mux = Mux::new("viewport-pane-resize-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let base = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
         let appended_surface = mux
-            .new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+            .new_pane_right_as(&cmux_tui_core::Actor::local_user(), base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
             .unwrap();
         let appended = mux.with_state(|state| state.pane_of(appended_surface.id).unwrap());
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -29350,16 +29350,16 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn viewport_resize_drag_keeps_its_mouse_down_coordinate_origin() {
         let mux = Mux::new("viewport-resize-origin-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let base = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        mux.new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+        mux.new_pane_right_as(&cmux_tui_core::Actor::local_user(), base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
             .unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -29399,21 +29399,21 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn layout_undo_action_confirms_before_closing_a_created_pane() {
         let mux = Mux::new("layout-undo-action-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let base = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
         let right = mux
-            .new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+            .new_pane_right_as(&cmux_tui_core::Actor::local_user(), base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
             .unwrap();
         let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
-        let moved = mux.new_tab(Some(base), None, None).unwrap();
-        assert!(mux.move_tab(moved.id, right_pane, 1));
+        let moved = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(base), None, None).unwrap();
+        assert!(mux.move_tab_as(&cmux_tui_core::Actor::local_user(), moved.id, right_pane, 1));
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
@@ -29478,10 +29478,10 @@ mod tests {
     #[test]
     fn stale_layout_undo_confirmation_keeps_the_created_pane() {
         let mux = Mux::new("stale-layout-undo-action-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let base = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
         let right = mux
-            .new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+            .new_pane_right_as(&cmux_tui_core::Actor::local_user(), base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
             .unwrap();
         let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -29494,7 +29494,7 @@ mod tests {
             app.handle(events.recv_timeout(crate::test_wait::EVENT).unwrap()).unwrap();
         }
         assert!(app.prompt.is_some());
-        assert!(mux.set_viewport_pane_width(right_pane, 0.5));
+        assert!(mux.set_viewport_pane_width_as(&cmux_tui_core::Actor::local_user(), right_pane, 0.5));
 
         app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
         app.commit_prompt();
@@ -29508,7 +29508,7 @@ mod tests {
             Some(localization::catalog().sidebar.layout_undo_stale)
         );
 
-        mux.close_pane(right_pane).unwrap();
+        mux.close_pane_as(&cmux_tui_core::Actor::local_user(), right_pane).unwrap();
     }
 
     #[test]
@@ -29973,7 +29973,7 @@ mod tests {
     #[test]
     fn viewport_geometry_changes_reveal_the_active_pane_without_canceling_manual_scroll() {
         let mux = Mux::new("viewport-geometry-reveal-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.config.viewport.animation = false;
         app.replace_tree(app.session.tree());
@@ -30038,15 +30038,15 @@ mod tests {
     #[test]
     fn remote_screen_switch_records_the_new_active_pane() {
         let mux = Mux::new("remote-screen-focus-memory-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 30))).unwrap();
         let workspace = Session::Local(mux.clone()).tree().active_workspace().unwrap().id;
-        mux.new_screen(Some(workspace), Some((80, 30))).unwrap();
+        mux.new_screen_as(&cmux_tui_core::Actor::local_user(), Some(workspace), Some((80, 30))).unwrap();
         let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        mux.split_as(&cmux_tui_core::Actor::local_user(), left, SplitDir::Right, Some((40, 30))).unwrap();
         let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        mux.split_as(&cmux_tui_core::Actor::local_user(), top_right, SplitDir::Down, Some((40, 15))).unwrap();
         let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.select_screen(Some(0), None);
+        mux.select_screen_as(&cmux_tui_core::Actor::local_user(), Some(0), None);
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -30067,21 +30067,21 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn remote_workspace_switch_records_the_new_active_pane() {
         let mux = Mux::new("remote-workspace-focus-memory-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 30))).unwrap();
-        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 30))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 30))).unwrap();
         let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        mux.split_as(&cmux_tui_core::Actor::local_user(), left, SplitDir::Right, Some((40, 30))).unwrap();
         let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        mux.split_as(&cmux_tui_core::Actor::local_user(), top_right, SplitDir::Down, Some((40, 15))).unwrap();
         let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.select_workspace(Some(0), None);
+        mux.select_workspace_as(&cmux_tui_core::Actor::local_user(), Some(0), None);
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -30102,16 +30102,16 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn client_navigation_records_the_session_focus_without_moving_the_mux() {
         let mux = Mux::new("client-focus-report-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 30))).unwrap();
-        mux.new_workspace(None, Some((80, 30))).unwrap();
-        mux.select_workspace(Some(0), None);
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 30))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 30))).unwrap();
+        mux.select_workspace_as(&cmux_tui_core::Actor::local_user(), Some(0), None);
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -30136,16 +30136,16 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn reconnecting_client_restores_its_own_focus() {
         let mux = Mux::new("client-focus-reconnect-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 30))).unwrap();
-        mux.new_workspace(None, Some((80, 30))).unwrap();
-        mux.select_workspace(Some(0), None);
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 30))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 30))).unwrap();
+        mux.select_workspace_as(&cmux_tui_core::Actor::local_user(), Some(0), None);
 
         let mut first = test_app(Session::Local(mux.clone()));
         first.sidebar_visible = false;
@@ -30173,7 +30173,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -30258,7 +30258,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -30310,7 +30310,7 @@ mod tests {
             assert!(!viewport.contains("history-"));
             assert!(compact.contains("prompt>visible-content"));
         });
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -30362,7 +30362,7 @@ mod tests {
                 && current.anchor == selection.anchor
                 && current.head == selection.head
         }));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -30404,7 +30404,7 @@ mod tests {
         app.handle(completion).unwrap();
 
         assert_eq!(app.selection, Some(selection));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -30450,7 +30450,7 @@ mod tests {
                 && current.anchor == selection.anchor
                 && current.head == selection.head
         }));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -30481,7 +30481,7 @@ mod tests {
         assert_eq!(app.session.operations.queued_bytes_for_test(), retained_bytes * 8);
         unblock_tx.send(()).unwrap();
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -30515,7 +30515,7 @@ mod tests {
         .unwrap();
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
         assert_eq!(surface.with_terminal(|term| term.history_rows()), Some(0));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -30533,7 +30533,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let attach = surface.attach_stream().unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         let mut output = attach.replay.to_vec();
@@ -30575,7 +30575,7 @@ mod tests {
             }
         }
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -30593,7 +30593,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let attach = surface.attach_stream().unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         let mut output = attach.replay.to_vec();
@@ -30662,7 +30662,7 @@ mod tests {
             }
         }
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -30687,7 +30687,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let attach = surface.attach_stream().unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         let mut output = attach.replay.to_vec();
@@ -30740,7 +30740,7 @@ mod tests {
             !output.contains(&b'q'),
             "prefixed clear-history forwarded its suffix key to the alternate-screen child"
         );
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -30758,7 +30758,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let attach = surface.attach_stream().unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         let mut output = attach.replay.to_vec();
@@ -30836,7 +30836,7 @@ mod tests {
             }
         }
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -30862,11 +30862,11 @@ mod tests {
     #[test]
     fn vertical_split_drag_keeps_nested_pane_tab_bars_visible() {
         let mux = Mux::new("nested-pane-minimum-height-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 18))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 18))).unwrap();
         let first = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.split(first, SplitDir::Down, Some((80, 9))).unwrap();
-        assert!(mux.focus_pane(first));
-        mux.split(first, SplitDir::Down, Some((80, 5))).unwrap();
+        mux.split_as(&cmux_tui_core::Actor::local_user(), first, SplitDir::Down, Some((80, 9))).unwrap();
+        assert!(mux.focus_pane_as(&cmux_tui_core::Actor::local_user(), first));
+        mux.split_as(&cmux_tui_core::Actor::local_user(), first, SplitDir::Down, Some((80, 5))).unwrap();
         let nested_bottom = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
 
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -30905,7 +30905,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -31004,7 +31004,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -31410,7 +31410,7 @@ mod tests {
     #[test]
     fn size_menu_commands_reach_the_shared_sizing_host() {
         let mux = Mux::new("size-menu-commands-test", crate::test_wait::quiet_surface());
-        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         mux.resize_surface_for_client(surface.id, 0, 100, 40).unwrap();
         mux.resize_surface_for_client(surface.id, 7, 118, 30).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -31668,7 +31668,7 @@ mod tests {
     #[test]
     fn clipped_browser_omnibar_keeps_editing_and_clicks_visible() {
         let mux = Mux::new("clipped-browser-omnibar-edit-test", SurfaceOptions::default());
-        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((38, 5))).unwrap();
+        let surface = mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((38, 5))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         let pane = app.tree.active_screen().expect("active screen").active_pane;
@@ -31720,7 +31720,7 @@ mod tests {
     #[test]
     fn browser_omnibar_places_stall_suffix_after_emoji_display_cells() {
         let mux = Mux::new("emoji-browser-omnibar-test", SurfaceOptions::default());
-        let surface = mux.new_browser_tab("emoji:👩‍💻".to_string(), None, Some((48, 8))).unwrap();
+        let surface = mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "emoji:👩‍💻".to_string(), None, Some((48, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
@@ -31919,7 +31919,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
 
         let mut app = test_app(Session::Local(mux.clone()));
@@ -32068,7 +32068,7 @@ mod tests {
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -32084,7 +32084,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
 
         let mut app = test_app(Session::Local(mux.clone()));
@@ -32128,7 +32128,7 @@ mod tests {
         assert_eq!(app.encode_buf, b"\x1b[<9;5;3m");
         assert!(app.drag.is_none());
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -32239,7 +32239,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -32281,7 +32281,7 @@ mod tests {
             .unwrap();
         assert_eq!(app.selection.map(|selection| selection.anchor.0), Some(12));
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -32297,7 +32297,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
 
         let mut app = test_app(Session::Local(mux.clone()));
@@ -32397,7 +32397,7 @@ mod tests {
         assert_eq!(app.encode_buf, b"\x1b[<0;12;3m");
         assert!(app.drag.is_none());
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -32538,7 +32538,7 @@ mod tests {
     #[test]
     fn desired_host_mouse_capture_follows_scoped_inner_terminal() {
         let mux = Mux::new("scoped-mouse-capture-test", crate::test_wait::quiet_surface());
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         assert!(app.desired_host_mouse_capture(), "full TUI always captures host mouse");
 
@@ -32555,7 +32555,7 @@ mod tests {
             !app.desired_host_mouse_capture(),
             "scoped attach mirrors inner mouse tracking off"
         );
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     /// A reattach restores the inner terminal's mouse modes through the
@@ -32569,7 +32569,7 @@ mod tests {
     #[test]
     fn scoped_host_mouse_capture_follows_canonical_state_without_a_rendered_frame() {
         let mux = Mux::new("scoped-canonical-capture-test", crate::test_wait::quiet_surface());
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
 
@@ -32591,7 +32591,7 @@ mod tests {
             !app.desired_host_mouse_capture(),
             "capture releases when the inner application disables tracking"
         );
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     /// When the canonical state is momentarily unknowable (the scoped surface
@@ -32600,7 +32600,7 @@ mod tests {
     #[test]
     fn scoped_host_mouse_capture_keeps_last_applied_when_state_is_unknowable() {
         let mux = Mux::new("scoped-capture-unknowable-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         let missing: SurfaceId = surface.id + 1000;
         app.surface_only = Some(missing);
@@ -32615,7 +32615,7 @@ mod tests {
             !app.desired_host_mouse_capture(),
             "an unknowable surface must not assert capture the client never applied"
         );
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     /// Round-5 dogfood: btop in a reattached bridge tab renders but loses all
@@ -32634,7 +32634,7 @@ mod tests {
     #[test]
     fn scoped_focus_gained_reasserts_host_mouse_capture_after_invisible_host_reset() {
         let mux = Mux::new("scoped-focus-reassert-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
 
@@ -32673,7 +32673,7 @@ mod tests {
             reasserted.contains("\x1b[?1002h"),
             "the re-asserted host state must re-enable mouse capture the inner app still holds"
         );
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     /// A resize is the other moment a host can re-initialize the surface and
@@ -32684,7 +32684,7 @@ mod tests {
     #[test]
     fn scoped_resize_reasserts_host_mouse_capture_after_invisible_host_reset() {
         let mux = Mux::new("scoped-resize-reassert-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
 
@@ -32704,7 +32704,7 @@ mod tests {
         )
         .expect("the re-derived frame must re-emit host mouse capture");
         assert!(reasserted.contains("\x1b[?1002h"));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     /// A full TUI owns the entire host surface and re-emits its input modes
@@ -32713,7 +32713,7 @@ mod tests {
     #[test]
     fn full_tui_focus_gained_does_not_reset_host_capture_bookkeeping() {
         let mux = Mux::new("full-tui-focus-reassert-test", SurfaceOptions::default());
-        let _surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let _surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.surface_only = None;
         app.host_mouse_capture_applied = Some(true);
@@ -32740,7 +32740,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
         let held_surface = surface.clone();
         let (locked_tx, locked_rx) = std::sync::mpsc::channel();
@@ -32773,7 +32773,7 @@ mod tests {
 
         release_tx.send(()).unwrap();
         holder.join().unwrap();
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -32789,7 +32789,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -32835,13 +32835,13 @@ mod tests {
         input.join().unwrap();
 
         assert_eq!(result.unwrap(), PtyMousePressResult::Started);
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn disabled_mouse_snapshot_does_not_consume_press() {
         let mux = Mux::new("disabled-mouse-press-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         let pane = app.tree.active_screen().unwrap().active_pane;
@@ -32871,7 +32871,7 @@ mod tests {
         assert!(app.workspace_sidebar_focused());
         assert!(app.drag.is_none());
         assert!(app.encode_buf.is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -32911,7 +32911,7 @@ mod tests {
         );
         assert!(app.selection.is_none());
         assert!(app.encode_buf.is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -32927,7 +32927,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         app.sidebar_visible = false;
@@ -32979,7 +32979,7 @@ mod tests {
             "a press rendered for old terminal content must not arm selection on its replacement"
         );
         assert!(app.selection.is_none());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33035,7 +33035,7 @@ mod tests {
                 "a wheel rendered for one screen's semantics must not run against the other"
             );
             assert!(app.deferred_input.is_empty());
-            mux.close_surface(surface.id).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
         }
     }
 
@@ -33083,7 +33083,7 @@ mod tests {
         assert!(app.drag.is_none());
         assert!(app.selection.is_none());
         assert!(app.encode_buf.is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33129,7 +33129,7 @@ mod tests {
         );
         assert!(app.drag.is_none());
         assert!(app.selection.is_none());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33175,7 +33175,7 @@ mod tests {
              admission: it never forwards bytes to the terminal application"
         );
         assert!(app.deferred_input.is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33223,7 +33223,7 @@ mod tests {
             "a replayed cmux-owned context menu press must not be dropped because terminal \
              content changed under it while it waited for the paint"
         );
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33263,7 +33263,7 @@ mod tests {
             "an immediate wheel must not cross from host scrollback into alternate-screen arrows"
         );
         assert!(app.encode_buf.is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33318,7 +33318,7 @@ mod tests {
             "the retained press must replay against the same rendered terminal"
         );
         app.cancel_pty_mouse_drag();
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33375,7 +33375,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert!(app.drag.is_none(), "the replayed release must close the replayed press");
         assert!(!app.active_pointer_buttons.contains(&MouseButton::Left));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33396,7 +33396,7 @@ mod tests {
             "a stale rendered token must fail at the encoding boundary"
         );
         assert!(output.is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33422,7 +33422,7 @@ mod tests {
             "a pointer event must not use cell geometry from an older rendered frame"
         );
         assert!(output.is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33468,7 +33468,7 @@ mod tests {
         );
         assert!(matches!(app.drag, Some(Drag::PtyMouse { .. })));
         app.cancel_pty_mouse_drag();
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33502,7 +33502,7 @@ mod tests {
 
         assert!(!bytes.is_empty());
         assert!(!bytes.spilled(), "ordinary terminal motion must stay in the inline PTY buffer");
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33616,13 +33616,13 @@ mod tests {
             "an unrelated terminal click must not wait for a browser bitmap"
         );
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn browser_click_requires_a_processed_frame() {
         let mux = Mux::new("browser-processed-frame-test", SurfaceOptions::default());
-        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let surface = mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((20, 8))).unwrap();
         surface.kill();
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -33651,7 +33651,7 @@ mod tests {
             "a placeholder with no processed browser frame must not accept pointer input"
         );
         assert!(!matches!(app.drag, Some(Drag::Browser { .. })));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -33823,7 +33823,7 @@ mod tests {
     #[test]
     fn sustained_graphics_processing_advances_acknowledged_pointer_authority() {
         let mux = Mux::new("graphics-processing-liveness-test", SurfaceOptions::default());
-        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let surface = mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((20, 8))).unwrap();
         let surface_id = surface.id;
         surface.kill();
         let mut app = test_app(Session::Local(mux.clone()));
@@ -33848,7 +33848,7 @@ mod tests {
         );
         assert_eq!(app.pending_graphics_submission, Some(3));
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::GraphicsProcessingPending);
-        mux.close_surface(surface_id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface_id).unwrap();
     }
 
     #[test]
@@ -33951,7 +33951,7 @@ mod tests {
     #[test]
     fn newer_browser_render_keeps_an_older_processing_acknowledgment_stale() {
         let mux = Mux::new("graphics-processing-order-test", SurfaceOptions::default());
-        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let surface = mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((20, 8))).unwrap();
         let surface_id = surface.id;
         surface.kill();
         let mut app = test_app(Session::Local(mux.clone()));
@@ -33993,7 +33993,7 @@ mod tests {
             app.rendered_pointer_frame.pane_content_generations.get(&surface_id),
             Some(&PaneContentGeneration::Browser(14))
         );
-        mux.close_surface(surface_id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface_id).unwrap();
     }
 
     #[test]
@@ -34201,10 +34201,10 @@ mod tests {
     fn deferred_menu_click_cannot_retarget_a_replacement_tab() {
         let mux = Mux::new("stable-menu-resource-test", SurfaceOptions::default());
         let first =
-            mux.new_browser_tab("about:blank#first".to_string(), None, Some((80, 24))).unwrap();
+            mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank#first".to_string(), None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let second = mux
-            .new_browser_tab("about:blank#second".to_string(), Some(pane), Some((80, 24)))
+            .new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank#second".to_string(), Some(pane), Some((80, 24)))
             .unwrap();
         mux.select_tab(Some(pane), Some(0), None);
         let mut app = test_app(Session::Local(mux.clone()));
@@ -34238,8 +34238,8 @@ mod tests {
             app.prompt.is_none(),
             "the menu click rendered for the first tab must not rename the replacement tab"
         );
-        mux.close_surface(first.id).unwrap();
-        mux.close_surface(second.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), first.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), second.id).unwrap();
     }
 
     fn assert_rect_within_frame(rect: Rect, frame_size: (u16, u16)) {
@@ -34285,7 +34285,7 @@ mod tests {
     fn frame_area_owner_resyncs_paint_after_backend_shrink() {
         let mux = Mux::new("frame-area-owner-paint-test", SurfaceOptions::default());
         let surface =
-            mux.new_browser_tab("about:blank".to_string(), None, Some((100, 20))).unwrap();
+            mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((100, 20))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
@@ -34297,13 +34297,13 @@ mod tests {
         app.render_action(&mut terminal, RenderAction::Paint).unwrap();
 
         assert_cached_geometry_within_frame(&app, (40, 10));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn frame_area_owner_zero_frame_drops_rendered_routes() {
         let mux = Mux::new("frame-area-owner-zero-test", SurfaceOptions::default());
-        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((40, 10))).unwrap();
+        let surface = mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((40, 10))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
@@ -34320,7 +34320,7 @@ mod tests {
         assert!(app.hits.is_empty());
         assert!(app.rendered_pointer_frame.panes.is_empty());
         assert!(app.rendered_pointer_frame.hits.is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -34380,15 +34380,15 @@ mod tests {
             Arc::ptr_eq(&first_machine, &second_machine),
             "terminal output must not clone the app-wide machine catalog"
         );
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn deferred_tab_press_cannot_retarget_a_replacement_surface_at_the_same_index() {
         let mux = Mux::new("stable-tab-route-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         app.sidebar_visible = false;
@@ -34422,8 +34422,8 @@ mod tests {
             app.drag.is_none(),
             "the old tab press must not arm the replacement surface at the same index"
         );
-        mux.close_surface(first.id).unwrap();
-        mux.close_surface(second.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), first.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), second.id).unwrap();
     }
 
     #[test]
@@ -34475,7 +34475,7 @@ mod tests {
             "a click rendered on the old thumb must not become a live track jump"
         );
         assert!(app.drag.is_none());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -34522,13 +34522,13 @@ mod tests {
             matches!(app.drag, Some(Drag::Scrollbar { .. })),
             "terminal output must rebase the active drag instead of releasing capture"
         );
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn deferred_click_fails_closed_after_pointer_map_generation_changes() {
         let mux = Mux::new("pointer-map-generation-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         app.sidebar_visible = false;
@@ -34619,7 +34619,7 @@ mod tests {
     #[test]
     fn rejected_release_clears_the_active_pty_drag() {
         let mux = Mux::new("rejected-release-drag-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
@@ -34698,7 +34698,7 @@ mod tests {
     #[test]
     fn rejected_motion_enqueue_rolls_back_mouse_encoder_dedupe() {
         let mux = Mux::new("motion-enqueue-rollback-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
         let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
         let mut app = test_app(Session::Local(mux.clone()));
@@ -34721,13 +34721,13 @@ mod tests {
             PtyInputEnqueueResult::Failed,
         );
         assert!(!encode_test_mouse_motion(&handle, input).is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn evicted_known_undelivered_motion_allows_same_cell_retry() {
         let mux = Mux::new("motion-cancel-rollback-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
         let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
         let mut app = test_app(Session::Local(mux.clone()));
@@ -34760,7 +34760,7 @@ mod tests {
         }))
         .unwrap();
         assert!(!encode_test_mouse_motion(&handle, input).is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -34828,7 +34828,7 @@ mod tests {
     #[test]
     fn dispatcher_timeout_preserves_ambiguous_press_for_recovery_release() {
         let mux = Mux::new("dispatcher-timeout-press-drag-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
         let mut app = test_app(Session::Local(mux.clone()));
         let (result, reservation_id) =
@@ -34873,7 +34873,7 @@ mod tests {
             PtyInputBytes::from_slice(b"release"),
         ));
         app.drag = None;
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -34963,7 +34963,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((120, 40))).unwrap();
         mux.resize_surface_for_client(surface.id, 0, 120, 40).unwrap();
         mux.resize_surface_for_client(surface.id, 99, 80, 30).unwrap();
 
@@ -34995,7 +34995,7 @@ mod tests {
         for input in inputs {
             mux.record_client_size(99, 33);
             app.handle(AppEvent::Input(input)).unwrap();
-            assert_eq!(mux.new_workspace(None, None).unwrap().size(), (99, 33));
+            assert_eq!(mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap().size(), (99, 33));
         }
     }
 
@@ -35094,7 +35094,7 @@ mod tests {
     #[test]
     fn deferred_input_is_discarded_when_its_destination_changes() {
         let mux = Mux::new("deferred-destination-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, None).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
         app.session.pending_mutations.store(1, Ordering::Release);
@@ -35123,9 +35123,9 @@ mod tests {
     #[test]
     fn tab_selection_is_client_local() {
         let mux = Mux::new("client-local-tab-selection-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, None).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, None).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, None).unwrap();
         mux.select_tab(Some(pane), Some(0), None);
         let mut left = test_app(Session::Local(mux.clone()));
         let mut right = test_app(Session::Local(mux.clone()));
@@ -35150,7 +35150,7 @@ mod tests {
         // tree's active fields. An attached frontend (the laptop) keeps the
         // screen, pane, and tab it shows.
         let mux = Mux::new("foreign-creation-keeps-view-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
         let mut laptop = test_app(Session::Local(mux.clone()));
@@ -35158,16 +35158,16 @@ mod tests {
         laptop.replace_tree(laptop.session.tree());
         let screen = laptop.tree.active_screen().unwrap().id;
 
-        mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+        mux.new_screen_as(&cmux_tui_core::Actor::local_user(), Some(workspace), Some((80, 24))).unwrap();
         laptop.replace_tree(laptop.session.tree());
         assert_ne!(mux.with_state(|state| state.workspaces[0].active_screen), 0);
         assert_eq!(laptop.tree.active_screen().unwrap().id, screen);
 
-        mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((80, 24))).unwrap();
         laptop.replace_tree(laptop.session.tree());
         assert_eq!(laptop.active_surface(), Some(first.id));
 
-        let split = mux.split(pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let split = mux.split_as(&cmux_tui_core::Actor::local_user(), pane, SplitDir::Right, Some((40, 24))).unwrap();
         laptop.replace_tree(laptop.session.tree());
         assert_ne!(mux.active_surface(), Some(first.id));
         assert_ne!(laptop.active_surface(), Some(split.id));
@@ -35191,8 +35191,8 @@ mod tests {
                 ..Default::default()
             },
         );
-        mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
-        mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Alpha".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Beta".to_string()), Some((80, 24))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_width = 18;
         app.sidebar_view = SidebarView::Workspaces;
@@ -35200,7 +35200,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
 
         for row in 0..2 {
-            mux.select_workspace(Some(1), None);
+            mux.select_workspace_as(&cmux_tui_core::Actor::local_user(), Some(1), None);
             // Install the owner's reset snapshot directly between subcases.
             app.tree = app.session.tree();
             app.rebuild_tab_locations();
@@ -35267,9 +35267,9 @@ mod tests {
                 ..Default::default()
             },
         );
-        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
 
@@ -35339,9 +35339,9 @@ mod tests {
                 ..Default::default()
             },
         );
-        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((80, 24))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
 
@@ -35422,9 +35422,9 @@ mod tests {
     #[test]
     fn emoji_tab_name_fills_its_display_cell_hit_rect() {
         let mux = Mux::new("emoji-tab-width-test", SurfaceOptions::default());
-        let first = mux.new_browser_tab("about:blank".to_string(), None, Some((38, 7))).unwrap();
+        let first = mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((38, 7))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        assert!(mux.rename_surface(first.id, "👩‍💻".to_string()));
+        assert!(mux.rename_surface_as(&cmux_tui_core::Actor::local_user(), first.id, "👩‍💻".to_string()));
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
@@ -35462,8 +35462,8 @@ mod tests {
                 ..Default::default()
             },
         );
-        mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
-        mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Alpha".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Beta".to_string()), Some((80, 24))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.session.remote = true;
         app.sidebar_width = 18;
@@ -35502,9 +35502,9 @@ mod tests {
     #[test]
     fn tab_switch_moves_size_lease_without_dropping_hidden_surface() {
         let mux = Mux::new("visible-tab-sizing-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((120, 40))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, Some((120, 40))).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((120, 40))).unwrap();
         mux.select_tab(Some(pane), Some(0), None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sync_layout((160, 50));
@@ -35954,7 +35954,7 @@ mod tests {
     #[test]
     fn mux_recovery_barrier_defers_input_until_authoritative_tree_is_applied() {
         let mux = Mux::new("mux-recovery-barrier-test", SurfaceOptions::default());
-        mux.new_workspace(None, None).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
         app.mux_recovery_generation.store(1, Ordering::Release);
@@ -35996,7 +35996,7 @@ mod tests {
     #[test]
     fn failed_mux_recovery_releases_barrier_and_discards_ambiguous_input() {
         let mux = Mux::new("mux-recovery-failure-test", SurfaceOptions::default());
-        mux.new_workspace(None, None).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
         app.mux_recovery_generation.store(1, Ordering::Release);
@@ -36272,7 +36272,7 @@ mod tests {
     #[test]
     fn graphics_scene_cache_skips_text_only_snapshot_rebuilds() {
         let mux = Mux::new("graphics-scene-cache-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.graphics_supported = true;
         app.pane_areas.push(PaneArea {
@@ -36321,8 +36321,8 @@ mod tests {
     #[test]
     fn graphics_scene_cache_rebuilds_only_the_dirty_surface_projection() {
         let mux = Mux::new("graphics-surface-cache-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((40, 24))).unwrap();
-        let second = mux.new_workspace(None, Some((40, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((40, 24))).unwrap();
+        let second = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((40, 24))).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.graphics_supported = true;
         app.pane_areas = vec![
@@ -36371,7 +36371,7 @@ mod tests {
     #[test]
     fn horizontal_viewport_keeps_visible_kitty_placement_aligned() {
         let mux = Mux::new("viewport-kitty-placement-test", SurfaceOptions::default());
-        let created = mux.new_workspace(None, Some((10, 2))).unwrap();
+        let created = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((10, 2))).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.cell_pixels = (10, 20);
         let area = PaneArea {
@@ -36504,9 +36504,9 @@ mod tests {
     #[test]
     fn reverse_viewport_sweep_cancels_a_queued_size_release_and_reasserts() {
         let mux = Mux::new("reverse-animation-size-release-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((78, 22))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((78, 22))).unwrap();
         let base = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let right = mux.new_pane_right(base, 1.0, Some((78, 22))).unwrap();
+        let right = mux.new_pane_right_as(&cmux_tui_core::Actor::local_user(), base, 1.0, Some((78, 22))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.config.viewport.animation = false;
@@ -36564,8 +36564,8 @@ mod tests {
             "the stale release must not drop the visible surface's sizing lease"
         );
 
-        mux.close_surface(first.id).unwrap();
-        mux.close_surface(right.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), first.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), right.id).unwrap();
     }
 
     #[test]
@@ -37197,7 +37197,7 @@ mod tests {
         assert!(app.pending_pointer_motion.is_none());
         assert!(app.deferred_input.is_empty());
         assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "x");
-        mux.close_surface(healthy.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), healthy.id).unwrap();
     }
 
     #[test]
@@ -37241,7 +37241,7 @@ mod tests {
         assert!(app.pending_pointer_motion.is_none());
         assert!(app.deferred_input.is_empty());
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -38139,7 +38139,7 @@ mod tests {
     #[test]
     fn key_typed_during_pending_sidebar_focus_follows_successful_focus() {
         let mux = Mux::new("sidebar-plugin-deferred-key-success-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, None).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
         app.sidebar_focus_pending = true;
@@ -38168,7 +38168,7 @@ mod tests {
     #[test]
     fn key_typed_during_pending_sidebar_focus_keeps_pane_target_on_failure() {
         let mux = Mux::new("sidebar-plugin-deferred-key-failure-test", SurfaceOptions::default());
-        mux.new_workspace(None, None).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
         app.sidebar_focus_pending = true;
@@ -38711,9 +38711,9 @@ mod tests {
     #[test]
     fn split_ratio_samples_coalesce_without_snapshots_before_final_settlement() {
         let mux = Mux::new("split-ratio-snapshot-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((40, 12))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((40, 12))).unwrap();
         let target = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
-        mux.split(target, SplitDir::Right, Some((20, 12))).unwrap();
+        mux.split_as(&cmux_tui_core::Actor::local_user(), target, SplitDir::Right, Some((20, 12))).unwrap();
         let split = mux.with_state(|state| {
             let root = &state.workspaces[0].screens[0].root;
             let Node::Split { id, .. } = root else {
@@ -39209,7 +39209,7 @@ mod tests {
     #[test]
     fn event_loop_renders_paint_before_following_pointer_input() {
         let mux = Mux::new("event-loop-paint-pointer-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
         app.sidebar_visible = false;
         // Keep this admission test on the terminal paint path. Graphics
@@ -39296,7 +39296,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
         let (mut app, mutation_events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -39327,7 +39327,7 @@ mod tests {
         );
         assert!(app.deferred_input.is_empty());
         assert!(app.pending_pointer_motion.is_none());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -39598,7 +39598,7 @@ mod tests {
             .unwrap();
         assert_eq!(unchanged, RenderAction::None, "a key with no visible mutation needs no draw");
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -39632,13 +39632,13 @@ mod tests {
         let unchanged = app.handle(AppEvent::Input(Event::Paste("more".to_string()))).unwrap();
         assert_eq!(unchanged, RenderAction::None, "paste with no visible mutation needs no draw");
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn visible_state_keyboard_requests_draw_after_status_clear_for_browser_surface() {
         let mux = Mux::new("visible-state-browser-status-test", SurfaceOptions::default());
-        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((40, 8))).unwrap();
+        let surface = mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((40, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
@@ -39665,15 +39665,15 @@ mod tests {
             "the input frame must remove the semantic status message"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn visible_state_keyboard_requests_draw_after_selection_clear_on_other_surface() {
         let mux = Mux::new("visible-state-split-selection-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((80, 12))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 12))).unwrap();
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.split(first_pane, SplitDir::Right, Some((40, 12))).unwrap();
+        let second = mux.split_as(&cmux_tui_core::Actor::local_user(), first_pane, SplitDir::Right, Some((40, 12))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
@@ -39698,19 +39698,19 @@ mod tests {
         app.render_action(&mut terminal, action).unwrap();
         assert!(app.selection.is_none());
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
-        mux.close_surface(first.id).unwrap();
-        mux.close_surface(second.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), first.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), second.id).unwrap();
     }
 
     #[test]
     fn visible_state_browser_input_requests_draw_after_selection_clear_on_pty_surface() {
         let mux = Mux::new("visible-state-browser-selection-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((80, 12))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 12))).unwrap();
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.split(first_pane, SplitDir::Right, Some((40, 12))).unwrap();
+        let second = mux.split_as(&cmux_tui_core::Actor::local_user(), first_pane, SplitDir::Right, Some((40, 12))).unwrap();
         let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
         let browser = mux
-            .new_browser_tab("about:blank".to_string(), Some(second_pane), Some((40, 12)))
+            .new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), Some(second_pane), Some((40, 12)))
             .unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -39736,9 +39736,9 @@ mod tests {
         app.render_action(&mut terminal, action).unwrap();
         assert!(app.selection.is_none());
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
-        mux.close_surface(browser.id).unwrap();
-        mux.close_surface(first.id).unwrap();
-        mux.close_surface(second.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), browser.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), first.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), second.id).unwrap();
     }
 
     #[test]
@@ -39768,9 +39768,9 @@ mod tests {
     #[test]
     fn visible_state_focus_loss_requests_draw_after_pointer_cancel() {
         let mux = Mux::new("visible-state-focus-loss-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((40, 10))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((40, 10))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, Some((40, 10))).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((40, 10))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
@@ -39838,7 +39838,7 @@ mod tests {
     #[test]
     fn focus_loss_releases_an_active_browser_press() {
         let mux = Mux::new("focus-loss-browser-release-test", SurfaceOptions::default());
-        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let surface = mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
         app.browser_input = dispatcher;
@@ -39870,13 +39870,13 @@ mod tests {
             "focus loss must enqueue a terminal mouseReleased for the browser that owns the press"
         );
         assert!(app.drag.is_none());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn right_button_capture_cannot_cross_a_new_pairing_dialog() {
         let mux = Mux::new("pairing-menu-capture-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let (mut app, mutation_events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.sync_layout((100, 20));
@@ -39931,7 +39931,7 @@ mod tests {
     #[test]
     fn pairing_dialog_captures_live_non_left_pointer_input() {
         let mux = Mux::new("pairing-live-pointer-capture-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
         let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
         app.sidebar_visible = false;
@@ -40095,7 +40095,7 @@ mod tests {
     #[test]
     fn retained_right_button_capture_crosses_the_menu_frame_it_opens() {
         let mux = Mux::new("retained-menu-capture-test", SurfaceOptions::default());
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
         app.sidebar_visible = false;
         app.sync_layout((100, 40));
@@ -40153,10 +40153,10 @@ mod tests {
     fn right_menu_capture_cannot_close_a_replacement_active_tab() {
         let mux = Mux::new("right-menu-owner-test", SurfaceOptions::default());
         let first =
-            mux.new_browser_tab("about:blank#first".to_string(), None, Some((80, 24))).unwrap();
+            mux.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank#first".to_string(), None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let second = mux
-            .new_browser_tab("about:blank#second".to_string(), Some(pane), Some((80, 24)))
+            .new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank#second".to_string(), Some(pane), Some((80, 24)))
             .unwrap();
         mux.select_tab(Some(pane), Some(0), None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -40223,8 +40223,8 @@ mod tests {
             mux.with_state(|state| state.surfaces.contains_key(&second.id)),
             "a menu captured for the first tab must not close its replacement"
         );
-        let _ = mux.close_surface(first.id);
-        let _ = mux.close_surface(second.id);
+        let _ = mux.close_surface_as(&cmux_tui_core::Actor::local_user(), first.id);
+        let _ = mux.close_surface_as(&cmux_tui_core::Actor::local_user(), second.id);
     }
 
     #[test]
@@ -40508,7 +40508,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert!(app.drag.is_none(), "the release must reach its established selection capture");
         assert!(app.active_pointer_buttons.is_empty());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -40575,7 +40575,7 @@ mod tests {
     #[test]
     fn browser_drag_retargets_to_the_animated_pane_geometry() {
         let mux = Mux::new("browser-live-drag-geometry-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         let mut app = test_app(Session::Local(mux.clone()));
         let (dispatcher, received) = BrowserInputDispatcher::blocked(1);
@@ -40613,7 +40613,7 @@ mod tests {
             received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
             Some(BrowserInputKind::Mouse { event_type: "mouseMoved", .. })
         ));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -40625,7 +40625,7 @@ mod tests {
                 ..SurfaceOptions::default()
             },
         );
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.session.pending_mutations.store(1, Ordering::Release);
         let content = Rect { x: 2, y: 3, width: 20, height: 8 };
@@ -40662,7 +40662,7 @@ mod tests {
                 ..SurfaceOptions::default()
             },
         );
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         let mut app = test_app(Session::Local(mux.clone()));
         let current = Rect { x: 20, y: 4, width: 10, height: 5 };
@@ -40704,7 +40704,7 @@ mod tests {
                 ..
             }) if content == current
         ));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -40881,7 +40881,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((20, 8))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -40917,7 +40917,7 @@ mod tests {
             Some("PTY input queue is full; input was not sent")
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -40933,7 +40933,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_width = 12;
         app.sidebar_view = SidebarView::Workspaces;
@@ -40974,7 +40974,7 @@ mod tests {
         assert!(!row_contains(buffer, 1, "•"), "tab bar dot should clear");
         assert_ne!(buffer[(1, 1)].symbol(), "•", "sidebar dot should clear");
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -40990,7 +40990,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_width = 12;
         app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
@@ -41018,13 +41018,13 @@ mod tests {
             "plugin sidebar must register the workspace rail resize hit on the divider column"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn pane_cursor_and_active_border_yield_to_builtin_and_plugin_sidebars() {
         let mux = Mux::new("sidebar-cursor-focus-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         let pane = app.tree.active_screen().unwrap().active_pane;
@@ -41079,7 +41079,7 @@ mod tests {
             );
         }
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -41215,7 +41215,7 @@ mod tests {
         assert!(text.contains("known-sidebar-file"), "{text}");
         assert!(text.lines().next().is_some_and(|line| line.contains("• 1")), "{text}");
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -41268,7 +41268,7 @@ mod tests {
         let hidden_again = buffer_text(terminal.backend().buffer());
         assert!(!hidden_again.contains("/ 30d"), "{hidden_again}");
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -41289,7 +41289,7 @@ mod tests {
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(!text.contains('$'), "a readout that does not fit is not drawn at all: {text}");
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -41324,7 +41324,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.sidebar_files.query(), "áb");
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -41351,7 +41351,7 @@ mod tests {
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         assert!(buffer_text(terminal.backend().buffer()).contains("toggle-marker"));
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -41370,7 +41370,7 @@ mod tests {
 
         app.run_action(Action::FocusSidebar).unwrap();
         assert!(!app.workspace_sidebar_focused());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -41403,7 +41403,7 @@ mod tests {
         app.activate_menu(MenuAction::FocusSidebar).unwrap();
 
         assert!(app.workspace_sidebar_focused());
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -41429,7 +41429,7 @@ mod tests {
             );
         }
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -44114,7 +44114,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)).unwrap();
         assert_eq!(app.focus, FocusTarget::Pane);
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -44163,7 +44163,7 @@ mod tests {
         app.handle_left_up(machine_area.x + 1, machine_area.y).unwrap();
         assert_eq!(app.focus, FocusTarget::MachineRail);
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -44230,7 +44230,7 @@ mod tests {
     fn mouse_wheel_scrolls_machine_and_workspace_rail_viewports_independently() {
         let mux = Mux::new("rail-wheel-test", SurfaceOptions::default());
         for index in 0..6 {
-            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+            mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some(format!("workspace-{index}")), None).unwrap();
         }
         let mut app = test_app(Session::Local(mux));
         app.sidebar_view = SidebarView::Workspaces;
@@ -44290,7 +44290,7 @@ mod tests {
     fn workspace_rail_scrollbar_is_visible_clickable_and_draggable() {
         let mux = Mux::new("workspace-rail-scrollbar-test", SurfaceOptions::default());
         for index in 0..6 {
-            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+            mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some(format!("workspace-{index}")), None).unwrap();
         }
         let mut app = test_app(Session::Local(mux));
         app.sidebar_view = SidebarView::Workspaces;
@@ -44388,7 +44388,7 @@ mod tests {
     fn tabs_column_renders_selected_workspace_tabs_and_activates_through_native_focus() {
         let (mux, first) = test_mux("tabs-column-test", None);
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.config.sidebar.columns_explicit = true;
         app.config.sidebar.columns = vec![
@@ -44440,15 +44440,15 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::Pane);
 
         for surface in [first.id, second.id] {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn projection_workspace_row_activates_on_mouse_down() {
         let mux = Mux::new("projection-workspace-mouse-down-test", SurfaceOptions::default());
-        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
-        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Beta".into()), Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.config.sidebar.columns.clear();
         app.config.sidebar.views = vec![SidebarViewSpec {
@@ -44491,15 +44491,15 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::Pane);
 
         for surface in [first.id, second.id] {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
     #[test]
     fn projection_workspace_target_follows_id_after_tree_reorder() {
         let mux = Mux::new("projection-workspace-target-reorder-test", SurfaceOptions::default());
-        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
-        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Beta".into()), Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
 
@@ -44517,7 +44517,7 @@ mod tests {
         );
 
         for surface in [first.id, second.id] {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -44558,8 +44558,8 @@ mod tests {
     #[test]
     fn workspace_keyboard_enter_returns_focus_to_pane() {
         let mux = Mux::new("workspace-keyboard-enter-focus-test", SurfaceOptions::default());
-        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
-        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let first = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("Beta".into()), Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_view = SidebarView::Workspaces;
         app.replace_tree(app.session.tree());
@@ -44573,7 +44573,7 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::Pane);
 
         for surface in [first.id, second.id] {
-            mux.close_surface(surface).unwrap();
+            mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface).unwrap();
         }
     }
 
@@ -44609,7 +44609,7 @@ mod tests {
         assert_eq!(app.tree.active_surface(), Some(surface.id));
         assert_eq!(app.focus, FocusTarget::Pane);
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -44647,7 +44647,7 @@ mod tests {
             "stale action selection must not collapse the selected resource row"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -44679,14 +44679,14 @@ mod tests {
             "finished reports must not leave stale agent rows"
         );
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
     fn tabs_column_context_menu_renames_the_exact_clicked_tab() {
         let (mux, first) = test_mux("tabs-column-rename-test", None);
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((80, 24))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.config.sidebar.columns_explicit = true;
         app.config.sidebar.columns = vec![
@@ -44756,7 +44756,7 @@ mod tests {
     fn pane_tab_context_menu_renames_the_exact_inactive_tab() {
         let (mux, first) = test_mux("pane-tab-rename-test", None);
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let second = mux.new_tab_as(&cmux_tui_core::Actor::local_user(), Some(pane), None, Some((80, 24))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
@@ -44903,7 +44903,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)).unwrap();
         assert_eq!(app.focus, FocusTarget::Pane);
 
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -45093,8 +45093,8 @@ mod tests {
             status: MachineStatus::Running,
         };
         let mux = Mux::new("rail-refresh-test", SurfaceOptions::default());
-        mux.new_workspace(Some("first".into()), None).unwrap();
-        mux.new_workspace(Some("second".into()), None).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("first".into()), None).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("second".into()), None).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
         app.sidebar_workspace_selection = 1;
@@ -45478,7 +45478,7 @@ mod tests {
     #[test]
     fn in_place_machine_switch_preserves_rail_view_focus_and_widths() {
         let first = Mux::new("machine-switch-first", SurfaceOptions::default());
-        first.new_workspace(None, None).unwrap();
+        first.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let second = Mux::new("machine-switch-second", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(first));
         app.replace_tree(app.session.tree());
@@ -45513,9 +45513,9 @@ mod tests {
     #[test]
     fn closing_connection_dialog_prevents_an_active_connect_from_replacing_the_session() {
         let first = Mux::new("connection-dialog-active-cancel-first", SurfaceOptions::default());
-        first.new_workspace(None, None).unwrap();
+        first.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let second = Mux::new("connection-dialog-active-cancel-second", SurfaceOptions::default());
-        second.new_workspace(None, None).unwrap();
+        second.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(first));
         app.replace_tree(app.session.tree());
         app.machine_ui = Some(provider_machine_ui());
@@ -45548,7 +45548,7 @@ mod tests {
     #[test]
     fn machine_session_replacement_settles_pointer_capture_on_the_old_session() {
         let first = Mux::new("machine-pointer-reset-first", SurfaceOptions::default());
-        first.new_workspace(None, None).unwrap();
+        first.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let second = Mux::new("machine-pointer-reset-second", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(first));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -45615,7 +45615,7 @@ mod tests {
     fn machine_session_replacement_preserves_only_the_old_browser_release() {
         let first = Mux::new("machine-browser-release-first", SurfaceOptions::default());
         let browser =
-            first.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+            first.new_browser_tab_as(&cmux_tui_core::Actor::local_user(), "about:blank".to_string(), None, Some((20, 8))).unwrap();
         let second = Mux::new("machine-browser-release-second", SurfaceOptions::default());
         let mut app = test_app(Session::Local(first.clone()));
         app.replace_tree(app.session.tree());
@@ -45683,13 +45683,13 @@ mod tests {
             vec![("mouseMoved", true), ("mouseReleased", false)],
             "session replacement must cancel stale browser input but preserve the release that closes the old press"
         );
-        first.close_surface(browser.id).unwrap();
+        first.close_surface_as(&cmux_tui_core::Actor::local_user(), browser.id).unwrap();
     }
 
     #[test]
     fn replacement_provider_notice_cannot_mask_missing_workspace_mirror_error() {
         let first = Mux::new("machine-replacement-notice-first", SurfaceOptions::default());
-        first.new_workspace(None, None).unwrap();
+        first.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let second = Mux::new("machine-replacement-notice-second", SurfaceOptions::default());
         second
             .create_empty_workspace(
@@ -45723,9 +45723,9 @@ mod tests {
     #[test]
     fn replaced_session_ignores_old_surface_lane_completion() {
         let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
-        let first_surface = first.new_workspace(None, Some((80, 24))).unwrap();
+        let first_surface = first.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let second = Mux::new("surface-lane-generation-second", SurfaceOptions::default());
-        let second_surface = second.new_workspace(None, Some((80, 24))).unwrap();
+        let second_surface = second.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         assert_eq!(first_surface.id, second_surface.id, "test requires a reused surface id");
         let (mut app, _events) = test_app_with_events(Session::Local(first.clone()));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -45793,14 +45793,14 @@ mod tests {
             "old session completion surfaced an error in the replacement session"
         );
 
-        let _ = first.close_surface(first_surface.id);
-        let _ = second.close_surface(second_surface.id);
+        let _ = first.close_surface_as(&cmux_tui_core::Actor::local_user(), first_surface.id);
+        let _ = second.close_surface_as(&cmux_tui_core::Actor::local_user(), second_surface.id);
     }
 
     #[test]
     fn retiring_surface_state_releases_its_failed_input_lane() {
         let mux = Mux::new("retired-surface-input-lane-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
 
         assert_eq!(
@@ -45841,7 +45841,7 @@ mod tests {
             .accepted
         );
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
-        mux.close_surface(surface.id).unwrap();
+        mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface.id).unwrap();
     }
 
     #[test]
@@ -45944,7 +45944,7 @@ mod tests {
 
         let destination_mux =
             Mux::new("deferred-destination-failure-locale", SurfaceOptions::default());
-        let destination = destination_mux.new_workspace(None, None).unwrap();
+        let destination = destination_mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let mut destination_app = test_app(Session::Local(destination_mux));
         destination_app.replace_tree(destination_app.session.tree());
         destination_app.session.pending_mutations.store(1, Ordering::Release);
@@ -46075,9 +46075,9 @@ mod tests {
     #[test]
     fn single_surface_machine_session_install_does_not_publish_global_cell_metrics() {
         let first = Mux::new("surface-only-cell-metrics-first", SurfaceOptions::default());
-        let first_surface = first.new_workspace(None, Some((80, 24))).unwrap();
+        let first_surface = first.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let second = Mux::new("surface-only-cell-metrics-second", SurfaceOptions::default());
-        let second_surface = second.new_workspace(None, Some((80, 24))).unwrap();
+        let second_surface = second.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(first.clone()));
         app.surface_only = Some(second_surface.id);
         app.cell_pixels = (13, 27);
@@ -46116,14 +46116,14 @@ mod tests {
             (8, 16),
             "surface-only attach published host metrics to the shared session"
         );
-        let _ = first.close_surface(first_surface.id);
-        let _ = second.close_surface(second_surface.id);
+        let _ = first.close_surface_as(&cmux_tui_core::Actor::local_user(), first_surface.id);
+        let _ = second.close_surface_as(&cmux_tui_core::Actor::local_user(), second_surface.id);
     }
 
     #[test]
     fn non_switch_machine_action_keeps_the_current_session_and_rails() {
         let mux = Mux::new("machine-non-switch", SurfaceOptions::default());
-        mux.new_workspace(None, None).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         app.replace_tree(app.session.tree());
         let original_workspace_count = app.tree.workspaces().len();
@@ -46157,7 +46157,7 @@ mod tests {
     #[test]
     fn failed_machine_switch_preserves_the_current_session() {
         let mux = Mux::new("machine-failed-switch", SurfaceOptions::default());
-        mux.new_workspace(None, None).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         app.replace_tree(app.session.tree());
         let original_workspace_count = app.tree.workspaces().len();
@@ -46182,7 +46182,7 @@ mod tests {
     #[test]
     fn stale_session_events_are_ignored_after_an_in_place_switch() {
         let first = Mux::new("machine-stale-first", SurfaceOptions::default());
-        first.new_workspace(None, None).unwrap();
+        first.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         let second = Mux::new("machine-stale-second", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(first));
         app.machine_ui = Some(provider_machine_ui());
@@ -46642,7 +46642,7 @@ mod tests {
         )
         .unwrap();
 
-        mux.new_workspace(None, None).unwrap();
+        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, None).unwrap();
         assert!(matches!(
             receiver.recv_timeout(Duration::from_millis(50)),
             Err(crossbeam_channel::RecvTimeoutError::Timeout)
@@ -47134,7 +47134,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), Some("work".to_string()), Some((20, 8))).unwrap();
         (mux, surface)
     }
 }

@@ -847,7 +847,7 @@ impl Session {
                 let tree = self.tree();
                 match initial_bootstrap(&tree) {
                     InitialBootstrap::FirstWorkspace => {
-                        mux.new_workspace(None, size)?;
+                        mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, size)?;
                     }
                     InitialBootstrap::ShellInActiveWorkspace => {
                         let workspace = tree
@@ -856,7 +856,7 @@ impl Session {
                             .or_else(|| tree.workspaces().first())
                             .expect("bare-session bootstrap requires at least one workspace")
                             .id;
-                        mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
+                        mux.create_terminal_in_workspace_as(&cmux_tui_core::Actor::local_user(), workspace, None, None, None, size)?;
                     }
                     InitialBootstrap::LayoutIntact => {}
                 }
@@ -1582,7 +1582,7 @@ impl Session {
     pub fn close_screen(&self, screen: ScreenId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                if mux.close_screen(screen)? {
+                if mux.close_screen_as(&cmux_tui_core::Actor::local_user(), screen)? {
                     Ok(())
                 } else {
                     anyhow::bail!("unknown screen {screen}")
@@ -1597,7 +1597,7 @@ impl Session {
     pub fn rename_screen(&self, screen: ScreenId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.rename_screen(screen, name);
+                mux.rename_screen_as(&cmux_tui_core::Actor::local_user(), screen, name);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -1609,7 +1609,7 @@ impl Session {
     pub fn zoom_pane(&self, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                let _ = mux.zoom_pane(pane, mode);
+                let _ = mux.zoom_pane_as(&cmux_tui_core::Actor::local_user(), pane, mode);
                 Ok(())
             }
             Session::Remote(remote) => {
@@ -1820,9 +1820,9 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || mux.set_split_ratio_checked(split, ratio),
+                    || mux.set_split_ratio_checked_as(&cmux_tui_core::Actor::local_user(), split, ratio),
                     |(owner, transaction)| {
-                        mux.set_split_ratio_in_process_transaction_checked(
+                        mux.set_split_ratio_in_process_transaction_checked_as(&cmux_tui_core::Actor::local_user(), 
                             split,
                             ratio,
                             owner,
@@ -1863,9 +1863,9 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || mux.set_viewport_pane_width_checked(pane, width),
+                    || mux.set_viewport_pane_width_checked_as(&cmux_tui_core::Actor::local_user(), pane, width),
                     |(owner, transaction)| {
-                        mux.set_viewport_pane_width_in_process_transaction_checked(
+                        mux.set_viewport_pane_width_in_process_transaction_checked_as(&cmux_tui_core::Actor::local_user(), 
                             pane,
                             width,
                             owner,
@@ -1926,7 +1926,7 @@ impl Session {
     pub fn close_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                if mux.close_surface(surface)? {
+                if mux.close_surface_as(&cmux_tui_core::Actor::local_user(), surface)? {
                     Ok(())
                 } else {
                     anyhow::bail!("unknown surface {surface}")
@@ -1984,7 +1984,7 @@ impl Session {
     pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                if mux.close_pane(pane)? {
+                if mux.close_pane_as(&cmux_tui_core::Actor::local_user(), pane)? {
                     Ok(())
                 } else {
                     anyhow::bail!("unknown pane {pane}")
@@ -1999,7 +1999,7 @@ impl Session {
     pub fn swap_pane(&self, pane: PaneId, target: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.swap_panes(pane, target);
+                mux.swap_panes_as(&cmux_tui_core::Actor::local_user(), pane, target);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -2082,7 +2082,7 @@ impl Session {
     pub fn rename_surface(&self, surface: SurfaceId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.rename_surface(surface, name);
+                mux.rename_surface_as(&cmux_tui_core::Actor::local_user(), surface, name);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -2146,7 +2146,7 @@ impl Session {
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_tab(surface, pane, index);
+                mux.move_tab_as(&cmux_tui_core::Actor::local_user(), surface, pane, index);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -2180,7 +2180,7 @@ impl Session {
             crate::localization::catalog().menu.move_tab_workspace_unsupported
         );
         match self {
-            Session::Local(mux) => mux.move_tab_to_workspace(surface, workspace),
+            Session::Local(mux) => mux.move_tab_to_workspace_as(&cmux_tui_core::Actor::local_user(), surface, workspace),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
@@ -3296,7 +3296,7 @@ mod tests {
         use cmux_tui_core::sizing_policy::TerminalDeviceKind;
 
         let mux = Mux::new("shared-sizing-focus-test", SurfaceOptions::default());
-        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface = mux.new_workspace_as(&cmux_tui_core::Actor::local_user(), None, Some((80, 24))).unwrap();
         let dir = std::path::PathBuf::from(format!("/tmp/cmux-szf-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

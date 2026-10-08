@@ -7,6 +7,7 @@
 //! looks for browser evidence. Public v2 `pane.split` never carries the field:
 //! its catalog entry refuses extra fields and its result is a terminal path.
 
+use crate::Actor;
 use super::*;
 
 /// Daemon-internal `pane.split` field: the new pane holds a browser at this
@@ -75,14 +76,7 @@ impl SpawnedPaneSurface<'_> {
 impl Mux {
     /// Raw `split` (and `new-pane-right` with `viewport_width`) whose new
     /// pane holds a browser at `url`. Same commit path as a terminal split.
-    pub(crate) fn split_browser_pane(
-        self: &Arc<Self>,
-        target: PaneId,
-        dir: SplitDir,
-        viewport_width: Option<f32>,
-        url: String,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    pub(crate) fn split_browser_pane_as(self: &Arc<Self>, actor: &Actor, target: PaneId, dir: SplitDir, viewport_width: Option<f32>, url: String, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff =
             self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(width) = viewport_width
@@ -107,7 +101,7 @@ impl Mux {
         }
         Self::insert_cell_size(&mut fields, size);
         let commit = self
-            .commit_ordinary_topology_operation(ResourceOperation::PaneSplit, selectors, fields)
+            .commit_ordinary_topology_operation_by(actor, ResourceOperation::PaneSplit, selectors, fields)
             .map_err(|error| {
                 // As `new_pane_right_with_options`: caller input errors stay
                 // visible; a viewport column's creation failure is generic.

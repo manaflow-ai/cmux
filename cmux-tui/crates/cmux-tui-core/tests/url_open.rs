@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+use cmux_tui_core::Actor;
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -32,9 +33,9 @@ fn rpc(path: &Path, value: Value) -> Value {
 #[test]
 fn url_open_socket_delivery_ack_headless_and_expiration() {
     let mux = Mux::new("url-open-integration", SurfaceOptions::default());
-    let surface = mux.new_workspace(Some("auth".into()), Some((80, 24))).unwrap();
+    let surface = mux.new_workspace_as(&Actor::Daemon, Some("auth".into()), Some((80, 24))).unwrap();
     let terminal = surface.terminal_public_id().unwrap().to_string();
-    let other = mux.new_workspace(Some("headless".into()), Some((80, 24))).unwrap();
+    let other = mux.new_workspace_as(&Actor::Daemon, Some("headless".into()), Some((80, 24))).unwrap();
     let other_terminal = other.terminal_public_id().unwrap().to_string();
     let socket =
         std::env::temp_dir().join(format!("cmux-url-open-{}", std::process::id())).join("s.sock");

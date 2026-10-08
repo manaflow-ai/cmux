@@ -16,6 +16,7 @@
 //! A saved screen group is a session-wide record (name, color, members'
 //! names, colors, icons and directories) that outlives its screens.
 
+use crate::Actor;
 use super::tab_strip::StripRequest;
 use super::*;
 use crate::state::screen_state_store::ScreenMetaUpdate;
@@ -801,11 +802,7 @@ impl Mux {
     }
 
     /// Close every member screen. A linked saved record stays.
-    pub fn close_screen_group(
-        self: &Arc<Self>,
-        group: &str,
-        end_terminals: bool,
-    ) -> anyhow::Result<Vec<ScreenId>> {
+    pub fn close_screen_group_as(self: &Arc<Self>, actor: &Actor, group: &str, end_terminals: bool) -> anyhow::Result<Vec<ScreenId>> {
         let members = self.screen_group_outcome(group).members;
         anyhow::ensure!(!members.is_empty(), "unknown screen group {group}");
         let workspace_screens = self.with_state(|state| {
@@ -820,7 +817,7 @@ impl Mux {
             let ok = if end_terminals {
                 self.close_container_ending_terminals(BatchCloseTarget::Screen(*screen)).is_ok()
             } else {
-                self.close_screen(*screen)?
+                self.close_screen_as(actor, *screen)?
             };
             if ok {
                 closed.push(*screen);
@@ -929,11 +926,7 @@ impl Mux {
     /// Reopen a saved group into `workspace`: one new screen per member, in
     /// the member's directory, with its name, color, and icon, grouped and
     /// linked to the saved record. An open group is returned as it is.
-    pub fn reopen_saved_screen_group(
-        self: &Arc<Self>,
-        saved: &str,
-        workspace: WorkspaceId,
-    ) -> anyhow::Result<ScreenGroupOutcome> {
+    pub fn reopen_saved_screen_group_as(self: &Arc<Self>, actor: &Actor, saved: &str, workspace: WorkspaceId) -> anyhow::Result<ScreenGroupOutcome> {
         let presentation = self.presentation_snapshot();
         let record = presentation
             .saved_screen_groups
@@ -958,7 +951,7 @@ impl Mux {
                 ..ScreenSpec::default()
             };
             let spawn = TerminalSpawnOptions::new(member.cwd.clone(), Vec::new());
-            let (_, screen) = self.new_screen_with_spec(Some(workspace), spawn, None, spec)?;
+            let (_, screen) = self.new_screen_with_spec_as(actor, Some(workspace), spawn, None, spec)?;
             created.push(screen);
         }
         anyhow::ensure!(!created.is_empty(), "bad request: the saved screen group has no members");
@@ -983,20 +976,14 @@ impl Mux {
     /// applied: the name in the creating commit, the rest (color, icon, pin,
     /// position, group) in one screen commit right after. Returns the new
     /// surface and screen.
-    pub fn new_screen_with_spec(
-        self: &Arc<Self>,
-        workspace: Option<WorkspaceId>,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-        spec: ScreenSpec,
-    ) -> anyhow::Result<(Arc<Surface>, ScreenId)> {
+    pub fn new_screen_with_spec_as(self: &Arc<Self>, actor: &Actor, workspace: Option<WorkspaceId>, spawn: TerminalSpawnOptions, size: Option<(u16, u16)>, spec: ScreenSpec) -> anyhow::Result<(Arc<Surface>, ScreenId)> {
         if let Some(color) = &spec.color {
             crate::workspace_registry::validate_presentation_color(color)?;
         }
         if let Some(icon) = &spec.icon {
             crate::workspace_registry::validate_presentation_icon(icon)?;
         }
-        let surface = self.new_screen_named(workspace, spec.name.clone(), spawn, size)?;
+        let surface = self.new_screen_named_as(actor, workspace, spec.name.clone(), spawn, size)?;
         let screen = self
             .with_state(|state| {
                 let pane = state.pane_of(surface.id)?;

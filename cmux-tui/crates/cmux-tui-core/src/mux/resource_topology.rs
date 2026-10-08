@@ -1,3 +1,4 @@
+use crate::Actor;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -1465,32 +1466,22 @@ impl Mux {
 
     /// Move a live placement without spawning replacement content. New/empty
     /// workspace layout and source removal commit together before live state changes.
-    pub fn move_tab_to_workspace(
-        self: &Arc<Self>,
-        surface: SurfaceId,
-        workspace: Option<WorkspaceId>,
-    ) -> anyhow::Result<()> {
-        self.move_tab_to_workspace_placed(surface, workspace, None, None, None)
+    pub fn move_tab_to_workspace_as(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, workspace: Option<WorkspaceId>) -> anyhow::Result<()> {
+        self.move_tab_to_workspace_placed(actor, surface, workspace, None, None, None)
     }
 
     /// Move a tab into a new workspace created in the same transaction,
     /// optionally in a sidebar group and at a final index among that
     /// section's members (groups partition the workspace order), named `name`
     /// (else the default `workspace-N`). Returns the new workspace.
-    pub fn move_tab_to_new_workspace(
-        self: &Arc<Self>,
-        surface: SurfaceId,
-        group: Option<String>,
-        index: Option<usize>,
-        name: Option<String>,
-    ) -> anyhow::Result<WorkspaceId> {
+    pub fn move_tab_to_new_workspace_as(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, group: Option<String>, index: Option<usize>, name: Option<String>) -> anyhow::Result<WorkspaceId> {
         if let Some(group) = &group {
             anyhow::ensure!(
                 self.presentation_snapshot().group(group).is_some(),
                 "unknown workspace group {group}"
             );
         }
-        self.move_tab_to_workspace_placed(surface, None, group, index, name)?;
+        self.move_tab_to_workspace_placed(actor, surface, None, group, index, name)?;
         self.with_state(|state| {
             state
                 .pane_of(surface)
@@ -1500,14 +1491,7 @@ impl Mux {
         .context("moved tab has no workspace")
     }
 
-    fn move_tab_to_workspace_placed(
-        self: &Arc<Self>,
-        surface: SurfaceId,
-        workspace: Option<WorkspaceId>,
-        group: Option<String>,
-        group_index: Option<usize>,
-        name: Option<String>,
-    ) -> anyhow::Result<()> {
+    fn move_tab_to_workspace_placed(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, workspace: Option<WorkspaceId>, group: Option<String>, group_index: Option<usize>, name: Option<String>) -> anyhow::Result<()> {
         name.as_deref().map(Self::validate_workspace_name).transpose()?;
         if let Some(workspace) = workspace {
             if self.with_state(|state| {
@@ -1528,7 +1512,7 @@ impl Mux {
                     .map(|pane| (pane.id, pane.tabs.len())))
             })?;
             if let Some((pane, index)) = target {
-                anyhow::ensure!(self.move_tab(surface, pane, index), "tab could not be moved");
+                anyhow::ensure!(self.move_tab_as(actor, surface, pane, index), "tab could not be moved");
                 return Ok(());
             }
         }

@@ -3,6 +3,8 @@
 
 mod agent_hook_errors;
 mod browser_tab_create;
+#[cfg(test)]
+mod test_actor_wrappers;
 mod closed_workspace_replay;
 pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
@@ -108,6 +110,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
+use crate::Actor;
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::browser_provider::{
     BrowserProviderRegistration, BrowserProviderRegistry, BrowserProviderSnapshot,
@@ -4733,19 +4736,16 @@ impl Mux {
         })
     }
 
-    pub(crate) fn commit_ordinary_topology_operation(
+    /// A topology op of `actor` on the legacy and TUI paths (P8 landing 3a).
+    pub(crate) fn commit_ordinary_topology_operation_by(
         self: &Arc<Self>,
+        actor: &Actor,
         operation: ResourceOperation,
         selectors: crate::ResourceSelectors,
         fields: Map<String, Value>,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_resource_topology_operation(
-            operation,
-            selectors,
-            fields,
-            None,
-            &WorkspaceMutation::daemon_local("cmux-tui"),
-        )
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
+        self.commit_resource_topology_operation(operation, selectors, fields, None, &mutation)
     }
 
     fn nullable_name_fields(name: String) -> Map<String, Value> {
@@ -13893,17 +13893,13 @@ impl Mux {
     /// Returns the tab's surface. `size` is the expected content size in
     /// cells, when the caller knows it (spawning at the final size avoids
     /// shell redraw artifacts).
-    pub fn new_workspace(
-        self: &Arc<Self>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    pub fn new_workspace_as(self: &Arc<Self>, actor: &Actor, name: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let mut fields =
             Map::from_iter([("initial_content".into(), Value::String("terminal".into()))]);
         Self::insert_optional_string(&mut fields, "name", name);
         Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(
+        let commit = self.commit_ordinary_topology_operation_by(actor, 
             ResourceOperation::WorkspaceCreate,
             Self::ordinary_resource_selectors(),
             fields,
@@ -14151,16 +14147,9 @@ impl Mux {
         Ok(placement)
     }
 
-    pub fn run_command_surface(
-        self: &Arc<Self>,
-        argv: Vec<String>,
-        pane: Option<PaneId>,
-        new_workspace: bool,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<RunPlacement> {
-        self.run_command_surface_with_options(
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_command_surface_as(self: &Arc<Self>, actor: &Actor, argv: Vec<String>, pane: Option<PaneId>, new_workspace: bool, cwd: Option<String>, name: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<RunPlacement> {
+        self.run_command_surface_with_options_as(actor, 
             argv,
             RunCommandOptions { pane, new_workspace, workspace_key: None, cwd, name, size },
         )
@@ -14168,21 +14157,13 @@ impl Mux {
 
     /// Runs a command and optionally creates its workspace with a caller-owned
     /// stable key. The key is only meaningful when `new_workspace` is true.
-    pub(crate) fn run_command_surface_with_options(
-        self: &Arc<Self>,
-        argv: Vec<String>,
-        options: RunCommandOptions,
-    ) -> anyhow::Result<RunPlacement> {
-        self.run_command_result_with_options(argv, options)?
+    pub(crate) fn run_command_surface_with_options_as(self: &Arc<Self>, actor: &Actor, argv: Vec<String>, options: RunCommandOptions) -> anyhow::Result<RunPlacement> {
+        self.run_command_result_with_options_as(actor, argv, options)?
             .placement
             .context("command exited before its surface could be returned")
     }
 
-    pub(crate) fn run_command_result_with_options(
-        self: &Arc<Self>,
-        argv: Vec<String>,
-        options: RunCommandOptions,
-    ) -> anyhow::Result<RunCommandResult> {
+    pub(crate) fn run_command_result_with_options_as(self: &Arc<Self>, actor: &Actor, argv: Vec<String>, options: RunCommandOptions) -> anyhow::Result<RunCommandResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let RunCommandOptions { pane, new_workspace, workspace_key, cwd, name, size } = options;
         if workspace_key.is_some() && !new_workspace {
@@ -14234,7 +14215,7 @@ impl Mux {
         }
         Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
+        let commit = self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?;
         self.emit_resource_topology_legacy_events(operation, &commit);
         let terminal_id = self.created_terminal_host_id(&commit.result)?;
         let surface = self.ordinary_created_surface(&commit).ok();
@@ -14321,32 +14302,17 @@ impl Mux {
 
     /// Create a screen in a workspace (default: the active one) with one
     /// pane/tab, and make it active. Returns the tab's surface.
-    pub fn new_screen(
-        self: &Arc<Self>,
-        workspace: Option<WorkspaceId>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_screen_with_cwd(workspace, None, size)
+    pub fn new_screen_as(self: &Arc<Self>, actor: &Actor, workspace: Option<WorkspaceId>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+        self.new_screen_with_cwd_as(actor, workspace, None, size)
     }
 
-    pub(crate) fn new_screen_with_cwd(
-        self: &Arc<Self>,
-        workspace: Option<WorkspaceId>,
-        cwd: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_screen_named(workspace, None, TerminalSpawnOptions::new(cwd, Vec::new()), size)
+    pub(crate) fn new_screen_with_cwd_as(self: &Arc<Self>, actor: &Actor, workspace: Option<WorkspaceId>, cwd: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+        self.new_screen_named_as(actor, workspace, None, TerminalSpawnOptions::new(cwd, Vec::new()), size)
     }
 
     /// New screen with a name (set in the creating commit) and the spawn
     /// options (directory, env, terminal id, program) of its first terminal.
-    pub(crate) fn new_screen_named(
-        self: &Arc<Self>,
-        workspace: Option<WorkspaceId>,
-        name: Option<String>,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    pub(crate) fn new_screen_named_as(self: &Arc<Self>, actor: &Actor, workspace: Option<WorkspaceId>, name: Option<String>, spawn: TerminalSpawnOptions, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = match workspace {
             Some(workspace) => self
@@ -14365,7 +14331,7 @@ impl Mux {
         Self::insert_optional_string(&mut fields, "name", name);
         Self::insert_spawn_options(&mut fields, spawn);
         Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(
+        let commit = self.commit_ordinary_topology_operation_by(actor, 
             ResourceOperation::ScreenCreate,
             selectors,
             fields,
@@ -14377,34 +14343,18 @@ impl Mux {
     /// Create a tab in a pane (default: the active pane of the active
     /// screen). When the session has no workspaces yet (headless before
     /// any command), a workspace is created around the new tab.
-    pub fn new_tab(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        cwd: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_tab_with_env(pane, cwd, Vec::new(), size)
+    pub fn new_tab_as(self: &Arc<Self>, actor: &Actor, pane: Option<PaneId>, cwd: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+        self.new_tab_with_env_as(actor, pane, cwd, Vec::new(), size)
     }
 
     /// `new_tab` with extra environment for the new terminal's child only.
-    pub fn new_tab_with_env(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        cwd: Option<String>,
-        env: Vec<(String, String)>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_tab_with_options(pane, TerminalSpawnOptions::new(cwd, env), size)
+    pub fn new_tab_with_env_as(self: &Arc<Self>, actor: &Actor, pane: Option<PaneId>, cwd: Option<String>, env: Vec<(String, String)>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+        self.new_tab_with_options_as(actor, pane, TerminalSpawnOptions::new(cwd, env), size)
     }
 
     /// `new_tab` with a directory, extra environment, and an optional
     /// caller-chosen terminal id (`terminal-placement-env-v1`).
-    pub fn new_tab_with_options(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    pub fn new_tab_with_options_as(self: &Arc<Self>, actor: &Actor, pane: Option<PaneId>, spawn: TerminalSpawnOptions, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -14433,7 +14383,7 @@ impl Mux {
         let mut fields = Map::new();
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation(
+        let commit = self.commit_ordinary_topology_operation_by(actor, 
             ResourceOperation::TabCreateTerminal,
             selectors,
             fields,
@@ -14447,26 +14397,12 @@ impl Mux {
     /// otherwise the new surface becomes a tab in that workspace's active
     /// pane. The target is re-resolved under the attach lock so concurrent
     /// first-terminal requests cannot accidentally create another workspace.
-    pub fn create_terminal_in_workspace(
-        self: &Arc<Self>,
-        workspace: WorkspaceId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<RunPlacement> {
-        self.create_terminal_surface_in_workspace(workspace, argv, cwd, name, size)
+    pub fn create_terminal_in_workspace_as(self: &Arc<Self>, actor: &Actor, workspace: WorkspaceId, argv: Option<Vec<String>>, cwd: Option<String>, name: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<RunPlacement> {
+        self.create_terminal_surface_in_workspace(actor, workspace, argv, cwd, name, size)
             .map(|(_, placement)| placement)
     }
 
-    pub(crate) fn create_terminal_result_in_workspace(
-        self: &Arc<Self>,
-        workspace: WorkspaceId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<RunCommandResult> {
+    pub(crate) fn create_terminal_result_in_workspace_as(self: &Arc<Self>, actor: &Actor, workspace: WorkspaceId, argv: Option<Vec<String>>, cwd: Option<String>, name: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<RunCommandResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_workspace_selectors(workspace)
@@ -14484,7 +14420,7 @@ impl Mux {
         Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_optional_string(&mut fields, "name", name);
         Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
+        let commit = self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?;
         self.emit_resource_topology_legacy_events(operation, &commit);
         let terminal_id = self.created_terminal_host_id(&commit.result)?;
         let surface = self.ordinary_created_surface(&commit).ok();
@@ -14495,14 +14431,7 @@ impl Mux {
         self.created_terminal_run_result(&terminal_id)
     }
 
-    fn create_terminal_surface_in_workspace(
-        self: &Arc<Self>,
-        workspace: WorkspaceId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+    fn create_terminal_surface_in_workspace(self: &Arc<Self>, actor: &Actor, workspace: WorkspaceId, argv: Option<Vec<String>>, cwd: Option<String>, name: Option<String>, size: Option<(u16, u16)>) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_workspace_selectors(workspace)
@@ -14520,7 +14449,7 @@ impl Mux {
         Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_optional_string(&mut fields, "name", name);
         Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
+        let commit = self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?;
         self.emit_resource_topology_legacy_events(operation, &commit);
         let surface = self.ordinary_created_surface(&commit)?;
         let placement = self
@@ -14908,22 +14837,11 @@ impl Mux {
     /// Create a browser tab in a pane (default: the active pane). When
     /// the session has no workspaces yet, a workspace is created around
     /// the browser tab.
-    pub fn new_browser_tab(
-        self: &Arc<Self>,
-        url: String,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_browser_tab_with_fields(url, pane, size, Map::new())
+    pub fn new_browser_tab_as(self: &Arc<Self>, actor: &Actor, url: String, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+        self.new_browser_tab_with_fields_as(actor, url, pane, size, Map::new())
     }
 
-    pub(crate) fn new_browser_tab_with_fields(
-        self: &Arc<Self>,
-        url: String,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-        extra_fields: Map<String, Value>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    pub(crate) fn new_browser_tab_with_fields_as(self: &Arc<Self>, actor: &Actor, url: String, pane: Option<PaneId>, size: Option<(u16, u16)>, extra_fields: Map<String, Value>) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -14957,7 +14875,7 @@ impl Mux {
             fields
                 .insert("height_px".into(), Value::from(u64::from(rows) * u64::from(cell_height)));
         }
-        let commit = self.commit_ordinary_topology_operation(
+        let commit = self.commit_ordinary_topology_operation_by(actor, 
             ResourceOperation::TabCreateBrowser,
             selectors,
             fields,
@@ -15216,37 +15134,19 @@ impl Mux {
     /// Split the screen containing `target`, putting a new single-tab
     /// pane after it. Returns the new pane's surface. `size` is the
     /// expected content size of the new pane, when the caller knows it.
-    pub fn split(
-        self: &Arc<Self>,
-        target: PaneId,
-        dir: SplitDir,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.split_with(target, dir, None, Vec::new(), size)
+    pub fn split_as(self: &Arc<Self>, actor: &Actor, target: PaneId, dir: SplitDir, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+        self.split_with_as(actor, target, dir, None, Vec::new(), size)
     }
 
     /// `split` with an optional directory and extra environment for the new
     /// terminal's child only.
-    pub fn split_with(
-        self: &Arc<Self>,
-        target: PaneId,
-        dir: SplitDir,
-        cwd: Option<String>,
-        env: Vec<(String, String)>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.split_with_options(target, dir, TerminalSpawnOptions::new(cwd, env), size)
+    pub fn split_with_as(self: &Arc<Self>, actor: &Actor, target: PaneId, dir: SplitDir, cwd: Option<String>, env: Vec<(String, String)>, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+        self.split_with_options_as(actor, target, dir, TerminalSpawnOptions::new(cwd, env), size)
     }
 
     /// `split` with a directory, extra environment, and an optional
     /// caller-chosen terminal id (`terminal-placement-env-v1`).
-    pub fn split_with_options(
-        self: &Arc<Self>,
-        target: PaneId,
-        dir: SplitDir,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    pub fn split_with_options_as(self: &Arc<Self>, actor: &Actor, target: PaneId, dir: SplitDir, spawn: TerminalSpawnOptions, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
@@ -15258,7 +15158,7 @@ impl Mux {
         let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation(
+        let commit = self.commit_ordinary_topology_operation_by(actor, 
             ResourceOperation::PaneSplit,
             selectors,
             fields,
@@ -15272,24 +15172,13 @@ impl Mux {
     /// Updated frontends render the new column at `width` times their own
     /// viewport width. The ordinary split ratio remains valid fallback data
     /// for older clients.
-    pub fn new_pane_right(
-        self: &Arc<Self>,
-        target: PaneId,
-        width: f32,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_pane_right_with_options(target, width, TerminalSpawnOptions::default(), size)
+    pub fn new_pane_right_as(self: &Arc<Self>, actor: &Actor, target: PaneId, width: f32, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+        self.new_pane_right_with_options_as(actor, target, width, TerminalSpawnOptions::default(), size)
     }
 
     /// `new_pane_right` with a directory, extra environment, and an optional
     /// caller-chosen terminal id (`terminal-placement-env-v1`).
-    pub fn new_pane_right_with_options(
-        self: &Arc<Self>,
-        target: PaneId,
-        width: f32,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    pub fn new_pane_right_with_options_as(self: &Arc<Self>, actor: &Actor, target: PaneId, width: f32, spawn: TerminalSpawnOptions, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
@@ -15306,7 +15195,7 @@ impl Mux {
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
         let commit = self
-            .commit_ordinary_topology_operation(ResourceOperation::PaneSplit, selectors, fields)
+            .commit_ordinary_topology_operation_by(actor, ResourceOperation::PaneSplit, selectors, fields)
             .map_err(|error| {
                 // Caller input errors stay visible; spawn failures keep the
                 // generic message.
@@ -15325,22 +15214,13 @@ impl Mux {
     /// containing screen. The screen stores creation order independently of
     /// the mutable split tree, so swaps and directional splits cannot reorder
     /// terminals when automatic layout resumes.
-    pub fn new_pane(
-        self: &Arc<Self>,
-        target: PaneId,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_pane_with_options(target, TerminalSpawnOptions::default(), size)
+    pub fn new_pane_as(self: &Arc<Self>, actor: &Actor, target: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
+        self.new_pane_with_options_as(actor, target, TerminalSpawnOptions::default(), size)
     }
 
     /// `new_pane` with a directory, extra environment, and an optional
     /// caller-chosen terminal id (`terminal-placement-env-v1`).
-    pub fn new_pane_with_options(
-        self: &Arc<Self>,
-        target: PaneId,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    pub fn new_pane_with_options_as(self: &Arc<Self>, actor: &Actor, target: PaneId, spawn: TerminalSpawnOptions, size: Option<(u16, u16)>) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
@@ -15348,7 +15228,7 @@ impl Mux {
         let mut fields = Map::new();
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
-        let commit = self.commit_ordinary_topology_operation(
+        let commit = self.commit_ordinary_topology_operation_by(actor, 
             ResourceOperation::PaneCreate,
             selectors,
             fields,
@@ -15360,10 +15240,10 @@ impl Mux {
     /// Close one tab. When it was the pane's last tab, the pane collapses
     /// out of its split tree; when it was the workspace's last tab, the
     /// workspace closes in the same commit (LAST-TAB-CLOSES-WORKSPACE).
-    pub fn close_surface(self: &Arc<Self>, target: SurfaceId) -> anyhow::Result<bool> {
+    pub fn close_surface_as(self: &Arc<Self>, actor: &Actor, target: SurfaceId) -> anyhow::Result<bool> {
         let Some(selectors) = self.ordinary_tab_selectors(target) else { return Ok(false) };
         let commit = self
-            .commit_ordinary_topology_operation(ResourceOperation::TabClose, selectors, Map::new())
+            .commit_ordinary_topology_operation_by(actor, ResourceOperation::TabClose, selectors, Map::new())
             .with_context(|| format!("close surface {target}"))?;
         self.emit_resource_topology_legacy_events(ResourceOperation::TabClose, &commit);
         Ok(true)
@@ -15543,10 +15423,10 @@ impl Mux {
     }
 
     /// Close a pane and every tab in it.
-    pub fn close_pane(self: &Arc<Self>, target: PaneId) -> anyhow::Result<bool> {
+    pub fn close_pane_as(self: &Arc<Self>, actor: &Actor, target: PaneId) -> anyhow::Result<bool> {
         let Some(selectors) = self.ordinary_pane_selectors(target) else { return Ok(false) };
         let commit = self
-            .commit_ordinary_topology_operation(ResourceOperation::PaneClose, selectors, Map::new())
+            .commit_ordinary_topology_operation_by(actor, ResourceOperation::PaneClose, selectors, Map::new())
             .with_context(|| format!("close pane {target}"))?;
         self.emit_resource_topology_legacy_events(ResourceOperation::PaneClose, &commit);
         Ok(true)
@@ -15558,10 +15438,10 @@ impl Mux {
     }
 
     /// Close a screen and every pane/tab in it.
-    pub fn close_screen(self: &Arc<Self>, target: ScreenId) -> anyhow::Result<bool> {
+    pub fn close_screen_as(self: &Arc<Self>, actor: &Actor, target: ScreenId) -> anyhow::Result<bool> {
         let Some(selectors) = self.ordinary_screen_selectors(target) else { return Ok(false) };
         let commit = self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(actor, 
                 ResourceOperation::ScreenClose,
                 selectors,
                 Map::new(),
@@ -16103,10 +15983,10 @@ impl Mux {
 
     /// Set a pane's user-visible name. An empty name clears it (the pane
     /// falls back to its active tab's title).
-    pub fn rename_pane(self: &Arc<Self>, target: PaneId, name: String) -> bool {
+    pub fn rename_pane_as(self: &Arc<Self>, actor: &Actor, target: PaneId, name: String) -> bool {
         let Some(selectors) = self.ordinary_pane_selectors(target) else { return false };
         if self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(actor, 
                 ResourceOperation::PaneRename,
                 selectors,
                 Self::nullable_name_fields(name),
@@ -16121,10 +16001,10 @@ impl Mux {
 
     /// Set a tab's user-visible name. An empty name clears it (the tab
     /// falls back to its process title/number label).
-    pub fn rename_surface(self: &Arc<Self>, target: SurfaceId, name: String) -> bool {
+    pub fn rename_surface_as(self: &Arc<Self>, actor: &Actor, target: SurfaceId, name: String) -> bool {
         let Some(selectors) = self.ordinary_tab_selectors(target) else { return false };
         if self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(actor, 
                 ResourceOperation::TabRename,
                 selectors,
                 Self::nullable_name_fields(name),
@@ -16169,10 +16049,10 @@ impl Mux {
 
     /// Set a screen's user-visible name. An empty name clears it (the
     /// screen falls back to its number).
-    pub fn rename_screen(self: &Arc<Self>, target: ScreenId, name: String) -> bool {
+    pub fn rename_screen_as(self: &Arc<Self>, actor: &Actor, target: ScreenId, name: String) -> bool {
         let Some(selectors) = self.ordinary_screen_selectors(target) else { return false };
         if self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(actor, 
                 ResourceOperation::ScreenRename,
                 selectors,
                 Self::nullable_name_fields(name),
@@ -16285,7 +16165,7 @@ impl Mux {
 
     /// Make `pane` the active pane of its screen (and that screen and
     /// workspace active).
-    pub fn focus_pane(self: &Arc<Self>, pane: PaneId) -> bool {
+    pub fn focus_pane_as(self: &Arc<Self>, actor: &Actor, pane: PaneId) -> bool {
         let layout_changed = self.with_state(|state| {
             let (workspace, screen) = state.screen_of(pane)?;
             let screen = &state.workspaces[workspace].screens[screen];
@@ -16296,7 +16176,7 @@ impl Mux {
         });
         let Some(selectors) = self.ordinary_pane_selectors(pane) else { return false };
         if self
-            .commit_ordinary_topology_operation(ResourceOperation::PaneFocus, selectors, Map::new())
+            .commit_ordinary_topology_operation_by(actor, ResourceOperation::PaneFocus, selectors, Map::new())
             .is_err()
         {
             return false;
@@ -16312,17 +16192,12 @@ impl Mux {
     }
 
     /// Set the deepest split ratio in `dir` on the path to `pane`.
-    pub fn set_ratio(self: &Arc<Self>, pane: PaneId, dir: SplitDir, ratio: f32) -> bool {
-        self.set_ratio_checked(pane, dir, ratio).is_ok()
+    pub fn set_ratio_as(self: &Arc<Self>, actor: &Actor, pane: PaneId, dir: SplitDir, ratio: f32) -> bool {
+        self.set_ratio_checked_as(actor, pane, dir, ratio).is_ok()
     }
 
     /// Set a pane-addressed split ratio while preserving rejection details.
-    pub fn set_ratio_checked(
-        self: &Arc<Self>,
-        pane: PaneId,
-        dir: SplitDir,
-        ratio: f32,
-    ) -> Result<(), LayoutRatioError> {
+    pub fn set_ratio_checked_as(self: &Arc<Self>, actor: &Actor, pane: PaneId, dir: SplitDir, ratio: f32) -> Result<(), LayoutRatioError> {
         let split = self
             .with_state(|state| {
                 state
@@ -16333,46 +16208,30 @@ impl Mux {
                     .and_then(|screen| screen.root.deepest_split_for_pane(pane, dir))
             })
             .ok_or(LayoutRatioError::UnknownPaneSplit { pane })?;
-        self.set_split_ratio_inner(split, ratio, None, true).map_err(|error| match error {
+        self.set_split_ratio_inner(actor, split, ratio, None, true).map_err(|error| match error {
             LayoutRatioError::UnknownSplit { .. } => LayoutRatioError::UnknownPaneSplit { pane },
             error => error,
         })
     }
 
     /// Set one split ratio by its stable split-tree node id.
-    pub fn set_split_ratio(self: &Arc<Self>, split: SplitId, ratio: f32) -> bool {
-        self.set_split_ratio_checked(split, ratio).is_ok()
+    pub fn set_split_ratio_as(self: &Arc<Self>, actor: &Actor, split: SplitId, ratio: f32) -> bool {
+        self.set_split_ratio_checked_as(actor, split, ratio).is_ok()
     }
 
     /// Set one split ratio while preserving rejection details.
-    pub fn set_split_ratio_checked(
-        self: &Arc<Self>,
-        split: SplitId,
-        ratio: f32,
-    ) -> Result<(), LayoutRatioError> {
-        self.set_split_ratio_inner(split, ratio, None, false)
+    pub fn set_split_ratio_checked_as(self: &Arc<Self>, actor: &Actor, split: SplitId, ratio: f32) -> Result<(), LayoutRatioError> {
+        self.set_split_ratio_inner(actor, split, ratio, None, false)
     }
 
     /// Set one split ratio as part of a client-scoped resize transaction.
-    pub fn set_split_ratio_in_transaction(
-        self: &Arc<Self>,
-        split: SplitId,
-        ratio: f32,
-        client: u64,
-        transaction: u64,
-    ) -> bool {
-        self.set_split_ratio_in_transaction_checked(split, ratio, client, transaction).is_ok()
+    pub fn set_split_ratio_in_transaction_as(self: &Arc<Self>, actor: &Actor, split: SplitId, ratio: f32, client: u64, transaction: u64) -> bool {
+        self.set_split_ratio_in_transaction_checked_as(actor, split, ratio, client, transaction).is_ok()
     }
 
     /// Set one transactional split ratio while preserving rejection details.
-    pub fn set_split_ratio_in_transaction_checked(
-        self: &Arc<Self>,
-        split: SplitId,
-        ratio: f32,
-        client: u64,
-        transaction: u64,
-    ) -> Result<(), LayoutRatioError> {
-        self.set_split_ratio_inner(
+    pub fn set_split_ratio_in_transaction_checked_as(self: &Arc<Self>, actor: &Actor, split: SplitId, ratio: f32, client: u64, transaction: u64) -> Result<(), LayoutRatioError> {
+        self.set_split_ratio_inner(actor, 
             split,
             ratio,
             Some((LayoutResizeOwner::ControlClient(client), transaction)),
@@ -16382,14 +16241,8 @@ impl Mux {
 
     /// Set one in-process transactional split ratio without sharing the
     /// control-client ownership namespace.
-    pub fn set_split_ratio_in_process_transaction_checked(
-        self: &Arc<Self>,
-        split: SplitId,
-        ratio: f32,
-        owner: u64,
-        transaction: u64,
-    ) -> Result<(), LayoutRatioError> {
-        self.set_split_ratio_inner(
+    pub fn set_split_ratio_in_process_transaction_checked_as(self: &Arc<Self>, actor: &Actor, split: SplitId, ratio: f32, owner: u64, transaction: u64) -> Result<(), LayoutRatioError> {
+        self.set_split_ratio_inner(actor, 
             split,
             ratio,
             Some((LayoutResizeOwner::InProcess(owner), transaction)),
@@ -16397,13 +16250,7 @@ impl Mux {
         )
     }
 
-    fn set_split_ratio_inner(
-        self: &Arc<Self>,
-        split: SplitId,
-        ratio: f32,
-        transaction: Option<(LayoutResizeOwner, u64)>,
-        tree_changed: bool,
-    ) -> Result<(), LayoutRatioError> {
+    fn set_split_ratio_inner(self: &Arc<Self>, actor: &Actor, split: SplitId, ratio: f32, transaction: Option<(LayoutResizeOwner, u64)>, tree_changed: bool) -> Result<(), LayoutRatioError> {
         let ratio = clamp_split_ratio(ratio);
         let target = {
             let state = self.state.lock().unwrap();
@@ -16480,7 +16327,7 @@ impl Mux {
             fields.insert("resize_transaction".into(), Value::from(transaction));
         }
         let commit = self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(actor, 
                 ResourceOperation::PaneSplitRatioSet,
                 selectors,
                 fields,
@@ -16507,40 +16354,24 @@ impl Mux {
     }
 
     /// Set the width of the horizontal viewport column containing `pane`.
-    pub fn set_viewport_pane_width(self: &Arc<Self>, pane: PaneId, width: f32) -> bool {
-        self.set_viewport_pane_width_checked(pane, width).is_ok()
+    pub fn set_viewport_pane_width_as(self: &Arc<Self>, actor: &Actor, pane: PaneId, width: f32) -> bool {
+        self.set_viewport_pane_width_checked_as(actor, pane, width).is_ok()
     }
 
     /// Set a viewport column width while preserving rejection details.
-    pub fn set_viewport_pane_width_checked(
-        self: &Arc<Self>,
-        pane: PaneId,
-        width: f32,
-    ) -> Result<(), ViewportWidthError> {
-        self.set_viewport_pane_width_inner(pane, width, None)
+    pub fn set_viewport_pane_width_checked_as(self: &Arc<Self>, actor: &Actor, pane: PaneId, width: f32) -> Result<(), ViewportWidthError> {
+        self.set_viewport_pane_width_inner(actor, pane, width, None)
     }
 
     /// Set a viewport column width as part of a client-scoped resize transaction.
-    pub fn set_viewport_pane_width_in_transaction(
-        self: &Arc<Self>,
-        pane: PaneId,
-        width: f32,
-        client: u64,
-        transaction: u64,
-    ) -> bool {
-        self.set_viewport_pane_width_in_transaction_checked(pane, width, client, transaction)
+    pub fn set_viewport_pane_width_in_transaction_as(self: &Arc<Self>, actor: &Actor, pane: PaneId, width: f32, client: u64, transaction: u64) -> bool {
+        self.set_viewport_pane_width_in_transaction_checked_as(actor, pane, width, client, transaction)
             .is_ok()
     }
 
     /// Set a transactional viewport width while preserving rejection details.
-    pub fn set_viewport_pane_width_in_transaction_checked(
-        self: &Arc<Self>,
-        pane: PaneId,
-        width: f32,
-        client: u64,
-        transaction: u64,
-    ) -> Result<(), ViewportWidthError> {
-        self.set_viewport_pane_width_inner(
+    pub fn set_viewport_pane_width_in_transaction_checked_as(self: &Arc<Self>, actor: &Actor, pane: PaneId, width: f32, client: u64, transaction: u64) -> Result<(), ViewportWidthError> {
+        self.set_viewport_pane_width_inner(actor, 
             pane,
             width,
             Some((LayoutResizeOwner::ControlClient(client), transaction)),
@@ -16549,26 +16380,15 @@ impl Mux {
 
     /// Set one in-process transactional viewport width without sharing the
     /// control-client ownership namespace.
-    pub fn set_viewport_pane_width_in_process_transaction_checked(
-        self: &Arc<Self>,
-        pane: PaneId,
-        width: f32,
-        owner: u64,
-        transaction: u64,
-    ) -> Result<(), ViewportWidthError> {
-        self.set_viewport_pane_width_inner(
+    pub fn set_viewport_pane_width_in_process_transaction_checked_as(self: &Arc<Self>, actor: &Actor, pane: PaneId, width: f32, owner: u64, transaction: u64) -> Result<(), ViewportWidthError> {
+        self.set_viewport_pane_width_inner(actor, 
             pane,
             width,
             Some((LayoutResizeOwner::InProcess(owner), transaction)),
         )
     }
 
-    fn set_viewport_pane_width_inner(
-        self: &Arc<Self>,
-        pane: PaneId,
-        width: f32,
-        transaction: Option<(LayoutResizeOwner, u64)>,
-    ) -> Result<(), ViewportWidthError> {
+    fn set_viewport_pane_width_inner(self: &Arc<Self>, actor: &Actor, pane: PaneId, width: f32, transaction: Option<(LayoutResizeOwner, u64)>) -> Result<(), ViewportWidthError> {
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
         {
@@ -16606,7 +16426,7 @@ impl Mux {
             fields.insert("resize_transaction".into(), Value::from(transaction));
         }
         let commit = self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(actor, 
                 ResourceOperation::PaneViewportWidthSet,
                 selectors,
                 fields,
@@ -16702,11 +16522,7 @@ impl Mux {
         })
     }
 
-    pub fn focus_direction(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        dir: Direction,
-    ) -> anyhow::Result<PaneId> {
+    pub fn focus_direction_as(self: &Arc<Self>, actor: &Actor, pane: Option<PaneId>, dir: Direction) -> anyhow::Result<PaneId> {
         let target = self.with_state(|state| pane.or_else(|| state.active_pane()));
         let Some(target) = target else {
             anyhow::bail!("no active pane");
@@ -16720,7 +16536,7 @@ impl Mux {
             Direction::Up => "up",
             Direction::Down => "down",
         };
-        let commit = self.commit_ordinary_topology_operation(
+        let commit = self.commit_ordinary_topology_operation_by(actor, 
             ResourceOperation::PaneFocusDirection,
             selectors,
             Map::from_iter([("direction".into(), Value::String(direction.into()))]),
@@ -16740,7 +16556,7 @@ impl Mux {
         Ok(next)
     }
 
-    pub fn swap_panes(self: &Arc<Self>, pane: PaneId, target: PaneId) -> bool {
+    pub fn swap_panes_as(self: &Arc<Self>, actor: &Actor, pane: PaneId, target: PaneId) -> bool {
         if pane == target {
             return false;
         }
@@ -16765,7 +16581,7 @@ impl Mux {
             ("other_pane".into(), Value::String(other_pane)),
         ]);
         let Ok(commit) =
-            self.commit_ordinary_topology_operation(ResourceOperation::PaneSwap, selectors, fields)
+            self.commit_ordinary_topology_operation_by(actor, ResourceOperation::PaneSwap, selectors, fields)
         else {
             return false;
         };
@@ -16773,11 +16589,7 @@ impl Mux {
         true
     }
 
-    pub fn zoom_pane(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        mode: ZoomMode,
-    ) -> anyhow::Result<ZoomState> {
+    pub fn zoom_pane_as(self: &Arc<Self>, actor: &Actor, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<ZoomState> {
         let (target, next, changed) = self.with_state(|state| {
             let target = pane.or_else(|| state.active_pane()).context("no active pane")?;
             let (workspace, screen) =
@@ -16801,7 +16613,7 @@ impl Mux {
             ZoomMode::On => Map::from_iter([("enabled".into(), Value::Bool(true))]),
             ZoomMode::Off => Map::from_iter([("enabled".into(), Value::Bool(false))]),
         };
-        let commit = self.commit_ordinary_topology_operation(
+        let commit = self.commit_ordinary_topology_operation_by(actor, 
             ResourceOperation::PaneZoom,
             selectors,
             fields,
@@ -17767,7 +17579,7 @@ impl Mux {
     /// Move an existing tab to `index` in `pane`. The surface is kept
     /// alive; if moving it empties the source pane, that pane collapses
     /// out of its split tree.
-    pub fn move_tab(self: &Arc<Self>, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
+    pub fn move_tab_as(self: &Arc<Self>, actor: &Actor, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
         if self.with_state(|state| {
             let Some(source) = state.pane_of(surface) else { return false };
             if source != pane {
@@ -17814,7 +17626,7 @@ impl Mux {
             ("index".into(), Value::from(u64::try_from(index).unwrap_or(u64::MAX))),
         ]);
         let Ok(commit) =
-            self.commit_ordinary_topology_operation(ResourceOperation::TabMove, selectors, fields)
+            self.commit_ordinary_topology_operation_by(actor, ResourceOperation::TabMove, selectors, fields)
         else {
             return false;
         };
@@ -18007,7 +17819,7 @@ impl Mux {
     }
 
     /// Select a screen in the active workspace by index or relative delta.
-    pub fn select_screen(self: &Arc<Self>, index: Option<usize>, delta: Option<isize>) {
+    pub fn select_screen_as(self: &Arc<Self>, actor: &Actor, index: Option<usize>, delta: Option<isize>)  {
         let screen = {
             let state = self.state.lock().unwrap();
             let active = state.active_workspace;
@@ -18027,7 +17839,7 @@ impl Mux {
         };
         let Some(selectors) = self.ordinary_screen_selectors(screen) else { return };
         if self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(actor, 
                 ResourceOperation::ScreenFocus,
                 selectors,
                 Map::new(),
@@ -18077,7 +17889,7 @@ impl Mux {
     }
 
     /// Select a workspace by index or relative delta.
-    pub fn select_workspace(self: &Arc<Self>, index: Option<usize>, delta: Option<isize>) {
+    pub fn select_workspace_as(self: &Arc<Self>, actor: &Actor, index: Option<usize>, delta: Option<isize>)  {
         let workspace = {
             let state = self.state.lock().unwrap();
             let len = state.workspaces.len();
@@ -18095,7 +17907,7 @@ impl Mux {
         };
         let Some(selectors) = self.ordinary_workspace_selectors(workspace) else { return };
         if self
-            .commit_ordinary_topology_operation(
+            .commit_ordinary_topology_operation_by(actor, 
                 ResourceOperation::WorkspaceFocus,
                 selectors,
                 Map::new(),
@@ -32916,6 +32728,7 @@ mod tests {
             let mux = mux.clone();
             move || {
                 mux.create_terminal_surface_in_workspace(
+                    &Actor::Daemon,
                     workspace.workspace,
                     None,
                     Some("/tmp".into()),
@@ -32930,6 +32743,7 @@ mod tests {
             let mux = mux.clone();
             move || {
                 mux.create_terminal_surface_in_workspace(
+                    &Actor::Daemon,
                     workspace.workspace,
                     None,
                     None,
@@ -32955,6 +32769,7 @@ mod tests {
         let workspace = mux.create_empty_workspace(Some("cwd".into()), None, None).unwrap();
         let (first, _) = mux
             .create_terminal_surface_in_workspace(
+                &Actor::Daemon,
                 workspace.workspace,
                 None,
                 Some("/tmp".into()),
@@ -32969,6 +32784,7 @@ mod tests {
         first.set_test_pwd(Some("file://localhost/usr".into()));
         let (second, _) = mux
             .create_terminal_surface_in_workspace(
+                &Actor::Daemon,
                 workspace.workspace,
                 None,
                 None,
@@ -32986,6 +32802,7 @@ mod tests {
         first.set_test_pwd(Some("file://other-host/etc".into()));
         let (third, _) = mux
             .create_terminal_surface_in_workspace(
+                &Actor::Daemon,
                 workspace.workspace,
                 None,
                 None,
@@ -33016,6 +32833,7 @@ mod tests {
             let mux = mux.clone();
             move || {
                 mux.create_terminal_surface_in_workspace(
+                    &Actor::Daemon,
                     workspace.workspace,
                     None,
                     None,
@@ -33117,6 +32935,7 @@ mod tests {
                 let mux = mux.clone();
                 move || {
                     mux.create_terminal_surface_in_workspace(
+                        &Actor::Daemon,
                         workspace,
                         None,
                         None,
@@ -33624,6 +33443,7 @@ mod tests {
         let workspace = mux.create_empty_workspace(Some("pty".into()), None, None).unwrap();
         let (surface, _) = mux
             .create_terminal_surface_in_workspace(
+                &Actor::Daemon,
                 workspace.workspace,
                 Some(vec![
                     "sh".into(),

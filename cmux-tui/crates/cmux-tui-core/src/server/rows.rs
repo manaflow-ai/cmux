@@ -52,7 +52,7 @@ pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyh
     )?;
     let size = optional_surface_size(cols, rows);
     let surface =
-        mux.new_row_with_options(pane, height_permille, spawn, size, transaction.clone())?;
+        mux.new_row_with_options_as(&origin_gate::connection_actor(mux, client), pane, height_permille, spawn, size, transaction.clone())?;
     let mut result = placed_terminal_result(mux, &surface, keep)?;
     result["pane"] = json!(mux.with_state(|state| state.pane_of(surface.id)));
     if let Some(transaction) = transaction {
