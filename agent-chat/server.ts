@@ -24,7 +24,7 @@ import { discoverHarnesses } from "./harnesses";
 import type { HarnessRecommendation } from "./harness-contract";
 import { harnessCatalogs } from "./harness-messages";
 import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
-import { readFileSync, statSync, watch, type FSWatcher } from "node:fs";
+import { closeSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -39,13 +39,30 @@ function argValue(name: string): string | undefined {
 
 const PORT = Number(argValue("--port") ?? process.env.CMUX_AGENT_CHAT_PORT ?? process.env.CMUX_AGENT_UI_PORT ?? 7739);
 // Every route but /healthz lives under /<token>/ (D5: no unauthenticated
-// localhost HTTP). A launcher passes its token (--token or
-// CMUX_AGENT_CHAT_TOKEN); without one the server makes a per-launch token and
-// writes it to an owner-only file (CMUX_AGENT_CHAT_TOKEN_FILE, default
-// ~/.cmux/agent-chat/token-<port>) that `cmux-chat` reads.
-const GIVEN_TOKEN = argValue("--token") ?? process.env.CMUX_AGENT_CHAT_TOKEN ?? "";
+// localhost HTTP). A launcher hands its token over an inherited descriptor
+// (--token-fd N); without one the server makes a per-launch token and writes
+// it to an owner-only file (CMUX_AGENT_CHAT_TOKEN_FILE, default
+// ~/.cmux/agent-chat/token-<port>) that `cmux-chat` reads. A token in argv or
+// the environment, which other local processes can read, is refused.
+function givenToken(): string {
+  if (Bun.argv.some((a) => a === "--token" || a.startsWith("--token="))) {
+    throw new Error("--token is refused (argv is visible to other processes); pass the token with --token-fd");
+  }
+  if (process.env.CMUX_AGENT_CHAT_TOKEN !== undefined) {
+    throw new Error("CMUX_AGENT_CHAT_TOKEN is refused (the environment is visible to other processes); pass the token with --token-fd");
+  }
+  const raw = argValue("--token-fd");
+  if (raw === undefined) return "";
+  const fd = Number(raw);
+  if (!Number.isInteger(fd) || fd < 3) throw new Error(`--token-fd needs a descriptor number of 3 or more, got ${JSON.stringify(raw)}`);
+  // Reads to end of file: the launcher closes its end of the pipe.
+  const token = readFileSync(fd, "utf8").trim();
+  closeSync(fd);
+  if (!/^[A-Za-z0-9_-]{32,256}$/.test(token)) throw new Error("--token-fd: the token must be 32-256 characters of [A-Za-z0-9_-]");
+  return token;
+}
+const GIVEN_TOKEN = givenToken();
 const AUTH_TOKEN = GIVEN_TOKEN || randomBytes(32).toString("base64url");
-if (AUTH_TOKEN.includes("/")) throw new Error("CMUX_AGENT_CHAT_TOKEN must be a single path segment");
 const AUTH_PREFIX = `/${encodeURIComponent(AUTH_TOKEN)}`;
 const STATE_FILE = process.env.CMUX_AGENT_CHAT_STATE_FILE ?? "";
 

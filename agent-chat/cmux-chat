@@ -54,21 +54,27 @@ if ! curl -fsS --max-time 1 "$ROOT/healthz" >/dev/null 2>&1; then
 fi
 
 # Every route but /healthz is under the server's per-launch token, which the
-# server writes to an owner-only file when it made the token itself.
-token="${CMUX_AGENT_CHAT_TOKEN:-}"
+# server writes to an owner-only file. The token never goes into a child's
+# argv (other processes can read argv): curl gets tokened URLs as a config on
+# stdin (-K -). printf and shell functions are builtins, never exec'd.
+curl_url() { # curl_url URL [curl options...]
+  local url="$1"; shift
+  printf 'url = "%s"\n' "$url" | curl -K - "$@"
+}
+token=""
 token_file="${CMUX_AGENT_CHAT_TOKEN_FILE:-$HOME/.cmux/agent-chat/token-$PORT}"
 # A file left by an earlier server on this port can be read before the new
 # server replaces it, so a token counts only once the server accepts it.
 ok=false
 for _ in $(seq 1 50); do
-  [ -n "${CMUX_AGENT_CHAT_TOKEN:-}" ] || token="$(head -n 1 "$token_file" 2>/dev/null || true)"
-  if [ -n "$token" ] && curl -fsS --max-time 1 "$ROOT/$token/api/theme" >/dev/null 2>&1; then ok=true; break; fi
+  token="$(head -n 1 "$token_file" 2>/dev/null || true)"
+  # Only the token's own form reaches the curl config (no quote or newline).
+  [[ "$token" =~ ^[A-Za-z0-9_-]{32,256}$ ]] || token=""
+  if [ -n "$token" ] && curl_url "$ROOT/$token/api/theme" -fsS --max-time 1 -o /dev/null 2>/dev/null; then ok=true; break; fi
   sleep 0.1
 done
 if ! $ok; then
-  source="$token_file"
-  [ -z "${CMUX_AGENT_CHAT_TOKEN:-}" ] || source="CMUX_AGENT_CHAT_TOKEN"
-  echo "the agent chat server on :$PORT did not accept the token from $source" >&2
+  echo "the agent chat server on :$PORT did not accept the token from $token_file" >&2
   echo "(a server started before tokens became mandatory must be restarted)" >&2
   exit 1
 fi
@@ -88,7 +94,7 @@ print(json.dumps({
     "cwd": os.environ["CC_CWD"],
     "autoApprove": os.environ["CC_AUTO"] == "true",
 }))')
-  resp=$(curl -fsS -X POST "$BASE/api/sessions" -H 'content-type: application/json' -d "$body")
+  resp=$(curl_url "$BASE/api/sessions" -fsS -X POST -H 'content-type: application/json' -d "$body")
   url=$(printf '%s' "$resp" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')
 fi
 
