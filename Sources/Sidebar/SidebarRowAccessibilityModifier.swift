@@ -29,7 +29,7 @@ struct SidebarRowAccessibilityModifier: ViewModifier {
                 .accessibilityIdentifier(accessibilityIdentifier)
                 .accessibilityLabel(Text(label))
                 .accessibilityHint(Text(hint))
-                .accessibilityAction(onActivate)
+                .accessibilityAction(.default, onActivate)
                 .accessibilityAction(named: Text(moveUpLabel), onMoveUp)
                 .accessibilityAction(named: Text(moveDownLabel), onMoveDown)
         }
