@@ -14,9 +14,12 @@ import unittest
 
 
 class ResizeSocket:
-    def __init__(self, result: dict | None = None, error: dict | None = None) -> None:
+    def __init__(self, result: dict | None = None, error: dict | None = None,
+                 limits: dict | None = None, machines: list[dict] | None = None) -> None:
         self.result = result or {}
         self.error = error
+        self.limits = limits or {}
+        self.machines = machines or []
         self.requests: list[dict] = []
         self.errors: list[Exception] = []
         self.stopped = threading.Event()
@@ -57,8 +60,12 @@ class ResizeSocket:
                         else:
                             request = json.loads(raw)
                             self.requests.append(request)
-                            response = {"id": request["id"], "ok": self.error is None}
-                            response["result" if self.error is None else "error"] = self.result if self.error is None else self.error
+                            if request["method"] == "vm.list":
+                                response = {"id": request["id"], "ok": True,
+                                            "result": {"limits": self.limits, "vms": self.machines}}
+                            else:
+                                response = {"id": request["id"], "ok": self.error is None}
+                                response["result" if self.error is None else "error"] = self.result if self.error is None else self.error
                             stream.write(json.dumps(response).encode() + b"\n")
                         stream.flush()
         except Exception as error:
@@ -165,6 +172,27 @@ class VMResizeTests(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertIn("Provider could not resize this VM", result.stderr)
             self.assert_resize_request(server)
+
+    def test_plan_ceiling_rejects_before_resize_mutation(self) -> None:
+        limits = {"planId": "pro", "maxVcpus": 16, "maxMemoryMb": 32 * 1024, "maxDiskMb": 128 * 1024}
+        with ResizeSocket(limits=limits) as server:
+            result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--cpu", "32"])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("cmux Pro", result.stderr)
+            self.assertEqual([request["method"] for request in server.requests], ["vm.list"])
+
+    def test_pool_ceiling_rejects_compute_growth_before_resize_mutation(self) -> None:
+        limits = {"planId": "pro", "maxVcpus": 16, "maxMemoryMb": 32 * 1024,
+                  "maxDiskMb": 128 * 1024, "poolVcpus": 20,
+                  "poolMemoryMb": 40 * 1024, "usedVcpus": 18,
+                  "usedMemoryMb": 32 * 1024}
+        machines = [{"id": "existing-vm", "status": "running",
+                     "resources": {"vcpus": 4, "memoryMb": 8 * 1024}}]
+        with ResizeSocket(limits=limits, machines=machines) as server:
+            result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--cpu", "8"])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("plan pool", result.stderr)
+            self.assertEqual([request["method"] for request in server.requests], ["vm.list"])
 
 
 if __name__ == "__main__":

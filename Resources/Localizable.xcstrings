@@ -522264,6 +522264,76 @@
         }
       }
     },
+    "cli.vm.resize.poolLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: Dieses Ziel benötigt %lld vCPUs und %lld GiB RAM, aber in deinem Tarifpool sind nur %lld vCPUs und %lld GiB frei. Pausiere oder lösche eine VM oder wähle eine kleinere Größe."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : cette cible nécessite %lld vCPU et %lld Gio de RAM, mais seulement %lld vCPU et %lld Gio sont libres dans votre pool. Mettez une VM en pause, supprimez-en une ou choisissez une taille plus petite."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: يحتاج هذا الحجم إلى %lld vCPU و%lld GiB من الذاكرة، لكن المتاح في مجمع خطتك هو %lld vCPU و%lld GiB فقط. أوقف جهازاً مؤقتاً أو احذفه، أو اختر حجماً أصغر."}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: este destino necesita %lld vCPU y %lld GiB de RAM, pero solo hay %lld vCPU y %lld GiB libres en el fondo de tu plan. Pausa o elimina una máquina, o elige un tamaño menor."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：此大小需要 %lld 個 vCPU 和 %lld GiB 記憶體，但方案資源池只剩 %lld 個 vCPU 和 %lld GiB。請暫停或刪除機器，或選擇較小的大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：此大小需要 %lld 个 vCPU 和 %lld GiB 内存，但套餐资源池只剩 %lld 个 vCPU 和 %lld GiB。请暂停或删除机器，或选择更小的大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: 이 크기에는 vCPU %lld개와 RAM %lldGiB가 필요하지만 요금제 풀에 남은 용량은 vCPU %lld개와 %lldGiB뿐입니다. 머신을 일시 중지하거나 삭제하거나 더 작은 크기를 선택하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: このサイズには %lld vCPU と %lld GiB RAM が必要ですが、プランのプールに残っているのは %lld vCPU と %lld GiB だけです。VM を一時停止または削除するか、小さいサイズを選択してください。"}}
+      }
+    },
+    "cli.vm.resize.planLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "vm resize: the %@ plan cannot resize %@ to %@; its maximum is %@. %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "vm resize: Der %@-Tarif kann %@ nicht auf %@ vergrößern; das Maximum beträgt %@. %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "vm resize : le forfait %@ ne peut pas redimensionner %@ à %@ ; son maximum est %@. %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "vm resize: لا تسمح خطة %@ بتغيير %@ إلى %@؛ الحد الأقصى هو %@. %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "vm resize: el plan %@ no puede ampliar %@ a %@; su máximo es %@. %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 方案無法將 %@ 調整至 %@；上限為 %@。%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "vm resize：%@ 套餐无法将 %@ 调整到 %@；上限为 %@。%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "vm resize: %@ 요금제에서는 %@을(를) %@까지 확장할 수 없습니다. 최대값은 %@입니다. %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "vm resize: %@ プランでは %@ を %@ に拡張できません。上限は %@ です。%@"}}
+      }
+    },
+    "cli.vm.resize.chooseSmaller": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Choose a smaller size."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wähle eine kleinere Größe."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Choisissez une taille plus petite."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اختر حجماً أصغر."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Elige un tamaño menor."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "請選擇較小的大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "请选择更小的大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "더 작은 크기를 선택하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "小さいサイズを選択してください。"}}
+      }
+    },
+    "cli.vm.resize.upgradePro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Upgrade to cmux Pro to use this size."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Upgrade auf cmux Pro, um diese Größe zu verwenden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Passez à cmux Pro pour utiliser cette taille."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قم بالترقية إلى cmux Pro لاستخدام هذا الحجم."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cambia a cmux Pro para usar este tamaño."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "升級至 cmux Pro 以使用此大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "升级到 cmux Pro 以使用此大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 크기를 사용하려면 cmux Pro로 업그레이드하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このサイズを使うには cmux Pro にアップグレードしてください。"}}
+      }
+    },
+    "cli.vm.resize.upgradeMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Upgrade to cmux Max to use larger sizes."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Upgrade auf cmux Max, um größere Größen zu verwenden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Passez à cmux Max pour utiliser des tailles plus grandes."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قم بالترقية إلى cmux Max لاستخدام أحجام أكبر."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cambia a cmux Max para usar tamaños mayores."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "升級至 cmux Max 以使用更大的大小。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "升级到 cmux Max 以使用更大的大小。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "더 큰 크기를 사용하려면 cmux Max로 업그레이드하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "より大きいサイズを使うには cmux Max にアップグレードしてください。"}}
+      }
+    },
     "cli.vm.resize.success": {
       "extractionState": "manual",
       "localizations": {
