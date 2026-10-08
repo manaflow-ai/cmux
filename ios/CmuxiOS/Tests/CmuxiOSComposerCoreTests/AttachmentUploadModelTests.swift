@@ -153,8 +153,10 @@ struct AttachmentUploadModelTests {
         await uploader.emit(picked, ComposerAttachment(id: TransferID(rawValue: "other"), name: "x", mime: "x",
                                                         byteCount: 1, phase: .failed), finish: true)
         await waitFor { model.attachments.first?.phase == .failed }
+        #expect(model.hasPendingUploads == false)
         #expect(model.retry(picked.id))
         await waitForRequests(uploader, 2)
+        #expect(model.hasPendingUploads)
         await uploader.emit(picked, ComposerAttachment(id: TransferID(rawValue: "other"), name: "x", mime: "x",
                                                         byteCount: 1, uploadID: "up_retry", phase: .ready), finish: true)
         await waitFor { model.attachments.first?.phase == .ready }

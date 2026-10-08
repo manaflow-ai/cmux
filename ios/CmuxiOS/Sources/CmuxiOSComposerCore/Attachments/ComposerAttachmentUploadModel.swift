@@ -97,7 +97,7 @@ public final class ComposerAttachmentUploadModel {
     }
 
     public var hasPendingUploads: Bool {
-        attachments.contains { $0.phase == .uploading || $0.uploadID == nil }
+        attachments.contains { $0.phase == .uploading }
     }
 
     /// Admits and starts one picker result. Validation happens before the
