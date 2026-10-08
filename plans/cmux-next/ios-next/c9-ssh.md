@@ -261,6 +261,20 @@ live SSH layout changes, and per-pane renderer/input integration remain unverifi
 not promote C9 parity: pane snapshot multiplexing, resize arbitration, lifecycle mutation receipts,
 and reconnect-safe renderer composition still need implementation.
 
+### Pane composition reconciliation seam (2026-10-07)
+
+`SSHTmuxPaneComposition` now turns successive validated layout projections into stable renderer lifecycle
+operations. Host pane ids remain the parser and renderer identities across order, frame, and active-state changes;
+removed panes are emitted before additions, and surviving panes carry both the previous and current frame so a
+consumer can resize without discarding parser state. Host-grid input is routed to pane-local coordinates while
+divider and out-of-window cells are rejected. Equivalent projections are a no-op, while the complete projection
+value is still refreshed when root geometry changes.
+
+Three deterministic Swift Testing cases cover coordinate routing, identity-preserving updates, removal plus resize,
+and equivalent-projection no-ops. The seam does not claim live tmux layout updates or visual parity: per-pane
+Ghostty renderer ownership, viewport and resize arbitration, pane output multiplexing, and simulator/device SSH
+verification remain open.
+
 ### Explicit tmux lifecycle mutation seam (2026-10-07)
 
 `SSHTmuxLifecycleMutation` and `SSHTmuxLifecycleMutating` define the smallest safe

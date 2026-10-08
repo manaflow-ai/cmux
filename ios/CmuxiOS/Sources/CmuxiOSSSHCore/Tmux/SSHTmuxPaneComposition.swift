@@ -86,9 +86,13 @@ public struct SSHTmuxPaneComposition: Hashable, Sendable {
     /// id and survives frame/order/active-state changes.
     @discardableResult
     public mutating func reconcile(to next: SSHTmuxPaneProjection) -> [Change] {
+        // Compare the complete value, not just its pane inventory. The root
+        // frame is part of the projection and must be refreshed even when a
+        // future projection version carries equal pane data with new root
+        // geometry.
+        guard projection != next else { return [] }
         let oldPanes = projection.panes
         let nextPanes = next.panes
-        guard oldPanes != nextPanes || projection.activePaneID != next.activePaneID else { return [] }
 
         let oldByID = Dictionary(uniqueKeysWithValues: oldPanes.map { ($0.id, $0) })
         let nextByID = Dictionary(uniqueKeysWithValues: nextPanes.map { ($0.id, $0) })

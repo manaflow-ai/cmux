@@ -63,12 +63,20 @@ import Testing
         let single = try #require(SSHTmuxPaneProjection(layout: singleLayout, activePaneID: "%2"))
         let removal = composition.reconcile(to: single)
 
-        #expect(removal.count == 1)
+        #expect(removal.count == 2)
         guard case .removed(let removed) = removal[0] else {
             Issue.record("expected pane %3 removal")
             return
         }
         #expect(removed.id == "%3")
+        guard case .updated(let resized) = removal[1] else {
+            Issue.record("expected the surviving pane resize")
+            return
+        }
+        #expect(resized.current.id == "%2")
+        #expect(resized.frameChanged)
+        #expect(resized.previous.frame.columns == 39)
+        #expect(resized.current.frame.columns == 80)
         #expect(composition.reconcile(to: single).isEmpty)
     }
 
