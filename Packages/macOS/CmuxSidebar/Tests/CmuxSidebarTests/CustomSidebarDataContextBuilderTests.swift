@@ -27,12 +27,14 @@ struct CustomSidebarDataContextBuilderTests {
 
     private func minimalWorkspace(
         id: UUID = UUID(),
+        ref: String? = nil,
         index: Int = 0,
         surfaces: [CustomSidebarSurfaceSnapshot] = [],
         taskStatus: String = "todo"
     ) -> CustomSidebarWorkspaceSnapshot {
         CustomSidebarWorkspaceSnapshot(
             id: id,
+            ref: ref,
             title: "Workspace",
             isSelected: false,
             isPinned: false,
@@ -125,6 +127,7 @@ struct CustomSidebarDataContextBuilderTests {
         var workspace = minimalWorkspace(id: id, index: 3)
         workspace = CustomSidebarWorkspaceSnapshot(
             id: id,
+            ref: nil,
             title: "Title",
             isSelected: true,
             isPinned: true,
@@ -160,6 +163,7 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("unread") == .int(2))
         #expect(value.member("tabCount") == .int(1))
         // Optional fields absent when their source is nil/empty.
+        #expect(value.member("ref") == nil)
         #expect(value.member("description") == nil)
         #expect(value.member("color") == nil)
         #expect(value.member("branch") == nil)
@@ -173,6 +177,7 @@ struct CustomSidebarDataContextBuilderTests {
         let builder = CustomSidebarDataContextBuilder()
         let workspace = CustomSidebarWorkspaceSnapshot(
             id: UUID(),
+            ref: "",
             title: "W",
             isSelected: false,
             isPinned: false,
@@ -197,6 +202,7 @@ struct CustomSidebarDataContextBuilderTests {
 
         let value = builder.workspaceValue(workspace)
 
+        #expect(value.member("ref") == nil)
         #expect(value.member("description") == nil)
         #expect(value.member("color") == nil)
         #expect(value.member("latestMessage") == nil)
@@ -209,6 +215,7 @@ struct CustomSidebarDataContextBuilderTests {
         let prValue: SwiftValue = .object(["number": .int(42)])
         let workspace = CustomSidebarWorkspaceSnapshot(
             id: UUID(),
+            ref: "workspace:16",
             title: "W",
             isSelected: false,
             isPinned: false,
@@ -233,6 +240,7 @@ struct CustomSidebarDataContextBuilderTests {
 
         let value = builder.workspaceValue(workspace)
 
+        #expect(value.member("ref") == .string("workspace:16"))
         #expect(value.member("description") == .string("desc"))
         #expect(value.member("color") == .string("#fff"))
         #expect(value.member("branch") == .string("main"))
@@ -255,6 +263,7 @@ struct CustomSidebarDataContextBuilderTests {
         var workspace = minimalWorkspace()
         workspace = CustomSidebarWorkspaceSnapshot(
             id: workspace.id,
+            ref: workspace.ref,
             title: workspace.title,
             isSelected: false,
             isPinned: false,
