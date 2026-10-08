@@ -45,17 +45,29 @@ def main() -> int:
     if revision != expected:
         raise AssertionError(f"CMUX_CUA_SRC is {revision}, expected pinned {expected}")
 
-    check = subprocess.run(
+    forward_check = subprocess.run(
         ["git", "-C", str(source_root), "apply", "--check", str(PATCH)],
+        check=False,
         capture_output=True,
         text=True,
     )
-    if check.returncode:
+    if forward_check.returncode == 0:
+        print(f"PASS: cmux-cua Codex delivery-mode patch applies to {revision}")
+        return 0
+
+    reverse_check = subprocess.run(
+        ["git", "-C", str(source_root), "apply", "--reverse", "--check", str(PATCH)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if reverse_check.returncode:
         raise AssertionError(
             "bundled Codex delivery-mode patch does not apply to the pinned source:\n"
-            + (check.stderr or check.stdout)
+            + (forward_check.stderr or forward_check.stdout)
+            + (reverse_check.stderr or reverse_check.stdout)
         )
-    print(f"PASS: cmux-cua Codex delivery-mode patch applies to {revision}")
+    print(f"PASS: cmux-cua Codex delivery-mode patch is already applied to {revision}")
     return 0
 
 

@@ -158,8 +158,7 @@ command -v cargo >/dev/null 2>&1 || {
 
 mkdir -p "$CACHE_DIR"
 
-# One trap handles both the source lock (released early, before compile) and
-# the scratch build dir.
+# One trap handles both the source lock and the scratch build dir.
 SRC_LOCK_DIR=""
 TMPDIR_BUILD=""
 TMPDIR_CLONE=""
@@ -167,10 +166,8 @@ cleanup() {
   [[ -n "$TMPDIR_BUILD" ]] && rm -rf "$TMPDIR_BUILD"
   [[ -n "$TMPDIR_CLONE" ]] && rm -rf "$TMPDIR_CLONE"
   [[ -n "$SRC_LOCK_DIR" ]] && rm -rf "$SRC_LOCK_DIR"
-  # The src lock is released (SRC_LOCK_DIR="") before compiling, so the test
-  # above normally fails last; without an explicit success status the EXIT
-  # trap propagates 1 under set -e and fails the Xcode phase script even
-  # though the build succeeded.
+  # Without an explicit success status the EXIT trap can propagate 1 under
+  # set -e and fail the Xcode phase script even though the build succeeded.
   return 0
 }
 trap cleanup EXIT
@@ -336,7 +333,6 @@ fi
 # small, reviewed compatibility patch after the SHA gate so the bundled helper
 # exposes the recovery mode documented by its native click/drag tools.
 "$REPO_ROOT/scripts/apply-cmux-cua-patch.sh" "$SRC_ROOT" "$CMUX_CUA_PATCH_FILE"
-release_src_lock
 
 CARGO_ROOT="$SRC_ROOT/libs/cmux-cua/rust"
 if [[ ! -f "$CARGO_ROOT/Cargo.toml" ]]; then
@@ -411,6 +407,11 @@ for arch in "${ARCHS[@]}"; do
   "$REPO_ROOT/scripts/strip-cmux-cua-rpaths.sh" "$arch_output"
   BUILT+=("$arch_output")
 done
+
+# Keep the managed source checkout locked until every Cargo invocation has
+# finished. A concurrent build can force-checkout the pinned tree and remove
+# the compatibility patch while another build is compiling it.
+release_src_lock
 
 if ((${#BUILT[@]} == 1)); then
   cp "${BUILT[0]}" "$OUTPUT"
