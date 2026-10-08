@@ -1,0 +1,723 @@
+//! The v2 request origin (plans/cmux-next/request-origin.md): derivation,
+//! narrowing claims, gate A2 and the confirmation token, driven through the
+//! connection message handler.
+
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+use crate::server::origin_gate::{
+    advance_origin_clock_for_test, jump_origin_wall_clock_for_test, set_peer_key_for_test,
+    set_role_for_test, set_verified_app_for_test,
+};
+use crate::server::*;
+
+const TTL_MS: u64 = 60_000;
+
+struct Conn {
+    client: u64,
+    writer: MessageWriter,
+    outbound: Arc<BoundedOutbound>,
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+}
+
+fn mux(label: &str) -> Arc<Mux> {
+    Mux::new_for_test(format!("origin-{label}"), crate::SurfaceOptions::default())
+}
+
+fn connect(mux: &Arc<Mux>) -> Conn {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    Conn { client, writer, outbound, scheduler }
+}
+
+/// A page relay connection whose peer is `peer`.
+fn relay(mux: &Arc<Mux>, peer: &str) -> Conn {
+    let conn = connect(mux);
+    set_role_for_test(mux, conn.client, "page_relay");
+    set_peer_key_for_test(mux, conn.client, peer);
+    conn
+}
+
+/// A verified cmux app connection (role main) whose peer is `peer`.
+fn verified_app(mux: &Arc<Mux>, peer: &str) -> Conn {
+    let conn = connect(mux);
+    set_role_for_test(mux, conn.client, "main");
+    set_peer_key_for_test(mux, conn.client, peer);
+    set_verified_app_for_test(mux, conn.client, true);
+    conn
+}
+
+fn send(mux: &Arc<Mux>, conn: &Conn, request: &Value) -> Value {
+    assert!(handle_connection_message(
+        mux,
+        conn.client,
+        &request.to_string(),
+        &conn.writer,
+        &conn.scheduler
+    ));
+    let message = conn.outbound.try_pop().expect("a synchronous reply");
+    serde_json::from_str(&message).unwrap()
+}
+
+fn v2(operation: &str, params: Value, key: Option<&str>, origin: Option<Value>) -> Value {
+    let mut request = json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "r1",
+        "operation": operation,
+        "params": params,
+    });
+    if let Some(key) = key {
+        request["idempotency_key"] = json!(key);
+    }
+    if let Some(origin) = origin {
+        request["origin"] = origin;
+    }
+    request
+}
+
+fn install_params() -> Value {
+    json!({"app": "cmux/demo", "version": "1.0.0", "grant_optional": ["b", "a"]})
+}
+
+fn ping(origin: Option<Value>) -> Value {
+    v2("session.ping", json!({"machine": "current", "session": "current"}), None, origin)
+}
+
+/// SHA-256 of `{"machine":"current","session":"current"}`: the ping params
+/// in canonical JSON (sorted keys, no whitespace).
+fn ping_params_sha256() -> String {
+    let canonical = r#"{"machine":"current","session":"current"}"#;
+    Sha256::digest(canonical.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// A session.ping that presents `token` as a confirmed-user claim.
+fn confirmed_ping(token: &str) -> Value {
+    ping(Some(user_claim(token)))
+}
+
+/// The token was refused (wrong, spent, expired or of another relay).
+fn assert_confirmation_refused(reply: &Value) {
+    assert_forbidden(reply);
+    assert_eq!(reply["error"]["details"]["reason"], "confirmation_invalid", "{reply}");
+}
+
+/// The token was accepted: the claim passed, and the page rule then refused
+/// the catalog operation (on a page relay the result would reach page JS).
+fn assert_confirmation_accepted(reply: &Value) {
+    assert_page_access_refusal(reply);
+}
+
+fn issue(mux: &Arc<Mux>, caller: &Conn, operation: &str, sha: &str, relay: &Conn) -> Value {
+    send(
+        mux,
+        caller,
+        &v2(
+            "origin.confirmation.issue",
+            json!({
+                "machine": "current",
+                "session": "current",
+                "operation": operation,
+                "params_sha256": sha,
+                "relay_connection_id": relay.client.to_string(),
+            }),
+            None,
+            None,
+        ),
+    )
+}
+
+fn issued_token(reply: &Value) -> String {
+    assert_eq!(reply["ok"], true, "{reply}");
+    let token = reply["result"]["token"].as_str().expect("token").to_string();
+    assert_eq!(token.len(), 43, "32 bytes base64url without padding: {token}");
+    assert!(token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+    assert!(reply["result"]["expires_at"].is_string(), "{reply}");
+    token
+}
+
+fn user_claim(token: &str) -> Value {
+    json!({"claim": "user", "confirmation": token})
+}
+
+fn assert_forbidden(reply: &Value) {
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error"]["code"], "origin.forbidden", "{reply}");
+}
+
+#[test]
+fn a_verified_app_connection_derives_user() {
+    let mux = mux("a2-user");
+    let app = verified_app(&mux, "token:10.1");
+    // A claim of user narrows nothing on the verified app.
+    assert_eq!(send(&mux, &app, &ping(Some(json!({"claim": "user"}))))["ok"], true);
+}
+
+#[test]
+fn page_relay_request_with_no_origin_derives_page() {
+    let mux = mux("relay-page");
+    let relay = relay(&mux, "token:10.1");
+    // The claim is accepted as page; page then gets no catalog operation
+    // (page_access.rs: the allow list is empty).
+    assert_page_access_refusal(&send(&mux, &relay, &ping(None)));
+    assert_page_access_refusal(&send(&mux, &relay, &ping(Some(json!({"claim": "page"})))));
+}
+
+/// The refusal of page_access.rs: the claim was accepted and narrowed to
+/// page (a refused claim has details `{derived, claim}` instead).
+fn assert_page_access_refusal(reply: &Value) {
+    assert_eq!(reply["error"]["code"], "origin.forbidden", "{reply}");
+    assert_eq!(
+        reply["error"]["details"],
+        json!({"required": "agent", "derived": "page"}),
+        "{reply}"
+    );
+}
+
+#[test]
+fn page_relay_accepts_only_page_or_confirmed_user_claims() {
+    let mux = mux("relay-claims");
+    let relay = relay(&mux, "token:10.1");
+    for claim in [
+        json!({"claim": "user"}),
+        json!({"claim": "agent"}),
+        json!({"claim": "app"}),
+        json!({"claim": "page", "confirmation": "x"}),
+        json!({"claim": "user", "confirmation": "not-a-token"}),
+    ] {
+        // Refused as a claim (details name it), not by the page rule.
+        let reply = send(&mux, &relay, &ping(Some(claim)));
+        assert_forbidden(&reply);
+        assert!(reply["error"]["details"]["claim"].is_string(), "{reply}");
+    }
+}
+
+#[test]
+fn a_client_claim_may_only_narrow() {
+    let mux = mux("narrow");
+    let conn = connect(&mux);
+    // No origin behaves as today.
+    assert_eq!(send(&mux, &conn, &ping(None))["ok"], true);
+    // Narrowing agent to page is accepted; the gate then sees page, which
+    // gets no catalog operation.
+    assert_page_access_refusal(&send(&mux, &conn, &ping(Some(json!({"claim": "page"})))));
+    // Widening is refused.
+    for claim in ["user", "app"] {
+        assert_forbidden(&send(&mux, &conn, &ping(Some(json!({"claim": claim})))));
+    }
+}
+
+#[test]
+fn issue_is_refused_on_a_page_relay_and_on_a_non_verified_connection() {
+    let mux = mux("issue-refused");
+    let relay = relay(&mux, "token:10.1");
+    let sha = ping_params_sha256();
+    assert_forbidden(&issue(&mux, &relay, "session.ping", &sha, &relay));
+    let plain = connect(&mux);
+    set_role_for_test(&mux, plain.client, "main");
+    set_peer_key_for_test(&mux, plain.client, "token:10.1");
+    let reply = issue(&mux, &plain, "session.ping", &sha, &relay);
+    assert_forbidden(&reply);
+    assert_eq!(reply["error"]["details"]["required"], "user", "{reply}");
+}
+
+#[test]
+fn issue_obeys_a_narrowing_claim_of_the_verified_app() {
+    let mux = mux("issue-narrowed");
+    let app = verified_app(&mux, "token:10.1");
+    let relay = relay(&mux, "token:10.1");
+    for claim in ["agent", "app"] {
+        let mut request = v2(
+            "origin.confirmation.issue",
+            json!({
+                "machine": "current",
+                "session": "current",
+                "operation": "session.ping",
+                "params_sha256": ping_params_sha256(),
+                "relay_connection_id": relay.client.to_string(),
+            }),
+            None,
+            Some(json!({"claim": claim})),
+        );
+        request["id"] = json!(format!("narrowed-{claim}"));
+        let reply = send(&mux, &app, &request);
+        assert_forbidden(&reply);
+        assert_eq!(reply["error"]["details"], json!({"required": "user", "derived": claim}));
+    }
+}
+
+#[test]
+fn issue_with_a_relay_of_another_peer_is_refused() {
+    let mux = mux("issue-peer");
+    let app = verified_app(&mux, "token:10.1");
+    let sha = ping_params_sha256();
+    // Same pid, other pid version: a different process.
+    let other = relay(&mux, "token:10.2");
+    assert_forbidden(&issue(&mux, &app, "session.ping", &sha, &other));
+    // A connection that is not a page relay is never a relay target.
+    let main = verified_app(&mux, "token:10.1");
+    assert_forbidden(&issue(&mux, &app, "session.ping", &sha, &main));
+}
+
+#[test]
+fn a_confirmed_user_claim_passes_once() {
+    let mux = mux("token-once");
+    let app = verified_app(&mux, "token:10.1");
+    let relay = relay(&mux, "token:10.1");
+    let token = issued_token(&issue(&mux, &app, "session.ping", &ping_params_sha256(), &relay));
+    assert_confirmation_accepted(&send(&mux, &relay, &confirmed_ping(&token)));
+    // Single use.
+    assert_confirmation_refused(&send(&mux, &relay, &confirmed_ping(&token)));
+}
+
+#[test]
+fn a_token_for_other_params_or_another_operation_is_refused() {
+    let mux = mux("token-params");
+    let app = verified_app(&mux, "token:10.1");
+    let relay = relay(&mux, "token:10.1");
+    let sha = ping_params_sha256();
+    let token = issued_token(&issue(&mux, &app, "session.ping", &sha, &relay));
+    let other_params = v2(
+        "session.ping",
+        json!({"machine": "current", "session": "other"}),
+        None,
+        Some(user_claim(&token)),
+    );
+    assert_confirmation_refused(&send(&mux, &relay, &other_params));
+    let token = issued_token(&issue(&mux, &app, "session.get", &sha, &relay));
+    assert_confirmation_refused(&send(&mux, &relay, &confirmed_ping(&token)));
+}
+
+#[test]
+fn an_expired_token_is_refused() {
+    let mux = mux("token-expired");
+    let app = verified_app(&mux, "token:10.1");
+    let relay = relay(&mux, "token:10.1");
+    let sha = ping_params_sha256();
+    let token = issued_token(&issue(&mux, &app, "session.ping", &sha, &relay));
+    advance_origin_clock_for_test(&mux, TTL_MS + 1);
+    assert_confirmation_refused(&send(&mux, &relay, &confirmed_ping(&token)));
+    // A token still inside its TTL passes.
+    let token = issued_token(&issue(&mux, &app, "session.ping", &sha, &relay));
+    advance_origin_clock_for_test(&mux, TTL_MS - 1_000);
+    assert_confirmation_accepted(&send(&mux, &relay, &confirmed_ping(&token)));
+}
+
+#[test]
+fn a_token_is_consumed_only_on_its_relay_connection() {
+    let mux = mux("token-connection");
+    let app = verified_app(&mux, "token:10.1");
+    let relay_a = relay(&mux, "token:10.1");
+    let relay_b = relay(&mux, "token:10.1");
+    let token = issued_token(&issue(&mux, &app, "session.ping", &ping_params_sha256(), &relay_a));
+    assert_confirmation_refused(&send(&mux, &relay_b, &confirmed_ping(&token)));
+    // A legacy connection cannot present it either.
+    let plain = connect(&mux);
+    let reply = send(&mux, &plain, &confirmed_ping(&token));
+    assert_forbidden(&reply);
+    assert_eq!(reply["error"]["details"]["claim"], "user", "{reply}");
+}
+
+const HOUR_MS: i64 = 3_600_000;
+
+#[test]
+fn a_token_expires_at_exactly_60_seconds_of_monotonic_time() {
+    let mux = mux("token-exact-ttl");
+    let app = verified_app(&mux, "token:10.1");
+    let relay = relay(&mux, "token:10.1");
+    let sha = ping_params_sha256();
+    // Freeze the test clock so only the steps below move time.
+    advance_origin_clock_for_test(&mux, 0);
+    let token = issued_token(&issue(&mux, &app, "session.ping", &sha, &relay));
+    advance_origin_clock_for_test(&mux, TTL_MS - 1);
+    assert_confirmation_accepted(&send(&mux, &relay, &confirmed_ping(&token)));
+    let token = issued_token(&issue(&mux, &app, "session.ping", &sha, &relay));
+    advance_origin_clock_for_test(&mux, TTL_MS);
+    assert_confirmation_refused(&send(&mux, &relay, &confirmed_ping(&token)));
+}
+
+#[test]
+fn a_wall_clock_jump_neither_cuts_nor_extends_a_token() {
+    let mux = mux("token-wall-jump");
+    let app = verified_app(&mux, "token:10.1");
+    let relay = relay(&mux, "token:10.1");
+    let sha = ping_params_sha256();
+    advance_origin_clock_for_test(&mux, 0);
+    // A forward wall jump does not cut a live token.
+    let token = issued_token(&issue(&mux, &app, "session.ping", &sha, &relay));
+    jump_origin_wall_clock_for_test(&mux, 2 * HOUR_MS);
+    assert_confirmation_accepted(&send(&mux, &relay, &confirmed_ping(&token)));
+    // A backward wall jump does not extend a token past 60 s.
+    let token = issued_token(&issue(&mux, &app, "session.ping", &sha, &relay));
+    jump_origin_wall_clock_for_test(&mux, -2 * HOUR_MS);
+    advance_origin_clock_for_test(&mux, TTL_MS);
+    assert_confirmation_refused(&send(&mux, &relay, &confirmed_ping(&token)));
+}
+
+fn apps_set(fields: Value) -> Value {
+    let mut request =
+        json!({"id": 1, "cmd": "apps-set", "idempotency_key": "k1", "app": "cmux/demo"});
+    for (key, value) in fields.as_object().unwrap() {
+        request[key] = value.clone();
+    }
+    request
+}
+
+/// Every legacy apps-set change: install, uninstall, enable, disable, hide,
+/// sandbox and grant, with and without a claimed origin.
+fn apps_set_changes() -> Vec<Value> {
+    let mut changes = Vec::new();
+    for origin in [None, Some("user"), Some("script")] {
+        for fields in [
+            json!({"installed": true}),
+            json!({"installed": false}),
+            json!({"enabled": true}),
+            json!({"enabled": false}),
+            json!({"hidden": true}),
+            json!({"sandboxed": false}),
+            json!({"grant": {"scope": "workspace:write", "granted": true}}),
+        ] {
+            let mut request = apps_set(fields);
+            if let Some(origin) = origin {
+                request["origin"] = json!(origin);
+            }
+            changes.push(request);
+        }
+    }
+    changes
+}
+
+fn assert_legacy_a2_refusal(reply: &Value, derived: &str) {
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], "origin.forbidden", "{reply}");
+    assert_eq!(reply["error"], "needs a verified cmux app connection", "{reply}");
+    assert_eq!(reply["error_details"], json!({"required": "user", "derived": derived}), "{reply}");
+}
+
+#[test]
+fn legacy_apps_set_is_refused_from_every_connection_but_the_verified_app() {
+    let mux = mux("apps-set-a2");
+    let client = connect(&mux);
+    let page_relay = relay(&mux, "token:10.1");
+    let agent = connect(&mux);
+    mux.bind_conversation_principal(agent.client, "agent:test".to_string()).unwrap();
+    // A self-declared kind app is still not the verified app.
+    let declared_app = connect(&mux);
+    mux.control_clients.state.lock().unwrap().clients.get_mut(&declared_app.client).unwrap().kind =
+        Some("app".to_string());
+    for request in apps_set_changes() {
+        assert_legacy_a2_refusal(&send(&mux, &client, &request), "agent");
+        assert_legacy_a2_refusal(&send(&mux, &page_relay, &request), "page");
+        assert_legacy_a2_refusal(&send(&mux, &agent, &request), "agent");
+        assert_legacy_a2_refusal(&send(&mux, &declared_app, &request), "agent");
+    }
+    // The verified app passes the gate: the request reaches the app
+    // supervisor (apps.unavailable in a daemon without an app host).
+    let app = verified_app(&mux, "token:10.1");
+    for request in apps_set_changes() {
+        let reply = send(&mux, &app, &request);
+        assert_ne!(reply["error_code"], "origin.forbidden", "{reply}");
+        assert_ne!(reply["error_code"], "apps.origin_forbidden", "{reply}");
+    }
+}
+
+#[test]
+fn legacy_user_origin_gestures_need_the_verified_app() {
+    let mux = mux("apps-run-a2");
+    let gesture = json!({
+        "id": 1, "cmd": "apps-run", "origin": "user", "app": "cmux/demo", "op": "demo.go",
+        "args": {},
+    });
+    // A connection that only declares kind app is not the hosting app.
+    let declared_app = connect(&mux);
+    mux.control_clients.state.lock().unwrap().clients.get_mut(&declared_app.client).unwrap().kind =
+        Some("app".to_string());
+    let agent = connect(&mux);
+    mux.bind_conversation_principal(agent.client, "agent:test".to_string()).unwrap();
+    let page_relay = relay(&mux, "token:10.1");
+    mux.control_clients.state.lock().unwrap().clients.get_mut(&page_relay.client).unwrap().kind =
+        Some("app".to_string());
+    assert_legacy_a2_refusal(&send(&mux, &declared_app, &gesture), "agent");
+    assert_legacy_a2_refusal(&send(&mux, &agent, &gesture), "agent");
+    assert_legacy_a2_refusal(&send(&mux, &page_relay, &gesture), "page");
+    // The verified app passes the gate without declaring a kind (the run
+    // then reaches the supervisor, apps.unavailable without an app host).
+    let app = verified_app(&mux, "token:10.1");
+    let reply = send(&mux, &app, &gesture);
+    assert_ne!(reply["error_code"], "origin.forbidden", "{reply}");
+    assert_ne!(reply["error_code"], "apps.origin_forbidden", "{reply}");
+    // Other origins keep working from any local connection.
+    let script = json!({
+        "id": 2, "cmd": "apps-run", "origin": "script", "app": "cmux/demo", "op": "demo.go",
+        "args": {},
+    });
+    let reply = send(&mux, &agent, &script);
+    assert_ne!(reply["error_code"], "origin.forbidden", "{reply}");
+}
+
+/// P8 prover B through the real hello: `role` declared in step 1 with peer
+/// key `peer`; a role-main hello also runs step 2 with the install key.
+fn hello(mux: &Arc<Mux>, role: &str, peer: &str) -> Conn {
+    use cmux_local_auth::frontend_proof::{NONCE_LEN, hello_proof, unhex};
+    let conn = connect(mux);
+    let mut gate = client_hello::HelloGate::new(ClientTransport::Unix);
+    let peer = || client_hello::Peer { key: Some(peer.to_string()), token: None };
+    let start = json!({"id": 1, "cmd": "client-hello", "role": role, "install_id": "inst_p8"});
+    let started = gate.observe(mux, conn.client, &start.to_string(), peer).expect("handled");
+    assert_eq!(started["ok"], true, "{started}");
+    if role == "main" {
+        let nonce = unhex::<NONCE_LEN>(started["data"]["nonce"].as_str().unwrap()).unwrap();
+        let key = unhex::<32>(P8_KEY_HEX).unwrap();
+        let proof = json!({"id": 2, "cmd": "client-hello", "install_id": "inst_p8",
+            "proof": hello_proof(&key, "inst_p8", &nonce)});
+        let proved = gate.observe(mux, conn.client, &proof.to_string(), peer).expect("handled");
+        assert_eq!(proved["data"]["verified"], true, "{proved}");
+    }
+    conn
+}
+
+const P8_KEY_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+
+fn keyed_mux(label: &str) -> Arc<Mux> {
+    let mux = mux(label);
+    let key = FrontendKey::parse(&format!("cmuxik1 inst_p8 {P8_KEY_HEX}")).unwrap();
+    assert!(install_frontend_key(&mux, key));
+    mux
+}
+
+/// P8 (DEV build, prover B): the install-key proof makes the main
+/// connection the verified app without changing its peer key, so the page
+/// relay of the same process (same audit-token key) gets a confirmation
+/// that its claim passes once.
+#[test]
+fn an_install_proved_main_connection_confirms_for_its_own_page_relay() {
+    let mux = keyed_mux("p8-same-peer");
+    let app = hello(&mux, "main", "token:20.1");
+    let relay = hello(&mux, "page_relay", "token:20.1");
+    let token = issued_token(&issue(&mux, &app, "session.ping", &ping_params_sha256(), &relay));
+    assert_confirmation_accepted(&send(&mux, &relay, &confirmed_ping(&token)));
+}
+
+/// P8: another process (another audit-token key) gets nothing from the
+/// install proof. A relay of another process is no relay target for the
+/// proved main connection, and another process that proves the same install
+/// key cannot confirm for this app's relay either.
+#[test]
+fn another_process_cannot_use_an_install_proved_confirmation() {
+    let mux = keyed_mux("p8-other-peer");
+    let sha = ping_params_sha256();
+    let app = hello(&mux, "main", "token:20.1");
+    let foreign_relay = hello(&mux, "page_relay", "token:21.1");
+    assert_forbidden(&issue(&mux, &app, "session.ping", &sha, &foreign_relay));
+    let app_relay = hello(&mux, "page_relay", "token:20.1");
+    let foreign_main = hello(&mux, "main", "token:21.1");
+    assert_forbidden(&issue(&mux, &foreign_main, "session.ping", &sha, &app_relay));
+    // The app's own confirmation stays usable only on its own relay.
+    let token = issued_token(&issue(&mux, &app, "session.ping", &sha, &app_relay));
+    assert_confirmation_refused(&send(&mux, &foreign_relay, &confirmed_ping(&token)));
+    assert_confirmation_accepted(&send(&mux, &app_relay, &confirmed_ping(&token)));
+}
+
+// Parse once (decisions: the origin gate): the gate and the dispatcher act on
+// ONE typed parse of the line, so no spelling of a line can be read one way
+// by the gate and another way by the handler, and a line the gate cannot
+// read is refused, never admitted.
+
+fn send_raw(mux: &Arc<Mux>, conn: &Conn, line: &str) -> Value {
+    assert!(handle_connection_message(mux, conn.client, line, &conn.writer, &conn.scheduler));
+    let message = conn.outbound.try_pop().expect("a synchronous reply");
+    serde_json::from_str(&message).unwrap()
+}
+
+/// `request` as a line whose member `key` is spelled with a JSON escape of
+/// its first character (`"origin"` -> `"\u006frigin"`): the same JSON value.
+fn with_escaped_key(request: &Value, key: &str) -> String {
+    let literal = format!("\"{key}\":");
+    let first = key.chars().next().expect("a key");
+    let escaped = format!("\"\\u{:04x}{}\":", u32::from(first), &key[first.len_utf8()..]);
+    let line = request.to_string();
+    assert!(line.contains(&literal), "{line}");
+    let line = line.replacen(&literal, &escaped, 1);
+    assert_eq!(serde_json::from_str::<Value>(&line).unwrap(), *request);
+    line
+}
+
+#[test]
+fn an_escaped_origin_key_is_the_same_claim_as_a_literal_one() {
+    let mux = mux("escaped-origin");
+    let conn = connect(&mux);
+    // A narrowing claim (page: every catalog operation refused) and a
+    // widening claim (user: refused) must not be skipped by any spelling.
+    for claim in [json!({"claim": "page"}), json!({"claim": "user"}), json!({"claim": "app"})] {
+        let request = ping(Some(claim));
+        let literal = send(&mux, &conn, &request);
+        assert_forbidden(&literal);
+        let escaped = send_raw(&mux, &conn, &with_escaped_key(&request, "origin"));
+        assert_eq!(escaped, literal, "an escaped origin key changed the answer");
+    }
+}
+
+#[test]
+fn a_line_whose_connection_record_is_gone_is_refused() {
+    let mux = mux("record-gone");
+    // A page relay that another connection detached while its reader still
+    // holds a line: the record (and its role) is gone. The line must be
+    // refused, never run as an agent. The connection loop treats a client
+    // without a record as remote (remote_denied) before the gate.
+    let relay = relay(&mux, "token:10.1");
+    assert!(mux.control_clients.remove(relay.client).is_some());
+    assert!(handle_connection_frame(
+        &mux,
+        relay.client,
+        ClientTransport::Unix,
+        &ping(None).to_string(),
+        &relay.writer,
+        &relay.scheduler,
+    ));
+    let reply: Value = serde_json::from_str(&relay.outbound.try_pop().expect("a reply")).unwrap();
+    assert_eq!(reply["ok"], false, "{reply}");
+}
+
+/// The gate itself also fails closed on a missing record (defense in depth
+/// behind the remote route above).
+#[test]
+fn the_gate_refuses_a_client_without_a_registry_record() {
+    let mux = mux("record-gone-gate");
+    let conn = connect(&mux);
+    assert!(mux.control_clients.remove(conn.client).is_some());
+    let envelope = crate::resource_router::parse_resource_line(&ping(None).to_string())
+        .expect("a v2 line")
+        .expect("a typed envelope");
+    let error = super::check(&mux, conn.client, &envelope).unwrap_err();
+    assert_eq!(error.code, "origin.forbidden");
+    assert_eq!(error.details["reason"], "connection_not_registered");
+}
+
+#[test]
+fn an_operation_gets_one_answer_whatever_its_spelling() {
+    let mux = mux("operation-spelling");
+    let conn = connect(&mux);
+    let relay = relay(&mux, "token:10.1");
+    // apps.* is not a catalog operation: every spelling gets the envelope
+    // validation error (coordinator decision), never a gate-only answer.
+    for operation in ["apps.install", "apps.uninstall", "apps.enable"] {
+        let request = v2(operation, install_params(), Some("k1"), None);
+        for on in [&conn, &relay] {
+            let literal = send(&mux, on, &request);
+            assert_eq!(literal["ok"], false, "{literal}");
+            assert_eq!(literal["error"]["code"], "validation.invalid", "{literal}");
+            let escaped = send_raw(&mux, on, &with_escaped_key(&request, "operation"));
+            assert_eq!(escaped, literal, "an escaped operation key changed the answer");
+        }
+    }
+    // A catalog operation spelled with an escape is the same operation.
+    let input = v2(
+        "terminal.input.write",
+        json!({"machine": "current", "session": "current", "terminal": "t1", "text": "x"}),
+        Some("k1"),
+        None,
+    );
+    let literal = send(&mux, &relay, &input);
+    assert_page_access_refusal(&literal);
+    let line = input.to_string().replacen("terminal.input", "terminal\\u002einput", 1);
+    assert_eq!(send_raw(&mux, &relay, &line), literal);
+}
+
+#[test]
+fn unreadable_lines_are_refused_and_never_dispatched() {
+    let mux = mux("unreadable");
+    let conn = connect(&mux);
+    let relay = relay(&mux, "token:10.1");
+    let list =
+        v2("workspace.list", json!({"machine": "current", "session": "current"}), None, None);
+    let workspaces = |mux: &Arc<Mux>| send(mux, &conn, &list)["result"].clone();
+    let before = workspaces(&mux);
+    assert!(before.is_array(), "{before}");
+    let create = v2(
+        "workspace.create",
+        json!({"machine": "current", "session": "current", "initial_content": "empty"}),
+        Some("k1"),
+        None,
+    );
+    let mut numeric_id = create.clone();
+    numeric_id["id"] = json!(7);
+    let mut no_operation = create.clone();
+    no_operation.as_object_mut().unwrap().remove("operation");
+    let mut unknown = create.clone();
+    unknown["operation"] = json!("Workspace.Create");
+    let duplicate_operation = create.to_string().replacen(
+        "\"operation\":",
+        "\"operation\":\"session.ping\",\"operation\":",
+        1,
+    );
+    let duplicate_origin = ping(Some(json!({"claim": "page"}))).to_string().replacen(
+        "\"origin\":",
+        "\"origin\":{\"claim\":\"user\"},\"origin\":",
+        1,
+    );
+    for line in [
+        numeric_id.to_string(),
+        no_operation.to_string(),
+        unknown.to_string(),
+        duplicate_operation,
+        duplicate_origin,
+    ] {
+        for on in [&conn, &relay] {
+            // The envelope parse refuses it, not a rule that read one copy.
+            let reply = send_raw(&mux, on, &line);
+            assert_eq!(reply["ok"], false, "{line} -> {reply}");
+            assert_eq!(reply["error"]["code"], "validation.invalid", "{line} -> {reply}");
+        }
+    }
+    assert_eq!(workspaces(&mux), before, "a refused line was dispatched");
+}
+
+fn assert_not_forbidden(reply: &Value) {
+    assert_ne!(reply["error"]["code"], "origin.forbidden", "{reply}");
+}
+
+fn assert_a2_refusal(reply: &Value, derived: &str) {
+    assert_forbidden(reply);
+    assert_eq!(reply["error"]["message"], "needs a verified cmux app connection", "{reply}");
+    assert_eq!(reply["error"]["details"], json!({"required": "user", "derived": derived}));
+}
+
+/// `workspace.agent_folder.set` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): only
+/// the user sets where a workspace's agents run. An agent connection (a Web
+/// or Peer client reaches the daemon no other way), a page relay and an app
+/// are refused by gate A2 before the request is validated; a verified app passes.
+fn agent_folder(origin: Option<Value>) -> Value {
+    v2(
+        "workspace.agent_folder.set",
+        json!({"machine": "current", "session": "current", "workspace": "current", "path": null}),
+        Some("folder-1"),
+        origin,
+    )
+}
+
+#[test]
+fn only_a_verified_app_sets_a_workspace_agent_folder() {
+    let mux = mux("agent-folder");
+    let agent = connect(&mux);
+    assert_a2_refusal(&send(&mux, &agent, &agent_folder(None)), "agent");
+    let main = connect(&mux);
+    set_role_for_test(&mux, main.client, "main");
+    assert_a2_refusal(&send(&mux, &main, &agent_folder(None)), "agent");
+    let relay = relay(&mux, "token:30.1");
+    assert_forbidden(&send(&mux, &relay, &agent_folder(None)));
+    assert_forbidden(&send(&mux, &relay, &agent_folder(Some(json!({"claim": "user"})))));
+    let app = verified_app(&mux, "token:30.1");
+    assert_forbidden(&send(&mux, &app, &agent_folder(Some(json!({"claim": "app"})))));
+    assert_not_forbidden(&send(&mux, &app, &agent_folder(None)));
+    // Any spelling of the name meets the gate.
+    let line = agent_folder(None).to_string().replace("agent_folder", "agent\\u005ffolder");
+    assert!(handle_connection_message(&mux, agent.client, &line, &agent.writer, &agent.scheduler));
+    let reply: Value = serde_json::from_str(&agent.outbound.try_pop().unwrap()).unwrap();
+    assert_a2_refusal(&reply, "agent");
+}
+
+#[path = "mutation_actor_tests.rs"]
+mod mutation_actor;

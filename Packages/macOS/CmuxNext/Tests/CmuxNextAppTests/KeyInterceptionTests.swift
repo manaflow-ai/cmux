@@ -105,13 +105,14 @@ struct KeyInterceptionTests {
     @Test func ghosttyKeybindBecomesTheRoutedRegistryAction() throws {
         let services = ActionBindingCoverageTests.boundServices()
         let router = services.keyRouter!
-        let bind = GhosttyHostKeybind(key: .unicode(UInt32(("h" as Unicode.Scalar).value)), modifiers: [.command, .control],
+        // A chord no cmux default binds (Ctrl-Cmd-H/J/K/L focus panes).
+        let bind = GhosttyHostKeybind(key: .unicode(UInt32(("b" as Unicode.Scalar).value)), modifiers: [.command, .control],
                                       action: .gotoSplit(.left))
-        router.ghosttyHostAction = { bind.matches($0) ? bind.action : nil }
-        let chord = try Self.key("h", keyCode: 4, [.command, .control])
+        router.loadGhosttyKeybinds([bind], defaults: [])
+        let chord = try Self.key("b", keyCode: 11, [.command, .control])
         let candidate = try #require(router.candidate(for: chord, focus: Self.page))
         #expect(candidate == Self.ghosttyFocusLeft)
-        #expect(router.candidate(for: try Self.key("h", keyCode: 4, [.command]), focus: Self.page)?.source != .ghostty(arguments: [:]))
+        #expect(router.candidate(for: try Self.key("b", keyCode: 11, [.command]), focus: Self.page)?.source != .ghostty(arguments: [:]))
     }
 
     /// The window and Chromium hooks run tier 2 only, so a tier 1 chord the
@@ -124,6 +125,25 @@ struct KeyInterceptionTests {
         #expect(!services.keyRouter.routeContentKeyEquivalent(event, focus: Self.focusMode))
         #expect(!services.keyRouter.routeContentKeyEquivalent(event, focus: Self.page))
         #expect(ran.isEmpty)
+    }
+
+    /// cx-6so.46: with the palette open over a terminal, AppKit offers the
+    /// palette's unhandled Cmd-K to the main window behind it too. The
+    /// palette keeps the terminal's context bits (its commands act on that
+    /// terminal), so the window hook resolved Cmd-K to Clear Screen and
+    /// Scrollback and cleared the terminal under the palette.
+    @Test func windowHookRunsNothingWhileAnOverlayHasTheKeys() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        var ran: [ActionID] = []
+        services.registry.bind("terminal.clear", invoke: { _ in ran.append("terminal.clear") })
+        let commandK = try Self.key("k", keyCode: 40, [.command])
+        #expect(services.keyRouter.routeContentKeyEquivalent(commandK, focus: Self.terminal), "control: Cmd-K clears a focused terminal")
+        #expect(ran == ["terminal.clear"])
+        ran.removeAll()
+        for overlay in [Self.paletteOpen, Self.sheetOpen] {
+            #expect(!services.keyRouter.routeContentKeyEquivalent(commandK, focus: overlay))
+        }
+        #expect(ran.isEmpty, "Cmd-K under the palette ran \(ran)")
     }
 
     @Test func ghosttyTriggersMatchLikeGhostty() {

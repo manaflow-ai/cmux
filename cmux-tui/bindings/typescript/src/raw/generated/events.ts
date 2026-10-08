@@ -1,8 +1,13 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1. */
+/* cmux-tui mux protocol 12, IR cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494. */
 
 
 import type * as T from "./types.js";
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type ActivityChangedEvent = { event: "activity-changed" } & {
+  "activity": T.ActivitySnapshot;
+};
 
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
@@ -18,6 +23,12 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type BellEvent = { event: "bell" } & {
   "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type BookmarksChangedEvent = { event: "bookmarks-changed" } & {
+  "bookmarks_revision": bigint;
+  "browser_profile_id": string;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-browser. */
@@ -58,6 +69,69 @@ export type ClientDetachedEvent = { event: "client-detached" } & {
 export type ClientListInvalidatedEvent = { event: "client-list-invalidated" } & {
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationChangedEvent = { event: "cloud-conversation-changed" } & {
+  "account"?: string;
+  "change": (T.JsonValue) | null;
+  "conversation": string;
+  "rev": bigint;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
+  "account"?: string;
+  "conversation": string;
+  "messages": (T.JsonValue) | null;
+  "rev": bigint;
+  "seq": bigint;
+  "summary": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
+  "account"?: string;
+  "entries": (T.JsonValue) | null;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxResetEvent = { event: "cloud-inbox-reset" } & {
+  "account"?: string;
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxResyncedEvent = { event: "cloud-mux-resynced" } & {
+  "account"?: string;
+  "pending": (T.JsonValue) | null;
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxWakeEvent = { event: "cloud-mux-wake" } & {
+  "account"?: string;
+  "seq": bigint;
+  "wakes": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSessionNeededEvent = { event: "cloud-session-needed" } & {
+  "expires_at"?: (bigint) | null;
+  "reason": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSubscriptionStateEvent = { event: "cloud-subscription-state" } & {
+  "account"?: string;
+  "conversation"?: (string) | null;
+  "reason"?: (string) | null;
+  "scope": string;
+  "state": string;
+};
+
 /** Protocol v6; emission: emitted; streams: attach-byte. */
 export type ColorsChangedEvent = { event: "colors-changed" } & {
   "bg": (T.ColorHex) | null;
@@ -74,6 +148,21 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationChangedEvent = { event: "conversation-changed" } & {
+  "change": (T.JsonValue) | null;
+  "conversation": string;
+  "rev": bigint;
+  "transaction": (string) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationTypingEvent = { event: "conversation-typing" } & {
+  "conversation": string;
+  "on": boolean;
+  "participant": string;
 };
 
 /** Protocol v12; emission: emitted; streams: control. */
@@ -352,6 +441,19 @@ export type TabRenamedEvent = { event: "tab-renamed" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadEvent = { event: "terminal-clipboard-read" } & {
+  "host": T.TerminalClipboardHost;
+  "location": T.TerminalClipboardLocation;
+  "request_id": string;
+  "terminal_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadCancelledEvent = { event: "terminal-clipboard-read-cancelled" } & {
+  "request_id": string;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type TerminalReapedEvent = { event: "terminal-reaped" } & {
   "grace_ms": bigint;
@@ -467,14 +569,26 @@ export interface UnknownEvent {
 
 /** Every event emitted by protocol v12. */
 export type KnownCmuxEvent =
+  | ActivityChangedEvent
   | AgentChangedEvent
   | BellEvent
+  | BookmarksChangedEvent
   | BrowserStateEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
+  | ConversationChangedEvent
+  | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
@@ -509,6 +623,8 @@ export type KnownCmuxEvent =
   | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalClipboardReadEvent
+  | TerminalClipboardReadCancelledEvent
   | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
@@ -530,10 +646,21 @@ export type SerializedButNotEmittedEvent =
 export type KnownSubscribeEvent =
   | AgentChangedEvent
   | BellEvent
+  | BookmarksChangedEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent
+  | ConversationChangedEvent
+  | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent

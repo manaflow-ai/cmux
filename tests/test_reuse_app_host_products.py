@@ -95,7 +95,7 @@ class ReuseProducts(TestProductHandoff):
         self.assertEqual(receipt["revision"], "def456")
         provenance = json.loads((self.consumer / "Build/Products/cmux-original-producer.json").read_text())
         self.assertEqual(provenance["revision"], "abc123")
-        value = __import__('plistlib').loads(next((self.consumer / "Build/Products").glob('cmux-cli-tests_*.xctestrun')).read_bytes())
+        value = __import__('plistlib').loads(next((self.consumer / "Build/Products").glob('fixture-tests_*.xctestrun')).read_bytes())
         target = list(reuse.products.targets(value))[0]
         self.assertEqual(target['EnvironmentVariables']['SOURCE'], '/queue/work/cmux/fixtures')
         self.assertTrue(Path(target['DependentProductPaths'][0]).exists())

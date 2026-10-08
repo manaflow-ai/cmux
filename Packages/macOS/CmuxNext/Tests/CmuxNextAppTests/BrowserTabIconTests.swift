@@ -5,7 +5,7 @@ import Observation
 import Testing
 @testable import CmuxNextApp
 
-/// Browser tabs show their page's favicon, Chrome's throbber while the
+/// Browser tabs show their page's favicon, a throbber while the
 /// page loads, and a globe until a favicon exists (nxdog13: "browser tabs
 /// need to support favicons").
 @Suite struct BrowserTabIconStateTests {
@@ -21,6 +21,12 @@ import Testing
     @Test func aLoadedPageShowsItsFaviconElseAGlobe() {
         #expect(BrowserTabIconState.resolve(isLoading: false, isDormant: false, favicon: Self.icon) == .favicon(Self.icon))
         #expect(BrowserTabIconState.resolve(isLoading: false, isDormant: false, favicon: nil) == .globe)
+    }
+
+    /// `appearance.statusIndicator.showPageLoading` off: the favicon stays.
+    @Test func pageLoadingOffKeepsTheFavicon() {
+        #expect(BrowserTabIconState.resolve(isLoading: true, isDormant: false, favicon: Self.icon, showsLoading: false) == .favicon(Self.icon))
+        #expect(BrowserTabIconState.resolve(isLoading: true, isDormant: false, favicon: nil, showsLoading: false) == .globe)
     }
 
     @Test func aHibernatedTabNeverShowsTheThrobber() {

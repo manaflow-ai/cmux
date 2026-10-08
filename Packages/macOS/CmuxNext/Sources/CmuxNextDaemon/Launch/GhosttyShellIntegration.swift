@@ -45,8 +45,9 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
     /// The Ghostty resources directory (`<Resources>/ghostty`).
     public var resourcesDirectory: String?
     /// The bundled Ghostty CLI (`<Resources>/bin/ghostty`). The `ssh-env`
-    /// and `ssh-terminfo` wrappers run `$GHOSTTY_BIN +ssh`; without it they
-    /// stay off, as in Ghostty.
+    /// and `ssh-terminfo` wrappers run `$GHOSTTY_BIN_DIR/ghostty +ssh`;
+    /// without a CLI those features are dropped (`featuresValue`), so plain
+    /// `ssh` runs.
     public var ghosttyBinary: String?
 
     public init(mode: Mode = .detect, features: Features = .ghosttyDefault, cursorBlink: Bool? = nil,
@@ -59,8 +60,11 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
     }
 
     /// `GHOSTTY_SHELL_FEATURES`: enabled names sorted, `cursor` with its
-    /// blink state; nil when none is enabled (`setupFeatures`).
+    /// blink state; nil when none is enabled (`setupFeatures`). The ssh
+    /// features need the Ghostty CLI and are left out without one.
     public var featuresValue: String? {
+        var features = features
+        if (ghosttyBinary ?? "").isEmpty { features.subtract([.sshEnv, .sshTerminfo]) }
         var names: [String] = []
         if features.contains(.cursor) { names.append((cursorBlink ?? true) ? "cursor:blink" : "cursor:steady") }
         if features.contains(.path) { names.append("path") }
@@ -105,6 +109,8 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
             let binDirectory = (ghosttyBinary as NSString).deletingLastPathComponent
             env["GHOSTTY_BIN"] = ghosttyBinary
             env["GHOSTTY_BIN_DIR"] = binDirectory
+            // The bundled `cmux` goes first on PATH through
+            // `BundledCLIEnvironment`, with or without a Ghostty CLI.
             let path = env["PATH"] ?? ""
             if path.isEmpty {
                 env["PATH"] = binDirectory
@@ -161,7 +167,8 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
         switch (shell as NSString).lastPathComponent {
         case "bash":
             guard shell != "/bin/bash", env["GHOSTTY_BASH_INJECT"] != nil,
-                  env["ENV"]?.hasSuffix(bashScript) == true else { return nil }
+                  env["ENV"]?.hasSuffix(bashScript) == true || BundledCLIEnvironment.wrapsGhosttyBash(env)
+            else { return nil }
             return ["--posix"]
         case "nu":
             guard env["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] != nil else { return nil }

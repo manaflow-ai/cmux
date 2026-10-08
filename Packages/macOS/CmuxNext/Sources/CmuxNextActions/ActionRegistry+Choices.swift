@@ -5,11 +5,13 @@ extension ActionRegistry {
     /// action's first enumeration argument, each performing the action with
     /// that value and `target`. Nil when the action has no such argument or
     /// is not bound.
-    func makeChoicesItem(for descriptor: ActionDescriptor, target: ActionTargetRef?) -> NSMenuItem? {
-        guard let title = title(for: descriptor.id), canPerform(descriptor.id),
-              let (argument, cases) = descriptor.arguments.lazy.compactMap(Self.menuChoices).first
+    /// `context` is the menu's effective context (the window's plus the
+    /// menu's implied names), the same one every other row is shown by.
+    func makeChoicesItem(for descriptor: ActionDescriptor, target: ActionTargetRef?, in context: ActionContext) -> NSMenuItem? {
+        guard let title = title(for: descriptor.id), let action = action(for: descriptor.id),
+              Self.isAvailable(descriptor, in: context), action.isEnabled(),
+              let (argument, cases, current) = ActionTargetChoices.resolve(descriptor, target: target, in: self), !cases.isEmpty
         else { return nil }
-        let current = choiceState?(descriptor.id, target)
         let submenu = NSMenu(title: title)
         let coordinator = ActionChoicesMenuCoordinator(registry: self, action: descriptor.id, argument: argument.name, target: target)
         // `NSMenu.delegate` is weak; the coordinator lives as long as the menu.

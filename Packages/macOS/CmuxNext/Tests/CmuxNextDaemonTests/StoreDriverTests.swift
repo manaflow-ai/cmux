@@ -37,10 +37,10 @@ final class ManualFrameScheduler: FrameBatchScheduler {
         #expect(store.tab(surface: 3)?.title == "new")
     }
 
-    @Test func optimisticMoveSurvivesSnapshotsUntilEcho() throws {
+    @Test func pendingMoveSurvivesSnapshotsUntilEcho() throws {
         let (store, tree) = try loadedStore()
         let tab = try #require(store.tab(surface: 3))
-        store.applyOptimistic(.moveTab(surface: 3, toPane: 7, index: 0), transaction: "tx")
+        store.intend(.moveTab(surface: 3, toPane: 7, index: 0), transaction: "tx")
         #expect(store.pane(7)?.tabs.map(\.surface) == [3, 6])
         #expect(store.pane(4)?.tabs.map(\.surface) == [13])
         #expect(store.pane(7)?.tabs.first === tab)
@@ -49,40 +49,41 @@ final class ManualFrameScheduler: FrameBatchScheduler {
         store.apply(snapshot: tree)
         #expect(store.pane(7)?.tabs.map(\.surface) == [3, 6])
 
-        // The echo drops the patch; the next snapshot is daemon truth.
+        // The echo settles the intent; the next snapshot is daemon truth.
         let echo = TabDelta(workspace: 1, screen: 5, pane: 7, surface: 3, index: 0, entity: tab.snapshot, clientTransactionID: "tx")
         store.apply(.tabChanged(echo))
-        #expect(!store.hasPendingPatches)
+        #expect(!store.hasPendingIntents)
+        #expect(store.pane(7)?.tabs.map(\.surface) == [3, 6])
         store.apply(snapshot: tree)
         #expect(store.pane(7)?.tabs.map(\.surface) == [6])
         #expect(store.pane(4)?.tabs.map(\.surface) == [3, 13])
     }
 
-    @Test func echoSupersededBySnapshotStillSettlesPatch() throws {
+    @Test func echoSupersededBySnapshotStillSettlesTheIntent() throws {
         let (store, _) = try loadedStore()
-        store.applyOptimistic(.renameWorkspace(key: "c7a12f08-d868-42cd-9f98-a2ca1f6d9eb1", name: "renamed"), transaction: "tx")
+        store.intend(.renameWorkspace(key: "c7a12f08-d868-42cd-9f98-a2ca1f6d9eb1", name: "renamed"), transaction: "tx")
         store.snapshotBarrier = 100
         let echo = TabDelta(workspace: 1, screen: 5, pane: 7, surface: 6, index: 0, entity: TabSnapshot(surface: 6), clientTransactionID: "tx")
         store.apply(batch: [DaemonEventEnvelope(sequence: 50, event: .tabChanged(echo))])
-        #expect(!store.hasPendingPatches)
+        #expect(!store.hasPendingIntents)
         #expect(store.confirmedTransactions == ["tx"])
     }
 
-    @Test func rejectedAndUnechoedPatchesAreDropped() throws {
-        let (store, tree) = try loadedStore()
+    @Test func rejectedAndSettledIntentsLeaveTheLog() throws {
+        let (store, _) = try loadedStore()
         let key: WorkspaceKey = "c7a12f08-d868-42cd-9f98-a2ca1f6d9eb1"
-        store.applyOptimistic(.renameWorkspace(key: key, name: "optimistic"), transaction: "t1")
+        store.intend(.renameWorkspace(key: key, name: "optimistic"), transaction: "t1")
         #expect(store.workspace(key: key)?.name == "optimistic")
-        store.rejectOptimistic("t1")
-        store.apply(snapshot: tree)
+        store.rejectIntent("t1")
         #expect(store.workspace(key: key)?.name == "beta")
 
-        store.applyOptimistic(.setTabPinned(surface: 3, pinned: true), transaction: "t2")
-        store.settleOptimistic("t2")
+        // Settled by its reply with every event up to the barrier applied:
+        // the mirror is the daemon's answer (here it did not pin).
+        store.intend(.setTabPinned(surface: 3, pinned: true), transaction: "t2")
         #expect(store.tab(surface: 3)?.pinned == true)
-        store.apply(snapshot: tree)
+        store.noteSettled("t2", at: 0)
         #expect(store.tab(surface: 3)?.pinned == false)
-        #expect(!store.hasPendingPatches)
+        #expect(!store.hasPendingIntents)
     }
 
     @Test func fieldChangesDoNotInvalidateCollections() throws {
@@ -126,7 +127,7 @@ final class ManualFrameScheduler: FrameBatchScheduler {
         #expect(store.pane(4)?.groupSpans == [TabGroupSpan(group: "tg", range: 0..<2)])
         #expect(store.tabGroup("tg")?.name == "API")
 
-        store.applyOptimistic(.setWorkspaceGroup(key: "c7a12f08-d868-42cd-9f98-a2ca1f6d9eb1", group: "g1"), transaction: "t")
+        store.intend(.setWorkspaceGroup(key: "c7a12f08-d868-42cd-9f98-a2ca1f6d9eb1", group: "g1"), transaction: "t")
         #expect(store.sidebarSections.map { $0.workspaces.map(\.name) } == [[], ["beta", "gamma"]])
     }
 
@@ -159,6 +160,91 @@ final class ManualFrameScheduler: FrameBatchScheduler {
         #expect(scheduler.count == 1)
         scheduler.flush()
         #expect(store.tab(surface: 3)?.title == "t49")
+
+        await connection.close()
+        await run.value
+    }
+
+    /// `refresh()` (the replacement of the app's out-of-band snapshot,
+    /// state-audit X1) goes through the driver's resync: it returns once a
+    /// snapshot requested after the call is applied, and the snapshot
+    /// barrier and intent overlay apply to it like any resync.
+    @Test func refreshAppliesASnapshotRequestedAfterTheCall() async throws {
+        let tree = String(decoding: try Fixture.data("list-workspaces.json"), as: UTF8.self).trimmingCharacters(in: .newlines)
+        let snapshots = Mutex(0)
+        let server = try FakeDaemonServer(handler: ConnectionTests.handshake { request, id in
+            switch request["cmd"]?.stringValue {
+            case "list-workspaces":
+                let count = snapshots.withLock { $0 += 1; return $0 }
+                return [tree.replacingOccurrences(of: #""id":0,"#, with: #""id":\#(id),"#)
+                    .replacingOccurrences(of: #""name":"beta""#, with: #""name":"snapshot \#(count)""#)]
+            case "list-agents":
+                return [#"{"id":\#(id),"ok":true,"data":{"agents":[]}}"#]
+            default:
+                return []
+            }
+        })
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
+        try await connection.start()
+        let store = DaemonStore()
+        await store.refresh() // no driver yet: returns at once
+        let scheduler = ManualFrameScheduler()
+        let run = Task { await store.run(connection: connection, scheduler: scheduler) }
+        try await waitFor { scheduler.count == 1 }
+        scheduler.flush()
+        try await waitFor { store.isLoaded }
+        let key: WorkspaceKey = "c7a12f08-d868-42cd-9f98-a2ca1f6d9eb1"
+        #expect(store.workspace(key: key)?.name == "snapshot 1")
+
+        store.intend(.renameWorkspace(key: key, name: "mine"), transaction: "tx")
+        await store.refresh()
+        #expect(snapshots.withLock { $0 } == 2)
+        #expect(store.workspace(key: key)?.name == "mine")
+        store.rejectIntent("tx")
+        #expect(store.workspace(key: key)?.name == "snapshot 2")
+
+        await connection.close()
+        await run.value
+        await store.refresh() // the driver ended: returns at once
+    }
+
+    /// A refresh whose snapshot fails waits for the retry instead of
+    /// returning with the stale mirror; two refreshes asked together share
+    /// one snapshot requested after both.
+    @Test func refreshWaitsForTheRetryOfAFailedSnapshot() async throws {
+        let tree = String(decoding: try Fixture.data("list-workspaces.json"), as: UTF8.self).trimmingCharacters(in: .newlines)
+        let snapshots = Mutex(0)
+        let server = try FakeDaemonServer(handler: ConnectionTests.handshake { request, id in
+            switch request["cmd"]?.stringValue {
+            case "list-workspaces":
+                let count = snapshots.withLock { $0 += 1; return $0 }
+                guard count != 2 else { return [#"{"id":\#(id),"ok":false,"error":{"code":"busy","message":"busy"}}"#] }
+                return [tree.replacingOccurrences(of: #""id":0,"#, with: #""id":\#(id),"#)
+                    .replacingOccurrences(of: #""name":"beta""#, with: #""name":"snapshot \#(count)""#)]
+            case "list-agents":
+                return [#"{"id":\#(id),"ok":true,"data":{"agents":[]}}"#]
+            default:
+                return []
+            }
+        })
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
+        try await connection.start()
+        let store = DaemonStore()
+        store.resyncClock = ImmediateClock()
+        let scheduler = ManualFrameScheduler()
+        let run = Task { await store.run(connection: connection, scheduler: scheduler) }
+        try await waitFor { scheduler.count == 1 }
+        scheduler.flush()
+        try await waitFor { store.isLoaded }
+
+        async let first: Void = store.refresh()
+        async let second: Void = store.refresh()
+        _ = await (first, second)
+        let key: WorkspaceKey = "c7a12f08-d868-42cd-9f98-a2ca1f6d9eb1"
+        #expect(snapshots.withLock { $0 } == 3)
+        #expect(store.workspace(key: key)?.name == "snapshot 3")
 
         await connection.close()
         await run.value

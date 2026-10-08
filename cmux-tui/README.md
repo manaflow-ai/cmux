@@ -22,7 +22,7 @@
 
 ## Build
 
-Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule initialized. The `ghostty-vt-sys` crate builds `libghostty-vt.a` from the submodule with Zig before compiling the Rust crates.
+Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty-next` and `ghostty` submodules initialized (`git submodule update --init ghostty ghostty-next`). The `ghostty-vt-sys` crate builds `libghostty-vt.a` from `ghostty-next` (manaflow-ai/ghostty-next) with Zig before compiling the Rust crates, and fails with a message when that submodule is missing or empty. The shell-integration scripts still come from `ghostty`.
 
 ```bash
 cd cmux-tui
@@ -47,7 +47,7 @@ cargo run -p cmux-tui -- machine-agent --session agents
 
 The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
 
-`server start` is the canonical durable headless session command. The older
+`daemon start` is the canonical durable headless session command. The older
 `--headless` spelling remains a compatibility alias.
 
 `attach --terminal <id>` attaches one PTY terminal by its stable ID from `cmux terminal list`. It uses the full host terminal without the sidebar, status bar, pane border, or other tabs.
@@ -63,16 +63,16 @@ cmux terminal term_0123456789abcdef0123456789abcdef screen read
 cmux session current events --jsonl
 ```
 
-Use `cmux server start|status|stop|reload-config` for one named local durable
-session. `server stop` is idempotent when absent and preserves saved topology.
+Use `cmux daemon start|status|stop|reload-config` for one named local durable
+session. `daemon stop` is idempotent when absent and preserves saved topology.
 Shared routing options can precede the scope, as in
-`cmux --session agents server status`. Lifecycle JSON errors use stable codes
+`cmux --session agents daemon status`. Lifecycle JSON errors use stable codes
 and do not expose raw transport or server error text.
 Use the `remote` command group for authenticated network access:
 `cmux remote connect|ssh|forward|browser-proxy|rpc`, `remote enroll`, and
 `remote known-daemons`. `remote stop` stops only a replaceable SSH sidecar.
-Use `server stop` for a listener owned by `server start`; it also stops the
-local owner and its workspaces. Start the owning process with `server start`
+Use `daemon stop` for a listener owned by `daemon start`; it also stops the
+local owner and its workspaces. Start the owning process with `daemon start`
 and explicit remote-listener flags.
 The old top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle. Detached local startup is deferred until cmux

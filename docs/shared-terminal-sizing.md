@@ -53,7 +53,7 @@ replay every case. A behavior change starts with a new fixture.
 A participant is one attached view: `id` (host-scoped, unique while attached),
 `user_id` (verified Stack user id, set by the host or relay, never by the leaf),
 `display_name`, `device_kind` (`mac`, `iphone`, `ipad`, `tui`, `browser`,
-`unknown`), `device_name`, `device_id`, `via` (relay participant id, if any),
+`linux`, `windows`, `unknown`), `device_name`, `device_id`, `via` (relay participant id, if any),
 `viewport` (`cols`, `rows`, absent until reported) and `counts_override`
 (`true`, `false` or absent).
 
@@ -68,10 +68,10 @@ A participant **counts toward size** when it is attached, has a viewport, and:
 - `counts_override` is set: use it (tmux `attach -f ignore-size` is `false`).
 - otherwise, in `smallest` and `largest`, every attached participant counts.
 - otherwise, in `latest`, `priority` and `fixed`, a phone or tablet does not count
-  while a `mac` or `tui` participant of the same `user_id` is attached and
-  itself counts (it has a viewport and is not viewer-only). With two Macs of
-  one user, the phone defers while either counts. Every other participant
-  counts.
+  while a desktop participant (`mac`, `tui`, `linux` or `windows`) of the same
+  `user_id` is attached and itself counts (it has a viewport and is not
+  viewer-only). With two Macs of one user, the phone defers while either
+  counts. Every other participant counts.
 
 The priority key is `<user_id or "anon:" + id>/<device_kind>/<device_id>`, or
 `<user_id or "anon:" + id>/<device_kind>` for a device without an id, so a
@@ -108,6 +108,27 @@ waiting for a departed owner.
 Policy scope is a workspace default plus an optional per-terminal override. Any
 workspace member with write access can change it. Every host emits the change to
 all participants.
+
+## Phone viewers
+
+Phones and tablets follow three rules so that "Fit everyone" never shrinks
+a Mac user's grid without reason (plans/cmux-next/ghostty-next.md section 6):
+
+- A phone view reports its viewport only while the terminal is on screen in
+  the foreground app. When the app goes to the background, the device locks,
+  or another tab covers the terminal, the phone clears its viewport (engine
+  `clear_viewport`, fixture op `clear_viewport`) and stops counting until its
+  next report.
+- The software keyboard never changes the reported viewport. The phone
+  computes the viewport from its full view height and pans so the cursor
+  row stays visible above the keyboard.
+- A preview (a Home list thumbnail, a tab switcher) attaches with
+  `counts_override: false`.
+
+Rotation, split view and pinch report once, at the end of the transition or
+gesture. The fixtures "phone grid walkthrough", "a preview attach with counts
+off never shrinks the grid" and "a hidden phone stops counting and counts
+again on its next report" check these rules in both engines.
 
 ## Size state (wire format)
 
@@ -350,6 +371,12 @@ keeps the legacy claim and resize path, and phones behind it are not forwarded.
 
 - `set-client-info` gains optional `user_id`, `display_name`, `device_kind`,
   `device_name`, `device_id`. Relay identities take the same fields.
+- `device_kind` `linux` and `windows` name the GPUI desktop app on Linux and
+  Windows. They reach only connections that send `open-device-kinds-v1` (they
+  read a kind they do not know as `unknown`); other connections get `unknown`.
+  A phone defers to them as to a Mac or TUI of the same user (Rust and Swift
+  reducers, fixture "phone defers to a counting linux or windows desktop of
+  the same user").
 - `attach-surface` responses gain `participant` (the host id of this view).
 - A relay sub-view (a phone behind a Mac) has no byte stream:
   `resize-attached-view {surface, view: "mobile:<client_id>", identity:

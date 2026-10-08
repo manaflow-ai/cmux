@@ -1,3 +1,4 @@
+public import CmuxNextProcessEnvironment
 public import Foundation
 
 /// Who this cmux-next is: bundle, tag, and control socket, derived only from
@@ -45,16 +46,26 @@ public struct LaunchIdentity: Sendable, Equatable {
         bundledEnvironment: [String: String],
         processEnvironment: [String: String],
         isDebugBuild: Bool,
+        bundleName: String? = nil,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> LaunchIdentity {
         let bundle = bundleID.flatMap { $0.isEmpty ? nil : $0 }
         let tag = ControlSocketPath.shared.bundleTag(bundle)
             ?? bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.shared.sanitize)
+            ?? taggedAppName(bundleName)
         var path = ControlSocketPath.shared.resolve(bundleID: bundle, tag: tag, isDebugBuild: isDebugBuild, home: home)
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
             path = explicit
         }
         return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: path)
+    }
+
+    /// A fleet artifact is sometimes launched directly from its staged
+    /// `cmux DEV <tag>.app` path instead of through LaunchServices. Keep the
+    /// tag in that case even when the copied Info.plist lost LSEnvironment.
+    private static func taggedAppName(_ name: String?) -> String? {
+        guard let name, name.hasPrefix("cmux DEV ") else { return nil }
+        return ControlSocketPath.shared.sanitize(String(name.dropFirst("cmux DEV ".count)))
     }
 
     /// Keys of cmux variables this process inherited rather than received
@@ -79,17 +90,24 @@ public struct LaunchIdentity: Sendable, Equatable {
             bundleID: bundle.bundleIdentifier,
             bundledEnvironment: bundledEnvironment(bundle),
             processEnvironment: ProcessInfo.processInfo.environment,
-            isDebugBuild: isDebugBuild
+            isDebugBuild: isDebugBuild,
+            bundleName: bundle.bundleURL.deletingPathExtension().lastPathComponent
         )
     }
 
     /// Unsets inherited cmux variables in this process. Run first thing in
-    /// `main`, before any thread starts. Returns the removed keys.
+    /// `main`, before any thread starts and before the environment freeze
+    /// (``ProcessEnvironmentGuard``). Returns the removed keys.
     @discardableResult
-    public static func stripInheritedEnvironment(bundle: Bundle = .main) -> [String] {
+    public static func stripInheritedEnvironment(
+        bundle: Bundle = .main,
+        environmentGuard: ProcessEnvironmentGuard = .process
+    ) -> [String] {
         let keys = inheritedKeys(processEnvironment: ProcessInfo.processInfo.environment,
                                  bundledEnvironment: bundledEnvironment(bundle))
-        for key in keys { unsetenv(key) }
+        environmentGuard.write("LaunchIdentity.stripInheritedEnvironment") {
+            for key in keys { unsetenv(key) }
+        }
         return keys.sorted()
     }
 }

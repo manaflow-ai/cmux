@@ -2,13 +2,23 @@
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
-      "fr": "The French UI uses the same established word for Actions; the translated catalog entry is still required."
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
+        "values": [
+          "Actions · cmux.json…"
+        ]
+      }
     }
   },
   "actions.discovery.dialogTitle": {
     "source": "Actions · cmux.json",
     "identityLocales": {
-      "fr": "The French UI uses the same established word for Actions; the translated catalog entry is still required."
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
+        "values": [
+          "Actions · cmux.json"
+        ]
+      }
     }
   },
   "mobile.ios106PairingUpdate.releaseLabel": {
@@ -23,30 +33,6 @@
       "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
       "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
       "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
-    }
-  },
-  "cli.socketControlStatus.command": {
-    "source": "socket-status [--json]",
-    "identityLocales": {
-      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
     }
   },
   "CFBundleDisplayName": {
@@ -150,140 +136,6 @@
       "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
     }
   },
-  "agentSession.panel.title": {
-    "class": "format",
-    "source": "%@ · %@"
-  },
-  "agentSession.provider.claude": {
-    "source": "Claude Code",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "agentSession.provider.codex": {
-    "source": "Codex",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "agentSession.provider.opencode": {
-    "source": "OpenCode",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "agentSession.renderer.react": {
-    "class": "brand",
-    "source": "React"
-  },
-  "agentSession.renderer.solid": {
-    "class": "brand",
-    "source": "Solid"
-  },
-  "actions.discovery.menuTitle": {
-    "source": "Actions · cmux.json…",
-    "identityLocales": {
-      "fr": {
-        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
-        "values": [
-          "Actions · cmux.json…"
-        ]
-      }
-    }
-  },
-  "actions.discovery.dialogTitle": {
-    "source": "Actions · cmux.json",
-    "identityLocales": {
-      "fr": {
-        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
-        "values": [
-          "Actions · cmux.json"
-        ]
-      }
-    }
-  },
-  "agentSession.web.mentionMenuTitle": {
-    "source": "Mention",
-    "identityLocales": {
-      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
-  "agentSession.web.planSuggestion.shortcut": {
-    "class": "syntax",
-    "source": "Shift + Tab"
-  },
-  "agentSession.web.shellLabel": {
-    "class": "technical",
-    "source": "Shell"
-  },
-  "agentSession.web.skillMenuTitle": {
-    "source": "Skills",
-    "identityLocales": {
-      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
-  "agentSession.web.skillPlan": {
-    "source": "Plan",
-    "identityLocales": {
-      "de": "Plan is the German noun for an implementation plan.",
-      "fr": "Plan is the French noun for an implementation plan.",
-      "es": "Plan is the Spanish noun for an implementation plan."
-    }
-  },
   "alert.invalidColor.ok": {
     "source": "OK",
     "identityLocales": {
@@ -368,188 +220,6 @@
     "source": "Browser",
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
-  "cli.browser.designMode.help": {
-    "class": "syntax",
-    "source": "browser design-mode enable|disable|toggle|status [--surface <id>]"
-  },
-  "cli.browser.engine.option": {
-    "source": "[--engine <webkit|chromium>]",
-    "class": "syntax"
-  },
-  "cli.browser.help.viewportUsage": {
-    "class": "syntax",
-    "source": "viewport <width> <height> | reset"
-  },
-  "cli.browser.profile.option": {
-    "class": "syntax",
-    "source": "[--profile <name|uuid>]"
-  },
-  "cli.claude-hook.notification.title": {
-    "source": "Claude Code",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "cli.codexMonitor.notification.title": {
-    "source": "Codex",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "cli.error.clearNotificationsUsage": {
-    "class": "syntax",
-    "source": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
-  },
-  "cli.help.fork": {
-    "class": "syntax",
-    "source": "fork [--surface <id|ref>] <kind> <checkpoint-id> | fork --surface [id|ref]"
-  },
-  "cli.help.restore": {
-    "class": "syntax",
-    "source": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
-  },
-  "cli.localTmux.output.attached": {
-    "source": "OK session=%@ surface=%@ mode=local-tmux",
-    "class": "syntax"
-  },
-  "cli.localTmux.output.idSuffix": {
-    "source": " id=%@",
-    "class": "syntax"
-  },
-  "cli.localTmux.output.record": {
-    "source": "OK session=%@ id=%@ state=%@ socket=%@",
-    "class": "syntax"
-  },
-  "cli.localTmux.output.sessionRow": {
-    "source": "%@ [%@] clients=%lld",
-    "class": "syntax"
-  },
-  "cli.localTmux.output.status": {
-    "source": "%@ [%@] clients=%lld socket=%@",
-    "class": "syntax"
-  },
-  "cli.readSelection.output.url": {
-    "class": "format",
-    "source": "URL: %@"
-  },
-  "cli.sessions.command": {
-    "class": "syntax",
-    "source": "sessions [list] [options]"
-  },
-  "cli.usage.record": {
-    "class": "syntax",
-    "source": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
-  },
-  "cli.usage.shot": {
-    "class": "syntax",
-    "source": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
-  },
-  "cli.usage.readScreen": {
-    "class": "syntax",
-    "source": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
-  },
-  "cli.usage.readSelection": {
-    "class": "syntax",
-    "source": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
-  },
-  "cli.vm.list.planMeter": {
-    "source": "%1$d of %2$d machines on the %3$@ plan",
-    "identityLocales": {
-      "fr": {
-        "reason": "These French count nouns have the same spelling as English. Only the listed leaf text may be identical; the surrounding sentence must still be translated.",
-        "values": [
-          "%d machine",
-          "%d machines"
-        ]
-      }
-    }
-  },
-  "cli.vm.tree.agent": {
-    "source": "[agent %@]",
-    "identityLocales": {
-      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
-  "cli.vm.tree.browsers": {
-    "class": "syntax",
-    "source": "browsers/"
-  },
-  "cli.vm.tree.displays": {
-    "class": "syntax",
-    "source": "VNC Displays/"
-  },
-  "cli.vm.tree.localSummary": {
-    "source": "%1$d terminals · %2$d browsers",
-    "identityLocales": {
-      "fr": {
-        "reason": "These French count nouns have the same spelling as English. Only the listed leaf text may be identical; the surrounding sentence must still be translated.",
-        "values": [
-          "%d terminal"
-        ]
-      },
-      "es": {
-        "reason": "Terminal, byte and bytes are valid Spanish technical nouns with the same spelling. Only these exact plural leaf values are exempt.",
-        "values": [
-          "%d terminal"
-        ]
-      }
-    }
-  },
-  "cli.vm.tree.ports": {
-    "class": "syntax",
-    "source": "ports/"
-  },
-  "cli.vm.tree.terminals": {
-    "class": "syntax",
-    "source": "terminals/"
-  },
-  "cli.vm.tree.workspaces": {
-    "class": "syntax",
-    "source": "workspaces/"
-  },
-  "cli.vpn.status.backend": {
-    "source": "Backend: %@",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "es": "Reviewed shared native developer term, abbreviation, or borrowed technical noun. The translated entry is still required."
     }
   },
   "clipboard.sshError.item": {
@@ -2056,12 +1726,30 @@
     }
   },
   "pricing.native.compare.concurrent.free": {
-    "class": "format",
-    "source": "1"
+    "source": "1",
+    "identityLocales": {
+      "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "fr": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ar": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "es": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hant": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hans": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
+    }
   },
   "pricing.native.compare.concurrent.paid": {
-    "class": "format",
-    "source": "50"
+    "source": "5",
+    "identityLocales": {
+      "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "fr": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ar": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "es": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hant": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hans": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
+    }
   },
   "pricing.native.compare.support.community": {
     "source": "Community",
@@ -3870,10 +3558,6 @@
       "de": "Displays is the established German plural for computer displays; the translated entry remains required."
     }
   },
-  "cli.vm.env.set": {
-    "source": "vm env set: %1$@",
-    "class": "syntax"
-  },
   "sudo.cli.global_usage.run": {
     "source": "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)",
     "class": "syntax"
@@ -3885,38 +3569,6 @@
   "sudo.cli.global_usage.setup_touch_id": {
     "source": "sudo setup-touch-id",
     "class": "syntax"
-  },
-  "cli.vm.push.secretDelivered": {
-    "source": "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link",
-    "identityLocales": {
-      "de": {
-        "reason": "Byte/Bytes are the established German computing unit; only the exact unit leaf may share English spelling.",
-        "values": [
-          "%ld Byte",
-          "%ld Bytes"
-        ]
-      },
-      "es": {
-        "reason": "byte/bytes are the established Spanish computing unit; the surrounding sentence remains translated.",
-        "values": [
-          "%ld byte",
-          "%ld bytes"
-        ]
-      }
-    }
-  },
-  "cli.billing.global_usage": {
-    "source": "billing checkout --plan <go|pro|max> [--no-open]",
-    "identityLocales": {
-      "de": "Command syntax is intentionally identical in this locale.",
-      "fr": "Command syntax is intentionally identical in this locale.",
-      "ar": "Command syntax is intentionally identical in this locale.",
-      "es": "Command syntax is intentionally identical in this locale.",
-      "zh-Hant": "Command syntax is intentionally identical in this locale.",
-      "zh-Hans": "Command syntax is intentionally identical in this locale.",
-      "ko": "Command syntax is intentionally identical in this locale.",
-      "ja": "Command syntax is intentionally identical in this locale."
-    }
   },
   "machines.new.plan.name.max": {
     "source": "Max",
@@ -4135,6 +3787,310 @@
       }
     }
   },
+  "cloudMenu.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Standard German UI term with the same spelling."
+    }
+  },
+  "cloudMenu.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
+  "menu.cloud.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
+  "sidebar.agentStatus.glyph.tooltip": {
+    "source": "%1$@: %2$@",
+    "identityLocales": {
+      "ar": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
+  },
+  "terminalSharing.device.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "terminalSharing.device.iphone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "terminalSharing.device.ipad": {
+    "class": "brand",
+    "source": "iPad"
+  },
+  "terminalSharing.participant.personDevice": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
+  "terminalSharing.device.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Browser is the standard German UI term with the same spelling; a translated entry is still required."
+    }
+  },
+  "settings.section.textBox": {
+    "source": "TextBox",
+    "identityLocales": {
+      "fr": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
+    }
+  },
+  "cli.socketControlStatus.command": {
+    "source": "socket-status [--json]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cli.browser.designMode.help": {
+    "class": "syntax",
+    "source": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+  },
+  "cli.browser.engine.option": {
+    "source": "[--engine <webkit|chromium>]",
+    "class": "syntax"
+  },
+  "cli.browser.help.viewportUsage": {
+    "class": "syntax",
+    "source": "viewport <width> <height> | reset"
+  },
+  "cli.browser.profile.option": {
+    "class": "syntax",
+    "source": "[--profile <name|uuid>]"
+  },
+  "cli.claude-hook.notification.title": {
+    "source": "Claude Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "cli.codexMonitor.notification.title": {
+    "source": "Codex",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "cli.error.clearNotificationsUsage": {
+    "class": "syntax",
+    "source": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+  },
+  "cli.help.fork": {
+    "class": "syntax",
+    "source": "fork [--surface <id|ref>] <kind> <checkpoint-id> | fork --surface [id|ref]"
+  },
+  "cli.help.restore": {
+    "class": "syntax",
+    "source": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
+  },
+  "cli.localTmux.output.attached": {
+    "source": "OK session=%@ surface=%@ mode=local-tmux",
+    "class": "syntax"
+  },
+  "cli.localTmux.output.idSuffix": {
+    "source": " id=%@",
+    "class": "syntax"
+  },
+  "cli.localTmux.output.record": {
+    "source": "OK session=%@ id=%@ state=%@ socket=%@",
+    "class": "syntax"
+  },
+  "cli.localTmux.output.sessionRow": {
+    "source": "%@ [%@] clients=%lld",
+    "class": "syntax"
+  },
+  "cli.localTmux.output.status": {
+    "source": "%@ [%@] clients=%lld socket=%@",
+    "class": "syntax"
+  },
+  "cli.readSelection.output.url": {
+    "class": "format",
+    "source": "URL: %@"
+  },
+  "cli.sessions.command": {
+    "class": "syntax",
+    "source": "sessions [list] [options]"
+  },
+  "cli.usage.record": {
+    "class": "syntax",
+    "source": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+  },
+  "cli.usage.shot": {
+    "class": "syntax",
+    "source": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
+  },
+  "cli.usage.readScreen": {
+    "class": "syntax",
+    "source": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+  },
+  "cli.usage.readSelection": {
+    "class": "syntax",
+    "source": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+  },
+  "cli.vm.list.planMeter": {
+    "source": "%1$d of %2$d machines on the %3$@ plan",
+    "identityLocales": {
+      "fr": {
+        "reason": "These French count nouns have the same spelling as English. Only the listed leaf text may be identical; the surrounding sentence must still be translated.",
+        "values": [
+          "%d machine",
+          "%d machines"
+        ]
+      }
+    }
+  },
+  "cli.vm.tree.agent": {
+    "source": "[agent %@]",
+    "identityLocales": {
+      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "cli.vm.tree.browsers": {
+    "class": "syntax",
+    "source": "browsers/"
+  },
+  "cli.vm.tree.displays": {
+    "class": "syntax",
+    "source": "VNC Displays/"
+  },
+  "cli.vm.tree.localSummary": {
+    "source": "%1$d terminals · %2$d browsers",
+    "identityLocales": {
+      "fr": {
+        "reason": "These French count nouns have the same spelling as English. Only the listed leaf text may be identical; the surrounding sentence must still be translated.",
+        "values": [
+          "%d terminal"
+        ]
+      },
+      "es": {
+        "reason": "Terminal, byte and bytes are valid Spanish technical nouns with the same spelling. Only these exact plural leaf values are exempt.",
+        "values": [
+          "%d terminal"
+        ]
+      }
+    }
+  },
+  "cli.vm.tree.ports": {
+    "class": "syntax",
+    "source": "ports/"
+  },
+  "cli.vm.tree.terminals": {
+    "class": "syntax",
+    "source": "terminals/"
+  },
+  "cli.vm.tree.workspaces": {
+    "class": "syntax",
+    "source": "workspaces/"
+  },
+  "cli.vpn.status.backend": {
+    "source": "Backend: %@",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "es": "Reviewed shared native developer term, abbreviation, or borrowed technical noun. The translated entry is still required."
+    }
+  },
+  "cli.vm.env.set": {
+    "source": "vm env set: %1$@",
+    "class": "syntax"
+  },
+  "cli.vm.push.secretDelivered": {
+    "source": "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link",
+    "identityLocales": {
+      "de": {
+        "reason": "Byte/Bytes are the established German computing unit; only the exact unit leaf may share English spelling.",
+        "values": [
+          "%ld Byte",
+          "%ld Bytes"
+        ]
+      },
+      "es": {
+        "reason": "byte/bytes are the established Spanish computing unit; the surrounding sentence remains translated.",
+        "values": [
+          "%ld byte",
+          "%ld bytes"
+        ]
+      }
+    }
+  },
+  "cli.billing.global_usage": {
+    "source": "billing checkout --plan <go|pro|max> [--no-open]",
+    "identityLocales": {
+      "de": "Command syntax is intentionally identical in this locale.",
+      "fr": "Command syntax is intentionally identical in this locale.",
+      "ar": "Command syntax is intentionally identical in this locale.",
+      "es": "Command syntax is intentionally identical in this locale.",
+      "zh-Hant": "Command syntax is intentionally identical in this locale.",
+      "zh-Hans": "Command syntax is intentionally identical in this locale.",
+      "ko": "Command syntax is intentionally identical in this locale.",
+      "ja": "Command syntax is intentionally identical in this locale."
+    }
+  },
   "cli.workflow.literal.codex": {
     "source": "codex",
     "class": "syntax",
@@ -4235,78 +4191,742 @@
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
   },
-  "cloudMenu.team": {
-    "source": "Team",
+  "agentPane.handoff.plan": {
+    "source": "Plan",
     "identityLocales": {
-      "de": "Standard German UI term with the same spelling."
+      "de": "Plan is the established German UI word for a plan; the translated catalog entry remains explicit.",
+      "fr": "Plan is the established French UI word for a plan; the translated catalog entry remains explicit.",
+      "es": "Plan is the established Spanish UI word for a plan; the translated catalog entry remains explicit."
     }
   },
-  "cloudMenu.title": {
+  "agentPane.checkpoint.base": {
+    "source": "Base",
+    "identityLocales": {
+      "fr": "Base is the established French UI word for a base; the translated catalog entry remains explicit.",
+      "es": "Base is the established Spanish UI word for a base; the translated catalog entry remains explicit.",
+      "it": "Base is the established Italian word for a base; the translated catalog entry remains explicit.",
+      "pt-BR": "Base is the established Portuguese word for a base; the translated catalog entry remains explicit."
+    }
+  },
+  "onboarding.projects.folder.iCloudDrive": {
+    "source": "iCloud Drive",
+    "class": "brand"
+  },
+  "onboarding.projects.folder.documents": {
+    "source": "Documents",
+    "identityLocales": {
+      "fr": "The macOS Documents folder is named \"Documents\" in French."
+    }
+  },
+  "onboarding.projects.folder.downloads": {
+    "source": "Downloads",
+    "identityLocales": {
+      "de": "The macOS Downloads folder is named \"Downloads\" in German."
+    }
+  },
+  "argument.value.editor": {
+    "source": "Editor",
+    "identityLocales": {
+      "de": "\"Editor\" is the standard German word for a text editor.",
+      "es": "\"Editor\" is the standard Spanish word for a text editor."
+    }
+  },
+  "argument.value.tab": {
+    "source": "Tab",
+    "identityLocales": {
+      "de": "\"Tab\" is the standard German word for a browser or app tab."
+    }
+  },
+  "settings.choice.newTabAgent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "\"Agent\" is spelled the same in German and is the term used for AI agents.",
+      "fr": "\"Agent\" is spelled the same in French and is the term used for AI agents."
+    }
+  },
+  "settings.choice.newTabBrowser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "\"Browser\" is the standard German word for a web browser."
+    }
+  },
+  "settings.choice.newTabTerminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "\"Terminal\" is spelled the same in German and is the standard term for a terminal app.",
+      "es": "\"Terminal\" is spelled the same in Spanish and is the standard term for a terminal app.",
+      "fr": "\"Terminal\" is spelled the same in French and is the standard term for a terminal app."
+    }
+  },
+  "settings.group.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": "\"Tabs\" is the standard German plural for browser or app tabs."
+    }
+  },
+  "accounts.group.anthropic": {
+    "class": "brand",
+    "source": "Anthropic"
+  },
+  "accounts.linked.count": {
+    "source": "In CodeRouter: %lld",
+    "identityLocales": {
+      "de": "CodeRouter is a product name and the short German phrase is identical; the catalog entry remains explicit."
+    }
+  },
+  "cli.localZellij.output.attached": {
+    "source": "OK session=%@ surface=%@ mode=local-zellij",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.idSuffix": {
+    "source": " id=%@",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.record": {
+    "source": "OK session=%@ id=%@ state=%@ socket=%@",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.sessionRow": {
+    "source": "%@ [%@]",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.status": {
+    "source": "%@ [%@] socket=%@",
+    "class": "syntax"
+  },
+  "cli.vm.tree.vcpu": {
+    "source": "%.0f vCPU",
+    "identityLocales": {
+      "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "ar": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
+      "ja": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
+      "ko": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale."
+    }
+  },
+  "settings.betaFeatures.dock": {
+    "source": "Dock",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "es": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "mobile.tabs.cloud": {
     "source": "Cloud",
     "identityLocales": {
-      "de": "Product name cmux Cloud keeps its English spelling in this language.",
-      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
-      "es": "Product name cmux Cloud keeps its English spelling in this language."
+      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
+      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
+      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
+      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
     }
   },
-  "menu.cloud.title": {
+  "mobile.cloud.title": {
     "source": "Cloud",
     "identityLocales": {
-      "de": "Product name cmux Cloud keeps its English spelling in this language.",
-      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
-      "es": "Product name cmux Cloud keeps its English spelling in this language."
+      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
+      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
+      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
+      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
     }
   },
-  "sidebar.agentStatus.glyph.tooltip": {
-    "source": "%1$@: %2$@",
+  "mobile.cloud.machines.header": {
+    "source": "Machines",
     "identityLocales": {
-      "ar": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
-      "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
-      "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
-      "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+      "fr": "\"Machines\" is spelled identically in French."
     }
   },
-  "terminalSharing.device.mac": {
-    "class": "brand",
-    "source": "Mac"
+  "mobile.cloud.create.kind": {
+    "source": "Type",
+    "identityLocales": {
+      "fr": "\"Type\" is spelled identically in French."
+    }
   },
-  "terminalSharing.device.iphone": {
-    "class": "brand",
-    "source": "iPhone"
+  "mobile.cloud.create.base": {
+    "source": "Base",
+    "identityLocales": {
+      "fr": "\"Base\" is spelled identically in French.",
+      "es": "\"Base\" is spelled identically in Spanish."
+    }
   },
-  "terminalSharing.device.ipad": {
-    "class": "brand",
-    "source": "iPad"
+  "mobile.cloud.create.desktop": {
+    "source": "Desktop",
+    "identityLocales": {
+      "de": "\"Desktop\" is the established German loanword, spelled identically."
+    }
   },
-  "terminalSharing.participant.personDevice": {
+  "browser.repl.sessionTabTitle": {
     "class": "format",
     "source": "%1$@ · %2$@"
   },
-  "terminalSharing.device.browser": {
+  "cli.help.agents.messages": {
+    "source": "agent messages [on|off|status] [<target>] [--workspace]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "machines.new.plan.retry": {
+    "source": "Retry",
+    "identityLocales": {
+      "ar": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "bs": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "da": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "de": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "es": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "fr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "it": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "ja": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "km": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "ko": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "nb": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "pl": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "ru": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "th": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "tr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "uk": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      }
+    }
+  },
+  "machines.new.plan.error": {
+    "source": "Cloud plan details are still loading. Retry in a moment.",
+    "identityLocales": {
+      "ar": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "bs": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "da": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "de": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "es": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "fr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "it": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "ja": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "km": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "ko": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "nb": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "pl": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "pt-BR": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "ru": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "th": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "tr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "uk": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      }
+    }
+  },
+  "machines.new.plan.loading": {
+    "source": "Loading your Cloud machine plan…",
+    "identityLocales": {
+      "de": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "fr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "ar": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "es": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "ko": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "ja": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      }
+    }
+  },
+  "surfaceTabBar.compact.menu.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "surfaceTabBar.compact.menu.browser": {
     "source": "Browser",
     "identityLocales": {
-      "de": "Browser is the standard German UI term with the same spelling; a translated entry is still required."
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   },
-  "settings.section.textBox": {
-    "source": "TextBox",
+  "cloudTree.group.coderouter": {
+    "class": "brand",
+    "source": "Coderouter"
+  },
+  "coderouter.guide.title": {
+    "class": "brand",
+    "source": "coderouter"
+  },
+  "cli.help.agents.inbox": {
+    "source": "agent inbox [--surface <target>] [--state <state>] [--mark-read]",
     "identityLocales": {
-      "fr": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
-      "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
-      "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
-      "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
     }
   },
-  "actions.discovery.menuTitle": {
-    "source": "Actions · cmux.json…",
+  "cli.help.agents.message": {
+    "source": "agent message <target> [--from <name>] <text|->",
     "identityLocales": {
-      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
     }
   },
-  "actions.discovery.dialogTitle": {
-    "source": "Actions · cmux.json",
+  "cli.help.agents.reply": {
+    "source": "agent message --reply-to <id> [--from <name>] <text|->",
     "identityLocales": {
-      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cloudTree.device.build.dev": {
+    "source": "DEV",
+    "identityLocales": {
+      "ar": "DEV is the invariant cmux build channel name.",
+      "de": "DEV is the invariant cmux build channel name.",
+      "es": "DEV is the invariant cmux build channel name.",
+      "fr": "DEV is the invariant cmux build channel name.",
+      "ja": "DEV is the invariant cmux build channel name.",
+      "ko": "DEV is the invariant cmux build channel name.",
+      "zh-Hans": "DEV is the invariant cmux build channel name.",
+      "zh-Hant": "DEV is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.nightly": {
+    "source": "Nightly",
+    "identityLocales": {
+      "ar": "Nightly is the invariant cmux build channel name.",
+      "de": "Nightly is the invariant cmux build channel name.",
+      "es": "Nightly is the invariant cmux build channel name.",
+      "fr": "Nightly is the invariant cmux build channel name.",
+      "ja": "Nightly is the invariant cmux build channel name.",
+      "ko": "Nightly is the invariant cmux build channel name.",
+      "zh-Hans": "Nightly is the invariant cmux build channel name.",
+      "zh-Hant": "Nightly is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.rc": {
+    "source": "RC",
+    "identityLocales": {
+      "ar": "RC is the invariant cmux build channel name.",
+      "de": "RC is the invariant cmux build channel name.",
+      "es": "RC is the invariant cmux build channel name.",
+      "fr": "RC is the invariant cmux build channel name.",
+      "ja": "RC is the invariant cmux build channel name.",
+      "ko": "RC is the invariant cmux build channel name.",
+      "zh-Hans": "RC is the invariant cmux build channel name.",
+      "zh-Hant": "RC is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.staging": {
+    "source": "Staging",
+    "identityLocales": {
+      "ar": "Staging is the invariant cmux build channel name.",
+      "de": "Staging is the invariant cmux build channel name.",
+      "es": "Staging is the invariant cmux build channel name.",
+      "fr": "Staging is the invariant cmux build channel name.",
+      "ja": "Staging is the invariant cmux build channel name.",
+      "ko": "Staging is the invariant cmux build channel name.",
+      "zh-Hans": "Staging is the invariant cmux build channel name.",
+      "zh-Hant": "Staging is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.tagged": {
+    "source": "%1$@ · %2$@",
+    "identityLocales": {
+      "ar": "Format-only string; the placeholders and separator are invariant.",
+      "de": "Format-only string; the placeholders and separator are invariant.",
+      "es": "Format-only string; the placeholders and separator are invariant.",
+      "fr": "Format-only string; the placeholders and separator are invariant.",
+      "ja": "Format-only string; the placeholders and separator are invariant.",
+      "ko": "Format-only string; the placeholders and separator are invariant.",
+      "zh-Hans": "Format-only string; the placeholders and separator are invariant.",
+      "zh-Hant": "Format-only string; the placeholders and separator are invariant."
+    }
+  },
+  "mobile.agentFeed.filter": {
+    "source": "Filter",
+    "identityLocales": {
+      "de": "Filter has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "mobile.agentFeed.title": {
+    "source": "Feed",
+    "identityLocales": {
+      "de": "Feed is the established product term in this locale; a translated entry is still required.",
+      "es": "Feed is the established product term in this locale; a translated entry is still required."
+    }
+  },
+  "mobile.tabs.feed": {
+    "source": "Feed",
+    "identityLocales": {
+      "de": "Feed is the established product term in this locale; a translated entry is still required.",
+      "es": "Feed is the established product term in this locale; a translated entry is still required."
+    }
+  },
+  "cloud.network.domains.label": {
+    "source": "Domains (HTTPS)",
+    "identityLocales": {
+      "de": "Domains and HTTPS are the established technical terms in this locale; a translated entry is still required."
+    }
+  },
+  "cloud.network.ranges.port": {
+    "source": "Port",
+    "identityLocales": {
+      "de": "Port is the established networking term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Port is the established networking term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.device.status.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.device.status.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Online has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "machines.new.row.agents.short": {
+    "source": "Agents",
+    "identityLocales": {
+      "de": "Agents has the same spelling in this locale; a translated entry is still required.",
+      "fr": "Agents has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "sidebar.account.settingsLabel": {
+    "source": "%1$@, %2$@",
+    "identityLocales": {
+      "de": "Format-only string; the placeholders and separator are invariant.",
+      "es": "Format-only string; the placeholders and separator are invariant.",
+      "fr": "Format-only string; the placeholders and separator are invariant.",
+      "ko": "Format-only string; the placeholders and separator are invariant."
+    }
+  },
+  "mobile.agentFeed.question.pageLabel": {
+    "source": "Question %lld",
+    "identityLocales": {
+      "fr": "Question has the same spelling in this locale; the placeholder is invariant."
+    }
+  },
+  "diffViewer.commit": {
+    "source": "Commit",
+    "identityLocales": {
+      "de": {
+        "reason": "Commit is the established Git term in this locale.",
+        "values": [
+          "Commit"
+        ]
+      },
+      "fr": {
+        "reason": "Commit is the established Git term in this locale.",
+        "values": [
+          "Commit"
+        ]
+      },
+      "es": {
+        "reason": "Commit is the established Git term in this locale.",
+        "values": [
+          "Commit"
+        ]
+      }
+    }
+  },
+  "diffViewer.sourceBranch": {
+    "source": "Branch",
+    "identityLocales": {
+      "de": {
+        "reason": "Branch is the established Git term in this locale.",
+        "values": [
+          "Branch"
+        ]
+      }
+    }
+  },
+  "gallery.experimental": {
+    "source": "Experimental",
+    "identityLocales": {
+      "es": {
+        "reason": "Experimental is the standard adjective in this language and shares its spelling with English.",
+        "values": [
+          "Experimental"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Experimental is the standard adjective in this language and shares its spelling with English.",
+        "values": [
+          "Experimental"
+        ]
+      }
     }
   }
 }

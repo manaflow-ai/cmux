@@ -40,9 +40,11 @@ final class SessionRegistrar {
         let machines = machines
         observation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
-                [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded)]
+                [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded),
+                 String(machines.local.store.isProvisional)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
                     + machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
+                    + machines.servers.map { "\($0.machineID):\($0.autoConnect)" }
             }) {
                 self?.sync()
             }
@@ -53,7 +55,7 @@ final class SessionRegistrar {
 
     private func sync() {
         let home = machines.local
-        guard home.store.personal.isLoaded, let connection = home.connection else { return }
+        guard home.store.personal.isLoaded, !home.store.isProvisional, let connection = home.connection else { return }
         for daemon in machines.daemons where daemon.store.isLoaded {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
             let snapshot = SessionSnapshot(sessionName: identity.session, capabilities: identity.capabilities.sorted(),
@@ -99,6 +101,7 @@ final class SessionRegistrar {
     private func transport(_ daemon: DaemonService) -> JSONValue {
         if daemon.isLocal { return .object(["kind": .string("local")]) }
         if let ssh = machines.sshSession(daemon.machineID) { return SSHService.transport(ssh) }
+        if let server = machines.server(daemon.machineID) { return ServerReachService.transport(server) }
         return .object(["kind": .string("cloud"), "machine": .string(daemon.machineID)])
     }
 }

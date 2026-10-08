@@ -145,10 +145,19 @@ persists and restores these tabs but never attaches a CDP target or renders
 frames for them, and `attach-surface` refuses them. Tabs report
 `browser_renderer:"frontend"` and `browser_engine`. CDP browser tabs keep
 their existing behavior and report `browser_renderer:"daemon"`.
+With `frontend-browser-tab-keys-v1`, `new-frontend-browser-tab` takes an
+optional `idempotency_key`: a retry after a lost reply returns the first
+tab (`replayed:true`) instead of creating a second one.
+
+`frontend-browser-history-v1` adds `set-frontend-browser-history` and
+`get-frontend-browser-history`: a frontend stores an opaque JSON object (at
+most 64 KiB) per frontend-rendered browser tab, such as its back/forward
+entries and scroll, and reads it back after a relaunch. `history:null`
+clears it. The daemon never journals it or puts it in the tree.
 
 `tab-drag-v1` makes every tab drag outcome one atomic command:
 `move-tab` (pane and index, across screens and workspaces),
-`move-tab-to-split` (pane edge), `move-tab-to-column` (new niri column),
+`move-tab-to-split` (pane edge), `move-tab-to-column` (new strip column),
 `move-tab-to-workspace`, and `move-tab-to-new-workspace` (optional group and
 index; returns the new workspace). Each takes an optional client
 `transaction`, echoed in the moved tab's `tab-changed` delta. Drags that stay
@@ -160,6 +169,16 @@ moves the tab back without closing anything:
 {"id":16,"cmd":"undo-layout","pane":2}
 ```
 
+`tab-split-respawn-v1` adds `respawn` to `move-tab-to-split`. A pane's only
+tab dropped on that pane's own edge then splits the pane: the daemon leaves a
+fresh tab of the given kind (a new terminal, or a new browser tab) in the old
+pane and moves the dragged tab into the new one. The fresh tab copies the
+kind, never the state (no URL, scrollback, or session):
+
+```json
+{"id":17,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","respawn":{"kind":"terminal","cwd":"/src"}}
+```
+
 `notification-ack-v1` decouples notification acknowledgement from focus.
 `ack-tab-notifications {surface}` clears a tab's unread marker and records the
 acknowledgement durably, so it survives a daemon restart; frontends call it
@@ -167,7 +186,7 @@ when the user has seen the tab instead of sending `select-tab`.
 `list-notifications` returns the retained ledger with `created_at_ms` and an
 `acknowledged` flag, and each workspace reports `unread_count`.
 
-`tab-groups-v1` adds Chrome-style tab groups inside a pane's strip. Panes
+`tab-groups-v1` adds tab groups inside a pane's strip. Panes
 report `tab_groups` (id, name, color, collapsed, saved id, start, count,
 surfaces) and tabs report `group`. Members stay contiguous. Every change is
 one command: `create-tab-group`, `update-tab-group` (rename, recolor,
@@ -286,7 +305,10 @@ terminal that must outlive its tabs with
 `"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and
 updates the tree before its host exits; hosts of closed terminals end in
 parallel. For test teardown, `shutdown-daemon` with `"end_terminals":true`
-ends every terminal before the handoff. To close many tabs at once, send
+ends every terminal before the handoff; add `"keep_layout":true`
+(`end-terminals-keep-layout-v1`) to keep the tabs of placed terminals, dead,
+for the next owner (a quitting frontend that restarts shells in the same
+layout). To close many tabs at once, send
 `{"cmd":"close-tabs","surfaces":[...],"end_terminals":true}`: one durable
 commit (one journal fsync) removes every tab and ends every terminal left
 with no view that is not kept. The container closes take the same
@@ -332,7 +354,9 @@ forwarded input to that sub-view), relay sub-views (`resize-attached-view`
 with `view` and `identity`), and `detach-client` with a participant id and
 `by`. `user_id` is
 asserted by the client; the daemon does not verify it. The cmux-tui frontend
-opts in with `device_kind: "tui"` and its hostname as `device_name`. See
+opts in with `device_kind: "tui"` and its hostname as `device_name`. The GPUI
+desktop app sends `linux` or `windows` on those systems; only clients that send
+`open-device-kinds-v1` receive those kinds, others read them as `unknown`. See
 [`spec/commands.md`](../spec/commands.md#sizing).
 
 ## Client Compatibility

@@ -40,7 +40,7 @@ def counted(parent, variants, specifier="d"):
 
 
 def write_catalog(root: Path, strings: dict) -> Path:
-    path = root / "Resources/Localizable.xcstrings"
+    path = root / "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "sourceLanguage": "en",
@@ -51,9 +51,21 @@ def write_catalog(root: Path, strings: dict) -> Path:
 
 
 class LocalizeChangesTests(unittest.TestCase):
+    def test_parse_swift_messages_can_report_the_keys_it_dropped_for_conflicts(self):
+        text = (
+            'String(localized: "same", defaultValue: "Open")\n'
+            'String(localized: "same", defaultValue: "Open %@")\n'
+            'String(localized: "other", defaultValue: "Close")\n'
+        )
+        conflicts = set()
+        messages, attention = MODULE.parse_swift_messages("Sources/View.swift", text, conflicts=conflicts)
+        self.assertEqual(sorted(messages), ["other"])
+        self.assertEqual(conflicts, {"same"})
+        self.assertTrue(any("multiple default values" in line for line in attention))
+
     def test_key_only_call_cannot_steal_next_default(self):
         messages, attention = MODULE.parse_swift_messages(
-            "Sources/View.swift",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/View.swift",
             'String(localized: "bare")\nString(localized: "other", defaultValue: "Other")',
         )
         self.assertEqual({key: value.source for key, value in messages.items()}, {"other": "Other"})
@@ -65,7 +77,7 @@ class LocalizeChangesTests(unittest.TestCase):
             path = write_catalog(root, {"open": {"localizations": {"en": unit("Open %@")}}})
             original = path.read_bytes()
             packet = {"entries": [{
-                "catalog": "Resources/Localizable.xcstrings", "key": "open", "source": "Open %@",
+                "catalog": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings", "key": "open", "source": "Open %@",
                 "locale": locale, "value": value,
             } for locale, value in [("de", "Öffnen %@"), ("fr", "Ouvrir")]]}
             with self.assertRaises(ValueError):
@@ -99,7 +111,7 @@ class LocalizeChangesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = write_catalog(root, {})
-            message = MODULE.SwiftMessage("Sources/NewView.swift", "feature.new.title", "New Feature")
+            message = MODULE.SwiftMessage("Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewView.swift", "feature.new.title", "New Feature")
             first = MODULE.prepare_macos(root, [message], None, {})
             self.assertEqual(first.prepared, 1)
             self.assertEqual(first.attention, [])
@@ -111,6 +123,28 @@ class LocalizeChangesTests(unittest.TestCase):
             second = MODULE.prepare_macos(root, [message], None, {})
             self.assertEqual(second.prepared, 0)
             self.assertEqual(path.read_text(encoding="utf-8"), prepared_text)
+
+    def test_a_catalog_with_more_locales_gets_rows_and_imports_for_all_of_them(self):
+        # The agent pane catalog carries 21 locales, not only the 9 macOS ones: a changed key there
+        # is work in every locale the catalog has, and a completed row for one of the extra locales
+        # imports.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            relative = "webviews/src/agent-session/acpmux/Localizable.xcstrings"
+            path = root / relative
+            path.parent.mkdir(parents=True)
+            extra = ("km", "pt-BR", "uk")
+            full = {locale: unit("Close") for locale in (*MODULE.macos_locales(), *extra)}
+            path.write_text(json.dumps({"sourceLanguage": "en", "version": "1.0", "strings": {
+                "close": {"localizations": full},
+                "open": {"localizations": {"en": unit("Open")}},
+            }}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            rows = MODULE.extract_changed(root, [(path, "open")], {}, {}, {})
+            self.assertEqual({row["locale"] for row in rows}, (set(MODULE.macos_locales()) | set(extra)) - {"en"})
+            packet = {"entries": [{"catalog": relative, "key": "open", "source": "Open", "locale": "km", "value": "បើក"}]}
+            self.assertEqual(MODULE.apply_completed(root, packet, {}), 1)
+            stored = json.loads(path.read_text(encoding="utf-8"))["strings"]["open"]["localizations"]["km"]
+            self.assertEqual(stored["stringUnit"]["value"], "បើក")
 
     def test_catalog_insert_is_minimal_and_deterministic(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -133,7 +167,7 @@ class LocalizeChangesTests(unittest.TestCase):
             root = Path(directory)
             write_catalog(root, {"open": {"localizations": {"en": unit("Open %@")}}})
             invalid = {"version": 1, "entries": [{
-                "catalog": "Resources/Localizable.xcstrings",
+                "catalog": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings",
                 "key": "open",
                 "source": "Open %@",
                 "locale": "de",
@@ -149,7 +183,7 @@ class LocalizeChangesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = write_catalog(root, {})
-            message = MODULE.SwiftMessage("Sources/CountView.swift", "feature.files.count", "%d files")
+            message = MODULE.SwiftMessage("Packages/macOS/CmuxNext/Sources/CmuxNextApp/CountView.swift", "feature.files.count", "%d files")
             result = MODULE.prepare_macos(root, [message], None, {})
             self.assertEqual(result.prepared, 0)
             self.assertEqual(result.changed_keys, [])
@@ -164,7 +198,7 @@ class LocalizeChangesTests(unittest.TestCase):
             source = CATALOG.source(CATALOG.catalog_entries(path.read_text(encoding="utf-8"))[0].value)
             arabic = counted("%#@count@ ملف", {"one": unit("%d"), "other": unit("%d")})
             work = {"version": 1, "entries": [{
-                "catalog": "Resources/Localizable.xcstrings",
+                "catalog": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings",
                 "key": "files",
                 "source": source,
                 "locale": "ar",
@@ -188,7 +222,7 @@ class LocalizeChangesTests(unittest.TestCase):
                 "ja": unit("ファイルを開く"),
             }}})
             with patch.object(MODULE, "base_text", return_value=old_text):
-                result = MODULE.changed_catalog_keys(root, "base", ["Resources/Localizable.xcstrings"])
+                result = MODULE.changed_catalog_keys(root, "base", ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings"])
             self.assertEqual(result.changed_keys, [(path, "open")])
             self.assertEqual(result.stale, 1)
             entry = CATALOG.catalog_entries(path.read_text(encoding="utf-8"))[0]
@@ -230,7 +264,7 @@ class LocalizeChangesTests(unittest.TestCase):
             strings = json.loads(old)["strings"]
             strings["open"]["localizations"]["ja"] = unit("ファイルを開く")
             write_catalog(root, strings)
-            message = MODULE.SwiftMessage("Sources/View.swift", "open", "Open File")
+            message = MODULE.SwiftMessage("Packages/macOS/CmuxNext/Sources/CmuxNextApp/View.swift", "open", "Open File")
             prepared = MODULE.prepare_macos(root, [message], None, {})
             with patch.object(MODULE, "base_text", return_value=old):
                 MODULE.changed_catalog_keys(root, "base", [str(path.relative_to(root))])
@@ -244,8 +278,8 @@ class LocalizeChangesTests(unittest.TestCase):
             root = Path(directory)
             path = write_catalog(root, {})
             before = path.read_bytes()
-            messages = [MODULE.SwiftMessage("Sources/A.swift", "shared", "First"),
-                        MODULE.SwiftMessage("Sources/B.swift", "shared", "Second")]
+            messages = [MODULE.SwiftMessage("Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift", "shared", "First"),
+                        MODULE.SwiftMessage("Packages/macOS/CmuxNext/Sources/CmuxNextApp/B.swift", "shared", "Second")]
             result = MODULE.prepare_macos(root, messages, None, {})
             self.assertTrue(any("multiple default values" in item for item in result.attention))
             self.assertEqual(path.read_bytes(), before)
@@ -275,7 +309,7 @@ class LocalizeChangesTests(unittest.TestCase):
             with self.subTest(constructor=constructor), tempfile.TemporaryDirectory() as directory:
                 text = constructor + '\"hello\", defaultValue: \"Hello\", bundle: .atURL(URL(string: \"file:///tmp\")!), comment: \"Greeting (shown at launch)\")'
                 text += '\nString(localized: \"other\", defaultValue: \"Other\", comment: \"Other context\")'
-                messages, attention = MODULE.parse_swift_messages("Sources/View.swift", text)
+                messages, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/View.swift", text)
                 self.assertEqual(attention, [])
                 root = Path(directory)
                 path = write_catalog(root, {})
@@ -290,7 +324,7 @@ class LocalizeChangesTests(unittest.TestCase):
         # which then rejected every translation of it.
         text = (
             '    static var help: String {\n'
-            '        String(localized: "cli.help.demo", defaultValue: """\n'
+            '        String(localized: "help.demo", defaultValue: """\n'
             '        Usage: cmux demo [flags]\n'
             '\n'
             '        Flags:\n'
@@ -312,10 +346,10 @@ class LocalizeChangesTests(unittest.TestCase):
             "  cmux demo --loud"
         )
 
-        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+        messages, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Demo.swift", text)
 
         self.assertEqual(attention, [])
-        self.assertEqual(messages["cli.help.demo"].source, expected)
+        self.assertEqual(messages["help.demo"].source, expected)
         # The parenthesis and quotes inside the help text must not end the call
         # early, so the next call site is still found.
         self.assertEqual(messages["after"].source, "After")
@@ -325,22 +359,22 @@ class LocalizeChangesTests(unittest.TestCase):
             MODULE.prepare_macos(root, list(messages.values()), None, {})
             entries = json.loads(path.read_text())["strings"]
             self.assertEqual(
-                entries["cli.help.demo"]["localizations"]["en"]["stringUnit"]["value"],
+                entries["help.demo"]["localizations"]["en"]["stringUnit"]["value"],
                 expected,
             )
 
     def test_multiline_default_with_a_quoted_example_keeps_its_quotes(self):
         text = (
-            'String(localized: "cli.help.quote", defaultValue: """\n'
+            'String(localized: "help.quote", defaultValue: """\n'
             '    cmux record note "dragging the workspace"\n'
             '    """)\n'
         )
 
-        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+        messages, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Demo.swift", text)
 
         self.assertEqual(attention, [])
         self.assertEqual(
-            messages["cli.help.quote"].source,
+            messages["help.quote"].source,
             'cmux record note "dragging the workspace"',
         )
 
@@ -356,7 +390,7 @@ class LocalizeChangesTests(unittest.TestCase):
             '    """)\n'
         )
 
-        messages, attention = MODULE.parse_swift_messages("Sources/Demo.swift", text)
+        messages, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Demo.swift", text)
 
         self.assertEqual(attention, [])
         self.assertEqual(
@@ -368,16 +402,16 @@ class LocalizeChangesTests(unittest.TestCase):
         # Swift strips the closing delimiter's indentation, not the first line's,
         # so a line indented past the delimiter keeps the extra spaces.
         text = (
-            'String(localized: "cli.help.indent", defaultValue: """\n'
+            'String(localized: "help.indent", defaultValue: """\n'
             '    Flags:\n'
             '      --loud   Be loud\n'
             '    """)\n'
         )
 
-        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+        messages, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Demo.swift", text)
 
         self.assertEqual(attention, [])
-        self.assertEqual(messages["cli.help.indent"].source, "Flags:\n  --loud   Be loud")
+        self.assertEqual(messages["help.indent"].source, "Flags:\n  --loud   Be loud")
 
     def test_multiline_default_with_one_unbalanced_quote_still_parses(self):
         # An odd number of quotation marks in help text is ordinary: a flag
@@ -385,26 +419,26 @@ class LocalizeChangesTests(unittest.TestCase):
         # Only skipping the whole literal keeps the scanner from reading the rest
         # of the file as one long string.
         text = (
-            'String(localized: "cli.help.odd", defaultValue: """\n'
+            'String(localized: "help.odd", defaultValue: """\n'
             '    Pass --flag="value (quoted)\n'
             '    """)\n'
             'String(localized: "after", defaultValue: "After")\n'
         )
 
-        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+        messages, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Demo.swift", text)
 
         self.assertEqual(attention, [])
-        self.assertEqual(messages["cli.help.odd"].source, 'Pass --flag="value (quoted)')
+        self.assertEqual(messages["help.odd"].source, 'Pass --flag="value (quoted)')
         self.assertEqual(messages["after"].source, "After")
 
     def test_multiline_interpolation_still_needs_manual_review(self):
         text = (
-            'String(localized: "cli.help.interp", defaultValue: """\n'
+            'String(localized: "help.interp", defaultValue: """\n'
             '    Usage: \\(Self.usage)\n'
             '    """)\n'
         )
 
-        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+        messages, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Demo.swift", text)
 
         self.assertEqual(messages, {})
         self.assertTrue(
@@ -417,13 +451,13 @@ class LocalizeChangesTests(unittest.TestCase):
             path = write_catalog(root, {"open": {"localizations": {"en": unit("Open")}}})
             outside = root / "outside.xcstrings"
             outside.write_bytes(path.read_bytes())
-            link = root / "Resources/Linked.xcstrings"
+            link = root / "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Linked.xcstrings"
             link.symlink_to(outside)
-            valid = {"catalog": "Resources/Localizable.xcstrings", "key": "open",
+            valid = {"catalog": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings", "key": "open",
                      "source": "Open", "locale": "de", "value": "Öffnen"}
             invalid = [{"locale": "xx"}, {"catalog": str(outside)},
                        {"catalog": "../outside.xcstrings"}, {"catalog": "outside.xcstrings"},
-                       {"catalog": "Resources/Linked.xcstrings"}, {"key": None}, {"source": []}]
+                       {"catalog": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Linked.xcstrings"}, {"key": None}, {"source": []}]
             before = path.read_bytes()
             for overrides in invalid:
                 with self.subTest(overrides=overrides):
@@ -453,38 +487,38 @@ class LocalizeChangesTests(unittest.TestCase):
     def test_conflicting_default_at_unchanged_call_site_is_reported_not_picked(self):
         changed = 'let a = String(localized: "shared", defaultValue: "First")\n'
         untouched = 'let b = String(localized: "shared", defaultValue: "Second")\n'
-        for paths in (["Sources/A.swift"], ["Sources/A.swift", "Sources/B.swift"]):
+        for paths in (["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"], ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/B.swift"]):
             with self.subTest(paths=paths), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 subprocess.run(["git", "init", "-q", str(root)], check=True)
-                (root / "Sources").mkdir()
-                (root / "Sources/A.swift").write_text(changed, encoding="utf-8")
-                (root / "Sources/B.swift").write_text(untouched, encoding="utf-8")
-                base = {"Sources/B.swift": untouched}
+                (root / "Packages/macOS/CmuxNext/Sources/CmuxNextApp").mkdir(parents=True)
+                (root / "Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift").write_text(changed, encoding="utf-8")
+                (root / "Packages/macOS/CmuxNext/Sources/CmuxNextApp/B.swift").write_text(untouched, encoding="utf-8")
+                base = {"Packages/macOS/CmuxNext/Sources/CmuxNextApp/B.swift": untouched}
                 with patch.object(MODULE, "base_text", side_effect=lambda _root, _base, path: base.get(path, "")):
                     messages, attention = MODULE.changed_swift_messages(root, "base", paths)
                 self.assertEqual([message for message in messages if message.key == "shared"], [])
                 conflicts = [item for item in attention if "multiple default values" in item]
                 self.assertEqual(len(conflicts), 1)
-                self.assertIn("Sources/A.swift", conflicts[0])
-                self.assertIn("Sources/B.swift", conflicts[0])
+                self.assertIn("Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift", conflicts[0])
+                self.assertIn("Packages/macOS/CmuxNext/Sources/CmuxNextApp/B.swift", conflicts[0])
 
     def test_same_file_conflicting_defaults_are_not_prepared(self):
         text = ('String(localized: "shared", defaultValue: "First")\n'
                 'String(localized: "shared", defaultValue: "Second")\n'
                 'String(localized: "shared", defaultValue: "First")\n'
                 'String(localized: "other", defaultValue: "Other")\n')
-        messages, attention = MODULE.parse_swift_messages("Sources/View.swift", text)
+        messages, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/View.swift", text)
         self.assertEqual(sorted(messages), ["other"])
-        self.assertEqual(attention, ["Sources/View.swift: localization key 'shared' has multiple default values"])
+        self.assertEqual(attention, ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/View.swift: localization key 'shared' has multiple default values"])
 
     def test_repeated_key_with_same_default_needs_no_attention(self):
         text = ('String(localized: "shared", defaultValue: "Same")\n'
                 'LocalizedStringResource("shared", defaultValue: "Same")\n')
-        messages, attention = MODULE.parse_swift_messages("Sources/View.swift", text)
+        messages, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/View.swift", text)
         self.assertEqual(sorted(messages), ["shared"])
         self.assertEqual(attention, [])
-        _, attention = MODULE.parse_swift_messages("Sources/View.swift", text + 'String(localized: "bare")\n')
+        _, attention = MODULE.parse_swift_messages("Packages/macOS/CmuxNext/Sources/CmuxNextApp/View.swift", text + 'String(localized: "bare")\n')
         self.assertEqual(len(attention), 1)
         self.assertIn("1 localized call(s)", attention[0])
 
@@ -522,7 +556,7 @@ class LocalizeChangesTests(unittest.TestCase):
     def test_confirmed_unchanged_translation_is_not_marked_stale_again(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            relative = "Resources/Localizable.xcstrings"
+            relative = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings"
             localizations = {locale: unit("Opne" if locale == "en" else f"Öffnen {locale}") for locale in CATALOG.LOCALES}
             path = write_catalog(root, {"open": {"localizations": localizations}})
             old = path.read_text(encoding="utf-8")
@@ -577,8 +611,8 @@ class LocalizeChangesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = write_catalog(root, {f"old.{i}": {"localizations": {"en": unit("Old"), "de": unit("Alt")}} for i in range(12)})
-            messages = [MODULE.SwiftMessage("Sources/View.swift", f"old.{i}", "Changed") for i in range(12)]
-            messages += [MODULE.SwiftMessage("Sources/View.swift", f"new.{i}", f"New {i}", f"Comment {i}") for i in range(12)]
+            messages = [MODULE.SwiftMessage("Packages/macOS/CmuxNext/Sources/CmuxNextApp/View.swift", f"old.{i}", "Changed") for i in range(12)]
+            messages += [MODULE.SwiftMessage("Packages/macOS/CmuxNext/Sources/CmuxNextApp/View.swift", f"new.{i}", f"New {i}", f"Comment {i}") for i in range(12)]
             with patch.object(CATALOG, "catalog_entries", wraps=CATALOG.catalog_entries) as parse:
                 prepared = MODULE.prepare_macos(root, messages, None, {})
             self.assertLessEqual(parse.call_count, 2)  # one index parse, one validation of the batched write

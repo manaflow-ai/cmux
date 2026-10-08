@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextLayout
 
 /// A scrollbar track click or thumb release is a scroll like a wheel notch
-/// (sticky-column.md B3, niri.md T3): it rests on the target, moves focus
+/// (dock-column.md B3, column-scroll.md T3): it rests on the target, moves focus
 /// when the focused column left the view, and reports the leading column.
 @Suite struct StripScrollbarPageTests {
     @Test func aPageThatHidesTheFocusedColumnMovesFocusAlong() {

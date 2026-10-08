@@ -12,7 +12,7 @@ import Testing
                          source: Int32 = 0, profile: String = profile,
                          bounds: CGRect? = nil) -> CEFWindowRequest {
         CEFWindowRequest(kind: kind, disposition: disposition, sourceBrowser: source, bounds: bounds,
-                         url: "https://chromewebstore.google.com/", profilePath: profile)
+                         url: "https://chromewebstore.google.com/", userGesture: true, profilePath: profile)
     }
 
     private func candidate(_ anchor: Int32, source: Bool = false, lastShown: Bool = false,
@@ -31,8 +31,8 @@ import Testing
         #expect(decision == .insert(anchor: 2, disposition: .foregroundTab))
     }
 
-    /// Chrome UI and extension backgrounds have no source tab: the last shown
-    /// pane gets the tab.
+    /// Chromium's own UI and extension backgrounds have no source tab: the
+    /// last shown pane gets the tab.
     @Test func noSourceGoesToTheLastShownPane() {
         let decision = CEFWindowPolicy.decide(
             request(.window, .newWindow),
@@ -57,7 +57,7 @@ import Testing
         #expect(decision == .insert(anchor: 9, disposition: .backgroundTab))
     }
 
-    /// "Open Link in Incognito Window", Cmd-Shift-N, windows.create({incognito})
+    /// "Open Link in Incognito Window", windows.create({incognito})
     /// open nothing in Chromium: cmux opens a cmux incognito window (or a
     /// tab of the source's incognito window). A normal tab would keep the
     /// history the user wanted to keep out.
@@ -104,17 +104,21 @@ import Testing
             == .openInNewTab(url: "https://chromewebstore.google.com/", disposition: .foregroundTab))
     }
 
-    /// Every disposition Chromium can send maps to a cmux tab or to nothing;
-    /// none maps to a window.
+    /// Every disposition Chromium can send maps to a cmux tab, a download
+    /// or to nothing (Chromium keeps it); with Chrome's defaults and no
+    /// recent click, only Shift-click (NEW_WINDOW) opens a cmux window.
     @Test func dispositionsMapToTabs() {
-        #expect(CEFDisposition(raw: 3).tabDisposition == .foregroundTab)
-        #expect(CEFDisposition(raw: 4).tabDisposition == .backgroundTab)
-        #expect(CEFDisposition(raw: 5).tabDisposition == .popup)
-        #expect(CEFDisposition(raw: 6).tabDisposition == .foregroundTab)
-        #expect(CEFDisposition(raw: 2).tabDisposition == .foregroundTab)
-        #expect(CEFDisposition(raw: 10).tabDisposition == .foregroundTab)
-        #expect(CEFDisposition(raw: 1).tabDisposition == nil)
-        #expect(CEFDisposition(raw: 7).tabDisposition == nil)
+        func placement(_ raw: Int) -> CEFLinkPlacement {
+            CEFLinkContext().placement(for: CEFDisposition(raw: raw), source: 0, userGesture: true)
+        }
+        #expect(placement(3) == .tab(.foregroundTab))
+        #expect(placement(4) == .tab(.backgroundTab))
+        #expect(placement(5) == .tab(.popup))
+        #expect(placement(6) == .tab(.newWindow))
+        #expect(placement(2) == .tab(.foregroundTab))
+        #expect(placement(10) == .tab(.foregroundTab))
+        #expect(placement(1) == .chromium)
+        #expect(placement(7) == .download)
         #expect(CEFDisposition(raw: 99) == .unknown)
     }
 

@@ -30,6 +30,18 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var callbackScheme: String
     public var bundleID: String?
     public var isDebugBuild: Bool
+    /// Where a Cloud machine's link socket comes from.
+    public var linkSource: LinkSource = .legacy
+
+    public enum LinkSource: Sendable, Equatable {
+        /// `/api/vm` attach endpoint and a `cmux-tui remote connect` process
+        /// (frozen, contract 2.5).
+        case legacy
+        /// The Cloud app server's `cloud.machine.connect` carrier socket
+        /// (contract 2.3). Debug builds with `CMUX_CLOUD_LINK=app` only,
+        /// until the machine list comes from the app server too.
+        case appServer
+    }
 
     /// Existing Stack token Keychain service (`<bundle id>.auth`); changing it
     /// signs every user out (inventory.md "Auth").
@@ -51,7 +63,9 @@ public struct CloudConfiguration: Sendable, Equatable {
     static let developmentProjectID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
     static let developmentClientKey = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
     static let productionProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
-    static let productionClientKey = "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
+    /// Empty on purpose: the production project does not require a publishable
+    /// key, and a shipped key would break sign-in once its key set is revoked.
+    static let productionClientKey = ""
 
     /// Pure resolution. `bundled` is the bundle's `LSEnvironment`; it wins
     /// over `process` because a launch from a shell must not redirect a
@@ -85,7 +99,8 @@ public struct CloudConfiguration: Sendable, Equatable {
             backend: backend, apiBaseURL: api, authWebOrigin: web, stackBaseURL: stackBase,
             stackProjectID: value("CMUX_STACK_PROJECT_ID") ?? developmentProjectID,
             stackPublishableClientKey: value("CMUX_STACK_PUBLISHABLE_CLIENT_KEY") ?? developmentClientKey,
-            isProductionAuth: false, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild)
+            isProductionAuth: false, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild,
+            linkSource: value("CMUX_CLOUD_LINK")?.lowercased() == "app" ? .appServer : .legacy)
     }
 
     /// This process's configuration.

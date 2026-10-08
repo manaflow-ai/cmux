@@ -6,8 +6,16 @@
 mod auxiliary;
 mod content;
 mod effects;
+mod mouse;
+mod owner;
+mod revision_conflict;
 mod session;
 mod topology;
+
+pub(crate) use owner::requires_connection_context;
+use owner::{OperationOwner, operation_owner};
+pub(crate) use revision_conflict::is_revision_conflict;
+use revision_conflict::revision_conflict_values;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
@@ -23,6 +31,11 @@ use crate::resource::{
 use crate::resource_api::{ResourceMachineRequest, operation_failed, public_session_snapshot};
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+use mouse::{validate_browser_mouse, validate_terminal_mouse};
+
+mod catalog_validation;
+use catalog_validation::*;
+pub(crate) use catalog_validation::{validate_operation_error, validate_operation_outcome};
 
 const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
 
@@ -65,690 +78,31 @@ pub(crate) fn resolve_terminal_wait_exit_id(
     }
 }
 
-fn operation_catalog() -> &'static Value {
-    static CATALOG: OnceLock<Value> = OnceLock::new();
-    CATALOG.get_or_init(|| {
-        serde_json::from_str(CATALOG_JSON).expect("the checked-in resource operation catalog")
-    })
-}
-
-fn operation_descriptor(
-    operation: ResourceOperation,
-) -> Result<(String, &'static Map<String, Value>), ResourceError> {
-    let operation_name = operation_name(operation);
-    let descriptor = operation_catalog()["operations"]
-        .get(&operation_name)
-        .and_then(Value::as_object)
-        .ok_or_else(|| {
-            ResourceError::operation_failed(
-                operation_name.clone(),
-                "operation is absent from the embedded catalog",
-                json!({}),
-            )
-        })?;
-    Ok((operation_name, descriptor))
-}
-
-fn validate_catalog_params(
-    operation: ResourceOperation,
-    params: &Value,
-) -> Result<(ResourceSelectors, Map<String, Value>), ResourceError> {
-    let (operation_name, descriptor) = operation_descriptor(operation)?;
-    let params_descriptor = descriptor["params"].as_object().ok_or_else(|| {
-        ResourceError::operation_failed(
-            operation_name.clone(),
-            "operation catalog params are malformed",
-            json!({}),
-        )
-    })?;
-    let input = params.as_object().expect("request envelope validates params");
-    let selector_descriptors = params_descriptor["selectors"]
-        .as_object()
-        .ok_or_else(|| malformed_catalog(&operation_name, "selectors"))?;
-    let field_descriptors = params_descriptor["fields"]
-        .as_object()
-        .ok_or_else(|| malformed_catalog(&operation_name, "fields"))?;
-
-    let allowed = selector_descriptors
-        .keys()
-        .chain(field_descriptors.keys())
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
-    if params_descriptor["extra"] == Value::Bool(false) {
-        let mut unknown =
-            input.keys().filter(|key| !allowed.contains(key.as_str())).cloned().collect::<Vec<_>>();
-        unknown.sort();
-        if !unknown.is_empty() {
-            return Err(validation_error(
-                "request contains unknown parameters",
-                json!({"operation":operation_name,"parameters":unknown}),
-            ));
-        }
-    }
-
-    let mut selector_values = Map::new();
-    for (name, requiredness) in selector_descriptors {
-        match input.get(name) {
-            Some(value) => {
-                let raw = value.as_str().ok_or_else(|| {
-                    validation_error(
-                        "selector must be a string",
-                        json!({"operation":operation_name,"parameter":name}),
-                    )
-                })?;
-                Selector::parse(raw)?;
-                selector_values.insert(name.clone(), value.clone());
-            }
-            None if requiredness == "required" => {
-                return Err(validation_error(
-                    "required selector is missing",
-                    json!({"operation":operation_name,"parameter":name}),
-                ));
-            }
-            None => {}
-        }
-    }
-
-    let mut fields = Map::new();
-    for (name, field) in field_descriptors {
-        let field = field.as_object().ok_or_else(|| malformed_catalog(&operation_name, name))?;
-        match input.get(name) {
-            Some(value) => {
-                validate_catalog_value(
-                    value,
-                    &field["type"],
-                    &format!("{operation_name}.{name}"),
-                    &HashMap::new(),
-                )?;
-                fields.insert(name.clone(), value.clone());
-            }
-            None if field["required"] == Value::Bool(true) => {
-                return Err(validation_error(
-                    "required parameter is missing",
-                    json!({"operation":operation_name,"parameter":name}),
-                ));
-            }
-            None => {
-                if let Some(default) = field.get("default") {
-                    fields.insert(name.clone(), default.clone());
-                }
-            }
-        }
-    }
-
-    validate_param_alternatives(&operation_name, params_descriptor, input)?;
-    validate_operation_constraints(operation, &fields, input)?;
-    let selectors = serde_json::from_value(Value::Object(selector_values)).map_err(|error| {
-        validation_error(
-            "selectors could not be decoded",
-            json!({"operation":operation_name,"error":error.to_string()}),
-        )
-    })?;
-    Ok((selectors, fields))
-}
-
-fn contract_failure(
-    operation_name: &str,
-    contract: &str,
-    violation: &ResourceError,
-) -> ResourceError {
-    ResourceError::operation_failed(
-        operation_name,
-        format!("operation {contract} violates the embedded catalog"),
-        json!({
-            "contract":contract,
-            "violation_code":violation.code,
-            "violation":violation.details,
-        }),
-    )
-}
-
-fn validate_operation_result(
-    operation: ResourceOperation,
-    result: &Value,
-) -> Result<(), ResourceError> {
-    let (operation_name, descriptor) = operation_descriptor(operation)?;
-    validate_catalog_value(
-        result,
-        &descriptor["result"],
-        &format!("{operation_name}.result"),
-        &HashMap::new(),
-    )
-    .map_err(|violation| contract_failure(&operation_name, "result", &violation))
-}
-
-pub(crate) fn validate_operation_error(
-    operation: ResourceOperation,
-    error: ResourceError,
-) -> ResourceError {
-    let (operation_name, descriptor) = match operation_descriptor(operation) {
-        Ok(descriptor) => descriptor,
-        Err(violation) => return contract_failure("catalog.validate", "error", &violation),
-    };
-    let declared = descriptor["errors"]
-        .as_array()
-        .is_some_and(|errors| errors.iter().any(|code| code.as_str() == Some(&error.code)));
-    if !declared {
-        return ResourceError::operation_failed(
-            operation_name,
-            "operation emitted an error code absent from its catalog contract",
-            json!({"contract":"error","emitted_code":error.code}),
-        );
-    }
-    let Some(error_descriptor) = operation_catalog()["errors"].get(&error.code) else {
-        return ResourceError::operation_failed(
-            operation_name,
-            "operation emitted an error absent from the catalog",
-            json!({"contract":"error","emitted_code":error.code}),
-        );
-    };
-    let retryable_matches = error_descriptor["retryable"].as_bool() == Some(error.retryable);
-    let details = validate_catalog_value(
-        &error.details,
-        &error_descriptor["details"],
-        &format!("{operation_name}.error.{}.details", error.code),
-        &HashMap::new(),
-    );
-    if retryable_matches && details.is_ok() {
-        error
-    } else {
-        let violation = details.err().unwrap_or_else(|| {
-            ResourceError::validation_invalid(
-                Some("retryable"),
-                "error retryability differs from the catalog",
-            )
-        });
-        contract_failure(&operation_name, "error", &violation)
-    }
-}
-
-pub(crate) fn validate_operation_outcome(
-    operation: ResourceOperation,
-    outcome: Result<Value, ResourceError>,
-) -> Result<Value, ResourceError> {
-    match outcome {
-        Ok(result) => {
-            validate_operation_result(operation, &result)?;
-            Ok(result)
-        }
-        Err(error) => Err(validate_operation_error(operation, error)),
-    }
-}
-
-fn validate_catalog_value(
-    value: &Value,
-    descriptor: &Value,
-    path: &str,
-    parameters: &HashMap<String, Value>,
-) -> Result<(), ResourceError> {
-    let kind = descriptor["kind"].as_str().ok_or_else(|| {
-        ResourceError::operation_failed(
-            "catalog.validate",
-            "catalog type omitted its kind",
-            json!({"path":path}),
-        )
-    })?;
-    match kind {
-        "primitive" => validate_primitive(value, descriptor, path),
-        "enum" => {
-            let matches =
-                descriptor["values"].as_array().is_some_and(|values| values.contains(value));
-            matches
-                .then_some(())
-                .ok_or_else(|| invalid_value(path, "value is outside the allowed enum"))
-        }
-        "array" => {
-            let values =
-                value.as_array().ok_or_else(|| invalid_value(path, "value must be an array"))?;
-            validate_length(values.len(), descriptor, path, "items")?;
-            for (index, item) in values.iter().enumerate() {
-                validate_catalog_value(
-                    item,
-                    &descriptor["items"],
-                    &format!("{path}[{index}]"),
-                    parameters,
-                )?;
-            }
-            Ok(())
-        }
-        "map" => {
-            let values = value
-                .as_object()
-                .ok_or_else(|| invalid_value(path, "value must be an object map"))?;
-            for (name, item) in values {
-                validate_catalog_value(
-                    item,
-                    &descriptor["values"],
-                    &format!("{path}.{name}"),
-                    parameters,
-                )?;
-            }
-            Ok(())
-        }
-        "nullable" => {
-            if value.is_null() {
-                Ok(())
-            } else {
-                validate_catalog_value(value, &descriptor["value"], path, parameters)
-            }
-        }
-        "object" => validate_catalog_object(value, descriptor, path, parameters),
-        "ref" => {
-            let name =
-                descriptor["name"].as_str().ok_or_else(|| malformed_catalog(path, "ref.name"))?;
-            let target = operation_catalog()["types"]
-                .get(name)
-                .ok_or_else(|| malformed_catalog(path, name))?;
-            validate_catalog_value(value, target, path, parameters)
-        }
-        "apply" => {
-            let name =
-                descriptor["name"].as_str().ok_or_else(|| malformed_catalog(path, "apply.name"))?;
-            let generic = operation_catalog()["generics"]
-                .get(name)
-                .ok_or_else(|| malformed_catalog(path, name))?;
-            let names = generic["parameters"]
-                .as_array()
-                .ok_or_else(|| malformed_catalog(path, "generic.parameters"))?;
-            let arguments = descriptor["arguments"]
-                .as_array()
-                .ok_or_else(|| malformed_catalog(path, "apply.arguments"))?;
-            if names.len() != arguments.len() {
-                return Err(malformed_catalog(path, "generic argument count"));
-            }
-            let mut bindings = parameters.clone();
-            for (name, argument) in names.iter().zip(arguments) {
-                let name =
-                    name.as_str().ok_or_else(|| malformed_catalog(path, "generic parameter"))?;
-                bindings.insert(name.to_string(), argument.clone());
-            }
-            validate_catalog_value(value, &generic["body"], path, &bindings)
-        }
-        "parameter" => {
-            let name = descriptor["name"]
-                .as_str()
-                .ok_or_else(|| malformed_catalog(path, "parameter.name"))?;
-            let target = parameters.get(name).ok_or_else(|| malformed_catalog(path, name))?;
-            validate_catalog_value(value, target, path, parameters)
-        }
-        "selector" => {
-            let raw =
-                value.as_str().ok_or_else(|| invalid_value(path, "selector must be a string"))?;
-            Selector::parse(raw).map(|_| ())
-        }
-        "resource_id" => validate_resource_id(value, descriptor, path),
-        "union" => {
-            let variants = descriptor["variants"]
-                .as_array()
-                .ok_or_else(|| malformed_catalog(path, "union.variants"))?;
-            let successes = variants
-                .iter()
-                .filter(|variant| validate_catalog_value(value, variant, path, parameters).is_ok())
-                .count();
-            if successes == 1 {
-                Ok(())
-            } else {
-                Err(invalid_value(path, "value must match exactly one union variant"))
-            }
-        }
-        _ => Err(malformed_catalog(path, kind)),
-    }
-}
-
-fn validate_primitive(value: &Value, descriptor: &Value, path: &str) -> Result<(), ResourceError> {
-    let name =
-        descriptor["name"].as_str().ok_or_else(|| malformed_catalog(path, "primitive.name"))?;
-    match name {
-        "json" => Ok(()),
-        "string" => {
-            let raw =
-                value.as_str().ok_or_else(|| invalid_value(path, "value must be a string"))?;
-            validate_length(raw.len(), descriptor, path, "UTF-8 bytes")
-        }
-        "base64" => {
-            let raw = value
-                .as_str()
-                .ok_or_else(|| invalid_value(path, "value must be a base64 string"))?;
-            base64::engine::general_purpose::STANDARD
-                .decode(raw)
-                .map(|_| ())
-                .map_err(|_| invalid_value(path, "value must use canonical base64"))
-        }
-        "boolean" => value
-            .is_boolean()
-            .then_some(())
-            .ok_or_else(|| invalid_value(path, "value must be a boolean")),
-        "decimal" => serde_json::from_value::<WireDecimal>(value.clone())
-            .map(|_| ())
-            .map_err(|_| invalid_value(path, "value must be an unsigned decimal string")),
-        "float64" => {
-            let number = value
-                .as_f64()
-                .filter(|number| number.is_finite())
-                .ok_or_else(|| invalid_value(path, "value must be a finite number"))?;
-            validate_number(number, descriptor, path)
-        }
-        "uint16" => {
-            let number = value
-                .as_u64()
-                .filter(|number| *number <= u16::MAX.into())
-                .ok_or_else(|| invalid_value(path, "value must be an unsigned 16-bit integer"))?;
-            validate_number(number as f64, descriptor, path)
-        }
-        "uint32" => {
-            let number = value
-                .as_u64()
-                .filter(|number| *number <= u32::MAX.into())
-                .ok_or_else(|| invalid_value(path, "value must be an unsigned 32-bit integer"))?;
-            validate_number(number as f64, descriptor, path)
-        }
-        "int32" => {
-            let number = value
-                .as_i64()
-                .filter(|number| i32::try_from(*number).is_ok())
-                .ok_or_else(|| invalid_value(path, "value must be a signed 32-bit integer"))?;
-            validate_number(number as f64, descriptor, path)
-        }
-        _ => Err(malformed_catalog(path, name)),
-    }
-}
-
-fn validate_catalog_object(
-    value: &Value,
-    descriptor: &Value,
-    path: &str,
-    parameters: &HashMap<String, Value>,
-) -> Result<(), ResourceError> {
-    let object = value.as_object().ok_or_else(|| invalid_value(path, "value must be an object"))?;
-    let fields =
-        descriptor["fields"].as_object().ok_or_else(|| malformed_catalog(path, "object.fields"))?;
-    if descriptor["extra"] == Value::Bool(false) {
-        let mut unknown =
-            object.keys().filter(|name| !fields.contains_key(*name)).cloned().collect::<Vec<_>>();
-        unknown.sort();
-        if !unknown.is_empty() {
-            return Err(validation_error(
-                "object contains unknown fields",
-                json!({"path":path,"fields":unknown}),
-            ));
-        }
-    }
-    for (name, field) in fields {
-        let field = field.as_object().ok_or_else(|| malformed_catalog(path, name))?;
-        match object.get(name) {
-            Some(value) => validate_catalog_value(
-                value,
-                &field["type"],
-                &format!("{path}.{name}"),
-                parameters,
-            )?,
-            None if field["required"] == Value::Bool(true) => {
-                return Err(validation_error(
-                    "required object field is missing",
-                    json!({"path":path,"field":name}),
-                ));
-            }
-            None => {}
-        }
-    }
-    Ok(())
-}
-
-fn validate_resource_id(
-    value: &Value,
-    descriptor: &Value,
-    path: &str,
-) -> Result<(), ResourceError> {
-    let resource = descriptor["resource"]
-        .as_str()
-        .ok_or_else(|| malformed_catalog(path, "resource_id.resource"))?;
-    let prefix = match resource {
-        "workspace" => "ws",
-        "terminal" => "term",
-        "frontend_projection" => "projection",
-        "pairing_request" => "pairing",
-        other => other,
-    };
-    let raw = value.as_str().ok_or_else(|| invalid_value(path, "resource id must be a string"))?;
-    let payload = raw
-        .strip_prefix(&format!("{prefix}_"))
-        .ok_or_else(|| invalid_value(path, "resource id has the wrong type prefix"))?;
-    if payload.len() == 32
-        && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
-        Ok(())
-    } else {
-        Err(invalid_value(path, "resource id must contain 32 lowercase hex digits"))
-    }
-}
-
-fn validate_length(
-    length: usize,
-    descriptor: &Value,
-    path: &str,
-    unit: &str,
-) -> Result<(), ResourceError> {
-    if descriptor["min_length"]
-        .as_u64()
-        .or_else(|| descriptor["min_items"].as_u64())
-        .is_some_and(|minimum| length < minimum as usize)
-    {
-        return Err(invalid_value(path, &format!("value has too few {unit}")));
-    }
-    if descriptor["max_length"]
-        .as_u64()
-        .or_else(|| descriptor["max_items"].as_u64())
-        .is_some_and(|maximum| length > maximum as usize)
-    {
-        return Err(invalid_value(path, &format!("value has too many {unit}")));
-    }
-    Ok(())
-}
-
-fn validate_number(number: f64, descriptor: &Value, path: &str) -> Result<(), ResourceError> {
-    if descriptor["minimum"].as_f64().is_some_and(|minimum| number < minimum)
-        || descriptor["maximum"].as_f64().is_some_and(|maximum| number > maximum)
-    {
-        return Err(invalid_value(path, "number is outside its allowed range"));
-    }
-    Ok(())
-}
-
-fn validate_param_alternatives(
-    operation: &str,
-    descriptor: &Map<String, Value>,
-    input: &Map<String, Value>,
-) -> Result<(), ResourceError> {
-    let Some(alternatives) = descriptor.get("one_of").and_then(Value::as_array) else {
-        return Ok(());
-    };
-    let matches = alternatives
-        .iter()
-        .filter(|alternative| {
-            alternative["required"].as_array().is_none_or(|required| {
-                required.iter().filter_map(Value::as_str).all(|name| input.contains_key(name))
-            }) && alternative["forbidden"].as_array().is_none_or(|forbidden| {
-                forbidden.iter().filter_map(Value::as_str).all(|name| !input.contains_key(name))
-            })
-        })
-        .count();
-    if matches == 1 {
-        Ok(())
-    } else {
-        Err(validation_error(
-            "request must match exactly one parameter alternative",
-            json!({"operation":operation}),
-        ))
-    }
-}
-
-fn validate_operation_constraints(
-    operation: ResourceOperation,
-    fields: &Map<String, Value>,
-    supplied: &Map<String, Value>,
-) -> Result<(), ResourceError> {
-    if operation == ResourceOperation::TabRename {
-        crate::resource_name::TabNameUpdate::parse(fields).map_err(resource_operation_error)?;
-    }
-    if matches!(operation, ResourceOperation::PaneRun | ResourceOperation::WorkspaceRun)
-        && let Some(argv) = fields.get("argv").and_then(Value::as_array)
-        && argv.first().and_then(Value::as_str).is_none_or(str::is_empty)
-    {
-        return Err(invalid_value(
-            &format!("{}.argv[0]", operation_name(operation)),
-            "argv[0] must be non-empty",
-        ));
-    }
-    if matches!(
-        operation,
-        ResourceOperation::BrowserAttach
-            | ResourceOperation::TabCreateBrowser
-            | ResourceOperation::PaneCreate
-            | ResourceOperation::PaneRun
-            | ResourceOperation::PaneSplit
-            | ResourceOperation::TabCreateTerminal
-            | ResourceOperation::TerminalAttach
-            | ResourceOperation::WorkspaceRun
-    ) {
-        let first = if matches!(
-            operation,
-            ResourceOperation::BrowserAttach | ResourceOperation::TabCreateBrowser
-        ) {
-            "width_px"
-        } else {
-            "cols"
-        };
-        let second = if first == "width_px" { "height_px" } else { "rows" };
-        if fields.contains_key(first) != fields.contains_key(second) {
-            return Err(validation_error(
-                "paired size parameters must be sent together",
-                json!({"operation":operation_name(operation),"parameters":[first,second]}),
-            ));
-        }
-    }
-    match operation {
-        ResourceOperation::ClientMetadataUpdate => {
-            require_any(supplied, operation, &["name", "kind"])?;
-        }
-        ResourceOperation::SessionTerminalDefaultsUpdate => {
-            require_any(
-                supplied,
-                operation,
-                &[
-                    "foreground",
-                    "background",
-                    "cursor",
-                    "selection_background",
-                    "selection_foreground",
-                    "palette",
-                    "cursor_style",
-                    "cursor_blink",
-                    "complete",
-                ],
-            )?;
-        }
-        ResourceOperation::SessionJournalSubscribe
-            if supplied.contains_key("cursor") && supplied.contains_key("start") =>
-        {
-            return Err(validation_error(
-                "journal cursor and start are mutually exclusive",
-                json!({"operation":operation_name(operation),"parameters":["cursor","start"]}),
-            ));
-        }
-        ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneSplit => {
-            if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64)
-                && !(0.0 < ratio && ratio < 1.0)
-            {
-                return Err(invalid_value(
-                    &format!("{}.ratio", operation_name(operation)),
-                    "ratio must be greater than zero and less than one",
-                ));
-            }
-        }
-        ResourceOperation::BrowserInputMouse => validate_browser_mouse(fields)?,
-        ResourceOperation::TerminalInputMouse => validate_terminal_mouse(fields)?,
-        _ => {}
-    }
-    Ok(())
-}
-
-fn require_any(
-    fields: &Map<String, Value>,
-    operation: ResourceOperation,
-    names: &[&str],
-) -> Result<(), ResourceError> {
-    if names.iter().any(|name| fields.contains_key(*name)) {
-        Ok(())
-    } else {
-        Err(validation_error(
-            "at least one update parameter is required",
-            json!({"operation":operation_name(operation),"parameters":names}),
-        ))
-    }
-}
-
-fn validate_browser_mouse(fields: &Map<String, Value>) -> Result<(), ResourceError> {
-    let kind = fields["kind"].as_str().expect("catalog enum validation");
-    let has_button = fields.contains_key("button");
-    let has_click_count = fields.contains_key("click_count");
-    if matches!(kind, "down" | "up") && !has_button {
-        return Err(invalid_value(
-            "browser.input.mouse.button",
-            "button is required for down and up",
-        ));
-    }
-    if kind == "move" && (has_button || has_click_count) {
-        return Err(validation_error(
-            "move forbids button and click_count",
-            json!({"operation":"browser.input.mouse"}),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_terminal_mouse(fields: &Map<String, Value>) -> Result<(), ResourceError> {
-    let kind = fields["kind"].as_str().expect("catalog enum validation");
-    let has_button = fields.contains_key("button");
-    let has_delta = fields.contains_key("delta_rows");
-    let valid = match kind {
-        "down" | "up" => has_button && !has_delta,
-        "move" => !has_button && !has_delta,
-        "wheel" => {
-            !has_button
-                && fields.get("delta_rows").and_then(Value::as_i64).is_some_and(|delta| delta != 0)
-        }
-        _ => false,
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(validation_error(
-            "terminal mouse parameters do not match the input kind",
-            json!({"operation":"terminal.input.mouse","kind":kind}),
-        ))
-    }
-}
-
-fn malformed_catalog(operation: &str, field: &str) -> ResourceError {
-    ResourceError::operation_failed(
-        operation,
-        "embedded operation catalog is malformed",
-        json!({"field":field}),
-    )
-}
-
-fn invalid_value(path: &str, message: &str) -> ResourceError {
-    validation_error(message, json!({"path":path}))
-}
-
 #[derive(Debug)]
 pub(crate) struct ParsedResourceRequest {
     pub envelope: RequestEnvelope,
     pub selectors: ResourceSelectors,
     pub fields: Map<String, Value>,
+    /// Who sends it, set by the daemon (never from the envelope).
+    pub actor: crate::workspace_registry::Actor,
 }
 
-pub(crate) fn is_resource_protocol_message(message: &str) -> bool {
+/// The one parse of a connection line (decisions: the origin gate). `None`
+/// when the line is not a `cmux.protocol/2` message (it has no `protocol`
+/// member); else the typed envelope, or why it is malformed. The origin gate
+/// checks this value and [`validate_resource_envelope`] then turns the same
+/// value into the dispatched request, so no check reads the line a second
+/// time and none can read it differently.
+pub(crate) fn parse_resource_line(message: &str) -> Option<Result<RequestEnvelope, ResourceError>> {
+    match parse_resource_envelope(message) {
+        Ok(envelope) => Some(Ok(envelope)),
+        // A typed envelope always has `protocol`; only a line that is not
+        // one needs the member probe to choose between v2 and legacy.
+        Err(error) => is_resource_protocol_message(message).then_some(Err(error)),
+    }
+}
+
+fn is_resource_protocol_message(message: &str) -> bool {
     serde_json::from_str::<Value>(message)
         .ok()
         .and_then(|value| value.as_object().cloned())
@@ -815,21 +169,55 @@ pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -
         .expect("resource failure envelopes are serializable")
 }
 
+impl ParsedResourceRequest {
+    /// The durable mutation of this catalog-validated request, caused by its actor.
+    pub(crate) fn mutation(&self) -> anyhow::Result<crate::WorkspaceMutation> {
+        let key = self.envelope.idempotency_key.clone();
+        let key = key.expect("catalog-validated mutations have an idempotency key");
+        crate::WorkspaceMutation::new(key, "resource-api", self.actor.clone())
+    }
+}
+
+/// One request of `actor`, parsed and validated.
+pub(crate) fn parse_resource_request_as(
+    message: &str,
+    actor: crate::workspace_registry::Actor,
+) -> Result<ParsedResourceRequest, ResourceError> {
+    validate_resource_envelope(parse_resource_envelope(message)?, actor)
+}
+
+/// Tests: a request of the local user.
+#[cfg(test)]
 pub(crate) fn parse_resource_request(
     message: &str,
 ) -> Result<ParsedResourceRequest, ResourceError> {
+    parse_resource_request_as(message, crate::workspace_registry::Actor::local_user())
+}
+
+/// The typed envelope of `message` (size limit, then one serde parse that
+/// refuses unknown and duplicate members). Nothing is validated beyond the
+/// types.
+fn parse_resource_envelope(message: &str) -> Result<RequestEnvelope, ResourceError> {
     if message.len() > crate::resource::MAX_MESSAGE_BYTES {
         return Err(validation_error(
             "request exceeds the protocol message limit",
             json!({"bytes":message.len(),"maximum":crate::resource::MAX_MESSAGE_BYTES}),
         ));
     }
-    let envelope = serde_json::from_str::<RequestEnvelope>(message).map_err(|error| {
+    serde_json::from_str::<RequestEnvelope>(message).map_err(|error| {
         validation_error("invalid request envelope", json!({"error":error.to_string()}))
-    })?;
+    })
+}
+
+/// Envelope rules and the operation's catalog params, on an envelope that
+/// is already parsed (it is moved into the request, never parsed again).
+pub(crate) fn validate_resource_envelope(
+    envelope: RequestEnvelope,
+    actor: crate::workspace_registry::Actor,
+) -> Result<ParsedResourceRequest, ResourceError> {
     envelope.validate()?;
     let (selectors, fields) = validate_catalog_params(envelope.operation, &envelope.params)?;
-    Ok(ParsedResourceRequest { envelope, selectors, fields })
+    Ok(ParsedResourceRequest { envelope, selectors, fields, actor })
 }
 
 fn dispatch_resource_request(
@@ -842,12 +230,15 @@ fn dispatch_resource_request(
         OperationOwner::Content => content::dispatch(mux, request),
         OperationOwner::Topology => topology::dispatch(mux, request),
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
+        OperationOwner::State => crate::state::router::dispatch(mux, request),
+        OperationOwner::Git => crate::git_ops::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
                 selectors: request.selectors,
                 fields: request.fields,
                 idempotency_key: request.envelope.idempotency_key,
+                actor: request.actor,
             })
         }
         OperationOwner::Snapshot => match operation {
@@ -861,12 +252,20 @@ fn dispatch_resource_request(
                 Ok(json!({"alive":true,"cursor":snapshot["cursor"]}))
             }
             ResourceOperation::TerminalList => list_resources(mux, &request.selectors, "terminals"),
-            ResourceOperation::BrowserList => list_resources(mux, &request.selectors, "browsers"),
+            // A conversation tab's content is not a browser (`conversation-tabs-v1`).
+            ResourceOperation::BrowserList => list_resources(mux, &request.selectors, "browsers")
+                .map(|mut browsers| {
+                    mux.retain_browser_pages(&mut browsers);
+                    browsers
+                }),
             ResourceOperation::TerminalGet => {
                 get_resource(mux, &request.selectors, ResourceTarget::Terminal, "terminals")
             }
             ResourceOperation::BrowserGet => {
-                get_resource(mux, &request.selectors, ResourceTarget::Browser, "browsers")
+                let browser =
+                    get_resource(mux, &request.selectors, ResourceTarget::Browser, "browsers")?;
+                mux.refuse_conversation_content(&browser)?;
+                Ok(browser)
             }
             ResourceOperation::NotificationList => {
                 ensure_session_route(mux, &request.selectors)?;
@@ -894,153 +293,6 @@ fn dispatch_resource_request(
             json!({"required_context":"control_connection"}),
         )),
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OperationOwner {
-    Machine,
-    Session,
-    Snapshot,
-    Topology,
-    Content,
-    Auxiliary,
-    Connection,
-}
-
-const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
-    match operation {
-        ResourceOperation::MachineList
-        | ResourceOperation::MachineGet
-        | ResourceOperation::SessionList
-        | ResourceOperation::SessionOpen
-        | ResourceOperation::SessionGet => OperationOwner::Machine,
-        ResourceOperation::SessionCreationResolve
-        | ResourceOperation::SessionReloadConfig
-        | ResourceOperation::SessionTerminalDefaultsUpdate
-        | ResourceOperation::SessionWindowTitleSet
-        | ResourceOperation::SessionWindowTitleClear => OperationOwner::Session,
-        ResourceOperation::SessionSnapshot
-        | ResourceOperation::SessionPing
-        | ResourceOperation::TerminalList
-        | ResourceOperation::TerminalGet
-        | ResourceOperation::BrowserList
-        | ResourceOperation::BrowserGet
-        | ResourceOperation::NotificationList
-        | ResourceOperation::NotificationCreate
-        | ResourceOperation::NotificationAck
-        | ResourceOperation::NotificationClear => OperationOwner::Snapshot,
-        ResourceOperation::WorkspaceList
-        | ResourceOperation::WorkspaceGet
-        | ResourceOperation::WorkspaceCreate
-        | ResourceOperation::WorkspaceRename
-        | ResourceOperation::WorkspaceMove
-        | ResourceOperation::WorkspaceFocus
-        | ResourceOperation::WorkspaceClose
-        | ResourceOperation::WorkspaceRun
-        | ResourceOperation::WorkspaceLayoutApply
-        | ResourceOperation::ScreenList
-        | ResourceOperation::ScreenGet
-        | ResourceOperation::ScreenCreate
-        | ResourceOperation::ScreenRename
-        | ResourceOperation::ScreenFocus
-        | ResourceOperation::ScreenClose
-        | ResourceOperation::ScreenLayoutExport
-        | ResourceOperation::ScreenLayoutUndo
-        | ResourceOperation::PaneList
-        | ResourceOperation::PaneGet
-        | ResourceOperation::PaneCreate
-        | ResourceOperation::PaneSplit
-        | ResourceOperation::PaneRename
-        | ResourceOperation::PaneFocus
-        | ResourceOperation::PaneFocusDirection
-        | ResourceOperation::PaneNeighborGet
-        | ResourceOperation::PaneSwap
-        | ResourceOperation::PaneZoom
-        | ResourceOperation::PaneSplitRatioSet
-        | ResourceOperation::PaneViewportWidthSet
-        | ResourceOperation::PaneClose
-        | ResourceOperation::PaneRun
-        | ResourceOperation::TabList
-        | ResourceOperation::TabGet
-        | ResourceOperation::TabCreateTerminal
-        | ResourceOperation::TabCreateBrowser
-        | ResourceOperation::TabRename
-        | ResourceOperation::TabMove
-        | ResourceOperation::TabFocus
-        | ResourceOperation::TabClose => OperationOwner::Topology,
-        ResourceOperation::TerminalInputWrite
-        | ResourceOperation::TerminalInputKeys
-        | ResourceOperation::TerminalInputMouse
-        | ResourceOperation::TerminalInputFocus
-        | ResourceOperation::TerminalScreenRead
-        | ResourceOperation::TerminalStateRead
-        | ResourceOperation::TerminalHistoryRead
-        | ResourceOperation::TerminalHistoryClear
-        | ResourceOperation::TerminalOutputRead
-        | ResourceOperation::TerminalWait
-        | ResourceOperation::TerminalWaitExit
-        | ResourceOperation::TerminalCopy
-        | ResourceOperation::TerminalProcessGet
-        | ResourceOperation::TerminalViewportScroll
-        | ResourceOperation::TerminalMove
-        | ResourceOperation::TerminalProject
-        | ResourceOperation::TerminalClose
-        | ResourceOperation::BrowserNavigate
-        | ResourceOperation::BrowserBack
-        | ResourceOperation::BrowserForward
-        | ResourceOperation::BrowserReload
-        | ResourceOperation::BrowserActivate
-        | ResourceOperation::BrowserInputKey
-        | ResourceOperation::BrowserInputText
-        | ResourceOperation::BrowserInputMouse
-        | ResourceOperation::BrowserInputWheel
-        | ResourceOperation::BrowserClose => OperationOwner::Content,
-        ResourceOperation::AgentList
-        | ResourceOperation::AgentReport
-        | ResourceOperation::FrontendProjectionGet
-        | ResourceOperation::FrontendProjectionPut
-        | ResourceOperation::SidebarViewGet
-        | ResourceOperation::SidebarViewEnsure
-        | ResourceOperation::SidebarViewInput
-        | ResourceOperation::SidebarViewResize
-        | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
-        ResourceOperation::SessionEvents
-        | ResourceOperation::SessionJournalSubscribe
-        | ResourceOperation::SessionJournalProducerList
-        | ResourceOperation::SessionJournalProducerPut
-        | ResourceOperation::SessionJournalAppend
-        | ResourceOperation::SessionJournalHookList
-        | ResourceOperation::SessionJournalHookPut
-        | ResourceOperation::SessionJournalCheckpointCreate
-        | ResourceOperation::SessionJournalCheckpointList
-        | ResourceOperation::SessionJournalRestorePreview
-        | ResourceOperation::SessionJournalSegmentList
-        | ResourceOperation::SessionJournalSegmentSeal
-        | ResourceOperation::SessionShutdown
-        | ResourceOperation::PairingRequestList
-        | ResourceOperation::PairingRequestResolve
-        | ResourceOperation::RequestCancel
-        | ResourceOperation::ClientList
-        | ResourceOperation::ClientGet
-        | ResourceOperation::ClientMetadataUpdate
-        | ResourceOperation::ClientSizingSet
-        | ResourceOperation::ClientSizingRelease
-        | ResourceOperation::ClientCellPixelsSet
-        | ResourceOperation::ClientDetach
-        | ResourceOperation::TerminalRendererGrantCreate
-        | ResourceOperation::TerminalViewerResize
-        | ResourceOperation::TerminalViewerRelease
-        | ResourceOperation::TerminalAttach
-        | ResourceOperation::BrowserViewerResize
-        | ResourceOperation::BrowserViewerRelease
-        | ResourceOperation::BrowserAttach
-        | ResourceOperation::SidebarViewAttach
-        | ResourceOperation::StreamCancel => OperationOwner::Connection,
-    }
-}
-
-pub(crate) const fn requires_connection_context(operation: ResourceOperation) -> bool {
-    matches!(operation_owner(operation), OperationOwner::Connection)
 }
 
 fn ensure_session_route(
@@ -1236,7 +488,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     });
     let preparation = mux
         .prepare_resource_effect(
-            idempotency_key,
+            &request.mutation().map_err(resource_operation_error)?,
             operation,
             &fingerprint,
             &intent,
@@ -1432,15 +684,7 @@ fn ack_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value,
             )
         })
         .collect::<Result<Vec<_>, ResourceError>>()?;
-    let mutation = crate::workspace_registry::WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)?;
+    let mutation = request.mutation().map_err(resource_operation_error)?;
     let ack = mux
         .ack_notifications(
             &mutation,
@@ -1463,15 +707,7 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             )
         })
         .transpose()?;
-    let mutation = crate::workspace_registry::WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)?;
+    let mutation = request.mutation().map_err(resource_operation_error)?;
     let commit = mux
         .clear_notifications(&mutation, expected_revision(&request.fields)?, terminal_id.as_ref())
         .map_err(|error| {
@@ -1585,6 +821,9 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
+    if let Some(home) = crate::state::home_store::resource_error(&error) {
+        return home;
+    }
     if let Some(failure) = error.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>()
     {
         return ResourceError::operation_failed(
@@ -1600,13 +839,8 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
             return ResourceError::idempotency_conflict(key, operation);
         }
     }
-    if let Some(conflict) = message.strip_prefix("resource revision conflict: expected ") {
-        let mut values = conflict.split(", current ");
-        if let (Some(expected), Some(actual)) = (values.next(), values.next())
-            && let (Ok(expected), Ok(actual)) = (expected.parse(), actual.parse())
-        {
-            return ResourceError::revision_conflict(expected, actual);
-        }
+    if let Some((expected, actual)) = revision_conflict_values(&message) {
+        return ResourceError::revision_conflict(expected, actual);
     }
     ResourceError::operation_failed("resource.runtime", message, json!({}))
 }
@@ -1625,399 +859,8 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::SurfaceOptions;
-
-    #[test]
-    fn terminal_host_launch_failures_keep_their_machine_readable_reason() {
-        let failure = crate::terminal_host_protocol::HostLaunchFailure::bounded(
-            crate::terminal_host_protocol::HostLaunchFailureKind::PtyCapacityExhausted,
-            "terminal launch failed: PTY capacity exhausted".into(),
-        );
-        let error = resource_operation_error(anyhow::Error::new(failure));
-        assert_eq!(error.code, "operation.failed");
-        assert_eq!(error.details["operation"], "terminal.launch");
-        assert_eq!(error.details["extra"]["reason_code"], "pty_capacity_exhausted");
-    }
-
-    fn catalog_fixture(descriptor: &Value, parameters: &HashMap<String, Value>) -> Value {
-        match descriptor["kind"].as_str().expect("fixture descriptor kind") {
-            "primitive" => match descriptor["name"].as_str().expect("fixture primitive name") {
-                "json" => Value::Null,
-                "string" => Value::String(
-                    "x".repeat(descriptor["min_length"].as_u64().unwrap_or(0) as usize),
-                ),
-                "base64" => Value::String(String::new()),
-                "boolean" => Value::Bool(false),
-                "decimal" => Value::String("0".to_string()),
-                "float64" => json!(descriptor["minimum"].as_f64().unwrap_or(0.0)),
-                "uint16" | "uint32" => json!(descriptor["minimum"].as_u64().unwrap_or(0)),
-                "int32" => json!(descriptor["minimum"].as_i64().unwrap_or(0)),
-                name => panic!("unsupported fixture primitive {name}"),
-            },
-            "enum" => descriptor["values"]
-                .as_array()
-                .and_then(|values| values.first())
-                .cloned()
-                .expect("fixture enum value"),
-            "array" => {
-                let item = catalog_fixture(&descriptor["items"], parameters);
-                Value::Array(vec![item; descriptor["min_items"].as_u64().unwrap_or(0) as usize])
-            }
-            "map" => Value::Object(Map::new()),
-            "nullable" => Value::Null,
-            "object" => {
-                let mut object = Map::new();
-                for (name, field) in descriptor["fields"].as_object().expect("fixture fields") {
-                    if field["required"] == Value::Bool(true) {
-                        object.insert(name.clone(), catalog_fixture(&field["type"], parameters));
-                    }
-                }
-                Value::Object(object)
-            }
-            "ref" => {
-                let name = descriptor["name"].as_str().expect("fixture ref name");
-                catalog_fixture(&operation_catalog()["types"][name], parameters)
-            }
-            "apply" => {
-                let name = descriptor["name"].as_str().expect("fixture generic name");
-                let generic = &operation_catalog()["generics"][name];
-                let mut bindings = parameters.clone();
-                for (parameter, argument) in generic["parameters"]
-                    .as_array()
-                    .expect("fixture generic parameters")
-                    .iter()
-                    .zip(descriptor["arguments"].as_array().expect("fixture generic arguments"))
-                {
-                    bindings.insert(
-                        parameter.as_str().expect("fixture parameter name").to_string(),
-                        argument.clone(),
-                    );
-                }
-                catalog_fixture(&generic["body"], &bindings)
-            }
-            "parameter" => {
-                let name = descriptor["name"].as_str().expect("fixture parameter");
-                catalog_fixture(parameters.get(name).expect("bound fixture parameter"), parameters)
-            }
-            "selector" => Value::String("current".to_string()),
-            "resource_id" => {
-                let resource = descriptor["resource"].as_str().expect("fixture resource");
-                let prefix = match resource {
-                    "workspace" => "ws",
-                    "terminal" => "term",
-                    "frontend_projection" => "projection",
-                    "pairing_request" => "pairing",
-                    other => other,
-                };
-                Value::String(format!("{prefix}_{}", "0".repeat(32)))
-            }
-            "union" => catalog_fixture(
-                descriptor["variants"]
-                    .as_array()
-                    .and_then(|variants| variants.first())
-                    .expect("fixture union variant"),
-                parameters,
-            ),
-            kind => panic!("unsupported fixture kind {kind}"),
-        }
-    }
-
-    fn test_mux() -> Arc<Mux> {
-        Mux::new_for_test("resource-router", SurfaceOptions::default())
-    }
-
-    #[test]
-    fn every_catalog_operation_has_one_concrete_owner() {
-        let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 127);
-        for name in operations.keys() {
-            let operation: ResourceOperation =
-                serde_json::from_value(Value::String(name.clone())).unwrap();
-            assert_eq!(operation_name(operation), *name);
-            match operation_owner(operation) {
-                OperationOwner::Session => assert!(session::handles(operation)),
-                OperationOwner::Content => assert!(content::handles(operation)),
-                OperationOwner::Topology => assert!(topology::handles(operation)),
-                OperationOwner::Auxiliary => assert!(auxiliary::handles(operation)),
-                OperationOwner::Machine | OperationOwner::Snapshot | OperationOwner::Connection => {
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
-        let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 127);
-        for (name, descriptor) in operations {
-            let operation: ResourceOperation =
-                serde_json::from_value(Value::String(name.clone())).unwrap();
-            let result = catalog_fixture(&descriptor["result"], &HashMap::new());
-            assert_eq!(
-                validate_operation_outcome(operation, Ok(result.clone())).unwrap(),
-                result,
-                "{name} rejected its catalog result fixture"
-            );
-            let errors = descriptor["errors"].as_array().expect("operation error list");
-            assert!(
-                errors.iter().any(|code| code == "operation.failed"),
-                "{name} cannot fail closed"
-            );
-            for (code, error_descriptor) in
-                operation_catalog()["errors"].as_object().expect("catalog errors")
-            {
-                let error = ResourceError {
-                    code: code.to_string(),
-                    message: "fixture".to_string(),
-                    details: catalog_fixture(&error_descriptor["details"], &HashMap::new()),
-                    retryable: error_descriptor["retryable"].as_bool().expect("error retryability"),
-                };
-                let validated =
-                    validate_operation_outcome(operation, Err(error.clone())).unwrap_err();
-                if errors.iter().any(|declared| declared == code) {
-                    assert_eq!(validated, error, "{name} rejected declared error {code}");
-                } else {
-                    assert_eq!(
-                        validated.code, "operation.failed",
-                        "{name} emitted undeclared error {code}"
-                    );
-                    assert_eq!(validated.details["operation"], *name);
-                    assert_eq!(validated.details["extra"]["emitted_code"], *code);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn operation_contract_validation_rejects_nested_results_and_undeclared_errors() {
-        let (_, descriptor) = operation_descriptor(ResourceOperation::TabCreateTerminal).unwrap();
-        let mut wrong_nested_id = catalog_fixture(&descriptor["result"], &HashMap::new());
-        wrong_nested_id["value"]["terminal_id"] = json!(format!("browser_{}", "0".repeat(32)));
-        let invalid_result =
-            validate_operation_outcome(ResourceOperation::TabCreateTerminal, Ok(wrong_nested_id))
-                .unwrap_err();
-        assert_eq!(invalid_result.code, "operation.failed");
-        assert_eq!(invalid_result.details["operation"], "tab.create_terminal");
-        assert_eq!(invalid_result.details["extra"]["contract"], "result");
-        assert_eq!(
-            invalid_result.details["extra"]["violation"]["field"],
-            "tab.create_terminal.result.value.terminal_id"
-        );
-
-        let undeclared = validate_operation_outcome(
-            ResourceOperation::SessionPing,
-            Err(ResourceError::revision_conflict(1, 2)),
-        )
-        .unwrap_err();
-        assert_eq!(undeclared.code, "operation.failed");
-        assert_eq!(undeclared.details["operation"], "session.ping");
-        assert_eq!(undeclared.details["extra"]["contract"], "error");
-        assert_eq!(undeclared.details["extra"]["emitted_code"], "revision.conflict");
-
-        let malformed_declared_error = validate_operation_outcome(
-            ResourceOperation::SessionPing,
-            Err(ResourceError {
-                code: "validation.invalid".to_string(),
-                message: "malformed".to_string(),
-                details: json!({}),
-                retryable: false,
-            }),
-        )
-        .unwrap_err();
-        assert_eq!(malformed_declared_error.code, "operation.failed");
-        assert_eq!(malformed_declared_error.details["extra"]["contract"], "error");
-    }
-
-    fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&str>) -> String {
-        let mut envelope = json!({
-            "protocol": "cmux.protocol/2",
-            "type": "request",
-            "id": id,
-            "operation": operation,
-            "params": params,
-        });
-        if let Some(key) = idempotency_key {
-            envelope["idempotency_key"] = json!(key);
-        }
-        serde_json::to_string(&envelope).unwrap()
-    }
-
-    #[test]
-    fn catalog_validation_rejects_extra_and_malformed_parameters() {
-        let mux = test_mux();
-        let extra = handle_resource_message(
-            &mux,
-            &request(
-                "extra",
-                "session.ping",
-                json!({"machine":"current","session":"current","slot":3}),
-                None,
-            ),
-        )
-        .unwrap_err();
-        assert_eq!(extra.code, "validation.invalid");
-
-        let bad_decimal = handle_resource_message(
-            &mux,
-            &request(
-                "decimal",
-                "workspace.rename",
-                json!({
-                    "machine":"current",
-                    "session":"current",
-                    "workspace":"current",
-                    "name":"renamed",
-                    "expected_revision":7,
-                }),
-                Some("rename-invalid-decimal"),
-            ),
-        )
-        .unwrap_err();
-        assert_eq!(bad_decimal.code, "validation.invalid");
-    }
-
-    #[test]
-    fn empty_workspace_create_and_rename_replay_through_public_ids() {
-        let mux = test_mux();
-        let create_message = request(
-            "create-1",
-            "workspace.create",
-            json!({
-                "machine":"current",
-                "session":"current",
-                "name":"first",
-                "initial_content":"empty",
-            }),
-            Some("create-empty-workspace"),
-        );
-        let created = handle_resource_message(&mux, &create_message).unwrap();
-        assert_eq!(created["ok"], true);
-        let workspace_id = created["result"]["value"]["workspace_id"].as_str().unwrap().to_string();
-        assert!(workspace_id.starts_with("ws_"));
-        assert_eq!(created["result"]["replayed"], false);
-
-        let replay = handle_resource_message(
-            &mux,
-            &request(
-                "create-2",
-                "workspace.create",
-                json!({
-                    "machine":"current",
-                    "session":"current",
-                    "name":"first",
-                    "initial_content":"empty",
-                }),
-                Some("create-empty-workspace"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(replay["result"]["value"]["workspace_id"], workspace_id);
-        assert_eq!(replay["result"]["replayed"], true);
-
-        let renamed = handle_resource_message(
-            &mux,
-            &request(
-                "rename-1",
-                "workspace.rename",
-                json!({
-                    "machine":"current",
-                    "session":"current",
-                    "workspace":workspace_id,
-                    "name":"renamed",
-                }),
-                Some("rename-empty-workspace"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(renamed["ok"], true);
-        assert_eq!(renamed["result"]["value"]["name"], "renamed");
-        assert_eq!(renamed["result"]["value"]["id"], workspace_id);
-        assert_eq!(renamed["result"]["replayed"], false);
-    }
-
-    #[test]
-    fn notification_effect_commits_once_and_replays_without_reposting() {
-        let mux = test_mux();
-        let params = json!({
-            "machine":"current",
-            "session":"current",
-            "title":"Build finished",
-            "body":"All checks passed",
-            "level":"info",
-        });
-        let created = handle_resource_message(
-            &mux,
-            &request(
-                "notification-1",
-                "notification.create",
-                params.clone(),
-                Some("notification-effect-key"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(created["ok"], true);
-        assert_eq!(created["result"]["value"]["title"], "Build finished");
-        assert_eq!(created["result"]["revision"], "1");
-        assert_eq!(created["result"]["replayed"], false);
-        let notification_id = created["result"]["value"]["id"].as_str().unwrap().to_string();
-        let snapshot = public_session_snapshot(&mux).unwrap();
-        assert_eq!(snapshot["cursor"]["revision"], created["result"]["revision"]);
-        assert_eq!(snapshot["notifications"], json!([created["result"]["value"].clone()]));
-        let events = mux.resource_events_after(0).unwrap();
-        assert_eq!(events.head_revision.to_string(), created["result"]["revision"]);
-        assert_eq!(events.batches.len(), 1);
-        assert_eq!(events.batches[0].revision.to_string(), created["result"]["revision"]);
-        assert_eq!(events.batches[0].changes[0]["resource"], "notification");
-        assert_eq!(events.batches[0].changes[0]["id"], notification_id);
-        assert_eq!(events.batches[0].changes[0]["value"], created["result"]["value"]);
-
-        let replayed = handle_resource_message(
-            &mux,
-            &request(
-                "notification-2",
-                "notification.create",
-                params,
-                Some("notification-effect-key"),
-            ),
-        )
-        .unwrap();
-        assert_eq!(replayed["ok"], true);
-        assert_eq!(replayed["result"]["value"]["id"], notification_id);
-        assert_eq!(replayed["result"]["revision"], "1");
-        assert_eq!(replayed["result"]["replayed"], true);
-        assert_eq!(mux.resource_notifications(256).len(), 1);
-    }
-
-    #[test]
-    fn run_validation_preserves_exact_argv_and_rejects_empty_executable() {
-        let valid = parse_resource_request(&request(
-            "run-valid",
-            "workspace.run",
-            json!({
-                "machine":"current",
-                "session":"current",
-                "workspace":"current",
-                "argv":["printf","","$HOME"],
-            }),
-            Some("run-valid-key"),
-        ))
-        .unwrap();
-        assert_eq!(valid.fields["argv"], json!(["printf", "", "$HOME"]));
-
-        let invalid = parse_resource_request(&request(
-            "run-invalid",
-            "workspace.run",
-            json!({
-                "machine":"current",
-                "session":"current",
-                "workspace":"current",
-                "argv":[""],
-            }),
-            Some("run-invalid-key"),
-        ))
-        .unwrap_err();
-        assert_eq!(invalid.code, "validation.invalid");
-    }
-}
+mod closed_content_tests;
+#[cfg(test)]
+mod partial_create_tests;
+#[cfg(test)]
+mod tests;

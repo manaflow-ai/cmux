@@ -16,7 +16,7 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// they render. Events arrive decoded off the main actor and are applied in
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
-public final class DaemonStore {
+public final class DaemonStore: StateResourceQueries {
     public internal(set) var workspaces: [WorkspaceModel] = []
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
@@ -39,6 +39,7 @@ public final class DaemonStore {
     public internal(set) var generation: DaemonGeneration?
     public internal(set) var registryID: String?
     public internal(set) var workspaceRevision: UInt64 = 0
+    public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.
@@ -67,12 +68,14 @@ public final class DaemonStore {
     }
     /// Called on the main actor, synchronously, once the loaded workspace
     /// list (membership or sidebar order) changed: right after the event
-    /// batch, snapshot, or optimistic patch that changed it, before any
+    /// batch, snapshot, or intent that changed it, before any
     /// observer or frame runs. The App keeps window membership in step here,
     /// so a window never shows after its last workspace is gone.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
-    /// A browser profile's bookmarks changed (`bookmarks-changed`), on the main actor.
-    @ObservationIgnored public var onBookmarksChanged: ((String) -> Void)?
+    /// Runs when the connection drops or the daemon shuts down (before any reconnect).
+    @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
+    /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
+    @ObservationIgnored public let sideEvents = DaemonSideEvents()
     /// The list last reported to `onWorkspaceListChanged`.
     @ObservationIgnored var notifiedWorkspaceList: [String]?
     /// Nesting of batch applies; the hook runs when the outermost ends.
@@ -88,13 +91,37 @@ public final class DaemonStore {
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
-    /// Optimistic patches in application order, dropped on echo or rejection.
-    @ObservationIgnored var pendingPatches: [PendingPatch] = []
+    @ObservationIgnored var directories = TerminalDirectories()
+    /// Pending typed intents shown on top of the confirmed mirror
+    /// (DaemonStore+Intents.swift).
+    @ObservationIgnored var intentLog = IntentLog()
+    /// True while daemon state applies to the confirmed records (the
+    /// intent overlay is undone).
+    @ObservationIgnored var overlayLifted = false
+    /// The overlay moved a workspace or changed its group since the last
+    /// sidebar flattening.
+    @ObservationIgnored var sidebarNeedsRecompute = false
+    /// Called once per intent when it leaves the log (main actor), after the visible state is complete again.
+    @ObservationIgnored public var onIntentSettled: ((ClientTransactionID, IntentSettlement) -> Void)?
+    /// Settlements of the current lift, reported when it ends.
+    @ObservationIgnored var intentSettlements: [(ClientTransactionID, IntentSettlement)] = []
+    /// Mirror single-writer violations found by the debug-build check (DaemonStore+MirrorCheck.swift), newest last (bounded).
+    @ObservationIgnored public internal(set) var mirrorViolations: [String] = []
+    /// Called on the main actor for each new mirror violation.
+    @ObservationIgnored public var onMirrorViolation: ((String) -> Void)?
+    /// A create intent's tab arrived with its transaction echo: (provisional tab id, created tab).
+    @ObservationIgnored public var onTabCreated: ((String, TabModel) -> Void)?
+    /// Same, for a page tab's create intent (`page-tabs-v1`); agent tabs own `onTabCreated`.
+    @ObservationIgnored public var onPageTabCreated: ((String, TabModel) -> Void)?
+    /// The layout as the last allowed writer left it (debug builds).
+    @ObservationIgnored var mirrorFingerprint: Int?
     /// Events at or below this sequence are superseded by the last snapshot.
     @ObservationIgnored var snapshotBarrier: UInt64 = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
+    /// `refresh()` callers waiting for a snapshot requested after their call.
+    @ObservationIgnored var refreshWaiters: [CheckedContinuation<Void, Never>] = []
     /// Spacing and budget of failed-snapshot retries; reset by the next applied one.
     @ObservationIgnored var resyncPacer = RetryPacer(.resync)
     /// The pending retry of a failed snapshot (cancelled when the driver ends).
@@ -119,6 +146,11 @@ public final class DaemonStore {
     public func screen(_ handle: ScreenID) -> ScreenModel? { screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
+    /// The shell's reported folder (OSC 7); a remote terminal's is never a local cwd.
+    public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {
+        guard let tab = tabsBySurface[surface], tab.kind != .remoteTerminal else { return }
+        tab.setObservedCwd(directories.note(directory, surface: surface))
+    }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
     /// The tab with durable id `id` (`TabModel.id`).
     public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
@@ -138,18 +170,22 @@ public final class DaemonStore {
 
     // MARK: Snapshot
 
-    /// Replaces the tree, reusing records by durable identity, then reapplies
-    /// optimistic patches still waiting for their echo.
+    /// Replaces the confirmed tree, reusing records by durable identity,
+    /// then shows the pending intents on it again.
     public func apply(snapshot tree: DaemonTree) {
-        applyTree(tree)
-        if isProvisional { isProvisional = false }
-        if !isLoaded { isLoaded = true }
-        if restoredEpoch != connectionEpoch {
-            restoredEpoch = connectionEpoch
-            restoredTabIDs = currentTabIDs
+        withOverlayLifted(snapshot: true) {
+            applyTree(tree)
+            if isProvisional { isProvisional = false }
+            if !isLoaded {
+                isLoaded = true
+                DaemonLaunchTimings.shared.mark("daemon.first_tree_applied")
+            }
+            if restoredEpoch != connectionEpoch {
+                restoredEpoch = connectionEpoch
+                restoredTabIDs = currentTabIDs
+            }
+            structureChanged()
         }
-        structureChanged()
-        reapplyPendingPatches()
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)
     }
@@ -163,11 +199,13 @@ public final class DaemonStore {
     /// applied.
     public func applyProvisional(snapshot tree: DaemonTree) {
         guard !isLoaded else { return }
-        applyTree(tree)
-        isProvisional = true
-        // Launch snapshot tabs are restored tabs (pages made from them reload).
-        restoredTabIDs = currentTabIDs
-        structureChanged()
+        withOverlayLifted {
+            applyTree(tree)
+            isProvisional = true
+            // Launch snapshot tabs are restored tabs (pages made from them reload).
+            restoredTabIDs = currentTabIDs
+            structureChanged()
+        }
     }
 
     private var currentTabIDs: Set<String> {
@@ -175,6 +213,7 @@ public final class DaemonStore {
     }
 
     private func applyTree(_ tree: DaemonTree) {
+        directories.follow(tree.generation)
         if let value = tree.generation, generation != value { generation = value }
         if let value = tree.registryID, registryID != value { registryID = value }
         if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
@@ -230,6 +269,7 @@ public final class DaemonStore {
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
                         if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
+                        tab.setObservedCwd(directories[tab.surface])
                     }
                 }
             }
@@ -241,6 +281,7 @@ public final class DaemonStore {
         workspacesByKey = byKey
         tabGroupsByID = tabGroups
         recomputeSidebar()
+        session.overlay(workspaces)
     }
 
     /// Runs `onWorkspaceListChanged` when the workspace list differs from

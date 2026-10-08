@@ -5,9 +5,8 @@ import Testing
 
 /// Closing the last tab of a workspace closes the workspace (dogfood
 /// nxdog9), whatever closed it: Cmd-W, the tab's x, the CLI, or the
-/// process exiting. Only a workspace that is empty the first time this
-/// connection sees it (a hard daemon kill, another client creating it
-/// empty) gets a new terminal.
+/// process exiting. A genuinely new empty workspace stays on its action
+/// title; a host that lost a terminal is refilled after a reconnect.
 @MainActor
 struct EmptiedWorkspaceTests {
     final class Recorder {
@@ -40,6 +39,20 @@ struct EmptiedWorkspaceTests {
         for _ in 0..<500 where !condition() { await Task.yield() }
     }
 
+    @Test func initiallyEmptyWorkspaceMountsItsTitleDuringInitialization() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        services.daemon.store.applyProvisional(snapshot: Self.emptied(1))
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let state = WindowState(workspaceID: workspace.id)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        defer { controller.teardown() }
+        let emptyView = try #require(controller.emptyView)
+        #expect(controller.contentView.emptyView === emptyView)
+        #expect(!Self.containsButton(emptyView), "the empty workspace has no native buttons")
+        #expect(controller.contentView.layoutView.isHidden)
+        withExtendedLifetime((services, state)) {}
+    }
+
     /// The launch snapshot drew the workspace with its pane before the
     /// daemon answered; the live tree then shows it empty (the daemon
     /// restarted without its terminals). No connection saw it with a pane,
@@ -70,9 +83,9 @@ struct EmptiedWorkspaceTests {
     }
 
     /// The snapshot and the live tree agree (nothing changes when the store
-    /// turns live), so the store becoming live must itself run the checks:
-    /// an empty workspace is repaired, and a populated one then closes when
-    /// its last tab closes.
+    /// turns live), so a genuinely new empty workspace stays on its action
+    /// title until Return is pressed. A populated one still closes when its
+    /// last tab closes.
     @Test func turningLiveWithAnUnchangedTreeRunsTheChecks() async throws {
         let services = ActionBindingCoverageTests.boundServices()
         let recorder = Recorder()
@@ -90,9 +103,12 @@ struct EmptiedWorkspaceTests {
         await Self.settle { false }
         #expect(recorder.created.isEmpty, "nothing is repaired from the snapshot")
         services.daemon.store.apply(snapshot: empty)
+        await Self.settle { false }
+        #expect(recorder.created.isEmpty)
+        #expect(recorder.closed.isEmpty)
+        try Self.pressReturn(try #require(controller.emptyView))
         await Self.settle { !recorder.created.isEmpty }
         #expect(recorder.created == [Self.key])
-        #expect(recorder.closed.isEmpty)
         controller.teardown()
 
         let populated = ActionBindingCoverageTests.boundServices()
@@ -113,6 +129,17 @@ struct EmptiedWorkspaceTests {
         #expect(closer.closed == [Self.key], "its last tab closed on this connection")
         #expect(closer.created.isEmpty)
         withExtendedLifetime((services, populated, state)) {}
+    }
+
+    private static func pressReturn(_ view: EmptyWorkspaceView) throws {
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                  windowNumber: 0, context: nil, characters: "\r",
+                                                  charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        view.keyDown(with: event)
+    }
+
+    private static func containsButton(_ view: NSView) -> Bool {
+        view.subviews.contains { $0 is NSButton || Self.containsButton($0) }
     }
 
     @Test func shownWorkspaceWhoseLastTabClosedIsClosedNotRefilled() async throws {

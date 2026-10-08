@@ -60,6 +60,18 @@ public final class PaneModel: Identifiable {
         return tab
     }
 
+    /// Moves the tab `surface` to `index` (clamped) inside this pane.
+    func moveTab(surface: SurfaceID, to index: Int) {
+        guard let from = tabs.firstIndex(where: { $0.surface == surface }) else { return recomputeSpans() }
+        let final = min(max(index, 0), tabs.count - 1)
+        if final != from {
+            var reordered = tabs
+            reordered.insert(reordered.remove(at: from), at: final)
+            tabs = reordered
+        }
+        recomputeSpans()
+    }
+
     func recomputeSpans() {
         var spans: [TabGroupSpan] = []
         var start = 0
@@ -74,5 +86,20 @@ public final class PaneModel: Identifiable {
             start = end
         }
         if spans != groupSpans { groupSpans = spans }
+    }
+}
+
+extension PaneModel {
+    /// Moves `tab` here at `index` from the other panes in `panes` that hold
+    /// it (tab-drag-v1 reports a move as the moved tab's `tab-changed`).
+    /// Returns whether anything moved.
+    func adopt(_ tab: TabModel, at index: Int?, from panes: some Collection<PaneModel>) -> Bool {
+        let holders = panes.filter { $0 !== self && $0.tabs.contains { $0.surface == tab.surface } }
+        guard !holders.isEmpty else { return false }
+        for pane in holders { _ = pane.removeTab(surface: tab.surface) }
+        if !tabs.contains(where: { $0.surface == tab.surface }) {
+            insertTab(tab, at: min(max(index ?? tabs.count, 0), tabs.count))
+        }
+        return true
     }
 }

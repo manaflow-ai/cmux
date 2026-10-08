@@ -3,8 +3,8 @@ import AppKit
 import CmuxNextDaemon
 import Testing
 
-/// A workspace with no screens (after a hard daemon kill) must not render an
-/// empty content area: the window asks for one terminal and focuses it.
+/// A workspace created empty shows its title until Return creates its first
+/// tab. Lost terminals are covered by EmptiedWorkspaceTests separately.
 @MainActor
 struct EmptyWorkspaceTests {
     final class Recorder { var keys: [WorkspaceKey] = [] }
@@ -27,19 +27,46 @@ struct EmptyWorkspaceTests {
         for _ in 0..<500 where !condition() { await Task.yield() }
     }
 
-    @Test func emptyWorkspaceGetsExactlyOneTerminal() async throws {
+    @Test func emptyWorkspaceWaitsForNewAndCreatesExactlyOneTab() async throws {
         let (services, recorder) = Self.services(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "empty")])
         let workspace = try #require(services.daemon.store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
         let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
-        await Self.settle { controller.focus.state.expectation != nil }
-        // Re-applying the still-empty tree (the delta has not landed) must not ask again.
         controller.applyCurrent()
         controller.applyCurrent()
         await Self.settle { false }
+        #expect(recorder.keys.isEmpty)
+        #expect(controller.focus.state.expectation == nil)
+        let emptyView = try #require(controller.emptyView)
+        #expect(controller.contentView.emptyView === emptyView)
+        #expect(!Self.containsButton(emptyView), "the empty workspace has no native buttons")
+        // Repeated Return presses while the pane delta is in flight create once.
+        try Self.pressReturn(emptyView)
+        try Self.pressReturn(emptyView)
+        await Self.settle { controller.focus.state.expectation != nil }
+        controller.applyCurrent()
+        try Self.pressReturn(emptyView)
+        await Self.settle { false }
         #expect(recorder.keys == [Self.key])
-        // The new terminal is focused once the daemon reports it.
+        // This harness uses the terminal fallback when no agent host is bound.
         #expect(controller.focus.state.expectation?.key == .surface("42"))
+        controller.teardown()
+        withExtendedLifetime((services, state)) {}
+    }
+
+    /// The store's home workspace starts empty on purpose (workspace-kind-v1):
+    /// HomeService gives it the Chief conversation tab, never a terminal
+    /// (homenat7 snapshot: Home opened on a stray terminal).
+    @Test func theEmptyHomeWorkspaceGetsNoTerminal() async throws {
+        var home = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "Home")
+        home.kind = "home"
+        let (services, recorder) = Self.services(workspaces: [home])
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let state = WindowState(workspaceID: workspace.id)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        controller.applyCurrent()
+        await Self.settle { !recorder.keys.isEmpty }
+        #expect(recorder.keys.isEmpty)
         controller.teardown()
         withExtendedLifetime((services, state)) {}
     }
@@ -60,18 +87,21 @@ struct EmptyWorkspaceTests {
         withExtendedLifetime((services, state)) {}
     }
 
-    /// A tab drag moved the last tab out: the workspace is empty on purpose
-    /// and closes; it must not get a new terminal meanwhile. If the move
-    /// fails, repairs apply again.
+    /// A closing claim prevents creation. If the close is cancelled, an
+    /// empty workspace can accept New again without an automatic terminal.
     @Test func workspaceEmptiedByATabDragIsNotRepaired() async throws {
         let (services, recorder) = Self.services(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "emptied")])
         services.emptyWorkspaces.beginClosing(Self.key)
         let workspace = try #require(services.daemon.store.workspaces.first)
         services.emptyWorkspaces.check(workspace) { _ in }
+        services.emptyWorkspaces.createFirstTab(Self.key)
         await Self.settle { false }
         #expect(recorder.keys.isEmpty)
         services.emptyWorkspaces.endClosing(Self.key)
         services.emptyWorkspaces.check(workspace) { _ in }
+        await Self.settle { false }
+        #expect(recorder.keys.isEmpty, "a never-populated workspace still waits for New")
+        services.emptyWorkspaces.createFirstTab(Self.key)
         await Self.settle { !recorder.keys.isEmpty }
         #expect(recorder.keys == [Self.key])
         withExtendedLifetime(services) {}
@@ -105,20 +135,36 @@ struct EmptyWorkspaceTests {
         withExtendedLifetime((services, state)) {}
     }
 
-    @Test func failedCreationIsRetriedOnTheNextChange() async throws {
+    @Test func failedExplicitCreationIsRetriedOnTheNextNewAction() async throws {
         let (services, recorder) = Self.services(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "empty")])
         struct Boom: Error {}
         services.emptyWorkspaces.create = { key in recorder.keys.append(key); throw Boom() }
         let workspace = try #require(services.daemon.store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
         let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        let emptyView = try #require(controller.emptyView)
+        try Self.pressReturn(emptyView)
         await Self.settle { recorder.keys.count == 1 }
         await Self.settle { false }
         controller.applyCurrent()
+        await Self.settle { false }
+        #expect(recorder.keys.count == 1, "a store change does not retry an explicit request")
+        try Self.pressReturn(emptyView)
         await Self.settle { recorder.keys.count == 2 }
         #expect(recorder.keys.count == 2)
         controller.teardown()
         withExtendedLifetime((services, state)) {}
+    }
+
+    private static func pressReturn(_ view: EmptyWorkspaceView) throws {
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                  windowNumber: 0, context: nil, characters: "\r",
+                                                  charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        view.keyDown(with: event)
+    }
+
+    private static func containsButton(_ view: NSView) -> Bool {
+        view.subviews.contains { $0 is NSButton || Self.containsButton($0) }
     }
 }
 

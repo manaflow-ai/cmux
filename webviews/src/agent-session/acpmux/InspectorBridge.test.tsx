@@ -3,12 +3,14 @@ import { JSDOM, VirtualConsole } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
 const globals = globalThis as Record<string, unknown>;
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "customElements", "Node", "IntersectionObserver", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
+const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "customElements", "Node", "IntersectionObserver", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT", "getComputedStyle", "Element"].map((key) => [key, globals[key]]));
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  Element: dom.window.Element,
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   customElements: dom.window.customElements,
   Node: dom.window.Node,
   IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
@@ -39,7 +41,7 @@ test("Show ACP Inspector toggles the inspector through the page bridge and repor
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const inspector = () => container.querySelector(".acpmux-inspector");
-  const headerToggle = () => container.querySelector<HTMLButtonElement>("[aria-label='ACP inspector'][aria-pressed]")!;
+  const menuButton = () => container.querySelector<HTMLButtonElement>("button[aria-label='Chat actions']")!;
   try {
     await act(async () => root.render(createElement(AcpmuxApp)));
     expect(inspector()).toBeNull();
@@ -47,7 +49,7 @@ test("Show ACP Inspector toggles the inspector through the page bridge and repor
     await act(async () => { open = host.cmuxAcpmuxBridge!.toggleInspector(); });
     expect(open).toBe(true);
     expect(inspector()).not.toBeNull();
-    expect(headerToggle().getAttribute("aria-pressed")).toBe("true");
+
     // An explicit state is idempotent, and toggling again closes.
     await act(async () => { open = host.cmuxAcpmuxBridge!.toggleInspector(true); });
     expect(open).toBe(true);
@@ -55,8 +57,11 @@ test("Show ACP Inspector toggles the inspector through the page bridge and repor
     await act(async () => { open = host.cmuxAcpmuxBridge!.toggleInspector(); });
     expect(open).toBe(false);
     expect(inspector()).toBeNull();
-    // The header button and the bridge share one state.
-    await act(async () => headerToggle().click());
+    // The Chat actions menu and the native bridge share one state.
+    await act(async () => menuButton().click());
+    const menuItem = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) => item.textContent?.includes("ACP inspector"))!;
+    expect(menuItem).toBeDefined();
+    await act(async () => menuItem.click());
     await act(async () => { open = host.cmuxAcpmuxBridge!.toggleInspector(); });
     expect(open).toBe(false);
     expect(inspector()).toBeNull();

@@ -183,7 +183,16 @@ def _render_constrained_type(name: str, expr: Mapping[str, Any]) -> list[str]:
             "\t}",
             f"\tcandidate := {name}(decoded)",
             "\tif !candidate.valid() {",
-            f'\t\treturn fmt.Errorf("%s has invalid value %v", {_go_string(name)}, decoded)',
+            *(
+                [
+                    "\t\t// A value this SDK does not know decodes as the fallback.",
+                    f"\t\tcandidate = {name}{_go_name(str(expr['fallback']))}",
+                ]
+                if kind == "enum" and "fallback" in expr
+                else [
+                    f'\t\treturn fmt.Errorf("%s has invalid value %v", {_go_string(name)}, decoded)'
+                ]
+            ),
             "\t}",
             "\t*value = candidate",
             "\treturn nil",
@@ -1897,6 +1906,10 @@ def _generated_object_models(
             for name, field in payload["fields"].items()
             if name != "event"
         }
+        if "control" in event["streams"]:
+            # Control events decode only with their `event` literal
+            # (_render_object event_wire_name), so test samples carry it.
+            payload["_event_literal"] = wire_name
         models.append((_event_name(wire_name), payload))
     return models
 
@@ -1968,6 +1981,8 @@ def _presence_base_json(
     named_types: Mapping[str, Any],
 ) -> dict[str, Any]:
     result: dict[str, Any] = {}
+    if "_event_literal" in expr:
+        result["event"] = expr["_event_literal"]
     for wire_name, field in expr["fields"].items():
         if field["presence"] != "required":
             continue
@@ -2307,7 +2322,12 @@ def _render_presence_tests(
                 continue
             constrained_fields += 1
             invalid = dict(base)
-            invalid[wire_name] = _invalid_constraint_value(constraint)
+            # An enum with a fallback decodes every unknown string, so only
+            # a value of the wrong JSON type is invalid.
+            fallback = "fallback" in constraint
+            invalid[wire_name] = (
+                0 if fallback else _invalid_constraint_value(constraint)
+            )
             invalid_json = json.dumps(
                 invalid,
                 ensure_ascii=False,
@@ -2320,9 +2340,24 @@ def _render_presence_tests(
                     f"\t\tif err := json.Unmarshal([]byte({_go_string(invalid_json)}), &decoded); err == nil {{",
                     f'\t\t\tt.Fatal("invalid constrained field {wire_name} decoded successfully")',
                     "\t\t}",
-                    "\t})",
                 ]
             )
+            if fallback:
+                unknown = dict(base)
+                unknown[wire_name] = _invalid_constraint_value(constraint)
+                unknown_json = json.dumps(
+                    unknown,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                lines.extend(
+                    [
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(unknown_json)}), &decoded); err != nil {{",
+                        f'\t\t\tt.Fatalf("unknown value of fallback field {wire_name} did not decode: %v", err)',
+                        "\t\t}",
+                    ]
+                )
+            lines.append("\t})")
     lines.extend(
         [
             "}",

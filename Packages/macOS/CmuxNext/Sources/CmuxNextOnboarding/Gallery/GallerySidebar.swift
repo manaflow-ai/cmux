@@ -19,7 +19,7 @@ final class GallerySidebar: NSView {
         stack.addArrangedSubview(progress)
         stack.setCustomSpacing(16, after: progress)
         for step in OnboardingModel.Step.allCases {
-            let row = NSButton(title: GalleryNames.screen(step), target: self, action: #selector(pressed(_:)))
+            let row = NSButton(title: step.galleryName, target: self, action: #selector(pressed(_:)))
             row.isBordered = false
             row.alignment = .left
             row.tag = OnboardingModel.Step.allCases.firstIndex(of: step) ?? 0
@@ -44,9 +44,9 @@ final class GallerySidebar: NSView {
         let reviewed = OnboardingModel.Step.allCases.filter { review.picks[$0.rawValue] != nil }.count
         progress.stringValue = "\(reviewed) of \(OnboardingModel.Step.allCases.count) screens reviewed"
         for (step, row) in rows {
-            let variants = OnboardingVariantRegistry.variants(for: step)
-            let pick = review.picks[step.rawValue].flatMap { id in variants.firstIndex { $0.id == id } }.map(GalleryNames.letter)
-            let title = "\(GalleryNames.screen(step))   \(pick ?? "·")   \(variants.count)"
+            let variants = step.variants
+            let pick = review.picks[step.rawValue].flatMap { id in variants.firstIndex { $0.id == id } }.map(\.galleryLetter)
+            let title = "\(step.galleryName)   \(pick ?? "·")   \(variants.count)"
             let selected = step == current
             row.attributedTitle = NSAttributedString(string: title, attributes: [
                 .font: NSFont.systemFont(ofSize: 13, weight: selected ? .semibold : .regular),

@@ -61,20 +61,24 @@ enum OnboardingScaffold {
     }
 }
 
-/// "2 of 4" on the left, Skip and Continue (Done on the last step) on the right.
+/// "2 of 4" on the left, Skip and Continue (Done on the last step, Import
+/// while the import step has a choice to run) on the right.
 final class OnboardingFooter: NSView {
     private let context: OnboardingStepContext
+    private var loop: RenderLoop?
+
+    /// A counter only helps on a long run; two or three screens need none.
+    static func showsCounter(count: Int) -> Bool { count > 3 }
 
     init(context: OnboardingStepContext, glassContinue: Bool = true, showsCounter: Bool = true) {
         self.context = context
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count),
+        let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count, step: context.model.step),
                                            font: OnboardingMetrics.captionFont, color: Palette.textTertiary)
-        counter.isHidden = !showsCounter
+        counter.isHidden = !showsCounter || !Self.showsCounter(count: context.count)
         let skip = OnboardingControl.plainButton(OnboardingStrings.skip, target: self, action: #selector(skipPressed))
-        let next = OnboardingControl.button(context.isLast ? OnboardingStrings.done : OnboardingStrings.continueButton,
-                                            prominent: glassContinue, target: self, action: #selector(nextPressed))
+        let next = OnboardingControl.button(context.model.primaryTitle, prominent: glassContinue, target: self, action: #selector(nextPressed))
         for view in [counter, skip, next] as [NSView] { addSubview(view) }
         NSLayoutConstraint.activate([
             counter.leadingAnchor.constraint(equalTo: leadingAnchor), counter.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -82,6 +86,14 @@ final class OnboardingFooter: NSView {
             skip.trailingAnchor.constraint(equalTo: next.leadingAnchor, constant: -20), skip.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightAnchor.constraint(equalToConstant: 40),
         ])
+        let model = context.model
+        loop = RenderLoop { [weak next] in
+            let title = model.primaryTitle
+            if next?.title != title {
+                next?.title = title
+                (next as? OnboardingAccentButton)?.refreshAppearance()
+            }
+        }
     }
 
     @available(*, unavailable)

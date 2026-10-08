@@ -11,13 +11,19 @@ enum HistoryHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("focusHistoryBack", run: { _ in
-            guard services.locationTrail.navigate(.back) else { throw ActionFailure(message: HistoryAppStrings.nothingBack) }
+            _ = services.locationTrail.navigate(.back)
         })
         registry.bind("focusHistoryForward", run: { _ in
-            guard services.locationTrail.navigate(.forward) else { throw ActionFailure(message: HistoryAppStrings.nothingForward) }
+            _ = services.locationTrail.navigate(.forward)
         })
         registry.bind("focusHistoryLast", run: { _ in
-            guard services.locationTrail.navigate(.last) else { throw ActionFailure(message: HistoryAppStrings.nothingBack) }
+            _ = services.locationTrail.navigate(.last)
+        })
+        // A row of the Back / Forward button list (history.md 4.2a): the trail index it shows.
+        registry.bind("history.goTo", run: { invocation in
+            guard let index = invocation["index"]?.intValue, services.locationTrail.go(toIndex: index) else {
+                throw ActionFailure(message: HistoryAppStrings.entryGone)
+            }
         })
         let pages: [(ActionID, @MainActor (AppServices) -> PalettePageSpec)] = [
             ("recentlyFocused", HistoryPalettePages.locations),
@@ -45,7 +51,22 @@ enum HistoryHandlers {
         for id: ActionID in ["history.show", "browserShowHistory"] {
             registry.bind(id, run: { _ in services.historyPage.open() })
         }
-        registry.bind("history.reopen", run: { _ in HistoryRestorer(services: services).reopen(closedID: nil) })
+        registry.bind("history.reopen", run: { invocation in
+            HistoryRestorer(services: services).reopen(closedID: invocation["id"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
+        })
+        // One entry's restore action by id (the History page's rows, `cmux history open`). The
+        // entry is looked up from its owners, so a caller names it and never supplies its facts.
+        registry.bind("history.open", run: { invocation in
+            guard let id = invocation["id"]?.stringValue, !id.isEmpty else { return }
+            let newTab = invocation["new_tab"]?.boolValue ?? false
+            services.registry.track(Task { @MainActor in
+                guard let entry = await services.history.entry(id: id), entry.isAvailable else {
+                    return ActionWorkFailure(HistoryAppStrings.entryGone)
+                }
+                HistoryRestorer(services: services).open(entry, newTab: newTab)
+                return nil
+            })
+        })
         registry.bind("history.clear", run: { invocation in
             let range = invocation["range"]?.stringValue.flatMap(HistoryRange.init(rawValue:)) ?? .hour
             let kind = invocation["kind"]?.stringValue.flatMap(HistoryEntry.Kind.init(rawValue:))
@@ -64,7 +85,7 @@ enum HistoryHandlers {
         registry.bind("layout.undo", run: { invocation in
             guard let pane = context.paneController(invocation) else { throw ActionFailure(message: HistoryAppStrings.noPane) }
             let daemon = context.services.daemon(for: pane.pane)
-            guard daemon.supports("layout-undo-v1") else { throw ActionFailure.needsDaemonCapability("layout-undo-v1") }
+            guard daemon.supports("layout-undo-v1") else { throw ActionFailure(message: daemon.missingCapabilityMessage("layout-undo-v1")) }
             guard let connection = daemon.connection else { throw ActionFailure(message: HistoryAppStrings.machineOffline) }
             let handle = pane.pane.handle
             let confirming = pending.revision

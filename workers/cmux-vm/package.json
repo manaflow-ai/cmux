@@ -1,0 +1,39 @@
+{
+  "name": "@cmux/vm-worker",
+  "description": "cmux VM API: tenant-scoped VM service on Cloudflare Workers",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint:prepare": "bun build ./node_modules/@gdp-ts/core/src/lint/plugin.ts ./node_modules/@gdp-ts/core/src/lint/oxlint.ts --root ./node_modules/@gdp-ts/core/src/lint --outdir .gdp-lint --target node --format esm",
+    "lint": "bun run lint:prepare && oxlint --deny-warnings src test",
+    "lint:selftest": "bash scripts/lint-selftest.sh",
+    "openapi": "bun scripts/generate-openapi.ts",
+    "openapi:check": "bun scripts/generate-openapi.ts --check",
+    "test": "bun run test:workers && bun run test:pg",
+    "test:workers": "vitest run --config vitest.config.ts",
+    "test:pg": "vitest run --config vitest.node.config.ts",
+    "coverage:upstream": "vitest run --config vitest.node.config.ts test/node/upstream-coverage.test.ts",
+    "bundle": "wrangler deploy --dry-run --outdir dist --env staging",
+    "bundle:check": "node scripts/check-bundle-size.mjs dist",
+    "check": "bun run typecheck && bun run lint && bun run lint:selftest && bun run openapi:check && bun run test && bun run bundle && bun run bundle:check"
+  },
+  "dependencies": {
+    "@effect/platform": "0.97.2",
+    "@gdp-ts/core": "github:rauchg/gdp-ts#ebd0af9cae423997a43a024dc6d6738b0895bbec",
+    "effect": "3.22.2",
+    "jose": "6.2.12",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/workers-types": "5.20260928.1",
+    "@electric-sql/pglite": "0.5.8",
+    "@types/node": "26.6.3",
+    "oxlint": "1.86.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.143.0"
+  }
+}

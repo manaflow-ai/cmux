@@ -29,14 +29,17 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_SMART_RENDERER,
-    FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
-    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
-    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
-    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame,
-    wait_for_native_child_status_with_reap_result, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PTY_CUSTODY, FLAG_SMART_RENDERER,
+    FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame,
+    HostLaunchFailure, HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN,
+    KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD,
+    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
+    TerminalExit, decode_host_launch_failure, decode_terminal_exit, encode_host_launch_failure,
+    encode_terminal_exit, read_frame, wait_for_native_child_status_with_reap_result, write_frame,
 };
+
+mod grant_failure;
+pub use grant_failure::{RendererGrantFailure, RendererGrantUnavailable};
 
 const HOST_RECORD_VERSION: u32 = 4;
 const LEGACY_PROTOCOL_VERSION: u16 = 1;
@@ -120,7 +123,7 @@ pub fn validate_kitty_image_aliases(aliases: &[KittyImageAlias]) -> anyhow::Resu
     Ok(())
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TerminalHostRecord {
     pub record_version: u32,
     pub terminal_id: String,
@@ -162,6 +165,18 @@ pub struct TerminalHostRecord {
     /// snapshot layout without the optional generic terminal metadata tail.
     #[serde(default)]
     pub supports_terminal_metadata: bool,
+    /// Additive capability. Missing/false records belong to hosts that would
+    /// reject the `CLIPBOARD_READ` right bit, so the daemon never asks them.
+    #[serde(default)]
+    pub supports_clipboard_read: bool,
+    /// Additive handshake capability. Missing/false records belong to hosts
+    /// that reject a ClientHello carrying `FLAG_VIEWER_SIZE_PRIORITY`.
+    #[serde(default)]
+    pub supports_viewer_size_priority: bool,
+    /// Additive handshake capability (cx-6so.49 L1). Missing/false records
+    /// belong to hosts that reject a ClientHello carrying `FLAG_PTY_CUSTODY`.
+    #[serde(default)]
+    pub supports_pty_custody: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -180,6 +195,9 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_terminate_ack", &self.supports_terminate_ack)
             .field("supports_input_ack", &self.supports_input_ack)
             .field("supports_terminal_metadata", &self.supports_terminal_metadata)
+            .field("supports_clipboard_read", &self.supports_clipboard_read)
+            .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
+            .field("supports_pty_custody", &self.supports_pty_custody)
             .finish()
     }
 }
@@ -269,6 +287,8 @@ pub struct RendererGrant {
     pub token: String,
     pub rights: CapabilityRights,
     pub protocol_version: u16,
+    /// The host accepts `FLAG_VIEWER_SIZE_PRIORITY` in a renderer ClientHello.
+    pub supports_viewer_size_priority: bool,
 }
 
 impl std::fmt::Debug for RendererGrant {
@@ -279,6 +299,7 @@ impl std::fmt::Debug for RendererGrant {
             .field("incarnation", &self.incarnation)
             .field("token", &"[REDACTED]")
             .field("rights", &self.rights)
+            .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
             .finish()
     }
 }
@@ -642,6 +663,9 @@ mod unix {
         extra_env: Vec<(String, String)>,
         default_colors: DefaultColors,
         kitty_graphics_limits: KittyGraphicsLimits,
+        /// VT replay applied to the host's parser before the child's first
+        /// byte (cx-6so.49 L2 respawn); an optional trailing blob.
+        seed: Vec<u8>,
     }
 
     impl HostLaunch {
@@ -683,6 +707,9 @@ mod unix {
             if output.len() > MAX_LAUNCH_PAYLOAD {
                 anyhow::bail!("terminal-host launch payload is too large");
             }
+            if !self.seed.is_empty() {
+                put_blob(&mut output, &self.seed)?;
+            }
             Ok(output)
         }
 
@@ -714,6 +741,8 @@ mod unix {
             let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
             pty_size(cols, rows, cell_pixels)?;
             let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
+            anyhow::ensure!(decoder.offset <= MAX_LAUNCH_PAYLOAD, "launch is too large");
+            let seed = if decoder.has_remaining() { decoder.blob()?.to_vec() } else { Vec::new() };
             decoder.finish()?;
             Ok(Self {
                 endpoint,
@@ -728,6 +757,7 @@ mod unix {
                 extra_env,
                 default_colors,
                 kitty_graphics_limits,
+                seed,
             })
         }
     }
@@ -835,185 +865,37 @@ mod unix {
         Ok(colors)
     }
 
-    enum ControlResponseWaiter {
-        Blocking { kind: MessageKind, sender: SyncSender<Frame> },
-        DeferredCellPixel { expected: (u16, u16) },
-    }
-
-    #[derive(Debug, Clone)]
-    pub(crate) enum DeferredCellPixelResolution {
-        Response(Frame),
-        Disconnected,
-    }
-
-    pub(crate) type DeferredCellPixelHandler =
-        Arc<dyn Fn(u64, (u16, u16), DeferredCellPixelResolution) + Send + Sync + 'static>;
-
-    #[derive(Default)]
-    struct PendingInputAckWindow {
-        writes: usize,
-        bytes: usize,
-    }
-
-    pub(crate) struct ControlResponses {
-        waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
-        deferred_cell_pixel_handler: Mutex<Option<DeferredCellPixelHandler>>,
-        latest_cell_pixel_ack: AtomicU64,
-        pending_input_acks: Mutex<PendingInputAckWindow>,
-        input_ack_shutdown: Mutex<Option<Arc<UnixStream>>>,
-    }
-
-    impl ControlResponses {
-        fn new() -> Self {
-            Self {
-                waiters: Mutex::new(HashMap::new()),
-                deferred_cell_pixel_handler: Mutex::new(None),
-                latest_cell_pixel_ack: AtomicU64::new(0),
-                pending_input_acks: Mutex::new(PendingInputAckWindow::default()),
-                input_ack_shutdown: Mutex::new(None),
-            }
-        }
-
-        #[cfg(test)]
-        pub(crate) fn new_for_test() -> Self {
-            Self::new()
-        }
-
-        #[cfg(test)]
-        pub(crate) fn invoke_deferred_cell_pixel_handler_for_test(
-            &self,
-            request_id: u64,
-            expected: (u16, u16),
-            resolution: DeferredCellPixelResolution,
-        ) {
-            if let Some(handler) = self.deferred_cell_pixel_handler.lock().unwrap().clone() {
-                handler(request_id, expected, resolution);
-            }
-        }
-
-        #[cfg(test)]
-        pub(crate) fn resolve(&self, frame: &Frame) -> bool {
-            self.resolve_after(frame, || {})
-        }
-
-        pub(crate) fn resolve_after(&self, frame: &Frame, before_resolve: impl FnOnce()) -> bool {
-            let waiter = self.waiters.lock().unwrap().remove(&frame.request_id);
-            match waiter {
-                Some(ControlResponseWaiter::Blocking { kind, sender }) => {
-                    if kind != frame.kind {
-                        return false;
-                    }
-                    if frame.kind == MessageKind::CellPixelSizeAck {
-                        self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
-                    }
-                    before_resolve();
-                    let _ = sender.try_send(frame.clone());
-                    true
-                }
-                Some(ControlResponseWaiter::DeferredCellPixel { expected }) => {
-                    if frame.kind != MessageKind::CellPixelSizeAck {
-                        return false;
-                    }
-                    self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
-                    before_resolve();
-                    let handler = self.deferred_cell_pixel_handler.lock().unwrap().clone();
-                    if let Some(handler) = handler {
-                        handler(
-                            frame.request_id,
-                            expected,
-                            DeferredCellPixelResolution::Response(frame.clone()),
-                        );
-                    }
-                    true
-                }
-                None => false,
-            }
-        }
-
-        fn input_ack_shutdown_handle(
-            &self,
-            writer: &Mutex<UnixStream>,
-        ) -> std::io::Result<Arc<UnixStream>> {
-            let mut cached = self.input_ack_shutdown.lock().unwrap();
-            if let Some(shutdown) = cached.as_ref() {
-                return Ok(shutdown.clone());
-            }
-            let shutdown = Arc::new(writer.lock().unwrap().try_clone()?);
-            *cached = Some(shutdown.clone());
-            Ok(shutdown)
-        }
-
-        fn try_reserve_input_ack(&self, bytes: usize) -> bool {
-            if bytes > MAX_PENDING_INPUT_ACK_BYTES {
-                return false;
-            }
-            let mut pending = self.pending_input_acks.lock().unwrap();
-            if pending.writes >= MAX_PENDING_INPUT_ACKS
-                || bytes > MAX_PENDING_INPUT_ACK_BYTES.saturating_sub(pending.bytes)
-            {
-                return false;
-            }
-            pending.writes += 1;
-            pending.bytes += bytes;
-            true
-        }
-
-        fn release_input_ack(&self, bytes: usize) {
-            let mut pending = self.pending_input_acks.lock().unwrap();
-            debug_assert!(pending.writes > 0, "terminal input ACK reservation underflow");
-            debug_assert!(pending.bytes >= bytes, "terminal input ACK byte reservation underflow");
-            pending.writes = pending.writes.saturating_sub(1);
-            pending.bytes = pending.bytes.saturating_sub(bytes);
-        }
-
-        #[cfg(test)]
-        fn pending_input_acks_for_test(&self) -> (usize, usize) {
-            let pending = self.pending_input_acks.lock().unwrap();
-            (pending.writes, pending.bytes)
-        }
-
-        fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
-            let mut waiters = self.waiters.lock().unwrap();
-            let Some(waiter) = waiters.get_mut(&request_id) else { return false };
-            if !matches!(
-                waiter,
-                ControlResponseWaiter::Blocking { kind: MessageKind::CellPixelSizeAck, .. }
-            ) {
-                return false;
-            }
-            *waiter = ControlResponseWaiter::DeferredCellPixel { expected };
-            true
-        }
-
-        pub(crate) fn fail_all(&self) {
-            let deferred = {
-                let mut waiters = self.waiters.lock().unwrap();
-                waiters
-                    .drain()
-                    .filter_map(|(request_id, waiter)| match waiter {
-                        ControlResponseWaiter::DeferredCellPixel { expected } => {
-                            Some((request_id, expected))
-                        }
-                        ControlResponseWaiter::Blocking { .. } => None,
-                    })
-                    .collect::<Vec<_>>()
-            };
-            let handler = self.deferred_cell_pixel_handler.lock().unwrap().clone();
-            if let Some(handler) = handler {
-                for (request_id, expected) in deferred {
-                    handler(request_id, expected, DeferredCellPixelResolution::Disconnected);
-                }
-            }
-        }
-
-        pub(crate) fn set_deferred_cell_pixel_handler(&self, handler: DeferredCellPixelHandler) {
-            *self.deferred_cell_pixel_handler.lock().unwrap() = Some(handler);
-        }
-
-        pub(crate) fn latest_cell_pixel_ack(&self) -> u64 {
-            self.latest_cell_pixel_ack.load(Ordering::Acquire)
-        }
-    }
+    mod adopt_launch;
+    mod adopted_child;
+    mod barrier_sync;
+    mod clipboard_read;
+    mod control_responses;
+    mod exited_drain;
+    mod host_accept;
+    mod host_parser;
+    mod host_scope;
+    mod host_signals;
+    mod host_start;
+    mod metric_commits;
+    mod pty_custody;
+    mod pty_lock;
+    mod renderer_grant;
+    mod standby;
+    pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
+    pub(crate) use clipboard_read::ClipboardReadSignal;
+    use clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
+    use clipboard_read::{OwnerIntent, owner_rights_allowed, owner_rights_for};
+    use control_responses::ControlResponseWaiter;
+    pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
+    use host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
+    use host_start::HostChild;
+    pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
+    pub(crate) use pty_custody::{live_successor_record, record_owner_token};
+    pub(crate) use pty_lock::sweep_released_pty_locks;
+    use renderer_grant::ControlRequestUnanswered;
+    pub(crate) use standby::{
+        StandbyTerminalHost, launch_terminal_host_from, launch_terminal_host_seeded,
+    };
 
     pub(crate) struct InputAckReceipt {
         request_id: u64,
@@ -1096,6 +978,8 @@ mod unix {
         /// launch barrier. A launcher releases it after committing topology;
         /// an adopter releases an abandoned barrier after validating the host.
         launch_activation_pending: bool,
+        /// The owner's copy of this host's PTY master (`pty_custody.rs`).
+        pty_custody: Option<PtyCustody>,
     }
 
     impl std::fmt::Debug for HostAttachment {
@@ -1163,6 +1047,26 @@ mod unix {
         })
     }
 
+    /// One frame on a daemon-to-host connection's writer.
+    fn send_host_frame(
+        writer: &Mutex<UnixStream>,
+        protocol_version: u16,
+        kind: MessageKind,
+        payload: &[u8],
+    ) -> std::io::Result<()> {
+        let mut writer = writer.lock().unwrap();
+        let mut frame = Frame::new(kind, payload.to_vec());
+        frame.version = protocol_version;
+        let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+        if result.is_err() {
+            // A timed-out write may have emitted only part of a frame.
+            // Poison this connection so the reader takes a fresh atomic
+            // Snapshot instead of ever appending to a corrupt stream.
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+        }
+        result
+    }
+
     impl HostAttachment {
         pub fn take_reader(&mut self) -> anyhow::Result<UnixStream> {
             self.reader.take().ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))
@@ -1173,17 +1077,7 @@ mod unix {
         }
 
         pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
-            let mut writer = self.writer.lock().unwrap();
-            let mut frame = Frame::new(kind, payload.to_vec());
-            frame.version = self.protocol_version;
-            let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
-            if result.is_err() {
-                // A timed-out write may have emitted only part of a frame.
-                // Poison this connection so the reader takes a fresh atomic
-                // Snapshot instead of ever appending to a corrupt stream.
-                let _ = writer.shutdown(std::net::Shutdown::Both);
-            }
-            result
+            send_host_frame(&self.writer, self.protocol_version, kind, payload)
         }
 
         pub(crate) fn begin_input_confirmed(
@@ -1933,38 +1827,11 @@ mod unix {
                     if disconnect_on_timeout {
                         self.disconnect();
                     }
-                    Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                        "terminal host did not acknowledge {request_kind:?}: {error}"
-                    )))
+                    Err(ClearHistoryFailure::ambiguous(
+                        ControlRequestUnanswered { request_kind, cause: error }.into(),
+                    ))
                 }
             }
-        }
-
-        pub fn mint_renderer_grant(&self, ttl: Duration) -> anyhow::Result<RendererGrant> {
-            if ttl.is_zero() || ttl > MAX_RENDERER_CAPABILITY_TTL {
-                anyhow::bail!("renderer capability TTL must be between 1ms and 60s");
-            }
-            let ttl_ms = u32::try_from(ttl.as_millis())
-                .map_err(|_| anyhow::anyhow!("renderer capability TTL is too large"))?;
-            let mut payload = Vec::with_capacity(8);
-            payload.extend_from_slice(&CapabilityRights::RENDERER.bits().to_le_bytes());
-            payload.extend_from_slice(&ttl_ms.to_le_bytes());
-            let payload = self
-                .send_control_request(MessageKind::MintCapability, MessageKind::Capability, payload)
-                .map_err(ClearHistoryFailure::into_error)
-                .context("terminal host did not mint renderer grant")?;
-            if payload.len() != crate::terminal_host::CAPABILITY_TOKEN_LEN {
-                self.disconnect();
-                anyhow::bail!("terminal host returned a malformed renderer capability");
-            }
-            Ok(RendererGrant {
-                endpoint: self.record.endpoint.clone(),
-                terminal_id: self.record.terminal_id.clone(),
-                incarnation: self.record.incarnation.clone(),
-                token: encode_hex(&payload),
-                rights: CapabilityRights::RENDERER,
-                protocol_version: self.protocol_version,
-            })
         }
 
         pub fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {
@@ -2015,17 +1882,18 @@ mod unix {
     /// Strip every descriptor except the private bootstrap stdio before the
     /// hidden host starts any threads or opens its endpoint. This runs inside
     /// the freshly exec'd `__terminal-host`, so descriptor enumeration is
-    /// race-free and cannot affect the daemon's own open files.
+    /// race-free and cannot affect the daemon's own open files. It then
+    /// installs the host's signal guard (`host_signals`).
     pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
-        let mut last_error = None;
-        let mut inherited = None;
+        let (mut last_error, mut inherited) = (None, None);
+        let adopted_pty = adopt_launch::adopt_pty_fd_from_process_args();
         for directory in ["/proc/self/fd", "/dev/fd"] {
             match fs::read_dir(directory) {
                 Ok(entries) => {
                     let mut descriptors = entries
                         .filter_map(Result::ok)
                         .filter_map(|entry| entry.file_name().to_str()?.parse::<libc::c_int>().ok())
-                        .filter(|descriptor| *descriptor > libc::STDERR_FILENO)
+                        .filter(|fd| *fd > libc::STDERR_FILENO && Some(*fd) != adopted_pty)
                         .collect::<Vec<_>>();
                     descriptors.sort_unstable();
                     descriptors.dedup();
@@ -2056,7 +1924,7 @@ mod unix {
                 }
             }
         }
-        Ok(())
+        host_signals::install()
     }
 
     pub fn launch_terminal_host(
@@ -2088,149 +1956,19 @@ mod unix {
         kitty_graphics_limits: KittyGraphicsLimits,
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
-        let launch_publication_lock = reserve_terminal_host_publication(root)?;
-        let owner_token = CapabilityToken::random()?;
-        let terminal_hex = encode_hex(terminal_id.as_bytes());
-        // macOS limits sockaddr_un paths to roughly one hundred bytes and
-        // TMPDIR is commonly already longer than that. Keep the transport
-        // endpoint short; the private durable record still carries its full
-        // canonical identity and owner capability.
-        let uid = fs::metadata(root)?.uid();
-        let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
-        prepare_endpoint_dir(&endpoint_root)?;
-        let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
-        let record_path =
-            crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
-        if record_path.exists() || endpoint.exists() {
-            anyhow::bail!("terminal host identity already exists");
-        }
-        let shell_launch = match options.command.clone().filter(|command| !command.is_empty()) {
-            Some(command) => {
-                crate::shell_integration::ShellLaunch { command, env: options.extra_env.clone() }
-            }
-            None => crate::shell_integration::integrate_default_shell(
-                vec![crate::platform::default_shell()],
-                options.extra_env.clone(),
-            ),
-        };
-        let command = shell_launch.command;
-        let launch = HostLaunch {
-            endpoint: endpoint.to_string_lossy().into_owned(),
-            record_path: record_path.to_string_lossy().into_owned(),
-            term: options.term.clone(),
-            cols: options.cols,
-            rows: options.rows,
-            cell_pixels,
-            scrollback: options.scrollback,
-            cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
-            command,
-            extra_env: shell_launch.env,
-            default_colors,
-            kitty_graphics_limits,
-        };
-
-        // Exec the daemon's own running build (open inode on Linux): after an
-        // in-place binary upgrade, resolving the executable path yields
-        // "<path> (deleted)" and exec fails, which broke every new tab/split
-        // on a long-lived daemon. This also guarantees daemon and host can
-        // never run skewed builds.
-        let binary = crate::platform::self_exe_for_spawn()
-            .context("resolve cmux-tui terminal-host binary")?;
-        let mut command = Command::new(binary);
-        command
-            .args(["__terminal-host", "--bootstrap-stdio"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            // A host outlives its daemon, so it must not retain a daemon log
-            // pipe whose EOF is itself used as a lifecycle signal.
-            .stderr(Stdio::null());
-        // A durable host must not share the daemon's controlling terminal,
-        // session, or process group. Otherwise a shell hangup or group
-        // interrupt intended for the daemon can also kill every hosted PTY.
-        // SAFETY: setsid(2) is async-signal-safe and touches no Rust state in
-        // the post-fork child. A freshly forked child is not a process-group
-        // leader, so failure is an actual launch error and must be surfaced.
-        unsafe {
-            command.pre_exec(|| {
-                if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
-            });
-        }
-        let child = command.spawn().context("spawn terminal-host process")?;
-        let mut process = SpawnedHostProcess { child: Some(child) };
-        let host_pid = process.child_mut().id();
-        let mut stdin =
-            process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
-        let mut stdout =
-            process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
-
-        let bootstrap = HostBootstrap {
-            min_version: PROTOCOL_VERSION,
-            max_version: PROTOCOL_VERSION,
-            terminal_id,
-            owner_token,
-        };
-        write_frame(&mut stdin, &bootstrap.into_frame(1))?;
-        let ready_frame = read_required_frame(&mut stdout, "bootstrap ready")?;
-        if ready_frame.kind != MessageKind::Ready {
-            anyhow::bail!("terminal host returned {:?} instead of Ready", ready_frame.kind);
-        }
-        let ready = HostReady::decode(&ready_frame.payload)?;
-        if ready.terminal_id != terminal_id {
-            anyhow::bail!("terminal host changed terminal identity during bootstrap");
-        }
-
-        let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode()?);
-        launch_frame.request_id = 2;
-        write_frame(&mut stdin, &launch_frame)?;
-        let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
-        if launched_frame.request_id != 2 {
-            anyhow::bail!("terminal host did not acknowledge launch");
-        }
-        if launched_frame.kind == MessageKind::LaunchFailed {
-            let failure = decode_host_launch_failure(&launched_frame.payload)?;
-            return Err(failure.into());
-        }
-        if launched_frame.kind != MessageKind::Ready {
-            anyhow::bail!("terminal host did not acknowledge launch");
-        }
-        let launched = HostReady::decode(&launched_frame.payload)?;
-        if launched.terminal_id != terminal_id || launched.incarnation != ready.incarnation {
-            anyhow::bail!("terminal host identity changed while launching PTY");
-        }
-        drop(stdin);
-        drop(stdout);
-
-        let record: TerminalHostRecord = serde_json::from_slice(
-            &fs::read(&record_path).context("read terminal-host discovery record")?,
-        )?;
-        validate_terminal_host_record(&record_path, &record)?;
-        if record.terminal_id != terminal_hex
-            || record.incarnation != ready.incarnation.to_hex()
-            || record.owner_token != encode_hex(owner_token.as_bytes())
-            || record.host_pid != host_pid
-        {
-            anyhow::bail!("terminal-host discovery record changed during launch");
-        }
-        drop(launch_publication_lock);
-        // Keep the exact-kill guard armed through record validation and a
-        // successful authenticated Snapshot. Returning Err after disarming it
-        // would leave a live published host while the mux marks its registry
-        // row Exited.
-        let mut attachment = connect_record(record, record_path)?;
-        attachment.launch_process = Some(process);
-        debug_assert_eq!(
-            attachment.launch_activation_pending,
-            attachment.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION
-        );
-        Ok(attachment)
+        let (colors, kitty) = (default_colors, kitty_graphics_limits);
+        launch_terminal_host_from(options, root, colors, cell_pixels, kitty, terminal_id, None)
     }
 
+    /// A one-shot owner connection (for example to terminate a host no
+    /// surface adopted). It never takes clipboard reads; surfaces adopt with
+    /// [`adopt_terminal_host_with_kitty_limits`].
     pub fn adopt_terminal_host(
         record: TerminalHostRecord,
         record_path: PathBuf,
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
-        let mut attachment = connect_record(record, record_path)?;
+        let mut attachment = connect_record(record, record_path, OwnerIntent::OneShot)?;
         attachment.activate_launched_host()?;
         Ok(attachment)
     }
@@ -2240,7 +1978,12 @@ mod unix {
         record_path: PathBuf,
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
-        connect_current_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT)
+        connect_current_record_with_timeout(
+            record,
+            record_path,
+            HOST_HANDSHAKE_TIMEOUT,
+            OwnerIntent::Surface,
+        )
     }
 
     pub(crate) fn adopt_terminal_host_with_kitty_limits(
@@ -2258,7 +2001,7 @@ mod unix {
                 // handshake; only legacy records need version probing.
                 adopt_current_terminal_host(record, record_path)
             } else {
-                connect_record(record, record_path)
+                connect_record(record, record_path, OwnerIntent::Surface)
             }
         };
         let mut attachment = connect(record.clone(), record_path.clone())?;
@@ -2309,6 +2052,9 @@ mod unix {
                 || record.supports_terminate_ack
                 || record.supports_input_ack
                 || record.supports_terminal_metadata
+                || record.supports_clipboard_read
+                || record.supports_viewer_size_priority
+                || record.supports_pty_custody
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
@@ -2318,11 +2064,19 @@ mod unix {
                     "legacy terminal-host record advertises terminal metadata without support"
                 );
             }
+            if record.record_version < HOST_RECORD_VERSION && record.supports_viewer_size_priority {
+                anyhow::bail!("pre-v4 terminal-host record advertises viewer-size priority");
+            }
             if record.record_version == 2 && record.supports_terminate_ack {
                 anyhow::bail!("version 2 terminal-host record advertises terminate receipts");
             }
             if record.record_version < HOST_RECORD_VERSION && record.supports_input_ack {
                 anyhow::bail!("pre-v4 terminal-host record advertises input receipts");
+            }
+            if record.record_version < HOST_RECORD_VERSION
+                && (record.supports_clipboard_read || record.supports_pty_custody)
+            {
+                anyhow::bail!("pre-v4 terminal-host record advertises clipboard reads or custody");
             }
             let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
                 &record.host_start_nonce,
@@ -2473,6 +2227,8 @@ mod unix {
         let endpoint = PathBuf::from(&current.endpoint);
         fs::remove_file(record_path)?;
         let _ = fs::remove_file(proof);
+        crate::terminal_loss_log::remove_signals(record_path);
+        pty_lock::remove_released(record_path, &current.terminal_id, &current.incarnation);
         if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| metadata.file_type().is_socket()) {
             let _ = fs::remove_file(endpoint);
         }
@@ -2484,6 +2240,9 @@ mod unix {
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
         load_terminal_host_records_with_policy(root, false)
     }
+
+    pub mod unadoptable;
+    use unadoptable::process_definitely_absent;
 
     pub(crate) fn load_terminal_host_records_for_reset(
         root: &Path,
@@ -2649,6 +2408,10 @@ mod unix {
             return Ok(false);
         }
         fs::remove_file(record_path)?;
+        // The terminal ended with a recorded exit: its signal breadcrumbs
+        // (`<id>.signals`, same stem as `<id>.exit`) are no longer evidence.
+        crate::terminal_loss_log::remove_signals(record_path);
+        pty_lock::remove_released(record_path, &current.terminal_id, &current.incarnation);
         if let Some(parent) = record_path.parent() {
             File::open(parent)?.sync_all()?;
         }
@@ -2658,14 +2421,16 @@ mod unix {
     fn connect_record(
         record: TerminalHostRecord,
         record_path: PathBuf,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
-        connect_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT)
+        connect_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT, intent)
     }
 
     fn connect_record_with_timeout(
         record: TerminalHostRecord,
         record_path: PathBuf,
         handshake_timeout: Duration,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
         let endpoint = PathBuf::from(&record.endpoint);
         let mut stream = Some(
@@ -2686,6 +2451,7 @@ mod unix {
                     protocol_version,
                     smart_renderer,
                     stream.take().expect("protocol attempt has a connected stream"),
+                    intent,
                 ) {
                     Ok(attachment) => return Ok(attachment),
                     Err(error) => error,
@@ -2726,6 +2492,7 @@ mod unix {
         record: TerminalHostRecord,
         record_path: PathBuf,
         handshake_timeout: Duration,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
         if record.record_version >= HOST_RECORD_VERSION {
             // Fence-capable records are emitted only by the current smart
@@ -2744,9 +2511,10 @@ mod unix {
                 PROTOCOL_VERSION,
                 true,
                 stream,
+                intent,
             );
         }
-        connect_record_with_timeout(record, record_path, handshake_timeout)
+        connect_record_with_timeout(record, record_path, handshake_timeout, intent)
     }
 
     fn is_transient_handshake_transport(error: &anyhow::Error) -> bool {
@@ -2769,6 +2537,7 @@ mod unix {
         protocol_version: u16,
         smart_renderer: bool,
         mut stream: UnixStream,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
         if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
             anyhow::bail!("unsupported terminal-host adoption protocol {protocol_version}");
@@ -2782,7 +2551,7 @@ mod unix {
             min_version: protocol_version,
             max_version: protocol_version,
             role: ClientRole::Admin,
-            requested_rights: CapabilityRights::ADMIN,
+            requested_rights: owner_rights_for(&record, protocol_version, intent),
             terminal_id,
             token: owner_token,
         };
@@ -2821,7 +2590,7 @@ mod unix {
         if host_hello.selected_version != protocol_version
             || host_hello.terminal_id != terminal_id
             || host_hello.incarnation != incarnation
-            || host_hello.granted_rights != CapabilityRights::ADMIN
+            || host_hello.granted_rights != hello.requested_rights
         {
             anyhow::bail!("terminal-host record identity does not match live host");
         }
@@ -2878,7 +2647,9 @@ mod unix {
             smart_renderer,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
-            control_responses: Arc::new(ControlResponses::new()),
+            control_responses: Arc::new(ControlResponses::with_clipboard_reads(
+                hello.requested_rights.contains(CapabilityRights::CLIPBOARD_READ),
+            )),
             next_request: AtomicU64::new(2),
             // New hosts do not register Admin as a viewer. Initialize this as
             // if they did so the unconditional release below also upgrades
@@ -2887,6 +2658,7 @@ mod unix {
             viewer_size: Mutex::new(Some(snapshot_size)),
             launch_process: None,
             launch_activation_pending,
+            pty_custody: None,
         };
         attachment.release_viewer_size()?;
         Ok(attachment)
@@ -3069,10 +2841,10 @@ mod unix {
             let mut file =
                 OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
             file.write_all(&bytes)?;
-            file.sync_all()?;
+            barrier_sync::barrier_sync(&file)?;
             fs::rename(&temporary, path)?;
             if let Some(parent) = path.parent() {
-                File::open(parent)?.sync_all()?;
+                barrier_sync::barrier_sync_dir(parent)?;
             }
             Ok(())
         })();
@@ -3417,6 +3189,13 @@ mod unix {
             fallback_key: Option<KeyInput>,
             response: SyncSender<Result<ParserClearHistoryResult, String>>,
         },
+        /// Answers one deferred clipboard read; `None` refuses it.
+        ClipboardReadComplete {
+            token: u64,
+            text: Option<Vec<u8>>,
+        },
+        /// Answers once every earlier command is applied (metric_commits.rs).
+        Barrier(SyncSender<()>),
         Drain,
     }
 
@@ -3578,7 +3357,7 @@ mod unix {
         cwd: Option<String>,
         size: Mutex<(u16, u16)>,
         cell_pixels: Mutex<(u16, u16)>,
-        viewer_sizes: Mutex<HashMap<u64, (u16, u16)>>,
+        viewer_sizes: Mutex<ViewerSizes>,
         taps: Mutex<HashMap<u64, HostTap>>,
         broadcast_lock: Mutex<()>,
         sequence: AtomicU64,
@@ -3589,6 +3368,7 @@ mod unix {
         source_order_lock: Mutex<()>,
         parser_commands: SyncSender<ParserCommand>,
         parser_budget: ParserBudget,
+        clipboard: ClipboardReads,
         /// Generation advanced after each parser write. Snapshot admission
         /// waits here when a PTY read ends inside UTF-8 or a control sequence,
         /// without blocking the reader from enqueueing the completing bytes.
@@ -3615,6 +3395,8 @@ mod unix {
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
         group_escalation_complete: AtomicBool,
+        /// Session of an adopted, non-child process (`adopted_child.rs`).
+        adopted_session: Option<libc::pid_t>,
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool,
     }
@@ -4091,13 +3873,12 @@ mod unix {
         }
 
         fn remove_client(&self, client: u64) {
+            self.release_clipboard_owner(client);
             self.taps.lock().unwrap().remove(&client);
             self.smart.remove(client);
             let _ = mutate_viewer_sizes(
                 &self.viewer_sizes,
-                |viewer_sizes| {
-                    viewer_sizes.remove(&client);
-                },
+                |viewer_sizes| viewer_sizes.remove_client(client),
                 |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
             );
         }
@@ -4143,7 +3924,7 @@ mod unix {
             mutate_viewer_sizes(
                 &self.viewer_sizes,
                 |viewer_sizes| {
-                    viewer_sizes.insert(client, (cols, rows));
+                    viewer_sizes.sizes.insert(client, (cols, rows));
                 },
                 |desired| {
                     acknowledgement_queued =
@@ -4157,223 +3938,9 @@ mod unix {
         fn remove_viewer_size(&self, client: u64) {
             let _ = mutate_viewer_sizes(
                 &self.viewer_sizes,
-                |viewer_sizes| {
-                    viewer_sizes.remove(&client);
-                },
+                |viewer_sizes| viewer_sizes.release(client),
                 |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
             );
-        }
-
-        fn set_cell_pixel_size(
-            &self,
-            width_px: u16,
-            height_px: u16,
-            request_id: u64,
-            target: &HostTap,
-        ) -> anyhow::Result<bool> {
-            let _source_order = self.source_order_lock.lock().unwrap();
-            let next = (width_px.max(1), height_px.max(1));
-            let size = self.size.lock().unwrap();
-            let mut cell_pixels = self.cell_pixels.lock().unwrap();
-            let previous = *cell_pixels;
-            let changed = previous != next;
-            let resize_sizes = if changed {
-                Some((pty_size(size.0, size.1, previous)?, pty_size(size.0, size.1, next)?))
-            } else {
-                None
-            };
-            let mut term = self.term.lock().unwrap();
-            let mut source_cursor = None;
-            if let Some((previous_size, next_size)) = resize_sizes {
-                term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
-                    "could not preflight terminal-host cell-metric replay; geometry unchanged",
-                )?;
-                let mut payload = Vec::with_capacity(8);
-                payload.extend_from_slice(&size.0.to_le_bytes());
-                payload.extend_from_slice(&size.1.to_le_bytes());
-                payload.extend_from_slice(&next.0.to_le_bytes());
-                payload.extend_from_slice(&next.1.to_le_bytes());
-                source_cursor = Some(self.smart.publish(Frame::new(MessageKind::Resized, payload)));
-                let master = self.master.lock().unwrap();
-                if let Err(error) = master.resize(next_size) {
-                    self.smart.close_failed_transition(source_cursor);
-                    return Err(error);
-                }
-                if let Err(error) =
-                    term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))
-                {
-                    let rollback = master.resize(previous_size);
-                    self.smart.close_failed_transition(source_cursor);
-                    return match rollback {
-                        Ok(()) => Err(error.into()),
-                        Err(rollback_error) => Err(anyhow::anyhow!(
-                            "could not update authoritative cell metrics: {error}; \
-                             PTY rollback also failed: {rollback_error}"
-                        )),
-                    };
-                }
-                *cell_pixels = next;
-            }
-            let transition = if changed {
-                let replay = match term.vt_replay_bounded_theme_portable_with_aliases(
-                    crate::surface::VT_REPLAY_MAX_BYTES,
-                ) {
-                    Ok(replay) => replay,
-                    Err(_) => {
-                        // Preflight ruled out persistent budget failure. Keep
-                        // the canonical commit and force every client to take
-                        // a fresh snapshot instead of broadcasting partial
-                        // geometry state or destructively resizing backward.
-                        let mut taps = self.taps.lock().unwrap();
-                        for tap in taps.values() {
-                            tap.close();
-                        }
-                        taps.clear();
-                        self.smart.close_failed_transition(source_cursor);
-                        target.close();
-                        return Ok(false);
-                    }
-                };
-                let mut resized = Frame::new(
-                    MessageKind::Resized,
-                    encode_resize(
-                        size.0,
-                        size.1,
-                        &replay.self_contained_bytes(),
-                        &replay.kitty_image_aliases,
-                        next,
-                        replay.kitty_state,
-                    )?,
-                );
-                resized.flags = FLAG_COLORS_FOLLOW;
-                Some([
-                    resized,
-                    Frame::new(
-                        MessageKind::Colors,
-                        encode_terminal_color_overrides(&term.color_overrides()),
-                    ),
-                ])
-            } else {
-                None
-            };
-            let mut ack = Frame::new(MessageKind::CellPixelSizeAck, {
-                let mut payload = Vec::with_capacity(4);
-                payload.extend_from_slice(&next.0.to_le_bytes());
-                payload.extend_from_slice(&next.1.to_le_bytes());
-                payload
-            });
-            ack.request_id = request_id;
-            // Keep the parser locked through canonical publication and the
-            // targeted acknowledgement. Output parsed at the new metrics
-            // cannot overtake the complete Resized+Colors transition.
-            let acknowledgement_queued = publish_host_frames_and_targeted(
-                &self.broadcast_lock,
-                &self.sequence,
-                &self.taps,
-                transition.into_iter().flatten(),
-                Some((target, ack)),
-            );
-            if let Some(source_cursor) = source_cursor {
-                self.smart.mark_applied(source_cursor);
-            }
-            Ok(acknowledgement_queued)
-        }
-
-        fn set_kitty_graphics_limits(
-            &self,
-            limits: KittyGraphicsLimits,
-            request_id: u64,
-            target: &HostTap,
-        ) -> anyhow::Result<bool> {
-            let limits = limits
-                .validate()
-                .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
-            let _source_order = self.source_order_lock.lock().unwrap();
-            let size = *self.size.lock().unwrap();
-            let cell_pixels = *self.cell_pixels.lock().unwrap();
-            let mut term = self.term.lock().unwrap();
-            term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-                .context("could not preflight terminal-host Kitty limit replay")?;
-            // Kitty quota changes can evict scene state and have no raw PTY
-            // representation. Smart renderers must reopen from the committed
-            // authoritative state instead of retaining their old scene.
-            let source_cursor =
-                self.smart.publish(Frame::new(MessageKind::ResyncRequired, Vec::new()));
-            if let Err(error) = term.set_kitty_graphics_limits(limits) {
-                self.smart.mark_applied(source_cursor);
-                let mut taps = self.taps.lock().unwrap();
-                for tap in taps.values() {
-                    tap.close();
-                }
-                taps.clear();
-                target.close();
-                return Err(error.into());
-            }
-            let replay = match term
-                .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)
-            {
-                Ok(replay) => replay,
-                Err(error) => {
-                    // The authoritative limit change may already have evicted
-                    // state. Disconnect every mirror so none can continue from
-                    // the pre-eviction scene.
-                    self.smart.mark_applied(source_cursor);
-                    let mut taps = self.taps.lock().unwrap();
-                    for tap in taps.values() {
-                        tap.close();
-                    }
-                    taps.clear();
-                    target.close();
-                    return Err(error.into());
-                }
-            };
-            let resize_payload = match encode_resize(
-                size.0,
-                size.1,
-                &replay.self_contained_bytes(),
-                &replay.kitty_image_aliases,
-                cell_pixels,
-                replay.kitty_state,
-            ) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    self.smart.mark_applied(source_cursor);
-                    let mut taps = self.taps.lock().unwrap();
-                    for tap in taps.values() {
-                        tap.close();
-                    }
-                    taps.clear();
-                    target.close();
-                    return Err(error);
-                }
-            };
-            let mut resized = Frame::new(MessageKind::Resized, resize_payload);
-            resized.flags = FLAG_COLORS_FOLLOW;
-            let mut ack_payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
-            if let Err(error) = encode_kitty_graphics_limits(&mut ack_payload, limits) {
-                self.smart.mark_applied(source_cursor);
-                target.close();
-                return Err(error);
-            }
-            let mut ack = Frame::new(MessageKind::KittyGraphicsLimitsAck, ack_payload);
-            ack.request_id = request_id;
-            // The parser stays locked until all mirrors receive one complete
-            // replacement and the requester receives its acknowledgement.
-            let acknowledgement_queued = publish_host_frames_and_targeted(
-                &self.broadcast_lock,
-                &self.sequence,
-                &self.taps,
-                [
-                    resized,
-                    Frame::new(
-                        MessageKind::Colors,
-                        encode_terminal_color_overrides(&term.color_overrides()),
-                    ),
-                ],
-                Some((target, ack)),
-            );
-            self.smart.mark_applied(source_cursor);
-            Ok(acknowledgement_queued)
         }
 
         fn apply_viewer_minimum(
@@ -4669,7 +4236,8 @@ mod unix {
             // original PID/PGID is still kernel-reserved and cannot have been
             // reused between validation and killpg.
             let _signal = self.child_signal_lock.lock().unwrap();
-            let child_reserved = !self.child_reaped.load(Ordering::Acquire);
+            let child_reserved =
+                !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
             if child_reserved
                 && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
             {
@@ -4821,7 +4389,9 @@ mod unix {
                 // through smart subscription. Publish Exit under that same
                 // lock so an attach either joins before Exit or observes dead.
                 {
-                    let _term = self.term.lock().unwrap();
+                    // A parser that panicked while it held the lock poisoned
+                    // it; the exit must still be published (host_parser.rs).
+                    let _term = self.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     self.dead.store(true, Ordering::Release);
                     self.accept_waker.wake();
                     let payload = encode_terminal_exit(&exit);
@@ -4899,52 +4469,55 @@ mod unix {
             .then_some(exit))
     }
 
+    /// Viewer geometry reservations and the clients that negotiated
+    /// `FLAG_VIEWER_SIZE_PRIORITY` for the lifetime of their connection.
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    struct ViewerSizes {
+        sizes: HashMap<u64, (u16, u16)>,
+        preferred: HashSet<u64>,
+    }
+
+    impl ViewerSizes {
+        /// Per-dimension minimum over preferred sizes, or over every size when
+        /// no preferred client currently reports one.
+        fn desired(&self) -> Option<(u16, u16)> {
+            let minimum =
+                |left: (u16, u16), right: (u16, u16)| (left.0.min(right.0), left.1.min(right.1));
+            self.sizes
+                .iter()
+                .filter_map(|(client, size)| self.preferred.contains(client).then_some(*size))
+                .reduce(minimum)
+                .or_else(|| self.sizes.values().copied().reduce(minimum))
+        }
+
+        /// ReleaseViewer drops the size but keeps priority for the connection.
+        fn release(&mut self, client: u64) {
+            self.sizes.remove(&client);
+        }
+
+        fn remove_client(&mut self, client: u64) {
+            self.sizes.remove(&client);
+            self.preferred.remove(&client);
+        }
+    }
+
     /// Keep viewer mutation, minimum reduction, and the resulting PTY resize
     /// in one critical section. If the guard were released after reduction,
     /// an older large resize could run after a newer small resize and leave
     /// the host at a size that no longer matches its viewer set.
     fn mutate_viewer_sizes(
-        viewer_sizes: &Mutex<HashMap<u64, (u16, u16)>>,
-        mutation: impl FnOnce(&mut HashMap<u64, (u16, u16)>),
+        viewer_sizes: &Mutex<ViewerSizes>,
+        mutation: impl FnOnce(&mut ViewerSizes),
         apply: impl FnOnce(Option<(u16, u16)>) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
         let mut viewer_sizes = viewer_sizes.lock().unwrap();
         let previous = viewer_sizes.clone();
         mutation(&mut viewer_sizes);
-        let desired = viewer_sizes
-            .values()
-            .copied()
-            .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1)));
-        if let Err(error) = apply(desired) {
+        if let Err(error) = apply(viewer_sizes.desired()) {
             *viewer_sizes = previous;
             return Err(error);
         }
         Ok(())
-    }
-
-    fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
-        loop {
-            let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
-            // SAFETY: status points to writable siginfo storage. WNOWAIT
-            // observes this owned child becoming waitable without releasing
-            // its PID/PGID for reuse; the portable Child handle reaps it after
-            // acquiring child_signal_lock.
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    status.as_mut_ptr(),
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            };
-            if result == 0 {
-                return Ok(());
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                return Err(error);
-            }
-        }
     }
 
     struct HostLivenessLease {
@@ -4968,7 +4541,7 @@ mod unix {
                 let _ = fs::remove_file(&path);
                 return Err(error.into());
             }
-            file.sync_all()?;
+            barrier_sync::barrier_sync(&file)?; // why no full sync: barrier_sync.rs
             Ok(Self { file, path })
         }
     }
@@ -4996,19 +4569,11 @@ mod unix {
     pub(crate) fn prepare_terminal_host_publication_lock(root: &Path) -> anyhow::Result<()> {
         prepare_private_dir(root)?;
         let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
+        let (file, existed) = barrier_sync::open_lock_file(&path)
             .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
         validate_terminal_host_publication_lock(root, &path, &file)?;
         file.set_permissions(fs::Permissions::from_mode(0o600))?;
-        file.sync_all()?;
-        File::open(root)?.sync_all()?;
+        barrier_sync::sync_new_lock_file(&file, root, existed)?;
         Ok(())
     }
 
@@ -5138,7 +4703,10 @@ mod unix {
     impl Drop for UnpublishedHostGuard {
         fn drop(&mut self) {
             if self.armed {
-                self.shared.terminate_and_wait();
+                // An adopted session is not this host's to end: its owner keeps it.
+                if self.shared.adopted_session.is_none() {
+                    self.shared.terminate_and_wait();
+                }
                 let _ = fs::remove_file(&self.endpoint);
             }
         }
@@ -5191,21 +4759,17 @@ mod unix {
         reader: &mut impl Read,
         writer: &mut impl Write,
     ) -> anyhow::Result<()> {
-        if args.iter().map(String::as_str).ne(["--bootstrap-stdio"]) {
-            anyhow::bail!("hidden mode requires --bootstrap-stdio");
-        }
-        let bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
-        let Some(launch_frame) = read_frame(reader, MAX_LAUNCH_PAYLOAD)? else {
+        let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
+        let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
+        let Some(launch_frame) = read_frame(reader, adopt_launch::max_payload(adopt_fd))? else {
             // Keep the one-frame bootstrap probe useful for compatibility and
             // packaging diagnostics. Production launchers always follow it
             // with Launch on the same private pipe.
             return Ok(());
         };
-        if launch_frame.kind != MessageKind::Launch {
-            anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
-        }
-        let launch = HostLaunch::decode(&launch_frame.payload)?;
-        let shared = match spawn_host_runtime(&launch, &bootstrapped) {
+        let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
+        crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
+        let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {
             Ok(shared) => shared,
             Err(error) => {
                 let failure = host_launch_failure(&error);
@@ -5217,6 +4781,8 @@ mod unix {
             }
         };
 
+        let stopping = shared.clone();
+        host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
         let endpoint = PathBuf::from(&launch.endpoint);
         let mut unpublished = UnpublishedHostGuard {
             shared: shared.clone(),
@@ -5230,6 +4796,7 @@ mod unix {
         let listener = UnixListener::bind(&endpoint)?;
         fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
+        crate::debug_spans::mark("host.endpoint_bound");
 
         let start_nonce = CapabilityToken::random()?;
         let record = TerminalHostRecord {
@@ -5246,6 +4813,9 @@ mod unix {
             supports_terminate_ack: true,
             supports_input_ack: true,
             supports_terminal_metadata: true,
+            supports_clipboard_read: true,
+            supports_viewer_size_priority: true,
+            supports_pty_custody: true,
         };
         let record_root = Path::new(&launch.record_path)
             .parent()
@@ -5253,6 +4823,7 @@ mod unix {
         let _publication_lock = acquire_terminal_host_publication_lock(record_root)?;
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
+        crate::debug_spans::mark("host.lease_acquired");
         let mut guard = HostServiceGuard {
             shared: shared.clone(),
             endpoint,
@@ -5268,6 +4839,13 @@ mod unix {
         // leave behind an undiscoverable terminal process.
         write_record(Path::new(&launch.record_path), &record)?;
         guard.published = true;
+        host_signals::set_breadcrumb_path(
+            Path::new(&launch.record_path).with_extension("signals"),
+            record.terminal_id.clone(),
+            record.incarnation,
+        );
+        crate::debug_spans::mark("host.record_written");
+        crate::debug_spans::finish(crate::debug_spans::take());
 
         // Integration failure-injection seam for the narrow record-before-
         // Ready crash window. It is inherited only by explicitly configured
@@ -5294,6 +4872,7 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
+        let mut backoff = host_accept::AcceptBackoff::new();
         loop {
             let now = Instant::now();
             if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -5314,18 +4893,10 @@ mod unix {
                 break;
             }
             match listener.accept() {
-                Ok((stream, _)) => {
-                    // Accepted sockets inherit O_NONBLOCK from the listener
-                    // on macOS. Client protocol threads use blocking framed
-                    // reads, so normalize the accepted descriptor here.
-                    stream.set_nonblocking(false)?;
-                    let host = shared.clone();
-                    thread::Builder::new().name("terminal-host-client".into()).spawn(
-                        move || {
-                            let _ = serve_client(host, stream);
-                        },
-                    )?;
-                }
+                Ok((stream, _)) => match host_accept::serve_accepted(&shared, stream) {
+                    Ok(()) => backoff.reset(),
+                    Err(error) => backoff.after_error(&shared, &error),
+                },
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     // Block until an attachment arrives or the accept waker
                     // reports a lifecycle change (terminal exit, last client
@@ -5352,15 +4923,24 @@ mod unix {
                     if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
                         let error = std::io::Error::last_os_error();
                         if error.kind() != std::io::ErrorKind::Interrupted {
-                            return Err(error.into());
+                            backoff.after_error(&shared, &error);
                         }
+                    } else {
+                        // The listener drained without error: a later error
+                        // starts a new streak.
+                        backoff.reset();
                     }
                     if fds[1].revents != 0 {
                         shared.accept_waker.drain();
                     }
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(error.into()),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
+                    ) => {}
+                // EMFILE, ENFILE, ENOBUFS, ENOMEM: never end the shell.
+                Err(error) => backoff.after_error(&shared, &error),
             }
         }
         thread::sleep(Duration::from_millis(20));
@@ -5386,6 +4966,7 @@ mod unix {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
         let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
         let pty = cmux_pty::open(initial_pty_size)?;
+        crate::debug_spans::mark("host.pty_opened");
         let mut command = PtyCommand::new(&launch.command[0]);
         command.args(launch.command[1..].iter().cloned());
         command.env("TERM", &launch.term);
@@ -5399,308 +4980,10 @@ mod unix {
             command.cwd(cwd);
         }
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
-        let mut child = SpawnedPtyChild::new(child, process_group_leader);
-        let pid = child.child().process_id();
-        let killer = child.child().clone_killer();
-        let pty_poll_fd = master.as_raw_fd().context("open terminal-host PTY poll fd")?;
-        let mut pty_reader = master.try_clone_reader()?;
-        let pty_writer = master.take_writer()?;
-        let (pty_drain_waker, pty_drain_waiter) = UnixStream::pair()?;
-
-        let pending_responses = Arc::new(Mutex::new(Vec::<u8>::new()));
-        let title_changed = Arc::new(AtomicBool::new(false));
-        let bell = Arc::new(AtomicBool::new(false));
-        let callbacks = Callbacks {
-            on_pty_write: Some(Box::new({
-                let pending = pending_responses.clone();
-                move |bytes| pending.lock().unwrap().extend_from_slice(bytes)
-            })),
-            on_title_changed: Some(Box::new({
-                let title_changed = title_changed.clone();
-                move || title_changed.store(true, Ordering::Release)
-            })),
-            on_bell: Some(Box::new({
-                let bell = bell.clone();
-                move || bell.store(true, Ordering::Release)
-            })),
-        };
-        let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
-        term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
-        term.set_kitty_graphics_limits(launch.kitty_graphics_limits)?;
-        term.replace_default_colors(
-            launch.default_colors.fg,
-            launch.default_colors.bg,
-            launch.default_colors.cursor,
-        );
-        term.set_default_palette(&launch.default_colors.palette);
-        replace_ghostty_cursor_defaults(&mut term, launch.default_colors);
-        let initial_colors = term.color_overrides();
-        let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
-        let (parser_commands, parser_command_receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
-        let shared = Arc::new(HostShared {
-            terminal_id: bootstrapped.terminal_id,
-            incarnation: bootstrapped.incarnation,
-            owner_token: bootstrapped.owner_token(),
-            capabilities: CapabilityStore::new(64),
-            term: Mutex::new(term),
-            terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
-            default_colors: Mutex::new(launch.default_colors),
-            stream_progress: TerminalStreamProgress::default(),
-            writer: Mutex::new(pty_writer),
-            master: Mutex::new(master),
-            killer: Mutex::new(killer),
-            pid,
-            command: launch.command.clone(),
-            cwd: launch.cwd.clone(),
-            size: Mutex::new((launch.cols, launch.rows)),
-            cell_pixels: Mutex::new(cell_pixels),
-            viewer_sizes: Mutex::new(HashMap::new()),
-            taps: Mutex::new(HashMap::new()),
-            broadcast_lock: Mutex::new(()),
-            sequence: AtomicU64::new(0),
-            smart: SmartStreamState::new(),
-            source_order_lock: Mutex::new(()),
-            parser_commands,
-            parser_budget: ParserBudget::new(MAX_HOST_PARSER_QUEUED_BYTES),
-            parser_progress: (Mutex::new(0), Condvar::new()),
-            next_client: AtomicU64::new(1),
-            dead: AtomicBool::new(false),
-            launch_owner_claimed: AtomicBool::new(false),
-            launch_owner_stream_ready: AtomicBool::new(false),
-            launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
-            active_client_streams: AtomicUsize::new(0),
-            accept_waker: AcceptWaker::new()?,
-            child_exit: (Mutex::new(None), Condvar::new()),
-            child_waitable: AtomicBool::new(false),
-            pty_drained: AtomicBool::new(false),
-            exit_published: AtomicBool::new(false),
-            exit_record_path: Path::new(&launch.record_path).with_extension("exit"),
-            exit_publish_requests,
-            force_pty_drain: AtomicBool::new(false),
-            pty_drain_waker: Mutex::new(pty_drain_waker),
-            termination_started: AtomicBool::new(false),
-            child_signal_lock: Mutex::new(()),
-            child_reaped: AtomicBool::new(false),
-            group_escalation_complete: AtomicBool::new(false),
-            #[cfg(test)]
-            fail_next_resize_publication: AtomicBool::new(false),
-        });
-        HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
-
-        let parser_host = shared.clone();
-        thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
-            let mut last_colors = initial_colors;
-            let mut last_pwd = None;
-            // Ghostty can answer terminal queries without producing a parser
-            // frame. Flush those answers after every parser command, not only
-            // after PTY output, so lifecycle operations (for example resize
-            // during a Pi reload) cannot leave replies queued in memory and
-            // deliver them to a later TUI write.
-            let flush_pending_responses = || {
-                let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                if !responses.is_empty() {
-                    let mut writer = parser_host.writer.lock().unwrap();
-                    let _ = writer.write_all(&responses);
-                    let _ = writer.flush();
-                }
-            };
-            while let Ok(command) = parser_command_receiver.recv() {
-                match command {
-                    ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
-                        let title = {
-                            let mut term = parser_host.term.lock().unwrap();
-                            let cursor_activity = term
-                                .cursor_activity()
-                                .expect("valid host terminals expose cursor activity");
-                            let normalized = term.vt_write_with_normalized(&bytes).into_owned();
-                            parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
-                            let title = title_changed
-                                .swap(false, Ordering::AcqRel)
-                                .then(|| term.title().unwrap_or_default());
-                            let pwd = term.pwd();
-                            let colors = term.color_overrides();
-                            let cursor_changed = term
-                                .cursor_activity()
-                                .expect("valid host terminals expose cursor activity")
-                                != cursor_activity;
-                            let colors = if colors != last_colors || cursor_changed {
-                                let encoded = encode_terminal_color_overrides(&colors);
-                                last_colors = colors;
-                                Some(encoded)
-                            } else {
-                                None
-                            };
-                            let pwd = changed_pwd_frame(&mut last_pwd, pwd);
-                            parser_host.broadcast_frames(output_transition_frames(
-                                normalized, colors, pwd,
-                            ));
-                            // The parser lock is also the snapshot lock. Mark
-                            // this source cursor before releasing it so a
-                            // snapshot cannot include output that its boundary
-                            // still describes as unapplied.
-                            parser_host.smart.mark_applied(source_cursor);
-                            // Keep the host stream watermark on the same side
-                            // of the terminal lock as the applied bytes.
-                            parser_host.stream_progress.notify();
-                            title
-                        };
-                        parser_host.note_parser_progress();
-                        parser_host.parser_budget.release(accounted_bytes);
-                        if let Some(title) = title {
-                            parser_host.broadcast(MessageKind::Title, title.into_bytes());
-                        }
-                        if bell.swap(false, Ordering::AcqRel) {
-                            parser_host.broadcast(MessageKind::Bell, Vec::new());
-                        }
-                        flush_pending_responses();
-                    }
-                    ParserCommand::Resize {
-                        cols,
-                        rows,
-                        cell_pixels,
-                        source_cursor,
-                        acknowledge_with_replay,
-                        targeted_ack,
-                        response,
-                    } => {
-                        let result = parser_host.apply_parser_resize(
-                            cols,
-                            rows,
-                            source_cursor,
-                            acknowledge_with_replay,
-                            targeted_ack,
-                            cell_pixels,
-                        );
-                        flush_pending_responses();
-                        let _ = response.send(result);
-                    }
-                    ParserCommand::SetDefaults { colors, source_cursor, response } => {
-                        let colors = *colors;
-                        last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
-                        flush_pending_responses();
-                        let _ = response.send(());
-                    }
-                    ParserCommand::ClearHistory { fallback_key, response } => {
-                        let result = parser_host
-                            .apply_parser_clear_history(fallback_key.as_ref())
-                            .map_err(|error| error.to_string());
-                        if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
-                            parser_host.note_parser_progress();
-                        }
-                        flush_pending_responses();
-                        let _ = response.send(result);
-                    }
-                    ParserCommand::Drain => {
-                        // FIFO reception proves every source byte published by
-                        // the PTY reader has reached the authoritative parser.
-                        parser_host.mark_pty_drained();
-                        parser_host.publish_exit_if_drained();
-                        flush_pending_responses();
-                        break;
-                    }
-                }
-            }
-        })?;
-
-        let reader_host = shared.clone();
-        thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
-            reader_host.wait_for_launch_owner_stream_ready();
-            let mut buffer = [0u8; 64 * 1024];
-            let mut forced_at = None;
-            let mut pty_drain_waiter = pty_drain_waiter;
-            while let Ok(true) = wait_for_pty_readable_or_forced_drain(
-                pty_poll_fd,
-                &mut pty_drain_waiter,
-                &reader_host.force_pty_drain,
-                &mut forced_at,
-            ) {
-                let count = match pty_reader.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(count) => count,
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
-                        ) =>
-                    {
-                        continue;
-                    }
-                    Err(_) => break,
-                };
-                let bytes = buffer[..count].to_vec();
-                let _source_order = reader_host.source_order_lock.lock().unwrap();
-                reader_host.parser_budget.reserve(count);
-                // Publication deliberately precedes parser enqueue. The
-                // bounded queue limits memory while letting a fast renderer
-                // consume source bytes independently of parser throughput.
-                let source_cursor =
-                    reader_host.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
-                if !enqueue_parser_output(
-                    &reader_host.parser_commands,
-                    &reader_host.parser_budget,
-                    &reader_host.smart,
-                    bytes,
-                    source_cursor,
-                    count,
-                ) {
-                    break;
-                }
-            }
-            // Drain is ordered after the final source byte. The parser worker,
-            // rather than the reader, publishes the drained rendezvous.
-            let _source_order = reader_host.source_order_lock.lock().unwrap();
-            let _ = reader_host.parser_commands.send(ParserCommand::Drain);
-        })?;
-        let child_host = shared.clone();
-        thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
-            let observed_without_reaping = child_host
-                .pid
-                .and_then(|pid| libc::pid_t::try_from(pid).ok())
-                .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
-            if observed_without_reaping {
-                child_host.mark_child_waitable();
-                loop {
-                    let signal = child_host.child_signal_lock.lock().unwrap();
-                    let escalation_complete =
-                        child_host.group_escalation_complete.load(Ordering::Acquire);
-                    let termination_started =
-                        child_host.termination_started.load(Ordering::Acquire);
-                    let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                    if escalation_complete || (!termination_started && pty_drained) {
-                        let exit = child.wait_and_disarm();
-                        child_host.child_reaped.store(true, Ordering::Release);
-                        drop(signal);
-                        *child_host.child_exit.0.lock().unwrap() = Some(exit);
-                        break;
-                    }
-                    drop(signal);
-                    let state = child_host.child_exit.0.lock().unwrap();
-                    let _state = child_host
-                        .child_exit
-                        .1
-                        .wait_while(state, |_| {
-                            !child_host.group_escalation_complete.load(Ordering::Acquire)
-                                && (child_host.termination_started.load(Ordering::Acquire)
-                                    || !child_host.pty_drained.load(Ordering::Acquire))
-                        })
-                        .unwrap();
-                }
-                child_host.child_exit.1.notify_all();
-                child_host.publish_exit_if_drained();
-            } else {
-                // Native Unix PTYs always expose a PID and support waitid;
-                // retain a conservative fallback for alternate backends.
-                let exit = child.wait_and_disarm();
-                child_host.child_reaped.store(true, Ordering::Release);
-                child_host.mark_child_waitable();
-                let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = Some(exit);
-                child_host.child_exit.1.notify_all();
-                child_host.publish_exit_if_drained();
-            }
-        })?;
-        Ok(shared)
+        let child = HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader));
+        host_start::start_host_runtime(launch, bootstrapped, master, child, &launch.seed)
     }
 
     fn send_snapshot_resync(host: &HostShared, stream: &mut UnixStream, smart_renderer: bool) {
@@ -5730,7 +5013,11 @@ mod unix {
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
             || hello_frame.flags
-                & !(FLAG_VIEWER_SIZE_ACKS | FLAG_SMART_RENDERER | FLAG_TERMINAL_METADATA)
+                & !(FLAG_VIEWER_SIZE_ACKS
+                    | FLAG_SMART_RENDERER
+                    | FLAG_TERMINAL_METADATA
+                    | FLAG_VIEWER_SIZE_PRIORITY
+                    | FLAG_PTY_CUSTODY)
                 != 0
             || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
                 && hello_frame.version != PROTOCOL_VERSION)
@@ -5739,6 +5026,9 @@ mod unix {
         }
         let hello = ClientHello::decode(&hello_frame.payload)?;
         let response = authenticate_client(&host, &hello)?;
+        if hello_frame.flags & FLAG_PTY_CUSTODY != 0 {
+            return pty_custody::serve(&host, stream, &hello_frame, &hello, &response);
+        }
         if hello_frame.version != response.selected_version
             || !response.granted_rights.contains(CapabilityRights::READ)
         {
@@ -5758,9 +5048,15 @@ mod unix {
             && matches!(hello.role, ClientRole::Renderer | ClientRole::Admin);
         let terminal_metadata =
             selected_version == PROTOCOL_VERSION && hello_frame.flags & FLAG_TERMINAL_METADATA != 0;
+        let viewer_size_priority = hello_frame.flags & FLAG_VIEWER_SIZE_PRIORITY != 0
+            && hello.role == ClientRole::Renderer
+            && granted_rights.contains(CapabilityRights::RESIZE);
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
             hello_response.flags |= FLAG_VIEWER_SIZE_ACKS;
+        }
+        if viewer_size_priority {
+            hello_response.flags |= FLAG_VIEWER_SIZE_PRIORITY;
         }
         if activation_required {
             hello_response.flags |= FLAG_LAUNCH_ACTIVATION_REQUIRED;
@@ -5862,11 +5158,16 @@ mod unix {
             // A renderer needs an initial reservation until it reports its
             // measured grid. Admin and read-only mirror connections are
             // management/observation channels and must never pin the PTY to
-            // the snapshot size merely by connecting.
+            // the snapshot size merely by connecting. Priority starts with the
+            // reservation so other viewers cannot move the grid before this
+            // renderer reports its measured size.
             if hello.role == ClientRole::Renderer
                 && granted_rights.contains(CapabilityRights::RESIZE)
             {
-                viewer_sizes.insert(client, (cols, rows));
+                viewer_sizes.sizes.insert(client, (cols, rows));
+                if viewer_size_priority {
+                    viewer_sizes.preferred.insert(client);
+                }
             }
             let (snapshot_sequence, replay_gap) = if smart_renderer {
                 match host.smart.subscribe(client, tap.clone()) {
@@ -5910,6 +5211,9 @@ mod unix {
             frame.sequence = snapshot_sequence;
             let _ = write_frame(&mut stream, &frame);
             return Ok(());
+        }
+        if granted_rights.contains(CapabilityRights::CLIPBOARD_READ) {
+            host.clipboard.register_owner(&host.term, client, tap.clone());
         }
         // Legacy hosts began reading as soon as the first owner tap joined.
         // Protocol v4 waits for Activate so public topology and its journal
@@ -6165,6 +5469,16 @@ mod unix {
                             break;
                         }
                     }
+                    MessageKind::ClipboardReadReply => {
+                        if !command_host.apply_clipboard_read_reply(
+                            client,
+                            granted_rights,
+                            &frame,
+                            selected_version,
+                        ) {
+                            break;
+                        }
+                    }
                     _ => break,
                 }
             }
@@ -6202,8 +5516,7 @@ mod unix {
         }
         if constant_time_equal(hello.token.as_bytes(), host.owner_token.as_bytes()) {
             if hello.role != ClientRole::Admin
-                || hello.requested_rights.is_empty()
-                || !CapabilityRights::ADMIN.contains(hello.requested_rights)
+                || !owner_rights_allowed(hello.requested_rights)
                 || hello.min_version > PROTOCOL_VERSION
                 || hello.max_version < PROTOCOL_VERSION
             {
@@ -6640,16 +5953,6 @@ mod unix {
         decode_hex_array(text)
     }
 
-    fn process_definitely_absent(pid: u32) -> bool {
-        let Ok(pid) = libc::pid_t::try_from(pid) else { return true };
-        // SAFETY: signal zero performs a liveness/permission probe and does
-        // not deliver a signal to the target process.
-        if unsafe { libc::kill(pid, 0) } == 0 {
-            return false;
-        }
-        std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-    }
-
     struct PayloadDecoder<'a> {
         payload: &'a [u8],
         offset: usize,
@@ -6768,8 +6071,13 @@ mod unix {
 
     #[cfg(test)]
     mod tests {
+        mod clipboard_read;
+        mod host_fixture;
+        mod parser_failure;
+        mod parser_order;
         use super::*;
         use cmux_pty::Child;
+        use host_fixture::{test_host_shared, test_host_shared_with};
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
@@ -6933,7 +6241,7 @@ mod unix {
                 cwd: None,
                 size: Mutex::new((80, 24)),
                 cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
-                viewer_sizes: Mutex::new(HashMap::new()),
+                viewer_sizes: Mutex::new(ViewerSizes::default()),
                 taps: Mutex::new(HashMap::new()),
                 broadcast_lock: Mutex::new(()),
                 sequence: AtomicU64::new(0),
@@ -6941,6 +6249,7 @@ mod unix {
                 source_order_lock: Mutex::new(()),
                 parser_commands,
                 parser_budget: ParserBudget::new(1),
+                clipboard: ClipboardReads::new(Arc::new(SystemClock)),
                 parser_progress: (Mutex::new(0), Condvar::new()),
                 next_client: AtomicU64::new(1),
                 dead: AtomicBool::new(false),
@@ -6969,6 +6278,7 @@ mod unix {
                 child_signal_lock: Mutex::new(()),
                 child_reaped: AtomicBool::new(true),
                 group_escalation_complete: AtomicBool::new(false),
+                adopted_session: None,
                 fail_next_resize_publication: AtomicBool::new(false),
             });
             HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
@@ -6999,70 +6309,6 @@ mod unix {
             exited_host_fixture_with_parser_at(root)
         }
 
-        fn test_host_shared() -> Arc<HostShared> {
-            let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
-                .unwrap();
-            let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
-            let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
-            let (parser_commands, _parser_receiver) = sync_channel(1);
-            let host = Arc::new(HostShared {
-                terminal_id: TerminalId::random().unwrap(),
-                incarnation: HostIncarnation::random().unwrap(),
-                owner_token: CapabilityToken::random().unwrap(),
-                capabilities: CapabilityStore::new(64),
-                term: Mutex::new(term),
-                terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
-                default_colors: Mutex::new(DefaultColors::default()),
-                stream_progress: TerminalStreamProgress::default(),
-                writer: Mutex::new(Box::new(std::io::sink())),
-                master: Mutex::new(Box::new(TestHostMaster {
-                    size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
-                })),
-                killer: Mutex::new(Box::new(TestHostKiller)),
-                pid: None,
-                command: vec!["/bin/cat".into()],
-                cwd: None,
-                size: Mutex::new((80, 24)),
-                cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
-                viewer_sizes: Mutex::new(HashMap::new()),
-                taps: Mutex::new(HashMap::new()),
-                broadcast_lock: Mutex::new(()),
-                sequence: AtomicU64::new(0),
-                smart: SmartStreamState::new(),
-                source_order_lock: Mutex::new(()),
-                parser_commands,
-                parser_budget: ParserBudget::new(1),
-                parser_progress: (Mutex::new(0), Condvar::new()),
-                next_client: AtomicU64::new(1),
-                dead: AtomicBool::new(false),
-                launch_owner_claimed: AtomicBool::new(false),
-                launch_owner_stream_ready: AtomicBool::new(false),
-                launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
-                active_client_streams: AtomicUsize::new(0),
-                accept_waker: AcceptWaker::new().unwrap(),
-                child_exit: (Mutex::new(None), Condvar::new()),
-                child_waitable: AtomicBool::new(false),
-                pty_drained: AtomicBool::new(false),
-                exit_published: AtomicBool::new(false),
-                exit_record_path: std::env::temp_dir().join(format!(
-                    "cmux-host-test-exit-{}-{}",
-                    std::process::id(),
-                    RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-                )),
-                exit_publish_requests,
-                force_pty_drain: AtomicBool::new(false),
-                pty_drain_waker: Mutex::new(pty_drain_waker),
-                termination_started: AtomicBool::new(false),
-                child_signal_lock: Mutex::new(()),
-                child_reaped: AtomicBool::new(false),
-                group_escalation_complete: AtomicBool::new(false),
-                fail_next_resize_publication: AtomicBool::new(false),
-            });
-            HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
-            host
-        }
-
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-{name}-{}-{}",
@@ -7090,6 +6336,9 @@ mod unix {
                 supports_terminate_ack: true,
                 supports_input_ack: true,
                 supports_terminal_metadata: true,
+                supports_clipboard_read: false,
+                supports_viewer_size_priority: true,
+                supports_pty_custody: false,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -7116,6 +6365,9 @@ mod unix {
                 supports_terminate_ack: false,
                 supports_input_ack: true,
                 supports_terminal_metadata: false,
+                supports_clipboard_read: false,
+                supports_viewer_size_priority: false,
+                supports_pty_custody: false,
             };
             let record_path = std::env::temp_dir().join(format!(
                 "cmux-input-ack-surface-{}-{}.json",
@@ -7150,6 +6402,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             (attachment, host)
         }
@@ -7220,6 +6473,7 @@ mod unix {
                     images: 10,
                     placements: 20,
                 },
+                seed: b"seeded".to_vec(),
             };
 
             let decoded = HostLaunch::decode(&launch.encode().unwrap()).unwrap();
@@ -7227,7 +6481,7 @@ mod unix {
             assert_eq!(decoded.cell_pixels, (9, 18));
             assert_eq!(decoded.kitty_graphics_limits, launch.kitty_graphics_limits);
             assert_eq!(decoded.command, launch.command);
-            assert_eq!(decoded.extra_env, launch.extra_env);
+            assert_eq!((decoded.extra_env, decoded.seed), (launch.extra_env, launch.seed));
             assert_eq!(
                 decode_default_colors_payload(&encode_default_colors_payload(default_colors))
                     .unwrap(),
@@ -7274,6 +6528,7 @@ mod unix {
                 extra_env: Vec::new(),
                 default_colors: DefaultColors::default(),
                 kitty_graphics_limits: KittyGraphicsLimits::default(),
+                seed: Vec::new(),
             };
             let mut input = Vec::new();
             write_frame(&mut input, &bootstrap.into_frame(1)).unwrap();
@@ -7640,6 +6895,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -7695,6 +6951,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
 
             let error = match attachment.begin_input_confirmed(b"must-not-send") {
@@ -7963,6 +7220,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -8013,6 +7271,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let peer = thread::spawn(move || {
                 let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];
@@ -8303,6 +7562,7 @@ mod unix {
                 legacy.supports_terminate_ack = version >= 3;
                 legacy.supports_input_ack = false;
                 legacy.supports_terminal_metadata = false;
+                legacy.supports_viewer_size_priority = false;
                 validate_terminal_host_record(&record_path, &legacy).unwrap();
                 legacy.supports_input_ack = true;
                 assert!(
@@ -8332,6 +7592,7 @@ mod unix {
             legacy.supports_terminate_ack = false;
             legacy.supports_input_ack = false;
             legacy.supports_terminal_metadata = false;
+            legacy.supports_viewer_size_priority = false;
             let legacy_path = legacy.record_path(root);
             write_record(&legacy_path, &legacy).unwrap();
 
@@ -8364,17 +7625,19 @@ mod unix {
             assert_eq!(normalize_terminal_geometry(u16::MAX, 1).unwrap(), (10_000, 1));
             assert!(normalize_terminal_geometry(10_000, 10_000).is_err());
 
-            let viewers = Mutex::new(HashMap::from([(1, (80, 24))]));
+            let viewers = Mutex::new(ViewerSizes::default());
+            viewers.lock().unwrap().sizes.insert(1, (80, 24));
             let error = mutate_viewer_sizes(
                 &viewers,
-                |sizes| {
-                    sizes.insert(2, (70, 20));
+                |set| {
+                    set.sizes.insert(2, (70, 20));
                 },
                 |_| anyhow::bail!("injected PTY resize failure"),
             )
             .unwrap_err();
             assert!(error.to_string().contains("injected PTY"));
-            assert_eq!(*viewers.lock().unwrap(), HashMap::from([(1, (80, 24))]));
+            assert_eq!(viewers.lock().unwrap().sizes, HashMap::from([(1, (80, 24))]));
+            assert!(viewers.lock().unwrap().preferred.is_empty());
         }
 
         #[test]
@@ -8394,6 +7657,7 @@ mod unix {
                             connect_record,
                             connect_record_path,
                             Duration::from_millis(30),
+                            OwnerIntent::Surface,
                         )
                         .is_err(),
                     )
@@ -8444,6 +7708,7 @@ mod unix {
                     record.clone(),
                     record_path.clone(),
                     Duration::from_millis(30),
+                    OwnerIntent::OneShot,
                 )
                 .is_err()
             );
@@ -8499,6 +7764,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let (release_ack_tx, release_ack_rx) = std::sync::mpsc::channel();
             let resolver = {
@@ -8616,6 +7882,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let (output_queued, output_seen) = sync_channel(1);
             let (release_ack, ack_release) = sync_channel(1);
@@ -8777,6 +8044,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -8916,6 +8184,7 @@ mod unix {
                 record.clone(),
                 record_path.clone(),
                 Duration::from_secs(1),
+                OwnerIntent::Surface,
             )
             .unwrap();
             assert_eq!(attachment.protocol_version(), LEGACY_PROTOCOL_VERSION);
@@ -9031,6 +8300,7 @@ mod unix {
                 record.clone(),
                 record_path.clone(),
                 Duration::from_secs(1),
+                OwnerIntent::Surface,
             );
             let saw_legacy = server.join().unwrap().unwrap();
             let attachment = result.expect("legacy fallback did not adopt the live shell");
@@ -9795,7 +9065,7 @@ mod unix {
 
         #[test]
         fn viewer_resize_apply_order_cannot_invert_reduced_sizes() {
-            let viewer_sizes = Arc::new(Mutex::new(HashMap::new()));
+            let viewer_sizes = Arc::new(Mutex::new(ViewerSizes::default()));
             let applied = Arc::new(Mutex::new(Vec::new()));
             let (first_applying_tx, first_applying_rx) = std::sync::mpsc::channel();
             let (release_first_tx, release_first_rx) = std::sync::mpsc::channel();
@@ -9806,8 +9076,8 @@ mod unix {
                 thread::spawn(move || {
                     mutate_viewer_sizes(
                         &viewer_sizes,
-                        |sizes| {
-                            sizes.insert(1, (120, 40));
+                        |set| {
+                            set.sizes.insert(1, (120, 40));
                         },
                         |desired| {
                             first_applying_tx.send(()).unwrap();
@@ -9830,9 +9100,9 @@ mod unix {
                     second_attempting_tx.send(()).unwrap();
                     mutate_viewer_sizes(
                         &viewer_sizes,
-                        |sizes| {
+                        |set| {
                             second_mutating_tx.send(()).unwrap();
-                            sizes.insert(2, (80, 24));
+                            set.sizes.insert(2, (80, 24));
                         },
                         |desired| {
                             applied.lock().unwrap().push(desired.unwrap());
@@ -9853,11 +9123,171 @@ mod unix {
                 viewer_sizes
                     .lock()
                     .unwrap()
+                    .sizes
                     .values()
                     .copied()
                     .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1))),
                 Some((80, 24))
             );
+        }
+
+        fn apply_viewer_mutation(
+            viewers: &Mutex<ViewerSizes>,
+            mutation: impl FnOnce(&mut ViewerSizes),
+        ) -> Option<(u16, u16)> {
+            let mut applied = None;
+            mutate_viewer_sizes(viewers, mutation, |desired| {
+                applied = desired;
+                Ok(())
+            })
+            .unwrap();
+            applied
+        }
+
+        #[test]
+        fn viewer_size_priority_absent_keeps_the_per_dimension_minimum() {
+            let viewers = Mutex::new(ViewerSizes::default());
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(1, (80, 24));
+                set.sizes.insert(2, (120, 20));
+            });
+            assert_eq!(desired, Some((80, 20)));
+        }
+
+        #[test]
+        fn viewer_size_priority_larger_preferred_viewer_wins_until_it_releases_or_leaves() {
+            let viewers = Mutex::new(ViewerSizes::default());
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(1, (80, 24));
+            });
+            assert_eq!(desired, Some((80, 24)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(2, (120, 40));
+                set.preferred.insert(2);
+            });
+            assert_eq!(desired, Some((120, 40)));
+
+            // A smaller legacy report no longer reduces the grid.
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(1, (60, 20));
+            });
+            assert_eq!(desired, Some((120, 40)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.release(2));
+            assert_eq!(desired, Some((60, 20)));
+
+            // Priority belongs to the connection, so a later report regains it.
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(2, (100, 30));
+            });
+            assert_eq!(desired, Some((100, 30)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.remove_client(2));
+            assert_eq!(desired, Some((60, 20)));
+            let viewers = viewers.lock().unwrap();
+            assert_eq!(viewers.sizes, HashMap::from([(1, (60, 20))]));
+            assert!(viewers.preferred.is_empty());
+        }
+
+        #[test]
+        fn viewer_size_priority_reduces_only_among_preferred_viewers() {
+            let viewers = Mutex::new(ViewerSizes::default());
+            let desired = apply_viewer_mutation(&viewers, |set| {
+                set.sizes.insert(1, (40, 10));
+                set.sizes.insert(2, (120, 40));
+                set.sizes.insert(3, (100, 50));
+                set.preferred.extend([2, 3]);
+            });
+            assert_eq!(desired, Some((100, 40)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.remove_client(2));
+            assert_eq!(desired, Some((100, 50)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.release(3));
+            assert_eq!(desired, Some((40, 10)));
+
+            let desired = apply_viewer_mutation(&viewers, |set| set.remove_client(1));
+            assert_eq!(desired, None);
+        }
+
+        #[test]
+        fn viewer_size_priority_failed_apply_rolls_back_preferred_membership() {
+            let viewers = Mutex::new(ViewerSizes::default());
+            viewers.lock().unwrap().sizes.insert(1, (80, 24));
+            let before = viewers.lock().unwrap().clone();
+            let error = mutate_viewer_sizes(
+                &viewers,
+                |set| {
+                    set.sizes.insert(2, (120, 40));
+                    set.preferred.insert(2);
+                },
+                |desired| {
+                    assert_eq!(desired, Some((120, 40)));
+                    anyhow::bail!("injected PTY resize failure")
+                },
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("injected PTY"));
+            assert_eq!(*viewers.lock().unwrap(), before);
+        }
+
+        #[test]
+        fn viewer_size_priority_is_negotiated_only_for_resizing_renderers() {
+            let preferred = FLAG_VIEWER_SIZE_ACKS | FLAG_VIEWER_SIZE_PRIORITY;
+            let legacy = FLAG_VIEWER_SIZE_ACKS;
+            let ttl = Duration::from_secs(1);
+            for (role, rights, flags, reserved, negotiated) in [
+                (ClientRole::Renderer, CapabilityRights::RENDERER, preferred, true, true),
+                (ClientRole::Renderer, CapabilityRights::RENDERER, legacy, true, false),
+                (ClientRole::Renderer, CapabilityRights::READ, preferred, false, false),
+                (ClientRole::Admin, CapabilityRights::ADMIN, preferred, false, false),
+            ] {
+                let host = exited_host_fixture();
+                let token = if role == ClientRole::Admin {
+                    host.owner_token
+                } else {
+                    host.capabilities.mint(host.terminal_id, rights, ttl).unwrap()
+                };
+                let mut hello = ClientHello {
+                    min_version: PROTOCOL_VERSION,
+                    max_version: PROTOCOL_VERSION,
+                    role,
+                    requested_rights: rights,
+                    terminal_id: host.terminal_id,
+                    token,
+                }
+                .into_frame(1);
+                hello.flags = flags;
+                let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+                client_stream.set_read_timeout(Some(ttl)).unwrap();
+                let server_host = host.clone();
+                let server = thread::spawn(move || {
+                    serve_client_with_snapshot_timeout(server_host, server_stream, ttl)
+                });
+
+                write_frame(&mut client_stream, &hello).unwrap();
+                let host_hello = read_required_frame(&mut client_stream, "host hello").unwrap();
+                assert_eq!(host_hello.kind, MessageKind::HostHello);
+                assert_eq!(
+                    host_hello.flags & FLAG_VIEWER_SIZE_PRIORITY != 0,
+                    negotiated,
+                    "{role:?} {rights:?} flags {flags:#x}"
+                );
+                let snapshot = read_required_frame(&mut client_stream, "snapshot").unwrap();
+                assert_eq!(snapshot.kind, MessageKind::Snapshot);
+                let colors = read_required_frame(&mut client_stream, "colors").unwrap();
+                assert_eq!(colors.kind, MessageKind::Colors);
+                {
+                    let viewers = host.viewer_sizes.lock().unwrap();
+                    assert_eq!(viewers.sizes.get(&1).copied(), reserved.then_some((80, 24)));
+                    assert_eq!(viewers.preferred.contains(&1), negotiated);
+                }
+
+                let _ = client_stream.shutdown(std::net::Shutdown::Both);
+                server.join().unwrap().unwrap();
+                assert_eq!(*host.viewer_sizes.lock().unwrap(), ViewerSizes::default());
+            }
         }
 
         #[test]
@@ -10315,19 +9745,25 @@ mod unix {
 }
 
 #[cfg(unix)]
+pub use unix::unadoptable::*;
+#[cfg(unix)]
 pub(crate) use unix::{
-    ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
-    acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version, load_terminal_host_records_for_reset,
+    ClipboardReadSignal, ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
+    StandbyTerminalHost, acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
+    decode_host_resize_payload_for_version, launch_terminal_host_from, launch_terminal_host_seeded,
+    live_successor_record, load_terminal_host_records_for_reset, record_owner_token,
+    sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{
-    HostAttachment, acknowledge_terminal_host_exit_record, adopt_terminal_host,
-    decode_host_snapshot_payload, encode_host_snapshot_payload, isolate_terminal_host_process_fds,
-    launch_terminal_host, launch_terminal_host_with_identity, load_terminal_host_exit_records,
-    load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
-    terminal_host_exit_record, terminal_host_record_liveness, terminal_host_root,
-    validate_terminal_host_exit_record, validate_terminal_host_record,
+    HostAttachment, PtyCustody, TerminalHostAdoption, acknowledge_terminal_host_exit_record,
+    adopt_terminal_host, decode_host_snapshot_payload, encode_host_snapshot_payload,
+    isolate_terminal_host_process_fds, launch_terminal_host, launch_terminal_host_adopting,
+    launch_terminal_host_with_identity, load_terminal_host_exit_records,
+    load_terminal_host_records, remove_stale_terminal_host_record,
+    request_terminal_host_pty_custody, serve_terminal_host_stdio, terminal_host_exit_record,
+    terminal_host_record_liveness, terminal_host_root, validate_terminal_host_exit_record,
+    validate_terminal_host_record,
 };
 #[cfg(all(unix, test))]
 pub(crate) use unix::{

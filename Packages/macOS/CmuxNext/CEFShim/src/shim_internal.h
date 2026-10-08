@@ -1,6 +1,7 @@
 // Internal state shared by the shim translation units.
 #pragma once
 
+#include <functional>
 #include <map>
 #include <vector>
 #include <string>
@@ -26,6 +27,13 @@ struct ForkApi {
   int (*tab_activate)(int) = nullptr;
   // API version 14: one history step to an entry (Back/Forward menus).
   int (*tab_go_to_offset)(int, int) = nullptr;
+  // API version 15: saved passwords into a profile's password store
+  // (entries laid out as cmux_shim_password_entry, which cef_cmux.h's
+  // cmux_password_entry matches), and password filling per tab.
+  int (*password_import)(const char*, const cmux_shim_password_entry*, int, void (*)(void*, int, int, int, int), void*) = nullptr;
+  int (*tab_set_password_fill)(int, int) = nullptr;
+  // API version 16: a user-owned copy of a tab (history, sessionStorage).
+  int (*tab_duplicate)(int, int, int) = nullptr;
   int (*tab_window_id)(int) = nullptr;
   char* (*ext_actions)(int, int) = nullptr;
   int (*ext_action_run)(int, const char*, int, int) = nullptr;
@@ -68,6 +76,16 @@ struct ForkApi {
   void (*side_panel_watch)(int) = nullptr;
   char* (*side_panel_state)(int) = nullptr;
   int (*side_panel_press)(int, const char*) = nullptr;
+  // API version 18: profile (Touch ID) passkeys, metadata only.
+  int (*profile_passkeys_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
+  int (*profile_passkey_delete)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 18: password manager core (shim_password_core.mm).
+  int (*password_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
+  int (*password_remove)(const char*, const char* const*, int, void (*)(void*, int), void*) = nullptr;
+  int (*password_exception_remove)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  int (*password_set_username)(const char*, const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  int (*password_reveal)(const char*, const char*, void (*)(void*, const char*, size_t), void*) = nullptr;
+  int (*password_export)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
 };
 
 struct Host {
@@ -97,6 +115,27 @@ void Emit(int kind,
 std::map<int, CefRefPtr<CefBrowser>>& browsers();
 CefRefPtr<CefBrowser> BrowserById(int browser_id);
 
+// DevTools protocol traffic of the host (shim_devtools_protocol.mm, UI
+// thread). The next id for a shim-internal call of browser_id (1 ..
+// 2^30 - 1), or 0 when the browser used them all up.
+int NextInternalDevToolsId(int browser_id);
+// OnDevToolsMessage: forwards raw-send replies and watched events as
+// CMUX_SHIM_DEVTOOLS_EVENT. True when the message is consumed (a raw-send
+// reply), so it never reaches OnDevToolsMethodResult.
+bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_size);
+// The browser closed: drop its watch, raw-send mark and id counter.
+void ForgetDevToolsProtocol(int browser_id);
+
+// Profile preference watches (shim_prefs.mm, UI thread).
+void ForgetPreferenceWatches(const std::string& key);
+void ReleasePreferenceWatches();
+
+// cmux-page:// (shim_page_scheme.mm). Registers every page added so far on
+// `context` (each profile keeps its own scheme handler factories).
+void RegisterPageSchemes(CefRefPtr<CefRequestContext> context);
+// Registers them on the global context once CEF is initialized.
+void InstallPageSchemes();
+
 // Browsers the host asked to close (so DoClose can tell window.close apart).
 void MarkHostClose(int browser_id);
 bool TakeHostClose(int browser_id);
@@ -121,6 +160,8 @@ bool IsOffTheRecordKey(const std::string& key);
 // Drops the shim's reference to the context of key (and its proxy entry).
 void ReleaseRequestContext(const std::string& key);
 void ForgetContextProxy(const std::string& key);
+// Every request context the shim holds (UI thread).
+void ForEachRequestContext(const std::function<void(CefRefPtr<CefRequestContext>)>& body);
 // The initialized context of cache_path this launch, or null.
 CefRefPtr<CefRequestContext> ExistingRequestContext(const std::string& cache_path);
 
@@ -129,7 +170,12 @@ void ApplyContextProxy(CefRefPtr<CefRequestContext> context, const std::string& 
 bool IsLoopbackHost(const std::string& host);
 // True when a main-frame navigation of browser_id to url breaks its guard.
 bool NavigationViolatesGuard(int browser_id, const std::string& url);
+// True when browser_id is agent-driven (guard bit 4) and url is a Chromium
+// page agents may not reach (AgentURLPolicy.swift).
+bool NavigationRefusedForAgent(int browser_id, const std::string& url);
 void ForgetNavigationGuard(int browser_id);
+// True when url is the sign-in callback of browser_id (cmux_shim_set_auth_callback).
+bool NavigationIsAuthCallback(int browser_id, const std::string& url);
 
 // One client per Chromium window. The first OnAfterCreated through it reports
 // `request`; later tabs of the window (cmux_tab_add, chrome.tabs.create,
@@ -140,14 +186,20 @@ CefRefPtr<CefClient> MakeClient(int request);
 CefRefPtr<CefClient> DefaultClient();
 
 // Popups a page asked for (OnBeforePopup), waiting for their
-// OnAfterCreated: the disposition and window features go with the new tab's
-// AFTER_CREATED event (shim_windows.mm).
-void RememberPopup(int opener, int disposition, const CefPopupFeatures& features);
-// Returns opener << 32 | disposition for AFTER_CREATED's b, and the window
-// features ("x,y,width,height" or ""). Takes the opener's oldest popup.
-int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features);
+// OnAfterCreated: the target URL, disposition, gesture and window features go
+// with the new tab's AFTER_CREATED event (shim_windows.mm, PendingPopups in
+// download_state.h). A popup Chromium aborts drops out (AbortPopup); one
+// older than PendingPopups::kLifetimeMs expires.
+void RememberPopup(int opener, int popup_id, const std::string& url, int disposition, bool user_gesture,
+                   const CefPopupFeatures& features);
+void AbortPopup(int opener, int popup_id);
+// Returns opener << 32 | user_gesture << 16 | disposition for AFTER_CREATED's
+// b, the window features ("x,y,width,height" or "") and the target URL. Takes
+// the opener's popup whose target URL is the new tab's visible URL, else its
+// oldest live popup.
+int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features, std::string* url);
 void ForgetPopups(int opener);
-// Chrome commands that would open a window of Chromium's own.
+// Chromium commands that would open a window of Chromium's own.
 bool IsWindowCommand(int command_id);
 // Binds the host's window request handler to the fork (API 8).
 void InstallWindowRequestHandler();
@@ -166,6 +218,13 @@ std::string DisplayTitle(CefRefPtr<CefBrowser> browser, const std::string& title
 // the Chrome Web Store's origin, or null for any other URL (shim_webstore.mm).
 CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url);
 bool IsWebStoreURL(const std::string& url);
+
+// Downloads (shim_downloads.mm, UI thread). The page clients' download
+// handler: every download waits for the host's path (DOWNLOAD_STARTED,
+// cmux_shim_download_continue) and reports its progress and end.
+CefRefPtr<CefDownloadHandler> DownloadHandler();
+// Releases every waiting and running download callback (before CefShutdown).
+void ForgetDownloads();
 
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);

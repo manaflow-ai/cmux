@@ -1,0 +1,507 @@
+{
+ "transcript.send": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": -0.0,
+  "to": -122.0,
+  "components": [
+   {
+    "delay": 0.0004,
+    "duration": 0.2999,
+    "bounce": 0.0,
+    "delta": -122.0
+   }
+  ],
+  "residual": {
+   "rms": 0.069,
+   "max": 0.235
+  },
+  "frames": 44,
+  "droppedTorn": []
+ },
+ "bubble.right": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1154.0,
+  "to": 1215.0,
+  "components": [
+   {
+    "delay": -0.0064,
+    "duration": 0.5265,
+    "bounce": 0.3011,
+    "delta": 61.0
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 29,
+  "droppedTorn": []
+ },
+ "bubble.width": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "components": [
+   {
+    "delay": 0.0063,
+    "duration": 0.3496,
+    "bounce": 0.2888,
+    "delta": -695.128
+   },
+   {
+    "delay": 0.0309,
+    "duration": 0.1403,
+    "bounce": 0.8,
+    "delta": -56.872
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 30,
+  "droppedTorn": [],
+  "refit": {
+   "rmsPt": {
+    "send-typed-take1": 8.0,
+    "send-typed-media-take1": 7.0,
+    "typing-unfocused-take1": 5.1
+   },
+   "rmsPtBefore": {
+    "send-typed-take1": 11.0,
+    "send-typed-media-take1": 9.7,
+    "typing-unfocused-take1": 9.2
+   },
+   "method": "2026-10-06: joint refit on the lossless send-typed-take1, send-typed-media-take1 (mid-row left edge, Messages' own new frames 0-0.32 s after its first send frame) and typing-unfocused-take1 (left edge on the row 1030 pt, 0-0.1 s), each take weighted equally. Target width = ours' width (previous springs, takes 81) plus ours' left edge minus Messages' left edge, divided by bubble.scale; right edge, centerY and scale unchanged (ours' right edge was within 1.5 pt). Curve time = our first send frame + 14.3 ms (fitted on ours takes 81, rms 0.78 pt). A fit to send-typed alone gives 2.4 / 3.2 pt there but 30 pt on typing-unfocused (Messages narrows more slowly in that take)."
+  }
+ },
+ "bubble.centerY": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1997.0,
+  "to": 1904.0,
+  "components": [
+   {
+    "delay": 0.0473,
+    "duration": 0.5314,
+    "bounce": 0.2681,
+    "delta": -93.0
+   }
+  ],
+  "residual": {
+   "maxPx": {
+    "T": 3.108,
+    "B": 5.19,
+    "L": 8.511
+   },
+   "frames": 32,
+   "method": "fit_flight_luma.py: centerY and scale refit on luma-measured T/B/L edges with the app geometry"
+  },
+  "frames": 29,
+  "droppedTorn": [
+   4.6833,
+   4.7,
+   4.8
+  ]
+ },
+ "bubble.scale": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "scale",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0748,
+    "duration": 0.3882,
+    "bounce": 0.4956,
+    "delta": -0.4512
+   },
+   {
+    "delay": 0.15,
+    "duration": 0.2336,
+    "bounce": 0.0,
+    "delta": 0.4512
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 36,
+  "droppedTorn": [
+   4.7667,
+   4.7833,
+   4.8167
+  ]
+ },
+ "field.top": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1933.1,
+  "to": 1999.1,
+  "components": [
+   {
+    "delay": 0.0048,
+    "duration": 0.3853,
+    "bounce": 0.1389,
+    "delta": 66.0
+   }
+  ],
+  "residual": {
+   "rms": 0.296,
+   "max": 0.78
+  },
+  "frames": 17,
+  "droppedTorn": [
+   4.65
+  ]
+ },
+ "field.opacity": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "opacity",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0595,
+    "duration": 0.035,
+    "bounce": 0.0,
+    "curve": [
+     0.42,
+     0.0,
+     0.58,
+     1.0
+    ],
+    "delta": -0.43
+   },
+   {
+    "delay": 0.1035,
+    "duration": 0.004,
+    "bounce": 0.0,
+    "curve": [
+     0.0,
+     0.0,
+     1.0,
+     1.0
+    ],
+    "delta": -0.57
+   },
+   {
+    "delay": 0.1073,
+    "duration": 0.2578,
+    "bounce": 0.0,
+    "curve": [
+     0.4731,
+     0.0885,
+     0.4263,
+     0.5763
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.023
+  },
+  "frames": 56,
+  "droppedTorn": [],
+  "fit": {
+   "method": "field fill (median of x 140-165, y 1003-1018 pt, grey frames only) as a fraction between the background and the rest fill, at Messages' own new frames 67-358 ms after its first send frame; send-typed-take1 and send-typed-media-take1 (lossless, 120 Hz); curve time = our first send frame + 11.1 ms (ours-container take ffcontainer-send-typed-take80); every delay then +4.5 ms, because the render-server fade (field container layer) shows the curve at our first send frame + 15.6 ms (takes 84, rms 0.008), so the drop to 0 lands at +88 ms, midway between Messages' frames at +83 and +92 ms. Messages fades to 0.57 by +75 ms, drops to 0 between +83 and +92 ms, and is back by +350 ms. Was a two-spring fit on the lossy 54 fps original (rms 0.10 on these frames)."
+  }
+ },
+ "transcript.delivered": {
+  "event": "delivered",
+  "eventTime": 5.6658,
+  "unit": "px@2x",
+  "from": 0.004,
+  "to": -31.997,
+  "components": [
+   {
+    "delay": -0.0024,
+    "duration": 0.2626,
+    "curve": [
+     0.4253,
+     0.169,
+     0.5558,
+     0.7203
+    ],
+    "delta": -32.001
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 0.422,
+    "120fps Test12": 0.892,
+    "120fps Test13": 0.875
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 1.714,
+    "one+v0": 1.714,
+    "curve": 0.892,
+    "two": 0.901
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 29,
+  "droppedTorn": []
+ },
+ "transcript.read": {
+  "event": "read",
+  "eventTime": 6.602,
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": 34.996,
+  "components": [
+   {
+    "delay": 0.0205,
+    "duration": 0.2709,
+    "curve": [
+     0.4149,
+     0.1242,
+     0.5805,
+     0.9411
+    ],
+    "delta": 34.996
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 1.023,
+    "120fps Test12": 0.844,
+    "120fps Test13": 0.828
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 2.088,
+    "one+v0": 2.088,
+    "curve": 1.023,
+    "two": 0.948
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 28,
+  "droppedTorn": [
+   6.6333,
+   6.65,
+   6.7167,
+   6.8167
+  ]
+ },
+ "transcript.typing": {
+  "event": "typing",
+  "eventTime": 8.9699,
+  "unit": "px@2x",
+  "from": -0.0,
+  "to": -70.0,
+  "components": [
+   {
+    "delay": -0.0196,
+    "duration": 0.2896,
+    "curve": [
+     0.3498,
+     0.0353,
+     0.6418,
+     0.9999
+    ],
+    "delta": -70.0
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 0.874,
+    "120fps Test12": 1.269,
+    "120fps Test13": 1.4
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 4.581,
+    "one+v0": 4.581,
+    "curve": 1.4,
+    "two": 1.63
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 37,
+  "droppedTorn": []
+ },
+ "transcript.receive": {
+  "event": "receive",
+  "eventTime": 10.5667,
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -62.0,
+  "components": [
+   {
+    "delay": -0.0183,
+    "duration": 0.3008,
+    "bounce": 0.0975,
+    "delta": -76.994
+   },
+   {
+    "delay": 0.0008,
+    "duration": 0.1944,
+    "bounce": 0.589,
+    "delta": 14.994
+   }
+  ],
+  "residual": {
+   "rms": 0.116,
+   "max": 0.474
+  },
+  "frames": 78,
+  "droppedTorn": [
+   10.5667,
+   10.5833
+  ]
+ },
+ "bubble.opacity": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "opacity",
+  "from": 0.59,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0927,
+    "duration": 0.1624,
+    "bounce": 0.1185,
+    "delta": 0.41
+   }
+  ],
+  "residual": {
+   "rms": 0.016,
+   "max": 0.038
+  },
+  "frames": 12,
+  "droppedTorn": [
+   4.7
+  ]
+ },
+ "transcript.insert": {
+  "event": "insert",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -156.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.2834,
+    "curve": [
+     0.4481,
+     0.1998,
+     0.6216,
+     1.0
+    ],
+    "delta": -156.0
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "120fps Test12": 2.664,
+    "120fps Test13": 2.181
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 8.187,
+    "one+v0": 8.187,
+    "curve": 2.664,
+    "two": 3.168
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  }
+ },
+ "transcript.receiveMedia": {
+  "event": "receive (photo)",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -338.0,
+  "components": [
+   {
+    "delay": 0.0341,
+    "duration": 0.306,
+    "curve": [
+     0.3636,
+     0.0,
+     0.6309,
+     1.0353
+    ],
+    "delta": -338.0
+   }
+  ],
+  "residual": {
+   "rmsPt": 0.104,
+   "maxPt": 0.25,
+   "method": "lossless send-typed-media-take1, last outgoing bubble top 7.45-8.1 s, curve fit; time 0 = our receive commit (onset - 20 ms)"
+  }
+ },
+ "transcript.tapback": {
+  "event": "my tapback (rows above the part)",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -55.0,
+  "components": [
+   {
+    "delay": 0.0897,
+    "duration": 0.2915,
+    "curve": [
+     0.408,
+     0.0,
+     0.5629,
+     0.9998
+    ],
+    "delta": -55.0
+   }
+  ],
+  "residual": {
+   "rmsPt": 0.251,
+   "maxPt": 0.929,
+   "method": "lossless tapback-menu-heart-take1, rows above Charlie (y 120-280 pt) vertical shift, curve fit; Messages starts at +0.4997 s after the heart click, our react commit at +0.410 s (takes 40, 60, 61: spring fit 0.409-0.411)"
+  }
+ }
+}

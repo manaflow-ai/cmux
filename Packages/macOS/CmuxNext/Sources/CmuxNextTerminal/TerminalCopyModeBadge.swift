@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// The "vim" pill in the terminal's top-right corner while copy mode is on
 /// (the old app's copy-mode indicator). Clicks go to the terminal below.
@@ -16,7 +17,7 @@ final class TerminalCopyModeBadge: NSVisualEffectView {
         wantsLayer = true
         layer?.cornerRadius = 14
         layer?.masksToBounds = true
-        layer?.borderWidth = 1
+        layer?.borderWidth = Metrics.lineWidth(1)
         layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
 
         let icon = NSImageView(image: NSImage(systemSymbolName: "keyboard.badge.ellipsis", accessibilityDescription: nil) ?? NSImage())

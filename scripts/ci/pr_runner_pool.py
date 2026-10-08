@@ -3,7 +3,7 @@
 
 ci.yml's `changes` job calls this once per run, and every pull-request macOS
 job in the run reads the answer: compile admission, cli-product-tests after
-it, the Claude wrapper, remote daemon, package and Release build lanes. A run
+it, the remote daemon, package and Release build lanes. A run
 on a Blacksmith pool is never split across pools, because the compiled product
 only loads under the Xcode that linked it (#14163). A run on an owned pool may be, per job (see "Per-job placement"
 below).
@@ -113,8 +113,8 @@ when no owned pool fits the whole run, the run takes the owned pool with the
 most room (at least one job), and `owned_jobs` names the jobs that fit,
 in priority order (priority()): compile admission first (the heavy compile,
 and a mini keeps its warm DerivedData), then the light jobs
-(cli-product-tests, the Release build, the remote daemon and Claude wrapper
-lanes, and swift-package-tests when it builds no Release helper; see run_plan()).
+(cli-product-tests, the Release build, the remote daemon lane, and
+swift-package-tests when it builds no Release helper; see run_plan()).
 Each job counts one machine; the jobs after admission reuse its machine.
 Every other job of attempt 1 takes
 `retry_runner`, the Blacksmith pool on the lane's Xcode.
@@ -146,7 +146,7 @@ room for, by the same expected wait; a
 pool without one keeps the pool label for every job. A root job also holds
 one of the pool's machines, so it counts against both.
 
-Side lanes (the Claude wrapper, remote daemon and package lanes, light jobs
+Side lanes (the remote daemon and package lanes, light jobs
 that never touch a canonical root) take the pool's side label,
 `glaeda-side-<class>-xcode-<version>` (side_label()), the other runners of
 each mini, whenever the pool has a root count and more machines than root
@@ -275,8 +275,7 @@ request. A smaller pool (light) still splits, since the excess would wait
 past the owned-pool rescue's budget. With no owned pool it keeps its own route
 (MACOS_RUNNER_PR), since only an owned pool is a candidate for it. With no Blacksmith pool to compare against, its jobs may
 wait up to the queue rounds and the bound (owned_room()). Its side lanes (the
-Claude wrapper, the remote daemon and the
-universal Release build) are in its plan like a pull request's, and read the
+remote daemon and the universal Release build) are in its plan like a pull request's, and read the
 pick through the same inputs. Main's CI concurrency group holds one run at a time, so main holds at most
 one run's machines. ci-owned-pool-rescue.yml watches it like a pull request.
 
@@ -326,10 +325,14 @@ RUN_CLASSES = ("std", "light")
 # `glaeda-side-...` are its side runners, the other runners: the light side-lane workflows take it
 # (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
 # this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
-OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-|gui-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+XCODE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
+# Optional namespaces keep explicitly configured fleets (such as AWS) out of
+# the ordinary mini family while retaining the role labels' semantics.
+OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
+ROLE_NAMES = ("root", "side", "gui")
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
@@ -376,9 +379,9 @@ DEFAULT_MAIN_RESERVE = 0
 MAIN_REF = "refs/heads/main"
 MAIN_BRANCH = "main"
 # A pull request run holds several macOS machines at once, each job on its
-# own. Beside compile admission run the Claude wrapper, remote daemon and
-# package lanes; once admission passes, a full suite or a CLI change adds
-# cli-product-tests on admission's machine. A run takes an owned pool when
+# own. Beside compile admission run the remote daemon and package lanes;
+# once admission passes, a full suite adds cli-product-tests (the shell
+# regressions) on admission's machine. A run takes an owned pool when
 # its own peak (run_jobs) fits there by the expected wait and the queue bound
 # (owned_room()); a run whose peak is unknown needs MAX_RUN_JOBS. A run
 # created since the snapshot is looked up first (pull_request_routes_since):
@@ -386,22 +389,22 @@ MAIN_BRANCH = "main"
 # job without one means it took none. Its peak counts toward the queue bound,
 # and toward the wait only once it is older than a job (young_charge()).
 # Only a run still picking is replayed and charged REPLAYED_RUN_JOBS, the
-# peak of a compile-only run with the Claude wrapper and remote daemon lanes.
-# swift-package-tests (SWIFT_PACKAGE_JOB) is a third side lane on a run that
+# peak of a compile-only run with the remote daemon lane.
+# swift-package-tests (SWIFT_PACKAGE_JOB) is a second side lane on a run that
 # builds no Release helper (package_lane_owned()): a package change, or a full
-# suite with release_build false, which then peaks at all three side lanes
-# beside admission and cli-product-tests. MAX_RUN_JOBS counts all three;
+# suite with release_build false, which then peaks at both side lanes
+# beside admission and cli-product-tests. MAX_RUN_JOBS counts both;
 # the replay charge leaves out the package lane, which a compile-only run
 # carries only on a package change. release-build (RELEASE_BUILD_JOB) is the
 # package lane's alternative: it runs only on a full suite with release_build,
 # exactly when swift-package-tests builds the SDK 15 helper on Blacksmith, so a
-# run still has at most three side lanes.
-SIDE_LANES = 3
+# run still has at most two side lanes.
+SIDE_LANES = 2
 # The side lanes, plus admission and cli-product-tests, which reuses its machine.
 MAX_RUN_JOBS = SIDE_LANES + 1
 # The jobs such a run places, one more than its machines: cli-product-tests counts on its own.
 MAX_PLACED_JOBS = MAX_RUN_JOBS + 1
-REPLAYED_RUN_JOBS = 3
+REPLAYED_RUN_JOBS = 2
 # Owned pools once had a stricter snapshot age (20 minutes) than the rest,
 # but GitHub delays scheduled runs: the janitor's */10 cron fired 55 minutes
 # apart (23:59Z to 00:54Z, 2026-09-25) and every run skipped 40 idle minis.
@@ -488,25 +491,43 @@ def persistent(label: str) -> bool:
     return bool(OWNED_LABEL.fullmatch(label or ""))
 
 
+def _role_name(label: str) -> str:
+    """Return an owned label's role, including an optional fleet namespace."""
+    parts = (label or "").split("-")
+    return next((role for role in ROLE_NAMES if role in parts[1:3]), "")
+
+
 def root_label(label: str) -> str:
     """The root runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+    if not persistent(label) or _role_name(label):
         return ""
-    return ROOT_PREFIX + label.removeprefix("glaeda-")
+    return _role_label(label, "root")
 
 
 def side_label(label: str) -> str:
     """The side runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+    if not persistent(label) or _role_name(label):
         return ""
-    return SIDE_PREFIX + label.removeprefix("glaeda-")
+    return _role_label(label, "side")
 
 
 def gui_label(label: str) -> str:
     """The gui runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+    if not persistent(label) or _role_name(label):
         return ""
-    return GUI_PREFIX + label.removeprefix("glaeda-")
+    return _role_label(label, "gui")
+
+
+def _role_label(label: str, role: str) -> str:
+    """Insert a role after an optional namespace and before class metadata."""
+    parts = label.split("-")
+    try:
+        class_index = next(index for index, part in enumerate(parts) if part in RUN_CLASSES or part == "xl")
+    except StopIteration:
+        return ""
+    insert_at = 1 if class_index > 1 and parts[1] == "trusted" else min(2, class_index)
+    parts.insert(insert_at, role)
+    return "-".join(parts)
 
 
 def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
@@ -530,7 +551,7 @@ def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
 
 
 def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
-    """The label a pick's side lanes take: the pool's side label, or "" to keep the pool label.
+    """The label a pick's side lanes take: the pool's side label, or the pool when it is absent live.
 
     Only on a pool with a root count (the root and side runners are split),
     and only while the pool has machines beyond its root runners (routing_slots(): its
@@ -541,7 +562,14 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
         return ""
     if owned_slots.get(choice.runner, 0) <= owned_slots.get(choice.root_runner, 0):
         return ""
-    return side_label(choice.runner)
+    side = side_label(choice.runner)
+    # A live runner listing includes a zero for a side label that no online
+    # runner carries. Keep the jobs moving on the pool label until a side
+    # runner returns; a snapshot does not include zero-valued side labels and
+    # retains the configured side-label behavior above.
+    if side in owned_slots and owned_slots[side] <= 0:
+        return choice.runner
+    return side
 
 
 def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owned_slots: Mapping[str, int],
@@ -558,15 +586,19 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
     if not plan.side or not label or owned_slots.get(light, 0) <= owned_slots.get(root_label(light), 0):
         return "", ()
     # release-build stays with the picked pool: ci-macos.yml gives it only side_runner.
-    lanes = tuple(key for key in plan.side if key != RELEASE_BUILD_JOB)[:max(0, live_owned_free(runners, [label])[label])]
+    lanes = idle_placement(runners, label, tuple(key for key in plan.side if key != RELEASE_BUILD_JOB))
     return (label, lanes) if lanes else ("", ())
 
 
 def pool_label(label: str) -> str:
     """The owned pool a root, side or gui label's runners belong to; any other label unchanged."""
-    for prefix in (ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX):
-        if persistent(label) and label.startswith(prefix):
-            return "glaeda-" + label.removeprefix(prefix)
+    if not persistent(label):
+        return label
+    parts = label.split("-")
+    for role in ("root", "side", "gui"):
+        if role in parts[1:3]:
+            parts.remove(role)
+            return "-".join(parts)
     return label
 
 
@@ -649,32 +681,31 @@ class RunJobs:
 
 
 # A full suite with every side lane: what a run whose routing is unknown is charged.
-FULL_RUN = RunJobs(True, ("cli-product",), ("claude-wrapper", "remote-daemon", "swift-package"))
+FULL_RUN = RunJobs(True, ("cli-product",), ("remote-daemon", "swift-package"))
 
 
-def run_plan(*, macos: str | None, full_suite: str | None, claude_wrapper: str | None, cli: str | None,
+def run_plan(*, macos: str | None, full_suite: str | None,
              remote_daemon: str | None, swift_packages: str | None = None,
              release_build: str | None = None) -> RunJobs:
     """This run's macOS jobs, from the changes job's routing.
 
     Counted high on purpose: compile admission is assumed to run (the reuse
-    checks come later). ci-macos.yml runs admission for a macOS or a CLI change,
-    and cli-product-tests after it for a CLI change or a full suite. swift-package-tests is a
+    checks come later). ci-macos.yml runs admission for a macOS change,
+    and cli-product-tests (the shell regressions) after it for a full suite. swift-package-tests is a
     side lane only when package_lane_owned() says it may take the pool;
     `swift_packages` None (a caller that does not pass it) leaves it out.
     release-build is a side lane on a full suite with `release_build` true;
     None leaves it out.
     """
     full = flag(macos) and flag(full_suite)
-    side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full),
-                                     ("remote-daemon", flag(remote_daemon)),
+    side = tuple(key for key, on in (("remote-daemon", flag(remote_daemon)),
                                      (SWIFT_PACKAGE_JOB, package_lane_owned(
                                          full=full, full_suite=full_suite, swift_packages=swift_packages,
                                          release_build=release_build)),
                                      (RELEASE_BUILD_JOB, full and flag(release_build))) if on)
-    if not (flag(macos) or flag(cli)):
+    if not flag(macos):
         return RunJobs(False, (), side)
-    return RunJobs(True, ("cli-product",) if flag(cli) or full else (), side)
+    return RunJobs(True, ("cli-product",) if full else (), side)
 
 
 # swift-package-tests (ci-macos.yml): `swift test` per selected package into
@@ -712,20 +743,21 @@ def run_jobs(**routing: str | None) -> int:
 # Owned placement priority: the heavy compile, then light jobs.
 # release-build is not light (a 15-minute universal compile), but it follows
 # cli-product: it is the side lane that saves the most Blacksmith time.
-LIGHT_JOBS = ("cli-product", RELEASE_BUILD_JOB, "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
+LIGHT_JOBS = ("cli-product", RELEASE_BUILD_JOB, "remote-daemon", SWIFT_PACKAGE_JOB)
 # glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
 # cli-product-tests). The side lanes are not.
 ROOT_JOBS = "admission, cli-product"
 # The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
-SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB, RELEASE_BUILD_JOB)
+SIDE_LANE_JOBS = ("remote-daemon", SWIFT_PACKAGE_JOB, RELEASE_BUILD_JOB)
 
 
 def gui_token_job(key: str) -> bool:
     """A job that holds the mini's one gui token, so it takes the gui label (gui_runner()) where there is one.
 
-    cli-product-tests needs no console session but runs XCTest through the
-    runner user's one testmanagerd, which glaeda serializes with the gui token
-    (glaeda#1281, class `product`). On the root label it met a mini whose gui
+    cli-product-tests needs no console session. It ran the Swift CLI's XCTest
+    bundle through the runner user's one testmanagerd, which glaeda serializes
+    with the gui token (glaeda#1281, class `product`); it now runs only shell
+    regressions, but glaeda still classes it `product`, so it keeps the label. On the root label it met a mini whose gui
     token another job held, waited 240 s and was refused (cmux runs
     36314100892 and 36316398822, 2026-09-27).
     """
@@ -879,8 +911,12 @@ def routing_slots(raw: str | None, pr_xcode_app: str | None,
     if runners is None:
         return slots(raw, pr_xcode_app)
     labels = [label for pool_name in owned_pools(pr_xcode_app)
-              for label in (pool_name, root_label(pool_name), gui_label(pool_name))]
-    return {label: count for label, count in live_online(runners, labels).items() if count > 0}
+              for label in (pool_name, root_label(pool_name), side_label(pool_name), gui_label(pool_name))]
+    online = live_online(runners, labels)
+    # Keep zero-valued side labels so side_runner() can distinguish a live
+    # listing with no side capacity from the snapshot fallback.
+    return {label: count for label, count in online.items()
+            if count > 0 or label.startswith(SIDE_PREFIX)}
 
 
 def capability_slots(raw: str | None) -> dict[str, int]:
@@ -934,7 +970,7 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         label = str(label)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} has {count!r} machines, not a positive whole number")
-        elif label.startswith(("side-", SIDE_PREFIX)):
+        elif label.startswith("side-") or _role_name(label) == "side":
             # Side runners are a pool's machines less its root runners (side_runner()), so a count is a mistake.
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} names side runners, which are counted "
                             "as the pool's machines less its root runners")
@@ -958,8 +994,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
     for label, count in list(counted.items()):
         # Each root or gui runner is one of its pool's machines, so a larger count is a typo.
         machines = counted.get(pool_label(label), 0)
-        if label.startswith((ROOT_PREFIX, GUI_PREFIX)) and count > machines:
-            kind = "root" if label.startswith(ROOT_PREFIX) else "gui"
+        role = _role_name(label)
+        if role in ("root", "gui") and count > machines:
+            kind = role
             problems.append(f"{SLOTS_VARIABLE} gives {label} {count} {kind} runners, more than the "
                             f"{machines} machines of {pool_label(label)}")
             del counted[label]
@@ -1115,6 +1152,19 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
             if label in names:
                 free[label] += 1
     return free
+
+
+def idle_placement(runners: Sequence[Mapping[str, Any]], label: str, jobs: Sequence[str]) -> tuple[str, ...]:
+    """The first of `jobs` that `label`'s runners idle now take, one job per idle runner: no job queues.
+
+    The no-queue rule for jobs placed on an owned label as they start: the light
+    side lanes here (light_side_lanes()), and the macOS jobs of a side-lane
+    workflow, which has no picker (side_lane_placement.py). The rest keep their
+    fallback.
+    """
+    if not label:
+        return ()
+    return tuple(jobs)[:max(0, live_owned_free(runners, [label])[label])]
 
 
 def warm_key(commit: str | None) -> str:
@@ -2198,8 +2248,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # run is charged the most machines any run can hold.
     plan = FULL_RUN if "RUN_MACOS" not in env else run_plan(
         macos=env.get("RUN_MACOS"), full_suite=env.get("RUN_FULL_SUITE"),
-        claude_wrapper=env.get("RUN_CLAUDE_WRAPPER"),
-        cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
+        remote_daemon=env.get("RUN_REMOTE_DAEMON"),
         swift_packages=env.get("RUN_SWIFT_PACKAGES"), release_build=env.get("RUN_RELEASE_BUILD"))
     # What an owned pool must have free for the whole run: its owned-eligible
     # jobs at their peak.

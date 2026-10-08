@@ -8,6 +8,18 @@ if [ "$#" -ne 1 ]; then
 fi
 
 package_path="$1"
+if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
+  set -x
+  CMUX_UPDATE_MDM_SCHEMA=1 swift test --package-path "$package_path" --filter ManagedPreferencesManifestTests
+  CMUX_UPDATE_ACTION_SURFACES=1 swift test --package-path "$package_path" --filter SettingsSchemaExportTests
+  for file in docs/mdm/com.manaflow.cmux.json docs/mdm/com.manaflow.cmux.plist docs/mdm/managed-preferences.md schemas/settings/settings-schema.json; do
+    echo "BEGIN_ARTIFACT:$file"
+    base64 < "$file" | tr -d "\n"
+    echo
+    echo "END_ARTIFACT:$file"
+  done
+  exit 0
+fi
 suite_timeout_seconds="${CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS:-300}"
 if ! [[ "$suite_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS must be a positive integer" >&2
@@ -23,12 +35,30 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
+# The cmux-next web bundles are build output (cx-vn5) that the package reads at
+# test time: without them AgentPaneView.init returns nil and the pane suites crash.
+case "$(cd "$package_path" && pwd -P)" in
+  */Packages/macOS/CmuxNext)
+    (cd "$script_dir/../.." && "${CMUX_ENSURE_WEB_BUNDLES:-scripts/ci/ensure-web-bundles.sh}")
+    ;;
+esac
 # Keep process-global test state inside one suite. Some packages otherwise
 # finish every assertion but leave the aggregate Swift Testing runner waiting.
 swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
 python3 "$script_dir/require_swift_test_execution.py" \
   --list-filters "$evidence_dir/discovered-tests.txt" > "$evidence_dir/filters.txt"
+# swift build copies String Catalogs into the resource bundles uncompiled; without
+# the compiled <lang>.lproj tables, localization suites fail (cmux-next.yml and
+# package-test-lane.sh run the same step after their build).
+if [ -n "$(find "$package_path/Sources" -name '*.xcstrings' -print -quit 2>/dev/null)" ]; then
+  compile_catalogs="${CMUX_COMPILE_STRING_CATALOGS:-$script_dir/../cmux-next/compile-string-catalogs.sh}"
+  (cd "$package_path" && "$compile_catalogs")
+fi
 
+# Run every suite, so one early failure or hang does not hide the rest, then
+# list each suite's result and exit with the first failure's status.
+first_failure=0
+results=()
 while IFS= read -r suite; do
   [ -n "$suite" ] || continue
   echo "swift test $package_path --skip-build --filter $suite"
@@ -50,8 +80,28 @@ while IFS= read -r suite; do
       -- swift test --package-path "$package_path" --skip-build --filter "$suite" \
       < /dev/null 2>&1 | tee "$evidence_dir/execution.log" || suite_status=$?
   fi
-  if [ "$suite_status" -ne 0 ]; then
-    exit "$suite_status"
+  if [ "$suite_status" -eq 0 ]; then
+    python3 "$script_dir/require_swift_test_execution.py" --log "$evidence_dir/execution.log" \
+      || suite_status=$?
   fi
-  python3 "$script_dir/require_swift_test_execution.py" --log "$evidence_dir/execution.log"
+  if [ "$suite_status" -eq 0 ]; then
+    results+=("PASS $suite")
+  else
+    [ "$first_failure" -ne 0 ] || first_failure="$suite_status"
+    if [ "$suite_status" -eq 124 ]; then
+      results+=("FAIL (timed out) $suite")
+    else
+      results+=("FAIL (exit $suite_status) $suite")
+    fi
+  fi
 done < "$evidence_dir/filters.txt"
+
+failed=0
+for result in ${results[@]+"${results[@]}"}; do
+  [[ "$result" == PASS* ]] || failed=$((failed + 1))
+done
+echo "Swift test suites: $(( ${#results[@]} - failed )) passed, $failed failed"
+for result in ${results[@]+"${results[@]}"}; do
+  echo "  $result"
+done
+exit "$first_failure"

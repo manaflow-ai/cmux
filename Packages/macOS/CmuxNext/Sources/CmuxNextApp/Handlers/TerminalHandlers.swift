@@ -46,7 +46,6 @@ enum TerminalHandlers {
 
     private static func bindSurfaceBindings(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         let bindings: [(ActionID, String)] = [
-            ("terminal.clear", "clear_screen"),
             ("resetTerminal", "reset"),
             ("terminal.increaseFontSize", "increase_font_size:1"),
             ("terminal.decreaseFontSize", "decrease_font_size:1"),
@@ -55,10 +54,20 @@ enum TerminalHandlers {
             ("terminal.scrollPageDown", "scroll_page_down"),
             ("terminal.scrollToTop", "scroll_to_top"),
             ("terminal.scrollToBottom", "scroll_to_bottom"),
+            ("terminal.scrollToSelection", "scroll_to_selection"),
         ]
         for (id, binding) in bindings {
             registry.bind(id, invoke: { perform(binding, $0, ctx) })
         }
+        // Cmd-K (decision K1): the daemon owns the terminal state, so the clear happens there and
+        // reaches every view; Ghostty's clear_screen on the app's mirror alone is undone by the
+        // next frame and comes back on reattach.
+        registry.bind("terminal.clear", invoke: { invocation in
+            guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+            guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
+            let surface = tab.surface
+            ctx.send("clear-history") { _ = try await $0.request(ClearHistoryRequest(surface: surface)) }
+        })
         registry.bind("reconnectPane", invoke: { invocation in
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
             guard case .terminal = content, let key = pane.currentTabKey else { return ctx.refuse(RefusalStrings.notATerminal) }

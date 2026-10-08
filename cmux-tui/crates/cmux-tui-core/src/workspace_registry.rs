@@ -33,20 +33,28 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+mod mutation_ledger;
+pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
-mod personal_mutations;
-mod personal_store;
+pub(crate) mod personal_mutations;
+pub(crate) mod personal_store;
 mod personal_terminals;
-mod presentation_store;
+pub(crate) mod presentation_store;
 mod public_fold;
 mod public_projection_store;
-mod resource_store;
-mod screen_store;
-mod session_journal;
+mod receipt_env;
+pub(crate) mod relaunch_store;
+mod resource_effect_commit;
+pub(crate) mod resource_store;
+pub(crate) mod screen_store;
+pub(crate) mod session_journal;
 mod terminal_exit_store;
 mod terminal_keep_store;
+mod terminal_resource_close_store;
+pub(crate) mod terminal_respawn_store;
 mod topology_close_store;
 
+pub use crate::state::kept_tab_store::KeptTabRecord;
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
@@ -67,11 +75,11 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
-pub use personal_browser_profiles::{
-    BrowserProfileInput, BrowserProfileUpdate, PersonalBrowserProfile,
-};
+pub(crate) use mutation_ledger::insert_resource_mutation;
+pub use mutation_ledger::{Actor, WorkspaceMutation};
+pub use personal_browser_profiles::{BrowserProfileInput, BrowserProfileUpdate};
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
-pub use personal_store::PersonalSnapshot;
+pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
 pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
     TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
@@ -93,8 +101,8 @@ pub(crate) use resource_store::{
 #[allow(unused_imports)]
 pub use resource_store::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserReconnect, RegistryBrowserSource,
-    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
-    RegistryViewport, RegistryViewportColumn, ResourceChange, ResourceEventBatch,
+    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryRow, RegistryScreen,
+    RegistryTab, RegistryViewport, RegistryViewportColumn, ResourceChange, ResourceEventBatch,
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
     ResourceWorkspaceLedger,
 };
@@ -102,12 +110,12 @@ use resource_store::{
     apply_resource_patch, complete_terminal_close_patch, create_resource_schema,
     initialize_resource_mutation_retention, migrate_resource_agent_projections,
     migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
-    migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
+    migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use screen_store::{
-    SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationState,
-    new_saved_screen_group_id, new_screen_group_id,
+    SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
+    ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -129,7 +137,7 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // binary content to journal rows. Version 14 gives resource API frontend
 // projections one owned envelope instead of storing anonymous projection JSON.
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
-const SCHEMA_VERSION: i64 = 15;
+pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
@@ -156,10 +164,10 @@ const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cl
 const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
-const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+pub(crate) const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
 /// An extra write that runs inside a workspace-registry commit transaction.
-type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
+pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {
@@ -304,25 +312,6 @@ pub struct RegistrySnapshot {
     pub workspaces: Vec<RegistryWorkspace>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspaceMutation {
-    pub id: String,
-    pub origin: String,
-}
-
-impl WorkspaceMutation {
-    pub fn new(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
-        let mutation = Self { id: id.into(), origin: origin.into() };
-        validate_identifier("mutation id", &mutation.id)?;
-        validate_identifier("mutation origin", &mutation.origin)?;
-        Ok(mutation)
-    }
-
-    pub fn local(origin: &str) -> Self {
-        Self { id: new_uuid_v4(), origin: origin.to_string() }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegistryCommit {
     pub revision: u64,
@@ -438,8 +427,16 @@ pub struct TerminalRegistryCommit {
 /// reconcile only the revision owned by that receipt.
 pub(crate) enum TerminalResourceCloseCommit {
     TerminalReplay(TerminalRegistryCommit),
-    ResourceReplay { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
-    Committed { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
+    ResourceReplay {
+        terminal: TerminalRegistryCommit,
+        resource: ResourcePatchCommit,
+    },
+    /// `workspace_revision`: the workspace the close emptied closed too.
+    Committed {
+        terminal: TerminalRegistryCommit,
+        resource: ResourcePatchCommit,
+        workspace_revision: Option<u64>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -707,7 +704,7 @@ pub struct ProjectionCommit {
 /// calls, and the OS lease prevents another daemon from opening the same
 /// session concurrently.
 pub struct WorkspaceRegistry {
-    connection: Connection,
+    pub(crate) connection: Connection,
     database_path: Option<PathBuf>,
     registry_id: String,
     generation: String,
@@ -2309,8 +2306,8 @@ fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::R
     }
 }
 
-fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
-    open_registry_database_with_flags(path, OpenFlags::default())
+pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
+    open_registry_database_with_flags(path, OpenFlags::default()).map(crate::debug_spans::traced)
 }
 
 fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
@@ -2402,6 +2399,7 @@ impl WorkspaceRegistry {
              PRAGMA synchronous=FULL;
              PRAGMA fullfsync=ON;
              PRAGMA wal_autocheckpoint=1000;
+             PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -2716,17 +2714,25 @@ impl WorkspaceRegistry {
             )?;
             tx.commit()?;
         }
+        let scrubbed;
         {
             let tx = connection.unchecked_transaction()?;
             create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
+            mutation_ledger::migrate_add_actor_columns(&tx)?;
             recover_resource_effects(&tx)?;
+            // cx-1a6: no terminal env value rests in the exactly-once receipts.
+            scrubbed = receipt_env::scrub_stored_receipts(&tx, &resource_effect_pepper)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
-            repair_dangling_terminal_resources(&tx)?;
+            repair_resources_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
             tx.commit()?;
+        }
+        if scrubbed {
+            // Old page images must not keep the scrubbed values (WAL, main file).
+            checkpoint_and_truncate_wal(&connection)?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
         if stored_name != session_name {
@@ -2738,6 +2744,8 @@ impl WorkspaceRegistry {
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
         personal_store::migrate_personal_v1(&connection, &registry_id, &session_name)?;
+        crate::state::store::migrate_saved_tab_groups_to_personal(&connection)?;
+        crate::state::window_record_store::migrate_window_projection(&connection)?;
         let quick_check: String =
             connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if quick_check != "ok" {
@@ -3135,118 +3143,6 @@ impl WorkspaceRegistry {
         terminal_replay(&self.connection, mutation, &fingerprint)
     }
 
-    /// Commit the legacy host close and its public resource tombstone in one
-    /// SQLite transaction. The mux installs the matching runtime projection
-    /// only after this method returns successfully.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn close_terminal_with_resource_patch(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        expected_generation: Option<&str>,
-        expected_terminal_revision: Option<u64>,
-        expected_resource_revision: u64,
-        terminal_id: &str,
-        expected_incarnation: Option<&str>,
-        patch: &ResourcePatch,
-        resource_result: &Value,
-        resource_deltas: &Value,
-    ) -> anyhow::Result<TerminalResourceCloseCommit> {
-        const OPERATION: &str = "terminal.close";
-
-        validate_identifier("resource operation", OPERATION)?;
-        resource_store::validate_resource_patch(patch)?;
-        let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
-        let resource_result_json = canonical_json(resource_result)?;
-        let resource_deltas = &self.prune_stated_topology_deltas(resource_deltas)?;
-        let tx = self.connection.transaction()?;
-        let terminal_batch = [(terminal_id.to_string(), expected_incarnation.map(str::to_string))];
-        let (patch, resource_deltas) =
-            complete_terminal_close_patch(&tx, &terminal_batch, patch, resource_deltas)?;
-        if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
-            tx.commit()?;
-            return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
-        }
-        if let Some(resource) =
-            resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?
-        {
-            let terminal =
-                read_terminal(&tx, terminal_id)?.context("terminal close state is unavailable")?;
-            anyhow::ensure!(
-                terminal.lifecycle == TerminalLifecycle::Tombstoned,
-                "terminal close state is unavailable"
-            );
-            let revision = transaction_terminal_revision(&tx)?;
-            let result = serde_json::json!({
-                "terminal_id": terminal_id,
-                "incarnation": terminal.incarnation,
-                "closed": true,
-                "already_closed": true,
-            });
-            tx.commit()?;
-            return Ok(TerminalResourceCloseCommit::ResourceReplay {
-                terminal: TerminalRegistryCommit { revision, result, replayed: true },
-                resource,
-            });
-        }
-        let terminal = close_terminal_in_transaction(
-            &tx,
-            &self.generation,
-            mutation,
-            &fingerprint,
-            expected_generation,
-            expected_terminal_revision,
-            terminal_id,
-            expected_incarnation,
-        )?;
-        debug_assert!(!terminal.replayed);
-        let previous_revision = transaction_resource_revision(&tx)?;
-        anyhow::ensure!(
-            previous_revision == expected_resource_revision,
-            "resource revision conflict: expected {expected_resource_revision}, current {previous_revision}"
-        );
-        let revision = previous_revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        let patch = apply_resource_patch(&tx, &patch, sqlite_revision)?;
-        tx.execute(
-            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-            [revision.to_string()],
-        )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-                   origin, idempotency_key, operation, fingerprint, result_json,
-                   committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                resource_result_json,
-                sqlite_revision,
-            ],
-        )?;
-        append_resource_journal_record(
-            &tx,
-            revision,
-            previous_revision,
-            &mutation.origin,
-            &mutation.id,
-            OPERATION,
-            Some(&patch),
-            resource_result,
-            &resource_deltas,
-        )?;
-        resource_store::prune_resource_mutations(&tx)?;
-        let resource =
-            ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
-        tx.commit()?;
-        self.record_public_fold(previous_revision, revision, &resource_deltas, true);
-        Ok(TerminalResourceCloseCommit::Committed { terminal, resource })
-    }
-
     /// Tombstone every hosted tab in one pane/screen as one SQLite unit. All
     /// identities and incarnations are validated before the first update, and
     /// any later SQLite failure rolls the entire set back. Hosts are signaled
@@ -3467,39 +3363,6 @@ impl WorkspaceRegistry {
         )
     }
 
-    /// Stage a legacy workspace row inside a prepared resource effect.
-    ///
-    /// The outer effect must subsequently commit a full resource projection.
-    /// This stage deliberately leaves the public revision and event stream
-    /// untouched so one logical creation produces one public batch.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn commit_for_resource_effect(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        fingerprint: &Value,
-        expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
-        event_kind: &str,
-        workspace_key: &str,
-        workspaces: &[RegistryWorkspace],
-        active_workspace: Option<&WorkspacePublicId>,
-        result: &Value,
-    ) -> anyhow::Result<RegistryCommit> {
-        self.commit_workspace_registry(
-            mutation,
-            fingerprint,
-            expected_generation,
-            expected_revision,
-            event_kind,
-            workspace_key,
-            workspaces,
-            active_workspace,
-            result,
-            false,
-            None,
-        )
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn commit_workspace_registry(
         &mut self,
@@ -3575,6 +3438,11 @@ impl WorkspaceRegistry {
             workspaces,
             &result_json,
         )?;
+        // Presentation rows land before the resource batch, so its restated
+        // workspaces carry the new identity fields.
+        if let Some(extra) = extra {
+            extra(&tx)?;
+        }
         let previous_resource_revision =
             project_resource.then(|| transaction_resource_revision(&tx)).transpose()?;
         let resource_revision = previous_resource_revision
@@ -3659,18 +3527,13 @@ impl WorkspaceRegistry {
             sqlite_resource_revision,
             resource_revision,
         ) {
-            tx.execute(
-                "INSERT INTO resource_mutations(
-                   origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    mutation.origin,
-                    mutation.id,
-                    event_kind,
-                    fingerprint,
-                    result_json,
-                    sqlite_resource_revision,
-                ],
+            insert_resource_mutation(
+                &tx,
+                mutation,
+                event_kind,
+                &fingerprint,
+                &result_json,
+                sqlite_resource_revision,
             )?;
             let resource_deltas = normalized_workspace_resource_deltas(
                 &self.session_id,
@@ -3690,9 +3553,6 @@ impl WorkspaceRegistry {
                 &resource_deltas,
             )?;
             resource_store::prune_resource_mutations(&tx)?;
-        }
-        if let Some(extra) = extra {
-            extra(&tx)?;
         }
         tx.commit()?;
         Ok(RegistryCommit { revision, result: result.clone(), replayed: false })
@@ -4016,6 +3876,7 @@ fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
 fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     presentation_store::create_presentation_schema(transaction)?;
     screen_store::create_screen_schema(transaction)?;
+    crate::state::store::create_state_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (
            workspace_key TEXT PRIMARY KEY NOT NULL,
@@ -4132,6 +3993,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
+    relaunch_store::create_schema(transaction)?;
     Ok(())
 }
 
@@ -5065,7 +4927,7 @@ fn terminal_replay(
     }))
 }
 
-fn validate_identifier(label: &str, value: &str) -> anyhow::Result<()> {
+pub(crate) fn validate_identifier(label: &str, value: &str) -> anyhow::Result<()> {
     if value.trim().is_empty() {
         anyhow::bail!("{label} cannot be empty");
     }
@@ -5163,13 +5025,13 @@ fn try_preflight_unsupported_schema(
     }))
 }
 
-fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {
+pub(crate) fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {
     Ok(connection
         .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get(0))
         .optional()?)
 }
 
-fn required_meta(connection: &Connection, key: &str) -> anyhow::Result<String> {
+pub(crate) fn required_meta(connection: &Connection, key: &str) -> anyhow::Result<String> {
     meta_value(connection, key)?
         .ok_or_else(|| anyhow::anyhow!("workspace registry is missing {key}"))
 }
@@ -5195,7 +5057,7 @@ fn current_resource_revision(connection: &Connection) -> anyhow::Result<u64> {
     required_meta(connection, "resource_revision")?.parse().context("resource revision is invalid")
 }
 
-fn transaction_resource_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
+pub(crate) fn transaction_resource_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     let value: String = transaction.query_row(
         "SELECT value FROM meta WHERE key = 'resource_revision'",
         [],
@@ -5331,6 +5193,7 @@ fn prepare_terminal_host_root_for_reset(
         .filter(|(_, record)| record.record_version >= 2)
         .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
         .collect::<HashSet<_>>();
+    crate::terminal_host_runtime::sweep_released_pty_locks(root);
     for entry in fs::read_dir(root)
         .with_context(|| format!("read terminal host state {}", root.display()))?
     {
@@ -6183,4 +6046,10 @@ impl Drop for SessionLease {
 mod tests;
 
 #[cfg(test)]
+mod receipt_env_tests;
+
+#[cfg(test)]
 mod personal_tests;
+
+#[cfg(test)]
+mod actor_migration_tests;

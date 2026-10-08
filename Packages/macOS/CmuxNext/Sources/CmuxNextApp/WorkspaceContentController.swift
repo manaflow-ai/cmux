@@ -16,6 +16,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var layoutView: LayoutRootView!
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) var contentView: WorkspaceContentView!
+    private(set) var emptyView: EmptyWorkspaceView?
     private(set) var screenBar: ScreenBarController!
     /// The workspace theme: only this content area, under the window's
     /// room theme.
@@ -27,6 +28,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
+    private var settlingObservation: Task<Void, Never>?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -60,18 +62,31 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
-        observe()
         screenBar = ScreenBarController(content: self)
         contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
+        let fallbackCreate = emptyWorkspaceRepair.create
+        emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
+            guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
+            if services.agentTabs.canHost(on: daemon) {
+                return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
+            }
+            return try await fallbackCreate(key)
+        }
+        emptyView = EmptyWorkspaceView(
+            onNew: { [weak self] in self?.newFromEmptyState() }
+        )
         themeScope.root(contentView)
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
+        // Observation applies the first snapshot synchronously, including the empty-state view.
+        observe()
     }
 
     func teardown() {
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()
+        settlingObservation?.cancel()
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
@@ -95,6 +110,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
                 self?.repairIfEmpty()
             }
         }
+        // A first terminal or a close that starts or ends while the
+        // workspace is empty decides whether it shows its title.
+        let repair = emptyWorkspaceRepair
+        settlingObservation = Task { [weak self] in
+            for await _ in Observations({ workspace.key.map { repair.isSettling($0) } ?? false }) {
+                self?.updateEmptyState()
+            }
+        }
         // Panes with an unread notification draw the attention ring.
         let notifications = services.notifications
         attentionObservation = Task { [weak self] in
@@ -113,12 +136,43 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     private func apply(_ result: LayoutMapping.Result) {
         handles = result.handles
+        layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
+        // No row op is sent to a daemon without rows-v1 (rows.md step 4).
+        let rows = daemon.supports(DaemonCapabilities.shared.rows)
+        if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
         layoutModel.apply(screens: result.screens)
+        // The view mounts the panes in this turn: a workspace shown now
+        // draws its first frame with them, not one blank frame.
+        layoutView.syncWithModel()
+        updateEmptyState()
         repairIfEmpty()
         sendTopology()
     }
 
-    /// A workspace with no pane gets one terminal, focused when it lands.
+    /// A workspace with no pane shows its title; Return creates the first
+    /// terminal and focuses it when the daemon reports the surface. One that
+    /// is settling (its first terminal on the way, or closing) shows nothing
+    /// so the title does not flash before the tab strip and terminal land, or
+    /// before the workspace closes.
+    private func updateEmptyState() {
+        let isEmpty = layoutModel.screens.allSatisfy { $0.layout.panes.isEmpty }
+        let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
+        contentView.showEmpty(isEmpty && !settling ? emptyView : nil)
+    }
+
+    private func newFromEmptyState() {
+        guard let key = workspace.key else {
+            services.windows.newWorkspace(in: state)
+            return
+        }
+        emptyWorkspaceRepair.createFirstTab(key) { [weak self] surface in
+            guard let self else { return }
+            focus.expect(.surface(String(surface.rawValue)))
+            applyCurrent()
+        }
+    }
+
+    /// A lost terminal gets one replacement, focused when it lands.
     private func repairIfEmpty() {
         emptyWorkspaceRepair.check(workspace) { [weak self] surface in
             guard let self else { return }
@@ -158,12 +212,25 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
         panes[pane] = controller
+        services.paneMounts.changed()
         sendTopology()
+        // Settings… asked before any window had a pane waits for the first one (R82). It opens
+        // its tab after this layout pass, never inside it.
+        if panes.count == 1, services.settingsWindow.isWaiting {
+            let settings = services.settingsWindow
+            Task { settings.windowDidShowContent() }
+        }
+        // So does the App Store (S22: never a window of its own).
+        if panes.count == 1, services.apps.isStoreWaiting {
+            let apps = services.apps
+            Task { apps.windowDidShowContent() }
+        }
         return controller.view
     }
 
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {
         panes.removeValue(forKey: pane)?.teardown()
+        services.paneMounts.changed()
     }
 
     func panePresenceDidChange(_ pane: LayoutPaneID, presence: PanePresence) {

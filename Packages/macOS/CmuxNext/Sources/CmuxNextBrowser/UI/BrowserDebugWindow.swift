@@ -39,7 +39,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             let tab: any BrowserTab = if engineName == "cef" {
                 try CEFEngine().makeCEFTab(configuration)
             } else {
-                WebKitEngine().makeWebKitTab(configuration)
+                try WebKitEngine().makeWebKitTab(configuration)
             }
             let debugWindow = BrowserDebugWindow(tab: tab, report: report, activate: environment["CMUX_NEXT_NO_ACTIVATE"] != "1")
             open.append(debugWindow)
@@ -65,7 +65,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         super.init()
         window.title = "cmux-next browser (\(tab.engineKind.rawValue))"
         window.isReleasedWhenClosed = false
-        window.contentView = chrome
+        window.install(kind: .browserDebug, content: chrome, scope: .app)
         tab.delegate = self
         if !activate { WindowPlacement.noActivate = true }
         WindowPlacement.present(window)
@@ -90,7 +90,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             tabs.append(child)
             chrome.tab = child
             observe()
-        case .unhandledEscape, .resizePopup:
+        case .unhandledEscape, .unhandledKey, .resizePopup:
             break
         case .takeFocus:
             chrome.perform(.focusAddressBar)

@@ -1,0 +1,2603 @@
+{
+  "description": "Shared test vectors for the automation lease (plans/cmux-next/automation-lease.md). The browser host (cmux-tui/crates/cmux-browser-host) and the CUA host (manaflow-ai/cmux-cua, cmux-cua-core lease, vendored copy) both replay every case from an empty host and must produce the same result, lease snapshot and lease frames after each step. Change the contract, this file and both implementations together.",
+  "version": 3,
+  "cases": [
+    {
+      "name": "first act takes the lease",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "acquire is idempotent for the holder and keeps since_ms",
+      "steps": [
+        {
+          "step": {
+            "op": "acquire",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "acquire",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 2000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 3000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "another session cannot act on a held target",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s2",
+            "actor": "agent:codex-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "lease_held"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "reads never take or block a lease",
+      "steps": [
+        {
+          "step": {
+            "op": "observe",
+            "target": "t1",
+            "session": "s2"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "observe",
+            "target": "t1",
+            "session": "s2"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "user input pauses the lease and rejects agent acts",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "user_input",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "paused",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "paused"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "paused_by_user"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "paused",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "user_input",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "paused",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "user input on an unleased target changes nothing",
+      "steps": [
+        {
+          "step": {
+            "op": "user_input",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "hand back needs a fresh observe before the next act",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "user_input",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "paused",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "paused"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "hand_back",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": true
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "stale_after_hand_back"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": true
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "observe",
+            "target": "t1",
+            "session": "s1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "take over blocks the agent until hand back",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "take_over",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "user_driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "user_driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "user_driving"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "user_driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "user_input",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "user_driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "hand_back",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": true
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "observe",
+            "target": "t1",
+            "session": "s1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "take over from paused",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "user_input",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "paused",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "paused"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "take_over",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "user_driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "user_driving"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "hand back on a driving lease is refused",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "hand_back",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "error": "not_paused"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "user ops need user origin",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "take_over",
+            "target": "t1",
+            "origin": "mcp"
+          },
+          "expect": {
+            "result": {
+              "error": "user_origin_required"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "stop",
+            "target": "t1",
+            "origin": "mcp"
+          },
+          "expect": {
+            "result": {
+              "error": "user_origin_required"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "hand_back",
+            "target": "t1",
+            "origin": "remote"
+          },
+          "expect": {
+            "result": {
+              "error": "user_origin_required"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "agent ops refuse user origin",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "user",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "agent_origin_required"
+            },
+            "lease": null,
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "user stop wins and blocks the actor on every target until allowed",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "stop",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": [
+              {
+                "target": "t1",
+                "lease": null
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "stopped_by_user"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "acquire",
+            "target": "t2",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "stopped_by_user"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s2",
+            "actor": "agent:codex-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s2",
+              "actor": "agent:codex-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s2",
+                  "actor": "agent:codex-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "allow",
+            "origin": "user",
+            "actor": "agent:claude-1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 5000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 5000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t2",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 5000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a new session name cannot dodge a stop",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "stop",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": [
+              {
+                "target": "t1",
+                "lease": null
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s9",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "stopped_by_user"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "acquire",
+            "target": "t3",
+            "session": "s10",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "stopped_by_user"
+            },
+            "lease": null,
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "stop applies to the principal an agent acts on behalf of",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:sub-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "on_behalf_of": "agent:chief"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:sub-1",
+              "on_behalf_of": "agent:chief",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:sub-1",
+                  "on_behalf_of": "agent:chief",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "stop",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": [
+              {
+                "target": "t1",
+                "lease": null
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s2",
+            "actor": "agent:sub-2",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "on_behalf_of": "agent:chief"
+          },
+          "expect": {
+            "result": {
+              "error": "stopped_by_user"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s3",
+            "actor": "agent:chief",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "stopped_by_user"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s4",
+            "actor": "agent:codex-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s4",
+              "actor": "agent:codex-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t2",
+                "lease": {
+                  "session": "s4",
+                  "actor": "agent:codex-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "allow",
+            "origin": "user",
+            "actor": "agent:chief"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t5",
+            "session": "s5",
+            "actor": "agent:sub-2",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "on_behalf_of": "agent:chief"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s5",
+              "actor": "agent:sub-2",
+              "on_behalf_of": "agent:chief",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t5",
+                "lease": {
+                  "session": "s5",
+                  "actor": "agent:sub-2",
+                  "on_behalf_of": "agent:chief",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a stopped actor stays stopped when it acts for another principal",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:sub-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:sub-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:sub-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "stop",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": [
+              {
+                "target": "t1",
+                "lease": null
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s2",
+            "actor": "agent:sub-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "on_behalf_of": "agent:chief"
+          },
+          "expect": {
+            "result": {
+              "error": "stopped_by_user"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "allow",
+            "origin": "user",
+            "actor": "agent:sub-1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s2",
+            "actor": "agent:sub-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "on_behalf_of": "agent:chief"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s2",
+              "actor": "agent:sub-1",
+              "on_behalf_of": "agent:chief",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t2",
+                "lease": {
+                  "session": "s2",
+                  "actor": "agent:sub-1",
+                  "on_behalf_of": "agent:chief",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a stopped principal refuses every actor acting for it",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:chief",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:chief",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:chief",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "stop",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": [
+              {
+                "target": "t1",
+                "lease": null
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s2",
+            "actor": "agent:sub-9",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "on_behalf_of": "agent:chief"
+          },
+          "expect": {
+            "result": {
+              "error": "stopped_by_user"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t3",
+            "session": "s3",
+            "actor": "agent:sub-9",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s3",
+              "actor": "agent:sub-9",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t3",
+                "lease": {
+                  "session": "s3",
+                  "actor": "agent:sub-9",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "allow",
+            "origin": "user",
+            "actor": "agent:chief"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s2",
+            "actor": "agent:sub-9",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "on_behalf_of": "agent:chief"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s2",
+              "actor": "agent:sub-9",
+              "on_behalf_of": "agent:chief",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t2",
+                "lease": {
+                  "session": "s2",
+                  "actor": "agent:sub-9",
+                  "on_behalf_of": "agent:chief",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "allow needs user origin",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "stop",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": [
+              {
+                "target": "t1",
+                "lease": null
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "allow",
+            "actor": "agent:claude-1",
+            "origin": "mcp"
+          },
+          "expect": {
+            "result": {
+              "error": "user_origin_required"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "stopped_by_user"
+            },
+            "lease": null,
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "provider engines refuse the implicit default session",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "default",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "implicit_session": true,
+            "engine": "cef"
+          },
+          "expect": {
+            "result": {
+              "error": "session_required"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "acquire",
+            "target": "t1",
+            "session": "default",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "implicit_session": true,
+            "engine": "webkit"
+          },
+          "expect": {
+            "result": {
+              "error": "session_required"
+            },
+            "lease": null,
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "engine": "cef"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "w1",
+            "session": "default",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "implicit_session": true,
+            "engine": "desktop"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "default",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "w1",
+                "lease": {
+                  "session": "default",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "h1",
+            "session": "default",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000,
+            "implicit_session": true,
+            "engine": "headless"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "default",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "h1",
+                "lease": {
+                  "session": "default",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "stop on an unleased target is refused",
+      "steps": [
+        {
+          "step": {
+            "op": "stop",
+            "origin": "user",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "error": "no_lease"
+            },
+            "lease": null,
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "agent release ends only its own lease",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "release",
+            "target": "t1",
+            "session": "s2"
+          },
+          "expect": {
+            "result": {
+              "error": "not_lease_holder"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "release",
+            "target": "t1",
+            "session": "s1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": [
+              {
+                "target": "t1",
+                "lease": null
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "release",
+            "target": "t1",
+            "session": "s1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "session end clears every lease of the session",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t2",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t3",
+            "session": "s2",
+            "actor": "agent:codex-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s2",
+              "actor": "agent:codex-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t3",
+                "lease": {
+                  "session": "s2",
+                  "actor": "agent:codex-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "session_end",
+            "session": "s1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": null,
+            "frames": [
+              {
+                "target": "t1",
+                "lease": null
+              },
+              {
+                "target": "t2",
+                "lease": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "two agents hold two targets independently",
+      "steps": [
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s2",
+            "actor": "agent:codex-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s2",
+              "actor": "agent:codex-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t2",
+                "lease": {
+                  "session": "s2",
+                  "actor": "agent:codex-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "driving"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "user_input",
+            "target": "t1"
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "paused",
+              "needs_fresh_observe": false
+            },
+            "frames": [
+              {
+                "target": "t1",
+                "lease": {
+                  "session": "s1",
+                  "actor": "agent:claude-1",
+                  "origin": "mcp",
+                  "label": "book flight",
+                  "since_ms": 1000,
+                  "state": "paused"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t2",
+            "session": "s2",
+            "actor": "agent:codex-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "ok": true
+            },
+            "lease": {
+              "session": "s2",
+              "actor": "agent:codex-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "driving",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        },
+        {
+          "step": {
+            "op": "act",
+            "target": "t1",
+            "session": "s1",
+            "actor": "agent:claude-1",
+            "origin": "mcp",
+            "label": "book flight",
+            "now_ms": 1000
+          },
+          "expect": {
+            "result": {
+              "error": "paused_by_user"
+            },
+            "lease": {
+              "session": "s1",
+              "actor": "agent:claude-1",
+              "origin": "mcp",
+              "label": "book flight",
+              "since_ms": 1000,
+              "state": "paused",
+              "needs_fresh_observe": false
+            },
+            "frames": []
+          }
+        }
+      ]
+    }
+  ]
+}

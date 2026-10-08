@@ -11,15 +11,15 @@ from the same connection.
 ## Quick start
 
 ```bash
-cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+cmux events --after 1200
 cmux events --category window --category workspace --category pane --category surface
 cmux events --category notification
-cmux events --category feed --category agent --no-heartbeat
+cmux events --category feed --category agent --no-heartbeats
 ```
 
 Every event has a monotonically increasing process-local `seq` and a `boot_id`.
-Persist the latest processed `seq`, then reconnect with `after_seq` or use
-`cmux events --cursor-file`. If cmux restarts, `boot_id` changes and the server
+Persist the latest processed `seq`, then reconnect with `after_seq`
+(`cmux events --after <seq>`). If cmux restarts, `boot_id` changes and the server
 marks stale cursors as a resume gap.
 
 Use the JSONL log for audit and catch-up tools. Use the socket stream for live
@@ -226,14 +226,15 @@ Options:
 | Option | Meaning |
 | --- | --- |
 | `--after <seq>` | Start after a sequence number. |
-| `--after-seq <seq>` | Alias for `--after`. |
-| `--cursor-file <path>` | Read the starting sequence from a file and update it after each event. |
 | `--name <event>` | Filter by event name. Repeatable. |
 | `--category <name>` | Filter by category. Repeatable. |
-| `--reconnect` | Reconnect forever and resume from the last received event. |
-| `--limit <n>` | Exit after printing `n` event frames. |
-| `--no-ack` | Hide the initial ack frame. |
-| `--no-heartbeat` | Hide heartbeat frames. |
+| `--no-heartbeats` | Hide heartbeat frames. |
+
+The Swift CLI's `--after-seq`, `--cursor-file`, `--reconnect`, `--limit`, and
+`--no-ack` options were removed. A consumer that must survive an app restart
+records the last `seq` itself and restarts `cmux events --after <seq>`. The
+daemon's own resource events are a separate stream: `cmux session current
+events` and `cmux session current journal subscribe`.
 
 ## Event catalog
 
@@ -275,8 +276,10 @@ opt-in.
 
 Extension sidebars should bootstrap from the v2 socket method
 `extension.sidebar.snapshot`, then subscribe to `cmux events --category
-workspace --category notification --category sidebar --reconnect` and reduce
-events from the returned `seq`. The snapshot returns `selected_workspace_id`
+workspace --category notification --category sidebar` and reduce
+events from the returned `seq`. `cmux events` exits when the socket closes, so
+the sidebar must restart it with `--after <last processed seq>` to keep
+receiving updates. The snapshot returns `selected_workspace_id`
 and an ordered `workspaces` array containing workspace ids/refs, title,
 description, pinned state, root/project paths, branch summary, remote status,
 latest submitted prompt preview/time, listening ports, pull request URLs,
@@ -375,8 +378,8 @@ App, browser, and config:
 
 ## Agent hooks
 
-Agent integrations use `cmux hooks feed --source <agent>` or an equivalent
-plugin bridge. The event stream publishes both agent and Feed events:
+Agent integrations use `cmux agent hook emit --source <agent> --event <event>` or
+an equivalent plugin bridge. The event stream publishes both agent and Feed events:
 
 ```json
 {

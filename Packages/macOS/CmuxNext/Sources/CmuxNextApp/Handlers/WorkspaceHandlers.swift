@@ -5,7 +5,7 @@ import CmuxNextDaemon
 /// Workspace lifecycle, navigation, order, and bulk close (category
 /// `workspace`). Names, colors, and notifications are in
 /// `WorkspaceMetadataHandlers`; groups in `WorkspaceGroupHandlers`. Every
-/// mutation is a daemon command; order changes carry an optimistic patch.
+/// mutation is a daemon command; order changes are store intents.
 enum WorkspaceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("openFolder", run: { _ in openFolder(context) })
@@ -43,27 +43,48 @@ enum WorkspaceHandlers {
 
     /// Creates a workspace (named `name`) with one terminal in `cwd` and
     /// shows it in the active window, or a new window when none is open.
-    static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil,
+    static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil, key: WorkspaceKey? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
-        let services = context.services
+        createAndShow(services: context.services, name: name, cwd: cwd, key: key, then: configure)
+    }
+
+    /// Same; `newWindow` opens it in a new window (Shift-Return in the
+    /// address bar) instead of the active one, `window` in that open
+    /// window; `room` pins it to that space first (Open Link in New Space).
+    /// `key` names the new workspace (a History reopen picks it first); a fresh one by default.
+    static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, key workspaceKey: WorkspaceKey? = nil,
+                              newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil,
+                              then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let daemon = services.activeDaemon
         let windows = services.windows!
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.
-        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
+        let home = services.machines.local
+        // One ticket for the whole creation, opened now: an action run
+        // answers after it (and the barrier covers its echo), so `created`
+        // names the workspace and the tabs `configure` made.
+        let ticket = daemon.openTicket()
         Task {
-            guard let connection = daemon.connection else { return }
+            guard let connection = daemon.connection else {
+                await daemon.closeTicket(ticket, label: "create workspace", error: DaemonError.notConnected)
+                return
+            }
             do {
-                let key = WorkspaceKey.generate()
+                let key = workspaceKey ?? WorkspaceKey.generate()
                 windows.claimNew(workspaceID: key.rawValue, window: target)
-                _ = try await services.emptyWorkspaces.populating(key) {
-                    let workspace = try await connection.createWorkspace(name: name, key: key)
-                    let terminal = try await connection.createTerminal(in: workspace.key, cwd: cwd ?? NSHomeDirectory())
-                    try await configure?(connection, terminal)
-                    return workspace.key.rawValue
+                if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
+                    try await homeConnection.pinWorkspace(session: session, key: key, to: room)
                 }
+                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: services.emptyWorkspaces) { created in
+                    let terminal = try await connection.createTerminal(in: created, cwd: cwd ?? NSHomeDirectory())
+                    try await configure?(connection, terminal)
+                    return created.rawValue
+                }
+                await daemon.closeTicket(ticket, label: "create workspace", error: nil, replying: connection)
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+                await daemon.closeTicket(ticket, label: "create workspace", error: error)
             }
         }
     }
@@ -75,7 +96,7 @@ enum WorkspaceHandlers {
         panel.allowsMultipleSelection = false
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
-            createAndShow(context, name: url.lastPathComponent, cwd: url.path)
+            createAndShow(context, name: WorkspaceSpawn.folderName(url.path), cwd: url.path)
         }
         if let window = context.activeWindow?.window {
             panel.beginSheetModal(for: window, completionHandler: completion)

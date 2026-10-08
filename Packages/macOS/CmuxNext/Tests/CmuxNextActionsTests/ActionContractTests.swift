@@ -20,11 +20,29 @@ import Testing
         }
     }
 
-    @Test func everyActionIsInThePaletteUnlessPaletteInternal() {
+    /// The palette lists every action except palette-internal navigation
+    /// and the ones whose surface plan names another reason (New Browser
+    /// Tab on Chromium duplicates the default New Browser Tab row; Go to
+    /// Location is a row of the titlebar Back / Forward list; Next / Previous
+    /// Item move the selection of the focused list, which the palette
+    /// replaces while it is open; the page menu's copy, save and Look Up
+    /// rows act on the right-clicked element; Archive Chief and Open
+    /// Conversation act on a row of the Home page's list).
+    @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
-            #expect(descriptor.requires.contains(.paletteOpen), "\(descriptor.id) is hidden from the palette")
+            let reason = descriptor.surfacePlan.palette.exemption
+            #expect(reason != nil, "\(descriptor.id) is hidden from the palette without a reason")
+            #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
-        #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id) == ["commandPaletteNext", "commandPalettePrevious"])
+        #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
+            == (["agent.openSessionWorkspace", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
+                "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
+                "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.openConversation", "list.next", "list.previous",
+                "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium"]
+            + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
+               "paletteKey.submitAlternate", "paletteKey.openActions", "paletteKey.closeActions", "paletteKey.toggleActions",
+               "paletteKey.escape", "paletteKey.enterRow", "paletteKey.leaveLevel", "paletteKey.back",
+               "paletteKey.filterDeleteBackward", "paletteKey.closeItem"]).sorted())
     }
 
     @Test func shortcutIDsAreUniqueAndDefaultsDoNotCollide() {

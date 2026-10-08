@@ -32,7 +32,7 @@ final class OnboardingHostView: NSView {
         guard step != shownStep else { return }
         shownStep = step
         let chosen = forcedVariant.flatMap { $0.step == step ? $0 : nil }
-            ?? OnboardingVariantRegistry.chosen(for: step, id: model.services.variantID(for: step))
+            ?? step.chosenVariant(id: model.services.variantID(for: step))
         variant = chosen
         let content = chosen.makeContent(OnboardingStepContext(model: model))
         let surface = OnboardingSurfaceView(surface: chosen.surface, content: content)
@@ -46,7 +46,7 @@ final class OnboardingHostView: NSView {
             // A different surface fades in over the old one, which leaves
             // when the fade ends, so the desktop never shows through.
             surface.alphaValue = 0
-            Motion.animate(.crossfade, { surface.animator().alphaValue = 1 }, completion: { [weak previous] in previous?.removeFromSuperview() })
+            Motion.animate(.crossfade, in: surface, { surface.animator().alphaValue = 1 }, completion: { [weak previous] in previous?.removeFromSuperview() })
         } else {
             // The same surface stays put; only the content moves.
             previous?.removeFromSuperview()

@@ -14,9 +14,9 @@ Off by default. Enable it in **Settings > Automation > Workspace Auto-Naming** o
 
 Custom titles carry a provenance marker (user vs auto):
 
-- A name you set yourself - sidebar rename, command palette, `cmux rename-workspace`/`rename-tab`, or Claude's `/rename` - is never overwritten by auto-naming, and auto-naming for that workspace or tab stops.
+- A name you set yourself - sidebar rename, command palette, `cmux workspace <ws_id> rename --name …`/`cmux tab <tab_id> rename --name …`, or Claude's `/rename` - is never overwritten by auto-naming, and auto-naming for that workspace or tab stops.
 - Custom titles that predate this feature (snapshots persisted before provenance existed) restore as user-set: existing named workspaces are never auto-renamed. Workspaces without a custom title (the common "Claude Code"-row case) auto-name normally.
-- Clearing your custom name re-opens the workspace or tab to auto-naming (sidebar, command palette, or `cmux workspace-action --action clear-name`).
+- Clearing your custom name re-opens the workspace or tab to auto-naming (sidebar, command palette, or `cmux workspace clear-name --target ws_…`).
 - Auto names lose to the user everywhere else too: OSC terminal titles never override any custom title (unchanged behavior), and provenance survives session restore and moving tabs between workspaces.
 
 ## Guarantees
@@ -44,4 +44,4 @@ The other hook integrations are intentionally skipped for now:
 
 ## Mechanics
 
-The Claude Code wrapper registers an async `Stop` hook (`cmux hooks claude auto-name`); other supported agents spawn an equivalent detached pass from their turn-end hook. Each pass reads the adapter's transcript source, evaluates the throttle against per-session state in `~/.cmuxterm/<agent>-hook-sessions.json`, and applies the title through the `workspace.set_auto_title` socket method, which enforces the setting and the user-provenance rule app-side.
+The Claude Code wrapper registers an async `Stop` hook; other supported agents spawn an equivalent detached pass from their turn-end hook. Each pass reads the adapter's transcript source, evaluates the throttle against per-session state in `~/.cmuxterm/<agent>-hook-sessions.json`, and applies the title through the `workspace.set_auto_title` socket method, which enforces the setting and the user-provenance rule app-side.

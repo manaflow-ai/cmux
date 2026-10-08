@@ -1,0 +1,397 @@
+name: cmux-next batch queue
+
+# An implicit merge queue for feat-cmux-next (docs/ci/cmux-next-batch.md).
+# Pull request and push events debounce into one batch: scripts/ci/next_batch.py
+# stacks every eligible PR on feat-cmux-next, validates the stack once (every
+# cmux-next tier plus a fleet production build), then lands each PR with
+# gh-merge-green, or bisects a red stack to the PR that broke it.
+#
+#   debounce  (pull_request, push) waits for 2 minutes without events, at most
+#             10 minutes after the first one, then dispatches `batch`
+#   batch     (dispatch) the controller, on Linux; one at a time, never cancelled
+#   regen-linux (dispatch by batch) rebuilds web bundles and SDK bindings
+#   regen     (dispatch by batch) rebuilds Swift-generated exports on a mini
+#             Both run the stack's code with a read-only token and return a
+#             patch; the controller applies and pushes it.
+#   build     (dispatch by batch) submits the fleet build from a mini, which
+#             is on the tailnet the build controller trusts
+
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('{0} {1}', inputs.mode, inputs.nonce) || format('debounce {0}', github.event.pull_request.number || github.sha) }}
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: batch (the controller), or regen and build (dispatched by a batch)
+        type: choice
+        options: [batch, regen-linux, regen, build]
+        default: batch
+      prs:
+        description: "batch: only these PR numbers (each must still be eligible)"
+        required: false
+        default: ""
+      dry_run:
+        description: "batch: stack and validate, but no comments, landing or sticky update"
+        type: boolean
+        default: false
+      no_land:
+        description: "batch: validate and report, but do not land"
+        type: boolean
+        default: false
+      reason:
+        description: why this batch was dispatched
+        required: false
+        default: manual
+      branch:
+        description: "regen and build: the next-batch/* branch"
+        required: false
+        default: ""
+      sha:
+        description: "regen and build: the exact stack head"
+        required: false
+        default: ""
+      tag:
+        description: "build: fleet build tag"
+        required: false
+        default: ""
+      kinds:
+        description: "regen-linux: the generators to run (format, web, sdk)"
+        required: false
+        default: ""
+      nonce:
+        description: set by the controller to find this run
+        required: false
+        default: ""
+
+# A newer event on one pull request replaces its older run; only `debounce` runs
+# for pull request events. Push and dispatch runs key on their own run id, so a
+# batch, regen or build run is never cancelled here.
+concurrency:
+  group: cmux-next-batch-run-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  debounce:
+    if: ${{ github.event_name != 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'next-batch/'))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    # Each event cancels the previous wait: the dispatch comes after quiet.
+    concurrency:
+      group: cmux-next-batch-debounce
+      cancel-in-progress: true
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # The trusted copy of the controller, never the pull request's.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Wait for quiet, then dispatch a batch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENABLED: ${{ vars.CMUX_NEXT_BATCH_ENABLED }}
+          REASON: ${{ github.event_name == 'push' && 'feat-cmux-next moved' || format('#{0} {1}', github.event.pull_request.number, github.event.action) }}
+        run: |
+          set -euo pipefail
+          # Until the queue itself lands, feat-cmux-next has no controller.
+          [[ -f scripts/ci/next_batch.py ]] || { echo "no batch controller on feat-cmux-next yet"; exit 0; }
+          # The queue's off switch: only the repository variable turns it on.
+          [[ "$ENABLED" == 1 ]] || { echo "CMUX_NEXT_BATCH_ENABLED is not 1; not dispatching"; exit 0; }
+          python3 scripts/ci/next_batch.py debounce --reason "$REASON"
+
+  batch:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'batch' && github.repository_owner == 'manaflow-ai' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Room for a batch plus a bisect; each validation is one heavy-tier run.
+    timeout-minutes: 340
+    # One batch at a time. A running batch is never cancelled; a newer
+    # dispatch waits (and replaces an older waiting one).
+    concurrency:
+      group: cmux-next-batch
+      cancel-in-progress: false
+    permissions:
+      actions: write
+      checks: read
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      GIT_AUTHOR_NAME: cmux-next batch queue
+      GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      GIT_COMMITTER_NAME: cmux-next batch queue
+      GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The generators run in the stack's worktree; keep the token out of
+          # .git/config (the controller passes it per command).
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+
+      # The sticky report lives in an HQ issue. The routing App may not be
+      # installed there; then the report stays in this job's summary.
+      - name: Mint the sticky report token
+        id: sticky-token
+        if: ${{ vars.CMUX_NEXT_BATCH_STICKY != '' && vars.GLAEDA_ROUTE_APP_ID != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: write
+
+      # Pushing a stack branch and merging need contents and workflows write:
+      # GitHub refuses the job token any branch based on feat-cmux-next,
+      # whose workflows differ from main's. The App's merges also start the
+      # base's push workflows, which the job token's would not.
+      - name: Mint the push and merge token
+        id: push-token
+        if: ${{ vars.CMUX_NEXT_BATCH_APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_NEXT_BATCH_APP_ID }}
+          private-key: ${{ secrets.CMUX_NEXT_BATCH_APP_KEY }}
+          permission-contents: write
+          permission-workflows: write
+          permission-pull-requests: write
+
+      - name: Run the batch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUSH_TOKEN: ${{ steps.push-token.outputs.token }}
+          STICKY_TOKEN: ${{ steps.sticky-token.outputs.token }}
+          CMUX_NEXT_BATCH_STICKY: ${{ vars.CMUX_NEXT_BATCH_STICKY }}
+          CMUX_NEXT_BATCH_AUTHORS: ${{ vars.CMUX_NEXT_BATCH_AUTHORS }}
+          PRS: ${{ inputs.prs }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+          NO_LAND: ${{ inputs.no_land && '--no-land' || '' }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086 # the flags are empty or one word
+          python3 scripts/ci/next_batch.py run --prs "$PRS" $DRY_RUN $NO_LAND
+
+  regen:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The generator script comes from this workflow's ref, not the stack,
+      # which may predate it.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .next-batch-tools
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/regenerate-swift-exports.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Regenerate the Swift exports
+        id: regen
+        continue-on-error: true
+        run: bash .next-batch-tools/scripts/cmux-next/regenerate-swift-exports.sh
+
+      - name: Commit the exports as a patch
+        env:
+          OUTCOME: ${{ steps.regen.outcome }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/result"
+          result="$RUNNER_TEMP/result/result.json"
+          if [[ "$OUTCOME" != success ]]; then
+            printf '{"ok": false, "error": "regenerate-swift-exports.sh failed; see %s"}\n' \
+              "$SERVER_URL/$REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$result"
+            exit 0
+          fi
+          git add -A -- plans/cmux-next schemas/settings docs/mdm
+          [[ ! -e Packages/macOS/CmuxNext/ci-target-graph.json ]] || git add -- Packages/macOS/CmuxNext/ci-target-graph.json
+          if ! git diff --cached --quiet; then
+            git -c user.name="cmux-next batch queue" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --no-verify -q -m "next-batch: regenerate Swift exports"
+            git format-patch -1 --binary --stdout > "$RUNNER_TEMP/result/regen.patch"
+          fi
+          echo '{"ok": true}' > "$result"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: next-batch-regen
+          path: ${{ runner.temp }}/result/
+          retention-days: 3
+
+  regen-linux:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen-linux' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Regenerate and commit as a patch
+        env:
+          KINDS: ${{ inputs.kinds }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/result"
+          result="$RUNNER_TEMP/result/result.json"
+          fail() {
+            printf '{"ok": false, "error": "%s failed; see %s"}\n' "$1" \
+              "$SERVER_URL/$REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$result"
+            exit 0
+          }
+          names=()
+          # Formatting first: the bundles are then built from formatted sources.
+          if [[ " $KINDS " == *" format "* ]]; then
+            (cd webviews && bun install --frozen-lockfile && bun run check:fix) \
+              || echo "check:fix left issues it cannot fix; keeping what it fixed"
+            names+=("webviews formatting")
+          fi
+          if [[ " $KINDS " == *" web "* ]]; then
+            sh scripts/cmux-next/regenerate-web-bundles.sh || fail "regenerate-web-bundles.sh"
+            names+=("web bundles")
+          fi
+          if [[ " $KINDS " == *" sdk "* ]]; then
+            python3 cmux-tui/bindings/codegen/generate.py --write || fail "the cmux-tui SDK generator"
+            names+=("cmux-tui SDK")
+          fi
+          git add -A -- .
+          if ! git diff --cached --quiet; then
+            git -c user.name="cmux-next batch queue" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --no-verify -q -m "next-batch: regenerate ${names[*]}"
+            git format-patch -1 --binary --stdout > "$RUNNER_TEMP/result/regen.patch"
+          fi
+          echo '{"ok": true}' > "$result"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: next-batch-regen-linux
+          path: ${{ runner.temp }}/result/
+          retention-days: 3
+
+  build:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'build' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
+    # An owned mini (CI_PR_POOL_OWNED): its tailnet tag lets it submit to the
+    # build fleet. The job only submits and waits; the build runs on a fleet
+    # worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch the fleet client from the controller
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: |
+          set -euo pipefail
+          [[ -n "$CONTROLLER" ]] || { echo "::error::set the CMUX_FLEET_CONTROLLER repository variable"; exit 1; }
+          client="$RUNNER_TEMP/fleet-client"
+          mkdir -p "$client"
+          curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client/manifest.json"
+          python3 - "$client" "$CONTROLLER" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          root, controller = Path(sys.argv[1]), sys.argv[2]
+          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+              if "/" in name or name.startswith("."):
+                  raise SystemExit(f"bad client file name {name!r}")
+              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+              if hashlib.sha256(data).hexdigest() != digest:
+                  raise SystemExit(f"{name}: sha256 mismatch")
+              (root / name).write_bytes(data)
+          PY
+
+      - name: Build the stack on the fleet
+        env:
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          SHA: ${{ inputs.sha }}
+          TAG: ${{ inputs.tag }}
+          WORKSPACE: ${{ github.server_url }}/${{ github.repository }}/tree/${{ inputs.branch }}
+        run: |
+          set -uo pipefail
+          client="$RUNNER_TEMP/fleet-client/ci-client.py"
+          mkdir -p "$RUNNER_TEMP/result"
+          result="$RUNNER_TEMP/result/result.json"
+          started=$(date +%s)
+          fail() { python3 -c 'import json,sys; print(json.dumps({"ok": False, "error": sys.argv[1]}))' "$1" > "$result"; exit 0; }
+          python3 "$client" build cmux --ref "$SHA" --tag "$TAG" --workspace "$WORKSPACE" \
+            --production --agent cmux-next-batch --receipt "$RUNNER_TEMP/submit.json" || fail "fleet submission failed"
+          job="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$RUNNER_TEMP/submit.json")" || fail "no job id in the submission receipt"
+          echo "fleet job $job"
+          python3 "$client" wait "$job" --interval 15 --timeout 7800 --receipt "$RUNNER_TEMP/terminal.json" \
+            || fail "fleet job $job did not succeed (cmux-ci log $job)"
+          # The HQ link; the job id alone is still installable with `cmux-ci artifact`.
+          link="cmux-ci artifact $job"
+          if published="$(python3 "$client" publish-hq "$job" 2>"$RUNNER_TEMP/publish.err")"; then
+            link="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1].splitlines()[-1]); print(d.get("url") or "")' "$published")" || link="cmux-ci artifact $job"
+            [[ -n "$link" ]] || link="cmux-ci artifact $job"
+          else
+            echo "publish-hq failed: $(tail -c 400 "$RUNNER_TEMP/publish.err")"
+          fi
+          python3 -c 'import json,sys; print(json.dumps({"ok": True, "job_id": sys.argv[1], "link": sys.argv[2], "tag": sys.argv[3], "seconds": int(sys.argv[4])}))' \
+            "$job" "$link (job $job, tag $TAG)" "$TAG" "$(( $(date +%s) - started ))" > "$result"
+          cat "$result"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: next-batch-build
+          path: ${{ runner.temp }}/result/result.json
+          retention-days: 3

@@ -1,19 +1,22 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The incognito window's mark in the sidebar's titlebar row: a glyph and
-/// "Incognito" in secondary text on a subtle gray capsule (no accent
+/// "Incognito" in secondary text on a subtle gray rounded rectangle (no accent
 /// color). In the top row a press on it never moves the window.
 final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: WindowStrings.incognitoBadge)
 
+    /// The glyph drawn (tests).
+    var glyph: NSImage? { icon.image }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        icon.image = NSImage(systemSymbolName: "eyeglasses", accessibilityDescription: nil)
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: .medium)
         label.font = Typography.caption
+        icon.image = NSImage.icon(.browserIncognito, size: .iconRowSize(forLabelPointSize: label.font?.pointSize ?? 11))
         label.lineBreakMode = .byTruncatingTail
         let stack = NSStackView(views: [icon, label])
         stack.orientation = .horizontal
@@ -42,8 +45,14 @@ final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
+        layer?.cornerRadius = Metrics.chipCornerRadius(height: bounds.height)
+        // A badge narrowed by the titlebar row shows its glyph alone, never a clipped word.
+        // Alpha, not isHidden: the stack keeps its full fitting width, so the word returns with the room.
+        label.alphaValue = bounds.width + 0.5 >= fittingSize.width ? 1 : 0
     }
+
+    /// Whether the label draws (tests).
+    var showsLabel: Bool { label.alphaValue > 0 }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

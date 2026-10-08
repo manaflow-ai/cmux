@@ -1,8 +1,10 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Observation
@@ -25,6 +27,27 @@ final class LocationTrailService {
     var now: () -> Date = Date.init
     /// Called after every trail change (the history page, the palette).
     var onChange: (() -> Void)?
+    /// More listeners (each window's titlebar Back / Forward buttons): token to handler.
+    private var observers: [Int: () -> Void] = [:]
+    private var nextObserver = 0
+
+    /// Adds a listener for every trail change (also scope changes: re-read `canNavigate`); returns
+    /// the token for ``removeObserver(_:)``.
+    @discardableResult
+    func addObserver(_ handler: @escaping () -> Void) -> Int {
+        nextObserver += 1
+        observers[nextObserver] = handler
+        return nextObserver
+    }
+
+    func removeObserver(_ token: Int) {
+        observers[token] = nil
+    }
+
+    private func notify() {
+        onChange?()
+        for handler in observers.values { handler() }
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -36,7 +59,26 @@ final class LocationTrailService {
         }
     }
 
-    deinit { observation?.cancel() }
+    deinit {
+        observation?.cancel()
+        scopeObservation?.cancel()
+    }
+
+    private var scopeObservation: Task<Void, Never>?
+
+    /// Tells the observers when `navigation.historyScope` changes, so the titlebar buttons re-read
+    /// ``canNavigate(_:)`` with no trail change. Event driven (observation of the settings snapshot).
+    func watchScope(settings: SettingsController) {
+        scopeObservation?.cancel()
+        scopeObservation = Task { [weak self] in
+            var last: String?
+            for await scope in Observations({ settings.snapshot.navigationHistoryScope }) {
+                defer { last = scope }
+                guard let last, last != scope else { continue }
+                self?.notify()
+            }
+        }
+    }
 
     // MARK: Recording
 
@@ -44,8 +86,37 @@ final class LocationTrailService {
     /// window, else the last active one), so a background CLI change does
     /// not move the trail.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
-        guard services.windows.active === controller, let location = location(of: state, in: controller) else { return }
-        if trail.record(location, at: now()) { changed() }
+        // Under a top page the workspace's focus is not where the user is.
+        guard services.windows.active === controller, controller.shownTopPage == nil else { return }
+        // The window selected another workspace whose panes have not reached
+        // the focus coordinator yet: this settle still describes the
+        // workspace it left. Not a place the user went; recording it cut off
+        // the forward entries of a Back or Forward between workspaces.
+        if let shown = controller.state.workspaceID, state.topology.workspace != shown { return }
+        guard let location = location(of: state, in: controller) else { return }
+        if let jump = jumpNotedAt, now().timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
+            jumpNotedAt = nil
+            if trail.recordJump(location, at: now()) { changed() }
+            return
+        }
+        if trail.record(location, at: now(), scope: stepScope) { changed() }
+    }
+
+    /// When the user last picked a jump (``noteJump()``).
+    private var jumpNotedAt: Date?
+    /// How long a noted jump waits for the focus it causes to settle.
+    private static let jumpWindow: TimeInterval = 2
+
+    /// The user picked a place to jump to (the New Tab page's location bar):
+    /// the next settled location elsewhere is its own step, even in the same
+    /// workspace, so Back returns to where they jumped from.
+    func noteJump() {
+        jumpNotedAt = now()
+    }
+
+    /// What a step is (`navigation.history.scope`, BACK-FORWARD-WORKSPACES-ONLY).
+    var stepScope: HistoryStepScope {
+        services.settings.flatMap { HistoryStepScope(rawValue: $0.snapshot.navigationHistorySteps) } ?? .default
     }
 
     func location(of state: FocusState, in controller: WindowController) -> HistoryLocation? {
@@ -67,26 +138,77 @@ final class LocationTrailService {
             url: tab.url, cwd: tab.cwd, isIncognito: services.windows.isIncognito(workspace: workspaceID))
     }
 
+    /// The user showed top page `route` in the active window: a trail entry
+    /// (TOP-SECTION-ITEMS-ARE-PAGES Q2), through the same settle rules.
+    func pageDidShow(_ route: TopPageRoute, title: String, in controller: WindowController) {
+        guard services.windows.active === controller else { return }
+        let location = HistoryLocation.page(route.rawValue, window: controller.state.id, title: title,
+                                            isIncognito: services.windows.isIncognito(window: controller.state.id))
+        if trail.record(location, at: now()) { changed() }
+    }
+
     // MARK: Navigation
 
     /// Whether the location's tab exists on a connected machine now.
     func isAvailable(_ location: HistoryLocation) -> Bool {
+        if let page = location.page { return TopPageRoute(rawValue: page).map(hasPage) ?? false }
         guard let (_, pane) = services.locateTab(location.key.tab) else { return false }
         return services.daemon(for: pane).machineID == location.key.machine
     }
 
     enum Direction { case back, forward, last }
 
-    /// Moves the trail and focuses the entry. False when there is nowhere
-    /// to go.
+    /// What Back and Forward walk (`navigation.historyScope`; history.md 4.2a).
+    /// With workspace steps (the default) a step is a workspace or top page,
+    /// so Back and Forward walk the window's trail; `surface` stays the page's own list.
+    var scope: HistoryScope {
+        let configured = services.settings.flatMap { HistoryScope(rawValue: $0.snapshot.navigationHistoryScope) } ?? .default
+        return stepScope == .workspaces && configured != .surface ? .window : configured
+    }
+
+    /// Moves the trail within the scope and focuses the entry. False when there is nowhere to go.
+    /// With the `surface` scope the focused surface walks its own list (a browser page's back and
+    /// forward); a surface without one does nothing.
     @discardableResult
     func navigate(_ direction: Direction) -> Bool {
+        let scope = scope
+        if scope == .surface {
+            switch direction {
+            case .back, .last: return services.registry.perform("browserBack")
+            case .forward: return services.registry.perform("browserForward")
+            }
+        }
         let entry: LocationTrail.Entry? = switch direction {
-        case .back: trail.back(isAvailable: isAvailable)
-        case .forward: trail.forward(isAvailable: isAvailable)
-        case .last: trail.last(isAvailable: isAvailable)
+        case .back: trail.back(scope: scope, isAvailable: isAvailable)
+        case .forward: trail.forward(scope: scope, isAvailable: isAvailable)
+        case .last: trail.last(scope: scope, isAvailable: isAvailable)
         }
         guard let entry else { return false }
+        changed()
+        if !focus(entry.location) { trail.cancelPending() }
+        return true
+    }
+
+    /// Whether Back or Forward has somewhere to go now (the titlebar buttons' enabled state).
+    func canNavigate(_ direction: LocationTrailDirection) -> Bool {
+        let scope = scope
+        guard scope != .surface else { return true }
+        return direction == .back ? trail.canGoBack(scope: scope, isAvailable: isAvailable)
+            : trail.canGoForward(scope: scope, isAvailable: isAvailable)
+    }
+
+    /// The long-press / right-click list of a Back or Forward button, nearest first (the sidebar
+    /// lead renders it; each row runs `history.goTo {index}`). Empty with the `surface` scope: the
+    /// page's own entry menu is the list there.
+    func list(_ direction: LocationTrailDirection) -> [LocationTrailListItem] {
+        trail.list(direction, scope: scope, isAvailable: isAvailable)
+    }
+
+    /// Goes to a listed entry (`history.goTo`). False when the index is gone or not focusable.
+    @discardableResult
+    func go(toIndex index: Int) -> Bool {
+        guard trail.entries.indices.contains(index), isAvailable(trail.entries[index].location),
+              let entry = trail.go(to: index) else { return false }
         changed()
         if !focus(entry.location) { trail.cancelPending() }
         return true
@@ -102,13 +224,17 @@ final class LocationTrailService {
     /// Shows the tab: its window comes forward, its workspace and tab are
     /// selected and its pane takes focus.
     private func focus(_ location: HistoryLocation) -> Bool {
-        guard let (_, paneModel) = services.locateTab(location.key.tab),
-              let workspace = services.daemon(for: paneModel).store.workspace(containing: paneModel.handle),
-              let window = services.windows.reveal(workspaceID: workspace.id) else { return false }
-        window.state.selection.select(location.key.tab, in: paneModel.id)
-        window.focus.send(.selectTab(pane: paneModel.id, tab: location.key.tab, workspace: workspace.id, source: .intent))
-        services.paneController(for: paneModel)?.select(StripTabID(location.key.tab))
-        if let nsWindow = window.window { WindowActivation.show(nsWindow, .raise) }
+        // A run without view-change permission (automation) moves nothing.
+        guard ActionRunScope.viewChangeAllowed() else { return false }
+        if let page = location.page {
+            guard let route = TopPageRoute(rawValue: page) else { return false }
+            return TopPages.show(route, services: services, in: services.windows.states[location.window]) != nil
+        }
+        return services.revealTab(location.key.tab)
+    }
+
+    private func hasPage(_ route: TopPageRoute) -> Bool {
+        if case .page(let id) = route { return TopPages.provider(id, services: services) != nil }
         return true
     }
 
@@ -134,7 +260,7 @@ final class LocationTrailService {
     // MARK: Persistence
 
     private func changed() {
-        onChange?()
+        notify()
         guard loaded else { return }
         saveTimer.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.save() }
     }
@@ -157,7 +283,7 @@ final class LocationTrailService {
             for entry in trail.entries { merged.record(entry.location, at: entry.enteredAt) }
             trail = merged
         }
-        onChange?()
+        notify()
     }
 
     private func save() {
@@ -171,7 +297,7 @@ final class LocationTrailService {
             do {
                 stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
                                                                     projection: value, expectedRevision: revision)
-            } catch DaemonError.command(_, let message, _) where message.contains("revision conflict") {
+            } catch DaemonError.command(_, let message, _, _, _) where message.contains("revision conflict") {
                 stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
                                                                     projection: value)
             }

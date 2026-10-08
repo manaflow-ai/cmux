@@ -1972,127 +1972,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Removes the machine from the saved list with its personal order, groups and room pins. Nothing on the machine changes."
+            "value": "Removes the machine from the saved list with its personal order, groups and space pins. Nothing on the machine changes."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يزيل الجهاز من القائمة المحفوظة مع ترتيبه الشخصي ومجموعاته وتثبيتات الغرف. لا يتغير شيء على الجهاز."
+            "value": "يزيل الجهاز من القائمة المحفوظة مع ترتيبه الشخصي ومجموعاته وتثبيتات المساحات. لا يتغير شيء على الجهاز."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uklanja mašinu sa sačuvane liste zajedno s ličnim redoslijedom, grupama i pričvršćenjima u sobama. Na mašini se ništa ne mijenja."
+            "value": "Uklanja mašinu sa sačuvane liste zajedno s ličnim redoslijedom, grupama i pričvršćenjima u prostorima. Na mašini se ništa ne mijenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjerner maskinen fra den gemte liste med dens personlige rækkefølge, grupper og rumfastgørelser. Intet på maskinen ændres."
+            "value": "Fjerner maskinen fra den gemte liste med dens personlige rækkefølge, grupper og områdefastgørelser. Intet på maskinen ændres."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Entfernt die Maschine mit ihrer persönlichen Reihenfolge, ihren Gruppen und Raum-Pins aus der gespeicherten Liste. Auf der Maschine ändert sich nichts."
+            "value": "Entfernt die Maschine mit ihrer persönlichen Reihenfolge, ihren Gruppen und Space-Pins aus der gespeicherten Liste. Auf der Maschine ändert sich nichts."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quita la máquina de la lista guardada con su orden personal, grupos y fijaciones de salas. En la máquina no cambia nada."
+            "value": "Quita la máquina de la lista guardada con su orden personal, grupos y fijaciones de espacios. En la máquina no cambia nada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Retire la machine de la liste enregistrée avec son ordre personnel, ses groupes et ses épinglages de salles. Rien ne change sur la machine."
+            "value": "Retire la machine de la liste enregistrée avec son ordre personnel, ses groupes et ses épinglages d’espaces. Rien ne change sur la machine."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rimuove la macchina dall’elenco salvato con ordine personale, gruppi e fissaggi nelle stanze. Sulla macchina non cambia nulla."
+            "value": "Rimuove la macchina dall’elenco salvato con ordine personale, gruppi e fissaggi negli spazi. Sulla macchina non cambia nulla."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "保存済みリストからマシンを、個人の並び順、グループ、ルームのピン留めと一緒に削除します。マシン上では何も変わりません。"
+            "value": "保存済みリストからマシンを、個人の並び順、グループ、スペースのピン留めと一緒に削除します。マシン上では何も変わりません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដកម៉ាស៊ីនចេញពីបញ្ជីដែលបានរក្សាទុក រួមជាមួយលំដាប់ផ្ទាល់ខ្លួន ក្រុម និងការខ្ទាស់ក្នុងបន្ទប់។ គ្មានអ្វីផ្លាស់ប្ដូរលើម៉ាស៊ីនទេ។"
+            "value": "ដកម៉ាស៊ីនចេញពីបញ្ជីដែលបានរក្សាទុក រួមជាមួយលំដាប់ផ្ទាល់ខ្លួន ក្រុម និងការខ្ទាស់ក្នុងលំហ។ គ្មានអ្វីផ្លាស់ប្ដូរលើម៉ាស៊ីនទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "저장된 목록에서 머신을 개인 순서, 그룹, 룸 고정과 함께 제거합니다. 머신에서는 아무것도 바뀌지 않습니다."
+            "value": "저장된 목록에서 머신을 개인 순서, 그룹, 스페이스 고정과 함께 제거합니다. 머신에서는 아무것도 바뀌지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjerner maskinen fra den lagrede listen med personlig rekkefølge, grupper og romfestinger. Ingenting endres på maskinen."
+            "value": "Fjerner maskinen fra den lagrede listen med personlig rekkefølge, grupper og områdefestinger. Ingenting endres på maskinen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usuwa maszynę z zapisanej listy wraz z osobistą kolejnością, grupami i przypięciami w pokojach. Na maszynie nic się nie zmienia."
+            "value": "Usuwa maszynę z zapisanej listy wraz z osobistą kolejnością, grupami i przypięciami w obszarach. Na maszynie nic się nie zmienia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Remove a máquina da lista salva com sua ordem pessoal, grupos e fixações em salas. Nada muda na máquina."
+            "value": "Remove a máquina da lista salva com sua ordem pessoal, grupos e fixações em espaços. Nada muda na máquina."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Удаляет машину из сохранённого списка вместе с личным порядком, группами и закреплениями в комнатах. На самой машине ничего не меняется."
+            "value": "Удаляет машину из сохранённого списка вместе с личным порядком, группами и закреплениями в областях. На самой машине ничего не меняется."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลบเครื่องออกจากรายการที่บันทึกไว้ พร้อมลำดับส่วนตัว กลุ่ม และการปักหมุดในห้อง ไม่มีอะไรเปลี่ยนบนเครื่อง"
+            "value": "ลบเครื่องออกจากรายการที่บันทึกไว้ พร้อมลำดับส่วนตัว กลุ่ม และการปักหมุดในพื้นที่ ไม่มีอะไรเปลี่ยนบนเครื่อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Makineyi kişisel sırası, grupları ve oda sabitlemeleriyle birlikte kayıtlı listeden kaldırır. Makinede hiçbir şey değişmez."
+            "value": "Makineyi kişisel sırası, grupları ve alan sabitlemeleriyle birlikte kayıtlı listeden kaldırır. Makinede hiçbir şey değişmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вилучає машину зі збереженого списку разом з особистим порядком, групами й закріпленнями в кімнатах. На самій машині нічого не змінюється."
+            "value": "Вилучає машину зі збереженого списку разом з особистим порядком, групами й закріпленнями в просторах. На самій машині нічого не змінюється."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Xóa máy khỏi danh sách đã lưu cùng thứ tự cá nhân, nhóm và ghim phòng. Không có gì thay đổi trên máy."
+            "value": "Xóa máy khỏi danh sách đã lưu cùng thứ tự cá nhân, nhóm và ghim không gian. Không có gì thay đổi trên máy."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "从已保存列表中移除该机器及其个人排序、分组和房间置顶。机器上不会有任何更改。"
+            "value": "从已保存列表中移除该机器及其个人排序、分组和空间置顶。机器上不会有任何更改。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "從已儲存列表中移除該機器及其個人排序、群組和房間釘選。機器上不會有任何變更。"
+            "value": "從已儲存列表中移除該機器及其個人排序、群組和空間釘選。機器上不會有任何變更。"
           }
         }
       }
@@ -5761,6 +5761,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "該機器的 cmux-tui 無法識別此終端機。請先更新。"
+          }
+        }
+      }
+    },
+    "remote.agentTab.elsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat runs on %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは %@ で実行されています"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل هذه الدردشة على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj chat radi na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat kører på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat läuft auf %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat se ejecuta en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette conversation s'exécute sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è in esecuzione su %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះកំពុងដំណើរការលើ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 %@에서 실행 중입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten kjører på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat działa na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat é executado em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат работает на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ทำงานบน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet %@ üzerinde çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат працює на %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này chạy trên %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在 %@ 上运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在 %@ 上執行"
+          }
+        }
+      }
+    },
+    "remote.agentTab.elsewhereUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat runs on another Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは別の Mac で実行されています"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل هذه الدردشة على جهاز Mac آخر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj chat radi na drugom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat kører på en anden Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat läuft auf einem anderen Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat se ejecuta en otro Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette conversation s'exécute sur un autre Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è in esecuzione su un altro Mac"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះកំពុងដំណើរការលើ Mac ផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 다른 Mac에서 실행 중입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten kjører på en annen Mac"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat działa na innym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat é executado em outro Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат работает на другом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ทำงานบน Mac เครื่องอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet başka bir Mac'te çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат працює на іншому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này chạy trên một máy Mac khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台 Mac 上运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台 Mac 上執行"
           }
         }
       }

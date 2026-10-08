@@ -70,7 +70,10 @@ impl Default for ReconnectPolicy {
             heartbeat_interval: Some(Duration::from_secs(5)),
             heartbeat_timeout: Duration::from_secs(15),
             maximum_attempts: None,
-            maximum_duration: Some(Duration::from_secs(120)),
+            // Long-lived interactive links, including direct SSH sessions,
+            // must keep retrying until their owner closes them. Callers that
+            // run bounded one-shot work can opt into a recovery deadline.
+            maximum_duration: None,
         }
     }
 }
@@ -1289,8 +1292,8 @@ mod tests {
     }
 
     #[test]
-    fn reconnect_policy_has_a_bounded_default_deadline() {
-        assert_eq!(ReconnectPolicy::default().maximum_duration, Some(Duration::from_secs(120)));
+    fn reconnect_policy_defaults_to_an_unbounded_recovery_window() {
+        assert_eq!(ReconnectPolicy::default().maximum_duration, None);
         assert!(
             ReconnectPolicy { maximum_duration: Some(Duration::ZERO), ..Default::default() }
                 .validate()

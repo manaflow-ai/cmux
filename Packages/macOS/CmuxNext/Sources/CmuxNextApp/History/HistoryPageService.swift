@@ -1,10 +1,15 @@
 import AppKit
+import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextRemoteView
 import Foundation
+#if DEBUG
+import CmuxNextRemoteBrowser
+#endif
 
 /// Opens `cmux://history` and serves its data (plans/cmux-next/history.md
 /// 5.1). The page is a browser tab whose record URL is `cmux://history`, so
@@ -64,8 +69,9 @@ final class HistoryPageService: HistoryPageSource {
 }
 
 extension TabContentCache {
-    /// The native page for a browser record whose URL is `cmux://history`
-    /// or `cmux://bookmarks` (nil otherwise). Remote records never get here
+    /// The native page for a browser record whose URL is `cmux://history`,
+    /// `cmux://bookmarks`, `cmux://agent-activity` or `cmux://remote-view`
+    /// (nil otherwise). Remote records never get here
     /// (`recordURL` keeps only web pages for them).
     func appPage(for tab: TabModel, url: URL?) -> BrowserEntry? {
         guard let page = makeAppPage(url, for: tab) else { return nil }
@@ -88,6 +94,8 @@ extension TabContentCache {
         }
         entry.chrome.loadOverride = { [weak self] url in
             guard Self.isAppPage(url), let self, let tab = tabModel(key) else { return false }
+            // Typed in the address bar (or a bookmark a person opened).
+            if RemoteViewTabRecord.matches(url) { services.remoteViewPages.confirm(key, url: url) }
             showAppPage(url, in: tab)
             return true
         }
@@ -102,20 +110,63 @@ extension TabContentCache {
         swapPage(tab.id, with: page)
     }
 
-    static func isAppPage(_ url: URL?) -> Bool { HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) }
+    static func isAppPage(_ url: URL?) -> Bool {
+        HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+            || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url)
+    }
+
+    /// A development remote tab record (`cmux://remote-browser`).
+    static func isRemoteBrowserPage(_ url: URL?) -> Bool {
+        #if DEBUG
+        RemoteBrowserTabRecord.matches(url)
+        #else
+        false
+        #endif
+    }
 
     private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
         guard Self.isAppPage(url), let services = pageRequests.services else { return nil }
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
         let profile = browserProfile?(key) ?? .default
+        #if DEBUG
+        if let url, RemoteBrowserTabRecord.matches(url) {
+            return RemoteBrowserPages.makePage(url: url, key: key, profile: profile, services: services)
+        }
+        #endif
+        if AgentActivityPageAddress.matches(url) {
+            let page = services.agentActivityPage.makePage(key: key, engine: engine, profile: profile)
+            page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            return page
+        }
+        if let url, RemoteViewTabRecord.matches(url) {
+            let pages = services.remoteViewPages
+            let source = pages.source(for: key, url: url, isLocal: services.machines.daemon(forTab: tab).isLocal)
+            let decision = RemoteViewTabPolicy().decide(record: RemoteViewTabRecord(url: url), source: source)
+            let page = RemoteViewPageTab(
+                id: BrowserTabID(rawValue: key), engine: engine, profile: profile, url: url, decision: decision,
+                closeTab: { [weak self] in self?.pageRequests.closeTab(key) },
+                connect: { [weak self] confirmedURL in
+                    // The Connect button: a person confirmed this record (view mode).
+                    pages.confirm(key, url: confirmedURL)
+                    guard let self, let tab = tabModel(key) else { return }
+                    showAppPage(confirmedURL, in: tab)
+                })
+            page.onNavigate = { [weak self] target in
+                pages.forget(key)
+                self?.leaveAppPage(key, to: target)
+            }
+            return page
+        }
         if BookmarkPageAddress.matches(url) {
             let page = services.bookmarkPages.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
-        let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: services.historyPage)
+        let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: services.historyPage,
+                                  webPage: PageFactory(services: services).historyWebPage())
         page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+        page.webPage?.onOpenExternal = { [weak self] target in self?.leaveAppPage(key, to: target) }
         return page
     }
 
@@ -125,7 +176,7 @@ extension TabContentCache {
         let profile = browserProfile?(key) ?? .default
         let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url)
         guard let tab = tabModel(key), tab.browserEngine == BrowserEngineTag.cef.rawValue, browserTabs.cefUnavailable() == nil else {
-            return swapPage(key, with: webKit.makeWebKitTab(config))
+            return swapPage(key, with: unproxiedWebKitPage(config))
         }
         // task-owner: one Chromium page creation; the tab swap is its only effect
         Task { [weak self] in
@@ -134,8 +185,15 @@ extension TabContentCache {
             if let page = try? await makeCEFTab(configured) {
                 swapPage(key, with: page)
             } else {
-                swapPage(key, with: webKit.makeWebKitTab(config))
+                swapPage(key, with: unproxiedWebKitPage(config))
             }
         }
+    }
+
+    /// A WebKit page for `config`; a proxied tab's page stays blank (its URL is a remote
+    /// machine's localhost, which WebKit would load from this Mac).
+    private func unproxiedWebKitPage(_ config: BrowserTabConfiguration) -> WebKitTab {
+        webKit.makeWebKitTab(id: config.id, profile: config.profile,
+                             initialURL: pageRequests.proxiedTabs.isProxied(config.id.rawValue) ? nil : config.initialURL)
     }
 }

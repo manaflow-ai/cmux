@@ -2,7 +2,7 @@
 """Exercise path discovery in checkout and installed layouts.
 
 Semantic validation belongs to config doctor; it must not use an ambient CLI
-or be replaced by the path inventory. See test_cli_config_doctor.py.
+or be replaced by the path inventory.
 """
 
 import json
@@ -21,8 +21,8 @@ SKILL_ROOT = REPO_ROOT / "skills" / "cmux-settings"
 # or ui. Object-valued settings are listed at their root, as the CLI permits
 # descendant paths beneath these roots (for example shortcuts.bindings).
 SETTINGS_SECTIONS = (
-    "app", "terminal", "notifications", "sidebar", "sidebarAppearance",
-    "workspaceColors", "automation", "browser", "markdown", "fileEditor",
+    "app", "terminal", "surfaceTabBar", "notifications", "sidebar", "sidebarAppearance",
+    "workspaceColors", "automation", "agentMessages", "browser", "markdown", "fileEditor",
     "fileExplorer", "diffViewer", "shortcuts",
 )
 
@@ -157,7 +157,7 @@ class ShortcutActionReferenceTests(unittest.TestCase):
             / "shortcut-actions.md"
         ).read_text()
         listed = set(
-            re.findall(r"^-\s+`shortcuts\.bindings\.([A-Za-z0-9-]+)`", reference, re.M)
+            re.findall(r"^-\s+`shortcuts\.bindings\.([A-Za-z0-9.-]+)`", reference, re.M)
         )
         self.assertEqual(
             sorted(set(enum) - listed),

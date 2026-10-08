@@ -3,8 +3,8 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextTabs
 
-/// Narrow tabs follow Chrome and Helium (user request on nxdog13: "handle
-/// small tabs better, example from helium"). Chromium `Tab::UpdateIconVisibility`
+/// Narrow tabs follow Chromium's breakpoints (user request on nxdog13:
+/// handle small tabs better). Chromium `Tab::UpdateIconVisibility`
 /// and `Tab::Layout` decide from the tab's contents width (its width less
 /// both content insets):
 /// - an inactive tab shows its favicon while it fits and otherwise centers
@@ -16,9 +16,9 @@ import Testing
 ///   favicon and x only);
 /// - a tab narrower than the minimum inactive width shows nothing.
 /// cmux keeps the x hover-only on wide tabs (nxdog9) and shows it on the
-/// selected tab only once that tab is narrow, where Chrome's rule costs no
-/// title text. Numbers use the compact density tokens.
-@Suite("Tab width breakpoints (Chrome)")
+/// selected tab only once that tab is narrow, where the x costs no title
+/// text. Numbers use the compact density tokens.
+@Suite("Tab width breakpoints")
 struct TabWidthBreakpointTests {
     let t = TabStripMetrics.standard
     private func resolve(_ width: CGFloat, selected: Bool = false, hovered: Bool = false, pinned: Bool = false) -> TabChromeVisibility {
@@ -80,12 +80,12 @@ struct TabWidthBreakpointTests {
     }
 }
 
-/// Separators sit between unselected, unhovered neighbors (Chrome's
-/// `Tab::GetSeparatorOpacity`), never at the strip's end.
+/// The strip wires Chrome's separator rule (TabSeparatorVisibility) into
+/// its cells: the selected and the hovered tab hide the separators on both
+/// sides, the line before + follows the last tab, and hover applies at once.
 @MainActor @Suite struct TabSeparatorTests {
-    @Test func separatorsHideNextToTheSelectedAndHoveredTabs() {
-        let tabs = (0..<6).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
-        let model = TabStripModel(tabs: tabs, selectedID: TabID("t2"))
+    private func makeStrip(_ tabs: [TabItem], selected: String) -> (TabStripView, NSWindow) {
+        let model = TabStripModel(tabs: tabs, selectedID: TabID(selected))
         let strip = TabStripView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
@@ -93,10 +93,27 @@ struct TabWidthBreakpointTests {
         window.contentView!.addSubview(strip)
         strip.layoutSubtreeIfNeeded()
         strip.sync(fromModel: true)
+        return (strip, window)
+    }
+
+    @Test func selectedAndHoveredTabsHideTheSeparatorsOnBothSides() {
+        let tabs = (0..<6).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
+        let (strip, window) = makeStrip(tabs, selected: "t2")
+        defer { window.close() }
         func separators() -> [Bool] { (0..<6).map { strip.cells[TabID("t\($0)")]!.showsSeparator } }
-        #expect(separators() == [true, false, false, true, true, false])
-        strip.hoveredID = TabID("t4")
-        strip.updateSeparators()
-        #expect(separators() == [true, false, false, false, false, false])
+        #expect(separators() == [true, false, false, true, true, true])
+        strip.setHovered(TabID("t4"))
+        #expect(separators() == [true, false, false, false, false, true])
+        strip.setHovered(TabID("t5"))
+        #expect(separators() == [true, false, false, true, false, false])
+        strip.setHovered(nil)
+        #expect(separators() == [true, false, false, true, true, true])
+    }
+
+    @Test func separatorsCrossThePinnedEdge() {
+        let tabs = (0..<4).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)", isPinned: $0 < 2) }
+        let (strip, window) = makeStrip(tabs, selected: "t0")
+        defer { window.close() }
+        #expect((0..<4).map { strip.cells[TabID("t\($0)")]!.showsSeparator } == [false, true, true, true])
     }
 }

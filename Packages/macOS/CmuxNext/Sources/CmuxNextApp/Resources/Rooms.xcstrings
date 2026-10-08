@@ -7,127 +7,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Room %lld"
+            "value" : "Space %lld"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "الغرفة %lld"
+            "value" : "المساحة %lld"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Soba %lld"
+            "value" : "Prostor %lld"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rum %lld"
+            "value" : "Område %lld"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Raum %lld"
+            "value" : "Space %lld"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sala %lld"
+            "value" : "Espacio %lld"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Salle %lld"
+            "value" : "Espace %lld"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stanza %lld"
+            "value" : "Spazio %lld"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルーム %lld"
+            "value" : "スペース %lld"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បន្ទប់ %lld"
+            "value" : "លំហ %lld"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 %lld"
+            "value" : "스페이스 %lld"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rom %lld"
+            "value" : "Område %lld"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pokój %lld"
+            "value" : "Obszar %lld"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sala %lld"
+            "value" : "Espaço %lld"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Комната %lld"
+            "value" : "Область %lld"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ห้อง %lld"
+            "value" : "พื้นที่ %lld"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Oda %lld"
+            "value" : "Alan %lld"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Кімната %lld"
+            "value" : "Простір %lld"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Phòng %lld"
+            "value" : "Không gian %lld"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "房间 %lld"
+            "value" : "空间 %lld"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "房間 %lld"
+            "value" : "空間 %lld"
           }
         }
       }
@@ -263,264 +263,385 @@
         }
       }
     },
-    "rooms.deleteMovesBody" : {
+    "rooms.deleteClosesBody" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Its workspaces and groups move to “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Its %lld workspace closes."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Its %lld workspaces close."
+                }
+              }
+            }
           }
         },
         "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تنتقل مساحات العمل والمجموعات إلى “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "ستُغلق مساحات العمل فيها (%lld)."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "ستُغلق مساحات العمل فيها (%lld)."
+                }
+              }
+            }
           }
         },
         "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Njeni radni prostori i grupe premještaju se u „%@“."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Njeni radni prostori (%lld) se zatvaraju."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Njeni radni prostori (%lld) se zatvaraju."
+                }
+              }
+            }
           }
         },
         "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dets arbejdsområder og grupper flyttes til “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dets %lld arbejdsområder lukkes."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dets %lld arbejdsområder lukkes."
+                }
+              }
+            }
           }
         },
         "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Die Arbeitsbereiche und Gruppen werden nach „%@“ verschoben."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Die %lld Arbeitsbereiche darin werden geschlossen."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Die %lld Arbeitsbereiche darin werden geschlossen."
+                }
+              }
+            }
           }
         },
         "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sus espacios de trabajo y grupos pasan a «%@»."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Se cerrarán sus %lld espacios de trabajo."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Se cerrarán sus %lld espacios de trabajo."
+                }
+              }
+            }
           }
         },
         "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ses espaces de travail et groupes passent dans « %@ »."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Ses %lld espaces de travail seront fermés."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Ses %lld espaces de travail seront fermés."
+                }
+              }
+            }
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Le sue aree di lavoro e i gruppi passano in “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Le sue %lld aree di lavoro verranno chiuse."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Le sue %lld aree di lavoro verranno chiuse."
+                }
+              }
+            }
           }
         },
         "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ワークスペースとグループは“%@”へ移動します。"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 個のワークスペースが閉じます。"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 個のワークスペースが閉じます。"
+                }
+              }
+            }
           }
         },
         "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "កន្លែងធ្វើការ និងក្រុមរបស់វាផ្លាស់ទៅ “%@”។"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "កន្លែងធ្វើការ %lld របស់វានឹងបិទ។"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "កន្លែងធ្វើការ %lld របស់វានឹងបិទ។"
+                }
+              }
+            }
           }
         },
         "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "작업 공간과 그룹이 “%@”(으)로 이동합니다."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "작업 공간 %lld개가 닫힙니다."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "작업 공간 %lld개가 닫힙니다."
+                }
+              }
+            }
           }
         },
         "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Arbeidsområdene og gruppene flyttes til «%@»."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "De %lld arbeidsområdene lukkes."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "De %lld arbeidsområdene lukkes."
+                }
+              }
+            }
           }
         },
         "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Jego przestrzenie i grupy zostaną przeniesione do „%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Jego przestrzenie robocze (%lld) zostaną zamknięte."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Jego przestrzenie robocze (%lld) zostaną zamknięte."
+                }
+              }
+            }
           }
         },
         "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Suas áreas de trabalho e grupos vão para “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Suas %lld áreas de trabalho serão fechadas."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Suas %lld áreas de trabalho serão fechadas."
+                }
+              }
+            }
           }
         },
         "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Его пространства и группы переместятся в «%@»."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Его рабочие пространства (%lld) закроются."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Его рабочие пространства (%lld) закроются."
+                }
+              }
+            }
           }
         },
         "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เวิร์กสเปซและกลุ่มจะย้ายไปที่ “%@”"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "เวิร์กสเปซ %lld รายการของพื้นที่นี้จะปิด"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "เวิร์กสเปซ %lld รายการของพื้นที่นี้จะปิด"
+                }
+              }
+            }
           }
         },
         "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Çalışma alanları ve grupları “%@” odasına taşınır."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld çalışma alanı kapanır."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld çalışma alanı kapanır."
+                }
+              }
+            }
           }
         },
         "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Її робочі області й групи переміщуються до «%@»."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Її робочі області (%lld) закриються."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Її робочі області (%lld) закриються."
+                }
+              }
+            }
           }
         },
         "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Không gian làm việc và nhóm sẽ chuyển tới “%@”."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld không gian làm việc của nó sẽ đóng."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld không gian làm việc của nó sẽ đóng."
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "其工作区和组将移到“%@”。"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "其 %lld 个工作区将关闭。"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "其 %lld 个工作区将关闭。"
+                }
+              }
+            }
           }
         },
         "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "其工作區和群組將移至「%@」。"
-          }
-        }
-      }
-    },
-    "rooms.deleteReturnsBody" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Its workspaces stay open and return to the rooms that follow their machines."
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تبقى مساحات العمل مفتوحة وتعود إلى الغرف التي تتابع أجهزتها."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Njeni radni prostori ostaju otvoreni i vraćaju se u sobe koje prate njihove mašine."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dets arbejdsområder forbliver åbne og vender tilbage til de rum, der følger deres maskiner."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Die Arbeitsbereiche bleiben geöffnet und kehren in die Räume zurück, die ihren Rechnern folgen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sus espacios de trabajo siguen abiertos y vuelven a las salas que siguen a sus máquinas."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ses espaces de travail restent ouverts et reviennent dans les salles qui suivent leurs machines."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Le sue aree di lavoro restano aperte e tornano nelle stanze che seguono le loro macchine."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ワークスペースは開いたまま、そのマシンをフォローしているルームに戻ります。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "កន្លែងធ្វើការរបស់វានៅបើក ហើយត្រឡប់ទៅបន្ទប់ដែលតាមដានម៉ាស៊ីនរបស់វា។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "작업 공간은 열린 채로 해당 머신을 팔로우하는 룸으로 돌아갑니다."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Arbeidsområdene forblir åpne og går tilbake til rommene som følger maskinene deres."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Jego przestrzenie pozostają otwarte i wracają do pokojów, które śledzą ich maszyny."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Suas áreas de trabalho continuam abertas e voltam às salas que seguem suas máquinas."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Его пространства остаются открытыми и возвращаются в комнаты, которые следят за их машинами."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เวิร์กสเปซยังเปิดอยู่และกลับไปยังห้องที่ติดตามเครื่องของเวิร์กสเปซนั้น"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Çalışma alanları açık kalır ve makinelerini izleyen odalara döner."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Її робочі області лишаються відкритими й повертаються до кімнат, що стежать за їхніми машинами."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Các không gian làm việc vẫn mở và quay về những phòng theo dõi máy của chúng."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "其工作区保持打开，并回到关注其机器的房间。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "其工作區保持開啟，並回到追蹤其機器的房間。"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "其 %lld 個工作區將關閉。"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "其 %lld 個工作區將關閉。"
+                }
+              }
+            }
           }
         }
       }
@@ -531,127 +652,258 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Delete room “%@”?"
+            "value" : "Delete space “%@”?"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "حذف الغرفة “%@”؟"
+            "value" : "حذف المساحة “%@”؟"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Izbrisati sobu „%@“?"
+            "value" : "Izbrisati prostor „%@“?"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Slet rummet “%@”?"
+            "value" : "Slet området “%@”?"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Raum „%@“ löschen?"
+            "value" : "Space „%@“ löschen?"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "¿Eliminar la sala «%@»?"
+            "value" : "¿Eliminar el espacio «%@»?"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Supprimer la salle « %@ » ?"
+            "value" : "Supprimer l’espace « %@ » ?"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Eliminare la stanza “%@”?"
+            "value" : "Eliminare lo spazio “%@”?"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルーム“%@”を削除しますか?"
+            "value" : "スペース“%@”を削除しますか?"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "លុបបន្ទប់ “%@” ឬ?"
+            "value" : "លុបលំហ “%@” ឬ?"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 “%@”을(를) 삭제할까요?"
+            "value" : "스페이스 “%@”을(를) 삭제할까요?"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Slette rommet «%@»?"
+            "value" : "Slette området «%@»?"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Usunąć pokój „%@”?"
+            "value" : "Usunąć obszar „%@”?"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Excluir a sala “%@”?"
+            "value" : "Excluir o espaço “%@”?"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Удалить комнату «%@»?"
+            "value" : "Удалить область «%@»?"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ลบห้อง “%@” หรือไม่"
+            "value" : "ลบพื้นที่ “%@” หรือไม่"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "“%@” odası silinsin mi?"
+            "value" : "“%@” alanı silinsin mi?"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Видалити кімнату «%@»?"
+            "value" : "Видалити простір «%@»?"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Xóa phòng “%@”?"
+            "value" : "Xóa không gian “%@”?"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "删除房间“%@”？"
+            "value" : "删除空间“%@”？"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "刪除房間「%@」？"
+            "value" : "刪除空間「%@」？"
+          }
+        }
+      }
+    },
+    "rooms.deletedToast" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Space “%@” deleted"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تم حذف المساحة “%@”"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prostor „%@“ je izbrisan"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Området “%@” er slettet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Space „%@“ gelöscht"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espacio «%@» eliminado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espace « %@ » supprimé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Spazio “%@” eliminato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スペース「%@」を削除しました"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានលុបលំហ “%@”"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "스페이스 “%@” 삭제됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Området «%@» er slettet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usunięto obszar „%@”"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaço “%@” excluído"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Область «%@» удалена"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบพื้นที่ “%@” แล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@” alanı silindi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Простір «%@» видалено"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã xóa không gian “%@”"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已删除空间“%@”"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已刪除空間「%@」"
           }
         }
       }
@@ -662,127 +914,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Room Icon (SF Symbol name or one emoji)"
+            "value" : "Space Icon (SF Symbol name or one emoji)"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "أيقونة الغرفة (اسم SF Symbol أو رمز تعبيري واحد)"
+            "value" : "أيقونة المساحة (اسم SF Symbol أو رمز تعبيري واحد)"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ikona sobe (naziv SF Symbola ili jedan emoji)"
+            "value" : "Ikona prostora (naziv SF Symbola ili jedan emoji)"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rummets ikon (SF Symbol-navn eller én emoji)"
+            "value" : "Områdets ikon (SF Symbol-navn eller én emoji)"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Raumsymbol (SF-Symbol-Name oder ein Emoji)"
+            "value" : "Space-Symbol (SF-Symbol-Name oder ein Emoji)"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Icono de la sala (nombre de SF Symbol o un emoji)"
+            "value" : "Icono del espacio (nombre de SF Symbol o un emoji)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Icône de la salle (nom SF Symbol ou un emoji)"
+            "value" : "Icône de l’espace (nom SF Symbol ou un emoji)"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Icona della stanza (nome SF Symbol o un emoji)"
+            "value" : "Icona dello spazio (nome SF Symbol o un emoji)"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルームのアイコン（SF Symbol 名または絵文字 1 つ）"
+            "value" : "スペースのアイコン（SF Symbol 名または絵文字 1 つ）"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "រូបតំណាងបន្ទប់ (ឈ្មោះ SF Symbol ឬ emoji មួយ)"
+            "value" : "រូបតំណាងលំហ (ឈ្មោះ SF Symbol ឬ emoji មួយ)"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 아이콘(SF Symbol 이름 또는 이모지 1개)"
+            "value" : "스페이스 아이콘(SF Symbol 이름 또는 이모지 1개)"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Romikon (SF Symbol-navn eller én emoji)"
+            "value" : "Områdeikon (SF Symbol-navn eller én emoji)"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ikona pokoju (nazwa SF Symbol lub jedno emoji)"
+            "value" : "Ikona obszaru (nazwa SF Symbol lub jedno emoji)"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ícone da Sala (nome de SF Symbol ou um emoji)"
+            "value" : "Ícone do Espaço (nome de SF Symbol ou um emoji)"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Значок комнаты (имя SF Symbol или один эмодзи)"
+            "value" : "Значок области (имя SF Symbol или один эмодзи)"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ไอคอนห้อง (ชื่อ SF Symbol หรืออีโมจิหนึ่งตัว)"
+            "value" : "ไอคอนพื้นที่ (ชื่อ SF Symbol หรืออีโมจิหนึ่งตัว)"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Oda Simgesi (SF Symbol adı veya bir emoji)"
+            "value" : "Alan Simgesi (SF Symbol adı veya bir emoji)"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Значок кімнати (назва SF Symbol або один емодзі)"
+            "value" : "Значок простору (назва SF Symbol або один емодзі)"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Biểu tượng phòng (tên SF Symbol hoặc một emoji)"
+            "value" : "Biểu tượng không gian (tên SF Symbol hoặc một emoji)"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "房间图标（SF Symbol 名称或一个表情）"
+            "value" : "空间图标（SF Symbol 名称或一个表情）"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "房間圖示（SF Symbol 名稱或一個表情符號）"
+            "value" : "空間圖示（SF Symbol 名稱或一個表情符號）"
           }
         }
       }
@@ -793,127 +1045,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "the workspace is already in that room"
+            "value" : "the workspace is already in that space"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "مساحة العمل موجودة بالفعل في تلك الغرفة"
+            "value" : "مساحة العمل موجودة بالفعل في تلك المساحة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "radni prostor je već u toj sobi"
+            "value" : "radni prostor je već u tom prostoru"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "arbejdsområdet er allerede i det rum"
+            "value" : "arbejdsområdet er allerede i det område"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "der Arbeitsbereich ist bereits in diesem Raum"
+            "value" : "der Arbeitsbereich ist bereits in diesem Space"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "el espacio de trabajo ya está en esa sala"
+            "value" : "el espacio de trabajo ya está en ese espacio"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "l’espace de travail est déjà dans cette salle"
+            "value" : "l’espace de travail est déjà dans cet espace"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "l’area di lavoro è già in quella stanza"
+            "value" : "l’area di lavoro è già in quello spazio"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ワークスペースはすでにそのルームにあります"
+            "value" : "ワークスペースはすでにそのスペースにあります"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កន្លែងធ្វើការនៅក្នុងបន្ទប់នោះរួចហើយ"
+            "value" : "កន្លែងធ្វើការនៅក្នុងលំហនោះរួចហើយ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "작업 공간이 이미 그 룸에 있습니다"
+            "value" : "작업 공간이 이미 그 스페이스에 있습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "arbeidsområdet er allerede i det rommet"
+            "value" : "arbeidsområdet er allerede i det området"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "przestrzeń jest już w tym pokoju"
+            "value" : "przestrzeń jest już w tym obszarze"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "a área de trabalho já está nessa sala"
+            "value" : "a área de trabalho já está nesse espaço"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "пространство уже в этой комнате"
+            "value" : "пространство уже в этой области"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เวิร์กสเปซอยู่ในห้องนั้นแล้ว"
+            "value" : "เวิร์กสเปซอยู่ในพื้นที่นั้นแล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "çalışma alanı zaten o odada"
+            "value" : "çalışma alanı zaten o alanda"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "робоча область уже в цій кімнаті"
+            "value" : "робоча область уже в цьому просторі"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "không gian làm việc đã ở trong phòng đó"
+            "value" : "không gian làm việc đã ở trong không gian đó"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "工作区已在该房间中"
+            "value" : "工作区已在该空间中"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "工作區已在該房間中"
+            "value" : "工作區已在該空間中"
           }
         }
       }
@@ -924,127 +1176,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "the room is already at the edge"
+            "value" : "the space is already at the edge"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "الغرفة عند الطرف بالفعل"
+            "value" : "المساحة عند الطرف بالفعل"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "soba je već na rubu"
+            "value" : "prostor je već na rubu"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "rummet er allerede yderst"
+            "value" : "området er allerede yderst"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "der Raum ist bereits am Rand"
+            "value" : "der Space ist bereits am Rand"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "la sala ya está en el extremo"
+            "value" : "el espacio ya está en el extremo"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "la salle est déjà au bord"
+            "value" : "l’espace est déjà au bord"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "la stanza è già al bordo"
+            "value" : "lo spazio è già al bordo"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルームはすでに端にあります"
+            "value" : "スペースはすでに端にあります"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បន្ទប់នៅគែមរួចហើយ"
+            "value" : "លំហនៅគែមរួចហើយ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸이 이미 끝에 있습니다"
+            "value" : "스페이스가 이미 끝에 있습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "rommet er allerede ytterst"
+            "value" : "området er allerede ytterst"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "pokój jest już na krawędzi"
+            "value" : "obszar jest już na krawędzi"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "a sala já está na borda"
+            "value" : "o espaço já está na borda"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "комната уже с краю"
+            "value" : "область уже с краю"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ห้องอยู่ที่ขอบแล้ว"
+            "value" : "พื้นที่อยู่ที่ขอบแล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "oda zaten kenarda"
+            "value" : "alan zaten kenarda"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "кімната вже з краю"
+            "value" : "простір уже з краю"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "phòng đã ở cạnh"
+            "value" : "không gian đã ở cạnh"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "房间已在边缘"
+            "value" : "空间已在边缘"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "房間已在邊緣"
+            "value" : "空間已在邊緣"
           }
         }
       }
@@ -1055,127 +1307,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "the Default room cannot be deleted"
+            "value" : "the Default space cannot be deleted"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا يمكن حذف الغرفة الافتراضية"
+            "value" : "لا يمكن حذف المساحة الافتراضية"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "zadana soba se ne može izbrisati"
+            "value" : "zadani prostor se ne može izbrisati"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "standardrummet kan ikke slettes"
+            "value" : "standardområdet kan ikke slettes"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "der Standardraum kann nicht gelöscht werden"
+            "value" : "der Standard-Space kann nicht gelöscht werden"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "la sala predeterminada no se puede eliminar"
+            "value" : "el espacio predeterminado no se puede eliminar"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "la salle par défaut ne peut pas être supprimée"
+            "value" : "l’espace par défaut ne peut pas être supprimé"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "la stanza predefinita non può essere eliminata"
+            "value" : "lo spazio predefinito non può essere eliminato"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "デフォルトのルームは削除できません"
+            "value" : "デフォルトのスペースは削除できません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនអាចលុបបន្ទប់លំនាំដើមបានទេ"
+            "value" : "មិនអាចលុបលំហលំនាំដើមបានទេ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "기본 룸은 삭제할 수 없습니다"
+            "value" : "기본 스페이스는 삭제할 수 없습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "standardrommet kan ikke slettes"
+            "value" : "standardområdet kan ikke slettes"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "nie można usunąć pokoju domyślnego"
+            "value" : "nie można usunąć obszaru domyślnego"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "a sala padrão não pode ser excluída"
+            "value" : "o espaço padrão não pode ser excluído"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "комнату по умолчанию нельзя удалить"
+            "value" : "область по умолчанию нельзя удалить"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ลบห้องเริ่มต้นไม่ได้"
+            "value" : "ลบพื้นที่เริ่มต้นไม่ได้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "varsayılan oda silinemez"
+            "value" : "varsayılan alan silinemez"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "кімнату за замовчуванням не можна видалити"
+            "value" : "простір за замовчуванням не можна видалити"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "không thể xóa phòng mặc định"
+            "value" : "không thể xóa không gian mặc định"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "无法删除默认房间"
+            "value" : "无法删除默认空间"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "無法刪除預設房間"
+            "value" : "無法刪除預設空間"
           }
         }
       }
@@ -1448,127 +1700,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "there is no room that way"
+            "value" : "there is no space that way"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا توجد غرفة في هذا الاتجاه"
+            "value" : "لا توجد مساحة في هذا الاتجاه"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "nema sobe u tom smjeru"
+            "value" : "nema prostora u tom smjeru"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "der er intet rum i den retning"
+            "value" : "der er intet område i den retning"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "in dieser Richtung gibt es keinen Raum"
+            "value" : "in dieser Richtung gibt es keinen Space"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "no hay ninguna sala en esa dirección"
+            "value" : "no hay ningún espacio en esa dirección"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "aucune salle dans cette direction"
+            "value" : "aucun espace dans cette direction"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "non c’è nessuna stanza in quella direzione"
+            "value" : "non c’è nessuno spazio in quella direzione"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "その方向にルームはありません"
+            "value" : "その方向にスペースはありません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "គ្មានបន្ទប់នៅទិសនោះទេ"
+            "value" : "គ្មានលំហនៅទិសនោះទេ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "그 방향에 룸이 없습니다"
+            "value" : "그 방향에 스페이스가 없습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "det finnes ikke noe rom i den retningen"
+            "value" : "det finnes ikke noe område i den retningen"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "w tym kierunku nie ma pokoju"
+            "value" : "w tym kierunku nie ma obszaru"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "não há sala nessa direção"
+            "value" : "não há espaço nessa direção"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "в этом направлении нет комнаты"
+            "value" : "в этом направлении нет области"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ไม่มีห้องในทิศทางนั้น"
+            "value" : "ไม่มีพื้นที่ในทิศทางนั้น"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "o yönde oda yok"
+            "value" : "o yönde alan yok"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "у цьому напрямку немає кімнати"
+            "value" : "у цьому напрямку немає простору"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "không có phòng theo hướng đó"
+            "value" : "không có không gian theo hướng đó"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "该方向没有房间"
+            "value" : "该方向没有空间"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "該方向沒有房間"
+            "value" : "該方向沒有空間"
           }
         }
       }
@@ -1579,127 +1831,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "no room %@"
+            "value" : "no space %@"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا توجد غرفة %@"
+            "value" : "لا توجد مساحة %@"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "nema sobe %@"
+            "value" : "nema prostora %@"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "intet rum %@"
+            "value" : "intet område %@"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "kein Raum %@"
+            "value" : "kein Space %@"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "no hay ninguna sala %@"
+            "value" : "no hay ningún espacio %@"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "aucune salle %@"
+            "value" : "aucun espace %@"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "nessuna stanza %@"
+            "value" : "nessuno spazio %@"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルーム %@ はありません"
+            "value" : "スペース %@ はありません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "គ្មានបន្ទប់ %@"
+            "value" : "គ្មានលំហ %@"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 %@ 없음"
+            "value" : "스페이스 %@ 없음"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ingen rom %@"
+            "value" : "ikke noe område %@"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "brak pokoju %@"
+            "value" : "brak obszaru %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "nenhuma sala %@"
+            "value" : "nenhum espaço %@"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "нет комнаты %@"
+            "value" : "нет области %@"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ไม่มีห้อง %@"
+            "value" : "ไม่มีพื้นที่ %@"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%@ odası yok"
+            "value" : "%@ alanı yok"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "немає кімнати %@"
+            "value" : "немає простору %@"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "không có phòng %@"
+            "value" : "không có không gian %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "没有房间 %@"
+            "value" : "没有空间 %@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "沒有房間 %@"
+            "value" : "沒有空間 %@"
           }
         }
       }
@@ -1710,127 +1962,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "a room argument is required"
+            "value" : "a space argument is required"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يلزم وسيط غرفة"
+            "value" : "يلزم وسيط مساحة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "potreban je argument sobe"
+            "value" : "potreban je argument prostora"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "et rum-argument er påkrævet"
+            "value" : "et område-argument er påkrævet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ein Raum-Argument ist erforderlich"
+            "value" : "ein Space-Argument ist erforderlich"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "se requiere un argumento de sala"
+            "value" : "se requiere un argumento de espacio"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "un argument salle est requis"
+            "value" : "un argument espace est requis"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "è richiesto un argomento stanza"
+            "value" : "è richiesto un argomento spazio"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルーム引数が必要です"
+            "value" : "スペース引数が必要です"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ត្រូវការអាគុយម៉ង់បន្ទប់"
+            "value" : "ត្រូវការអាគុយម៉ង់លំហ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 인수가 필요합니다"
+            "value" : "스페이스 인수가 필요합니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "et rom-argument kreves"
+            "value" : "et område-argument kreves"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "wymagany jest argument pokoju"
+            "value" : "wymagany jest argument obszaru"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "é necessário um argumento de sala"
+            "value" : "é necessário um argumento de espaço"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "нужен аргумент комнаты"
+            "value" : "нужен аргумент области"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ต้องมีอาร์กิวเมนต์ห้อง"
+            "value" : "ต้องมีอาร์กิวเมนต์พื้นที่"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "bir oda bağımsız değişkeni gerekli"
+            "value" : "bir alan bağımsız değişkeni gerekli"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "потрібен аргумент кімнати"
+            "value" : "потрібен аргумент простору"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cần đối số phòng"
+            "value" : "cần đối số không gian"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要房间参数"
+            "value" : "需要空间参数"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要房間引數"
+            "value" : "需要空間引數"
           }
         }
       }
@@ -1841,127 +2093,258 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rename Room"
+            "value" : "Rename Space"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "إعادة تسمية الغرفة"
+            "value" : "إعادة تسمية المساحة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Preimenuj sobu"
+            "value" : "Preimenuj prostor"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Omdøb rum"
+            "value" : "Omdøb område"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Raum umbenennen"
+            "value" : "Space umbenennen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Renombrar sala"
+            "value" : "Renombrar espacio"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Renommer la salle"
+            "value" : "Renommer l’espace"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rinomina stanza"
+            "value" : "Rinomina spazio"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルーム名を変更"
+            "value" : "スペース名を変更"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ប្តូរឈ្មោះបន្ទប់"
+            "value" : "ប្តូរឈ្មោះលំហ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 이름 변경"
+            "value" : "스페이스 이름 변경"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Gi nytt navn til rom"
+            "value" : "Gi nytt navn til område"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Zmień nazwę pokoju"
+            "value" : "Zmień nazwę obszaru"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Renomear Sala"
+            "value" : "Renomear Espaço"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Переименовать комнату"
+            "value" : "Переименовать область"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เปลี่ยนชื่อห้อง"
+            "value" : "เปลี่ยนชื่อพื้นที่"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Odayı Yeniden Adlandır"
+            "value" : "Alanı Yeniden Adlandır"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Перейменувати кімнату"
+            "value" : "Перейменувати простір"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đổi tên phòng"
+            "value" : "Đổi tên không gian"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "重命名房间"
+            "value" : "重命名空间"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "重新命名房間"
+            "value" : "重新命名空間"
+          }
+        }
+      }
+    },
+    "rooms.refusal.spaceNotShown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the space is not shown in the active window; switch to it first"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المساحة غير معروضة في النافذة النشطة؛ انتقل إليها أولاً"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "prostor nije prikazan u aktivnom prozoru; prvo se prebacite na njega"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "området vises ikke i det aktive vindue; skift til det først"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "der Space wird im aktiven Fenster nicht angezeigt; wechsle zuerst zu ihm"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "el espacio no se muestra en la ventana activa; cambia a él primero"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "l’espace n’est pas affiché dans la fenêtre active ; passez d’abord à cet espace"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "lo spazio non è mostrato nella finestra attiva; passa prima a esso"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このスペースはアクティブなウインドウに表示されていません。先にスペースを切り替えてください"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លំហនេះមិនបង្ហាញក្នុងបង្អួចសកម្មទេ សូមប្តូរទៅវាជាមុនសិន"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "활성 창에 이 스페이스가 표시되지 않습니다. 먼저 해당 스페이스로 전환하세요"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "området vises ikke i det aktive vinduet; bytt til det først"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "obszar nie jest wyświetlany w aktywnym oknie; najpierw przełącz się na niego"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "o espaço não está sendo mostrado na janela ativa; mude para ele primeiro"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "область не показана в активном окне; сначала переключитесь на неё"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "พื้นที่นี้ไม่ได้แสดงในหน้าต่างที่ใช้งานอยู่ ให้สลับไปที่พื้นที่นั้นก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "alan etkin pencerede gösterilmiyor; önce ona geçin"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "простір не показано в активному вікні; спершу перейдіть до нього"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "không gian này không hiển thị trong cửa sổ đang hoạt động; hãy chuyển sang nó trước"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "活动窗口未显示该空间，请先切换到该空间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "使用中的視窗未顯示該空間，請先切換到該空間"
           }
         }
       }

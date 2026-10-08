@@ -10,6 +10,11 @@ import Observation
 public final class RegistryControlBridge: ControlActionExecutor {
     public let registry: ActionRegistry
     private var router: ControlRouter?
+    /// The current observation chain (state-audit R1): each attach starts a
+    /// new epoch and detach ends it. A chain armed under an older epoch fires
+    /// once more at most and then stops, so detach then attach never leaves
+    /// two chains republishing every change.
+    private var epoch = 0
     private var isObserving = false
 
     public init(registry: ActionRegistry) {
@@ -22,46 +27,49 @@ public final class RegistryControlBridge: ControlActionExecutor {
         router.updateCatalog(Self.catalog(from: registry))
         guard !isObserving else { return }
         isObserving = true
-        observeCatalog()
-        observeContext()
+        epoch += 1
+        observeCatalog(epoch: epoch)
+        observeContext(epoch: epoch)
     }
 
     public func detach() {
         router = nil
         isObserving = false
+        epoch += 1
     }
 
-    private func observeCatalog() {
-        guard isObserving else { return }
+    private func observeCatalog(epoch: Int) {
+        guard isObserving, epoch == self.epoch else { return }
         withObservationTracking {
             _ = registry.descriptors
             _ = registry.actions
             _ = registry.shortcutOverrides
             _ = registry.chordOverrides
+            _ = registry.disabledFeatures
             // Reasons read observable app state (daemon capabilities), so a
             // change there republishes `unavailable_reason` too.
             for action in registry.actions { _ = action.unavailableReason?() }
         } onChange: { [weak self] in
             // onChange runs before the new value is stored; publish after.
-            // task-owner: observation re-arm; ends when isObserving is false (reattach epoch: plans/cmux-next/state-audit.md)
+            // task-owner: observation re-arm; ends when its epoch is not current (state-audit R1)
             Task { @MainActor in
-                guard let self, self.isObserving else { return }
+                guard let self, self.isObserving, epoch == self.epoch else { return }
                 self.router?.updateCatalog(Self.catalog(from: self.registry))
-                self.observeCatalog()
+                self.observeCatalog(epoch: epoch)
             }
         }
     }
 
-    private func observeContext() {
-        guard isObserving else { return }
+    private func observeContext(epoch: Int) {
+        guard isObserving, epoch == self.epoch else { return }
         withObservationTracking {
             _ = registry.context
         } onChange: { [weak self] in
-            // task-owner: observation re-arm; ends when isObserving is false
+            // task-owner: observation re-arm; ends when its epoch is not current (state-audit R1)
             Task { @MainActor in
-                guard let self, self.isObserving else { return }
+                guard let self, self.isObserving, epoch == self.epoch else { return }
                 self.router?.updateContextMask(self.registry.context.rawValue)
-                self.observeContext()
+                self.observeContext(epoch: epoch)
             }
         }
     }
@@ -83,19 +91,27 @@ public final class RegistryControlBridge: ControlActionExecutor {
         let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))
         guard registry.descriptor(for: id) != nil || registry.isBound(id) else { return .unknownAction }
         guard let action = registry.action(for: id) else { return .notBound }
+        // Policy first: a turned-off feature's action does not exist for callers.
+        if let feature = registry.disabledFeature(for: id) { return .featureDisabled(feature.rawValue) }
+        // Every socket run lands here, and its `origin` is the caller's claim.
+        if registry.descriptor(for: id)?.isPersonOnly == true {
+            return .refused(ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action"))
+        }
         // Reported before the context check, so a context-gated action that
         // cannot exist yet says why instead of "not available here".
         if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
         let invocation = ActionInvocation(
             target: request.target.flatMap(Self.actionTarget),
-            arguments: request.arguments.compactMapValues(Self.actionValue)
+            arguments: request.arguments.compactMapValues(Self.actionValue),
+            origin: ActionOrigin(rawValue: request.origin) ?? .cli,
+            focusRequested: request.focus
         )
         guard registry.isAvailable(id, for: invocation) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }
         var ran = false
-        let refusal = registry.capturingRefusal { ran = registry.perform(id, invocation: invocation) }
-        if let refusal { return .refused(refusal) }
+        let refusal = registry.capturingTypedRefusal { ran = registry.perform(id, invocation: invocation) }
+        if let refusal { return refusal.isNotFound ? .notFound(refusal.reason) : .refused(refusal.reason) }
         return ran ? .ran : .disabled
     }
 
@@ -120,10 +136,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         // Localized once per snapshot, not once per action.
         let categoryTitles = Dictionary(uniqueKeysWithValues: ActionCategory.allCases.map { ($0, $0.title) })
         let actions = registry.entries.map { entry in info(for: entry, in: registry, categoryTitles: categoryTitles) }
-        var debugAvailable = false
-        #if DEBUG
-        debugAvailable = true
-        #endif
+        let debugAvailable = DevTools.isEnabled
         return ControlCatalog(
             actions: actions,
             contextMask: registry.context.rawValue,
@@ -157,11 +170,17 @@ public final class RegistryControlBridge: ControlActionExecutor {
             isDebugOnly: descriptor.isDebugOnly,
             mainMenu: descriptor.mainMenu?.rawValue
         )
+        let surfaces = ActionSurfaceExport.object(descriptor)
+        info.surfaces = ["palette", "cli", "context_menu", "mcp"].reduce(into: [:]) { $0[$1] = surfaces[$1] as? String }
+        info.contextMenus = surfaces["context_menus"] as? [String] ?? []
         // Snapshot for `action.list`; `action.run` re-reads it live.
         info.unavailableReason = registry.unavailableReason(for: descriptor.id)
+        info.disabledFeature = registry.disabledFeature(for: descriptor.id)?.rawValue
         info.isDestructive = descriptor.isDestructive
         info.startsTerminal = descriptor.startsTerminal
+        info.isCLI = descriptor.cli
         info.waitsForResult = descriptor.waitsForResult
+        info.focuses = descriptor.focuses
         return info
     }
 
@@ -190,6 +209,11 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.browserFocused, "browserFocused"),
         (.canvasLayout, "canvasLayout"),
         (.simulatorFocused, "simulatorFocused"),
+        (.agentPaneFocused, "agentPaneFocused"),
+        (.checkpointCaptureAvailable, "checkpointCaptureAvailable"),
+        (.recordingShortcut, "recordingShortcut"),
+        (.omnibarFocused, "omnibarFocused"),
+        (.codeEditorFocused, "codeEditorFocused"),
         (.diffViewerFocused, "diffViewerFocused"),
         (.filePreviewFocused, "filePreviewFocused"),
         (.markdownFocused, "markdownFocused"),

@@ -111,6 +111,7 @@ def test_tui_status_names_remain_stable() -> None:
 def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     lint = workflow["jobs"]["lint"]
+    macos = workflow["jobs"]["macos"]
     test = workflow["jobs"]["test"]
     gate = workflow["jobs"]["hosted-verification"]
 
@@ -123,21 +124,29 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["strategy"]["fail-fast"] is False
     assert lint["strategy"]["matrix"]["include"] == [
         {
-            "os": "macos",
-            "runner": "blacksmith-6vcpu-macos-15",
-        },
-        {
             "os": "linux",
-            "runner": "blacksmith-4vcpu-ubuntu-2404",
+            "runner": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}",
         },
     ]
+    assert test["strategy"]["matrix"]["include"] == lint["strategy"]["matrix"]["include"]
     assert "cargo fmt --check" in lint_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
-    assert "cargo fmt --check" not in test_commands
+    assert "cargo fmt --check" in test_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
+    macos_commands = "\n".join(str(step.get("run", "")) for step in macos["steps"])
+    assert macos["name"] == "macOS lint and tests"
+    # Formatting is host-independent and runs once, on Linux (#17095).
+    assert "cargo fmt --check" not in macos_commands
+    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in macos_commands
+    assert "platform::tests::" in macos_commands
+    assert "mac_process_scope" in macos_commands
+    assert "macos_pty_" in macos_commands
     assert "lint" in gate["needs"]
+    assert "macos" in gate["needs"]
     assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
+    assert gate["env"]["MACOS_RESULT"] == "${{ needs.macos.result }}"
     assert 'require_success "lint" "$LINT_RESULT"' in gate_commands
+    assert 'require_success "macOS lint and tests" "$MACOS_RESULT"' in gate_commands
 
 
 def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
@@ -147,9 +156,9 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
     steps = lint["steps"]
     matrix = lint["strategy"]["matrix"]["include"]
 
-    assert {entry["os"] for entry in matrix} == {"linux", "macos"}
+    assert {entry["os"] for entry in matrix} == {"linux"}
     for entry in matrix:
-        runner_os = "Linux" if entry["os"] == "linux" else "macOS"
+        runner_os = "Linux"
         linux_dependency_steps = [
             step
             for step in steps
@@ -158,11 +167,71 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         assert len(linux_dependency_steps) == 1
         assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
         if runner_os == "Linux":
-            assert entry["runner"].endswith("ubuntu-2404")
-        else:
-            assert entry["runner"].endswith("macos-15")
+            assert "ubuntu-2404" in entry["runner"]
 
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1
         assert clippy_steps[0]["working-directory"] == "cmux-tui"
         assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
+
+
+MACOS_RELAY_RUNNER = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+    "vars.CI_PR_POOL_OWNED == '1' && "
+    "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
+    "github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || "
+    "vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
+)
+
+
+def test_macos_runs_the_chatmux_relay_tests() -> None:
+    """The relay crate's tests run on macOS again.
+
+    9f4acf5b2787 (#17051) dropped the `test (macos)` matrix entry, and with it
+    the only macOS run of `cargo test -p chatmux-relay` (full mode, and focused
+    mode with the chatmux_relay selector). The relay job takes the owned AWS
+    minis through CI_AWS_SIDE_RUNNER on attempt 1 (CI_SIDE_LANE_RUNNER when it
+    is empty), and a rerun returns to the background lane.
+    """
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["macos-relay"]
+    gate = workflow["jobs"]["hosted-verification"]
+
+    assert job["name"] == "chatmux-relay tests (macOS)"
+    assert job["needs"] == "validate-inputs"
+    assert job["runs-on"] == MACOS_RELAY_RUNNER
+    condition = str(job["if"])
+    assert "inputs.mode == 'full'" in condition
+    assert "inputs.test_filter == 'chatmux_relay'" in condition
+    assert "inputs.test_filter == 'chatmux-relay'" in condition
+
+    steps = {step.get("name"): step for step in job["steps"]}
+    assert steps["Require exact checkout"]["run"] == 'test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"'
+    relay = steps["cargo test -p chatmux-relay"]
+    assert relay["working-directory"] == "cmux-tui"
+    assert "cargo test -p chatmux-relay --locked" in relay["run"]
+
+    gate_commands = "\n".join(str(step.get("run", "")) for step in gate["steps"])
+    assert "macos-relay" in gate["needs"]
+    assert gate["env"]["MACOS_RELAY_RESULT"] == "${{ needs.macos-relay.result }}"
+    assert gate["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
+    assert 'require_success "macOS chatmux-relay tests" "$MACOS_RELAY_RESULT"' in gate_commands
+
+
+ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
+
+
+def test_artifacts_macos_legs_take_the_aws_side_runner_on_attempt_one() -> None:
+    workflow = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))
+    builds = [
+        job for job in workflow["jobs"].values()
+        if isinstance(job, dict) and "macos_runner" in (job.get("with") or {})
+    ]
+    assert builds
+    for job in builds:
+        runner = job["with"]["macos_runner"]
+        assert runner.startswith("${{ inputs.macos_runner || ")
+        assert MACOS_RELAY_RUNNER.removeprefix("${{ ") in runner
+        assert job["with"]["macos_retry_runner"] == (
+            "${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
+        )

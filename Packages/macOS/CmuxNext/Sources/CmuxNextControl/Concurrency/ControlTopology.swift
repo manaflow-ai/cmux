@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import Foundation
 
 /// The window / workspace / pane / tab tree as the control socket reports
 /// it, mapped by the App from the daemon mirror and window state. Ids are
@@ -38,7 +39,9 @@ public struct ControlTopology: Sendable, Hashable {
     /// The home session, when the App reported one.
     public var homeSession: ControlSessionInfo? { sessions.first(where: \.isHome) }
 
-    public func workspace(id: String) -> ControlWorkspaceInfo? { workspaces.first { $0.id == id || $0.handle == id } }
+    public func workspace(id: String) -> ControlWorkspaceInfo? {
+        workspaces.first { $0.id == id || $0.handle == id || ($0.resourceID != nil && $0.resourceID == id) }
+    }
 
     /// The pane with durable id or handle `id`, and its workspace.
     public func pane(id: String) -> (pane: ControlPaneInfo, workspace: ControlWorkspaceInfo)? {
@@ -96,6 +99,17 @@ public struct ControlWindowInfo: Sendable, Hashable {
     /// The workspaces the window's sidebar shows now (its current room,
     /// reported by a machine); nil means all of `workspaceIDs`.
     public var visibleWorkspaceIDs: [String]?
+
+    /// The typed id clients print and pass (`win_<32 hex>`), derived
+    /// bijectively from the stored UUID; `id` stays the record key.
+    public var publicID: String { Self.publicID(forKey: id) }
+
+    public static let publicPrefix = "win_"
+
+    public static func publicID(forKey key: String) -> String {
+        guard let uuid = UUID(uuidString: key) else { return key }
+        return publicPrefix + uuid.uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+    }
 
     public init(id: String, workspaceID: String?, workspaceIDs: [String] = [], isKey: Bool, isVisible: Bool, focusedPaneID: String?) {
         self.id = id

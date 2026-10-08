@@ -24,7 +24,7 @@ struct GlassCardAccounts: OnboardingScreenVariant {
         var style = OnboardingScaffold.Style()
         style.margin = 40
         style.bodyGap = 20
-        return OnboardingScaffold.make(title: OnboardingStrings.accountsTitle, subtitle: OnboardingStrings.accountsSubtitle,
+        return OnboardingScaffold.make(title: OnboardingStrings.accountsTitle, subtitle: nil,
                                        body: body, context: context, style: style)
     }
 }

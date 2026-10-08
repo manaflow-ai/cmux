@@ -8,16 +8,22 @@ use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
-    TerminalPublicId, WorkspacePublicId,
+    TerminalPublicId,
 };
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
-    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
-    RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
-    WorkspaceMutation, WorkspaceRegistry,
+    RegistryLayoutNode, RegistryPane, RegistryTab, RegistryWorkspace, ResourceChange,
+    ResourcePatch, ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
+use live_screen::registry_screen_from_live;
+use published_screens::PublishedScreens;
+use split_ids::ensure_split_public_ids;
+
+mod live_screen;
+mod published_screens;
+mod split_ids;
 
 impl Mux {
     pub(crate) fn resource_project_terminal_selected(
@@ -37,7 +43,8 @@ impl Mux {
             "name": name,
         });
         let mux = std::sync::Arc::clone(self);
-        self.commit_resource_mutation_plan(
+        let (first_view, registered) = super::app_terminals::FirstView::pair();
+        let commit = self.commit_resource_mutation_plan(
             mutation,
             "terminal.project",
             &fingerprint,
@@ -78,9 +85,11 @@ impl Mux {
                     .find(|candidate| candidate.public_id == pane_id)
                     .cloned()
                     .context("destination pane has no durable projection")?;
-                let host = mux
-                    .resource_terminal_host_identity(&terminal)
-                    .context("terminal omitted its durable host identity")?;
+                let first = mux.app_terminal_first_view(state, &terminal, pane)?;
+                let host = match &first {
+                    Some((host, _)) => host.clone(),
+                    None => mux.resource_terminal_host_identity(&terminal).context("no host")?,
+                };
                 let host_id = host.terminal_id;
                 let tab_id = TabPublicId::random()?;
                 let surface_id = mux.next_id();
@@ -144,9 +153,10 @@ impl Mux {
                         }
                     }));
                 let terminal_tab_ids = terminal_tab_order.remove(&terminal_id).unwrap_or_default();
-                let durable = registry
-                    .terminal_record(&host_id)?
-                    .context("terminal projection has no durable host")?;
+                let durable = match &first {
+                    Some((_, record)) => record.clone(),
+                    None => registry.terminal_record(&host_id)?.context("no durable host")?,
+                };
                 let terminal_value = public_terminal_snapshot(
                     &terminal_id,
                     &durable,
@@ -170,7 +180,7 @@ impl Mux {
                     "value":terminal_value,
                 }));
 
-                let mut patch_changes = Vec::with_capacity(if focused { 3 } else { 2 });
+                let mut patch_changes = first_view.record(first, &terminal_id, terminal.id);
                 if focused {
                     patch_changes.push(ResourceChange::UpsertPane(destination_pane));
                 }
@@ -236,7 +246,9 @@ impl Mux {
                     },
                 ))
             },
-        )
+        )?;
+        self.finish_app_terminal_first_view(&registered)?;
+        Ok(commit)
     }
 
     pub(crate) fn resource_move_terminal_selected(
@@ -406,8 +418,7 @@ impl Mux {
                         target_tabs.get(new_index).map(|tab| tab.public_id.clone());
                 }
 
-                let mut changes = Vec::new();
-                changes.push(ResourceChange::UpsertPane(source_pane.clone()));
+                let mut changes = vec![ResourceChange::UpsertPane(source_pane.clone())];
                 if target_pane_id != source_pane_id {
                     changes.push(ResourceChange::UpsertPane(target_pane.clone()));
                 }
@@ -545,7 +556,8 @@ impl Mux {
                     order_entries: source_delta_tabs.len() + target_delta_tabs.len(),
                     terminal_queries: 0,
                     changed_rows: source_delta_tabs.len() + target_delta_tabs.len() + 3,
-                }))
+                })
+                .moving_tab(surface, target_pane_slot, index))
             },
         )?;
 
@@ -649,7 +661,7 @@ impl Mux {
     /// Project the complete live tree into one durable patch while the caller
     /// holds the registry -> state writer fence. The matching effect receipt
     /// must be committed before either guard is released.
-    pub(super) fn resource_effect_projection_locked(
+    pub(crate) fn resource_effect_projection_locked(
         &self,
         registry: &WorkspaceRegistry,
         state: &mut State,
@@ -693,6 +705,7 @@ impl Mux {
         let mut live_browsers = HashSet::new();
         let mut changes = Vec::new();
         let mut public = Vec::new();
+        let mut screens = PublishedScreens::default();
 
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             live_workspaces.insert(workspace.public_id.clone());
@@ -732,21 +745,13 @@ impl Mux {
                 live_screens.insert(screen.public_id.clone());
                 let durable =
                     registry_screen_from_live(state, &workspace.public_id, screen_index, screen)?;
-                let public_layout = public_layout_from_registry(&durable, state)?;
-                changes.push(ResourceChange::UpsertScreen(durable.clone()));
-                public.push((
-                    "screen",
-                    screen.public_id.to_string(),
-                    json!({
-                        "id":screen.public_id,
-                        "workspace_id":workspace.public_id,
-                        "name":screen.name,
-                        "index":screen_index,
-                        "focused":workspace_index == state.active_workspace
-                            && workspace.active_screen == screen_index,
-                        "layout":public_layout,
-                    }),
-                ));
+                screens.defer(
+                    &mut public,
+                    durable.clone(),
+                    workspace_index == state.active_workspace
+                        && workspace.active_screen == screen_index,
+                );
+                changes.push(ResourceChange::UpsertScreen(durable));
 
                 for pane_slot in screen.root.pane_ids_vec() {
                     let pane = state
@@ -985,7 +990,10 @@ impl Mux {
             }
         }
         for (terminal_id, surface) in &state.terminal_catalog {
-            if !live_terminals.insert(terminal_id.clone()) {
+            // An app terminal is published by its first view (`app_terminals.rs`).
+            if !live_terminals.insert(terminal_id.clone())
+                || self.is_unregistered_app_terminal(surface.id)
+            {
                 continue;
             }
             let host = self
@@ -995,21 +1003,12 @@ impl Mux {
                 .get(&host.terminal_id)
                 .cloned()
                 .context("catalog terminal has no durable host")?;
+            // The one builder for published terminal records: a terminal with
+            // no tab (kept or detached) still carries its `lifecycle`.
+            let value =
+                public_terminal_snapshot(terminal_id, &terminal, Some(surface), Vec::new())?;
             changes
                 .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
-            let (cols, rows) = surface.size();
-            let mut value = json!({
-                "id":terminal_id,
-                "tab_id":Value::Null,
-                "tab_ids":[],
-                "title":surface.title(),
-                "cols":cols.max(1),
-                "rows":rows.max(1),
-                "running":!surface.is_dead(),
-            });
-            if let Some(cwd) = surface.spawn_cwd() {
-                value["cwd"] = json!(cwd);
-            }
             public.push(("terminal", terminal_id.to_string(), value));
         }
         changes.push(ResourceChange::SetWorkspaceOrder {
@@ -1071,6 +1070,7 @@ impl Mux {
             }
         }
 
+        screens.publish(&mut public, &changes)?;
         let mut deltas = Vec::new();
         let live_keys = public
             .iter()
@@ -1163,86 +1163,6 @@ fn ordered_terminal_tab_ids(
     Ok(terminal_tab_ids_in_canonical_order(tabs))
 }
 
-fn registry_screen_from_live(
-    state: &State,
-    workspace_id: &WorkspacePublicId,
-    position: usize,
-    screen: &crate::model::Screen,
-) -> anyhow::Result<RegistryScreen> {
-    let layout = registry_layout_node(state, &screen.root)?;
-    let viewport = if screen.layout_columns.is_empty() {
-        RegistryViewport::default()
-    } else {
-        RegistryViewport {
-            base_width: screen.viewport_base_width,
-            columns: screen
-                .layout_columns
-                .iter()
-                .map(|column| {
-                    Ok(RegistryViewportColumn {
-                        id: split_public_id(state, column.id)?,
-                        width: column.width,
-                        layout: registry_layout_node(state, &column.root)?,
-                        auto_layout: column
-                            .zellij_auto_layout
-                            .as_ref()
-                            .map(|panes| pane_public_ids(state, panes))
-                            .transpose()?,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?,
-        }
-    };
-    Ok(RegistryScreen {
-        public_id: screen.public_id.clone(),
-        workspace_id: workspace_id.clone(),
-        position,
-        name: screen.name.clone(),
-        layout,
-        active_pane: pane_public_id(state, screen.active_pane)?,
-        zoomed_pane: screen.zoomed_pane.map(|pane| pane_public_id(state, pane)).transpose()?,
-        auto_layout: screen
-            .zellij_auto_layout
-            .as_ref()
-            .map(|panes| pane_public_ids(state, panes))
-            .transpose()?,
-        viewport,
-    })
-}
-
-fn ensure_split_public_ids(state: &mut State) -> anyhow::Result<()> {
-    let mut splits = HashSet::new();
-    for workspace in &state.workspaces {
-        for screen in &workspace.screens {
-            collect_node_split_ids(&screen.root, &mut splits);
-            for column in &screen.layout_columns {
-                splits.insert(column.id);
-                collect_node_split_ids(&column.root, &mut splits);
-            }
-        }
-    }
-    for split in splits {
-        if state.resource_indexes.split_ids.contains_key(&split) {
-            continue;
-        }
-        let public_id = SplitPublicId::random()?;
-        state.resource_indexes.splits.insert(public_id.clone(), split);
-        state.resource_indexes.split_ids.insert(split, public_id);
-    }
-    Ok(())
-}
-
-fn collect_node_split_ids(node: &Node, splits: &mut HashSet<crate::SplitId>) {
-    match node {
-        Node::Leaf(_) | Node::Stack { .. } => {}
-        Node::Split { id, a, b, .. } => {
-            splits.insert(*id);
-            collect_node_split_ids(a, splits);
-            collect_node_split_ids(b, splits);
-        }
-    }
-}
-
 fn registry_layout_node(state: &State, node: &Node) -> anyhow::Result<RegistryLayoutNode> {
     Ok(match node {
         Node::Leaf(pane) => RegistryLayoutNode::Leaf { pane: pane_public_id(state, *pane)? },
@@ -1284,53 +1204,6 @@ fn split_public_id(state: &State, split: crate::SplitId) -> anyhow::Result<Split
         .get(&split)
         .cloned()
         .with_context(|| format!("split {split} has no public identity"))
-}
-
-fn public_layout_from_registry(screen: &RegistryScreen, state: &State) -> anyhow::Result<Value> {
-    Ok(json!({
-        "version":1,
-        "screen_id":screen.public_id,
-        "active_pane_id":screen.active_pane,
-        "zoomed_pane_id":screen.zoomed_pane,
-        "root":public_layout_node(&screen.layout, state)?,
-    }))
-}
-
-fn public_layout_node(node: &RegistryLayoutNode, state: &State) -> anyhow::Result<Value> {
-    Ok(match node {
-        RegistryLayoutNode::Leaf { pane } => {
-            let slot =
-                state.resource_indexes.panes.get(pane).context("layout pane has no live slot")?;
-            let pane_state = state.panes.get(slot).context("layout pane is missing")?;
-            json!({
-                "kind":"leaf",
-                "pane_id":pane,
-                "tab_ids":pane_state.tabs.iter().filter_map(|surface| {
-                    state.resource_indexes.tab_ids.get(surface)
-                }).collect::<Vec<_>>(),
-                "active_tab_id":pane_state.tabs.get(pane_state.active_tab).and_then(|surface| {
-                    state.resource_indexes.tab_ids.get(surface)
-                }),
-            })
-        }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => json!({
-            "kind":"split",
-            "split_id":split,
-            "direction":match direction.as_str() {
-                "right" => "horizontal",
-                "down" => "vertical",
-                other => other,
-            },
-            "ratio":f64::from(*ratio),
-            "first":public_layout_node(first, state)?,
-            "second":public_layout_node(second, state)?,
-        }),
-        RegistryLayoutNode::Stack { panes, expanded } => json!({
-            "kind":"stack",
-            "pane_ids":panes,
-            "expanded_pane_id":expanded,
-        }),
-    })
 }
 
 fn push_delete_delta(changes: &mut Vec<Value>, resource: &str, id: &str) {

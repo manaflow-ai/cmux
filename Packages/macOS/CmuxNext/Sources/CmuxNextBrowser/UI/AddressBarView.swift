@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The omnibar, drawn after Helium's location bar (`OmnibarStyle`): a gray
+/// The omnibar, drawn by `OmnibarStyle`: a gray
 /// 8 pt pill with a page-info chip, the compact URL with the host at full
 /// strength, and on focus the full URL, all selected. While suggestions show,
 /// the bar turns into the top of a white card that continues as the dropdown.
@@ -39,7 +39,7 @@ public final class AddressBarView: NSView {
     private lazy var badges = NSStackView(views: [profileBadgeView, machineBadgeView, starButton])
     private var fieldToEdge: NSLayoutConstraint!
     private var fieldToBadge: NSLayoutConstraint!
-    private let panel = OmniboxSuggestionPanel()
+    let panel = OmniboxSuggestionPanel()
     private let density = DensityBinding()
 
     private var reportedURL: URL?
@@ -68,7 +68,10 @@ public final class AddressBarView: NSView {
     /// the tab's extension.
     public var onKeywordSession: ((OmnibarEffect) -> Void)?
 
-    private var resolver: OmniboxResolver {
+    /// The tab this omnibar belongs to: never offered as its own Switch to Tab row.
+    public var tabKey: String?
+
+    var resolver: OmniboxResolver {
         var resolver = suggestionEngine.resolver
         resolver.urlResolver.allowsChromiumSchemes = allowsChromiumSchemes
         resolver.keywords = keywordSource()
@@ -83,7 +86,12 @@ public final class AddressBarView: NSView {
             field: field,
             popup: self,
             resolver: { [unowned self] in resolver },
-            suggest: { [weak self] text in await self?.suggestionEngine.suggestions(for: text) ?? [] }
+            suggest: { [weak self] request in
+                guard let self else { return OmniboxDelivery.finished }
+                var request = request
+                request.tabKey = tabKey
+                return suggestionEngine.deliveries(for: request)
+            }
         )
         controller.onEffect = { [weak self] effect in self?.perform(effect) }
         controller.onStep = { [weak self] in self?.updateChrome() }
@@ -162,6 +170,9 @@ public final class AddressBarView: NSView {
     /// True from focus until commit, cancel, or blur.
     public var isEditing: Bool { controller.state.hasFocus }
 
+    /// The suggestion list is open (Ctrl-N/P/J/K move its selection).
+    public var isShowingSuggestions: Bool { controller.state.isPopupOpen }
+
     var state: OmnibarState { controller.state }
 
     /// The machine whose localhost this tab sees, as a subtle chip; nil
@@ -212,7 +223,7 @@ public final class AddressBarView: NSView {
     }
 
     /// The focus coordinator's way in (Cmd-L, a new browser tab): focuses
-    /// the field with the full URL selected (Chrome `SetFocus(true)`).
+    /// the field with the full URL selected (Chromium `SetFocus(true)`).
     /// Focusing again while focused selects everything again. This is the
     /// only place the omnibar moves the first responder, and only on the
     /// coordinator's behalf (`FocusEffectApplier`).
@@ -224,6 +235,15 @@ public final class AddressBarView: NSView {
         pendingFocusSource = .keyboard
         defer { pendingFocusSource = nil }
         window?.makeFirstResponder(field)
+    }
+
+    /// Return with a disposition while the field is editing (the
+    /// `omnibar.openIn…Tab` actions, Cmd-Return): commits the highlighted
+    /// row or the typed text to `disposition`, as the field's own Return
+    /// does. Returns false when the field is not editing.
+    @discardableResult
+    public func commit(_ disposition: OmnibarDisposition) -> Bool {
+        controller.send(.key(.enter(disposition)))
     }
 
     /// The search engine inside `suggestionEngine` changed.
@@ -240,6 +260,26 @@ public final class AddressBarView: NSView {
             guard let editor = field.currentEditor() as? NSTextView else { return }
             editor.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
         }
+    }
+
+    /// Verification hook (`debug.omnibar_type`): types `text` as `debugType`
+    /// does, then (with `commit`) gives the field editor a Return key-down,
+    /// so the commit takes the path a real Return takes once the key reaches
+    /// the field (`OmnibarFieldEditor.keyDown`, then the omnibar reducer).
+    /// The window need not be key. Returns false when the field did not
+    /// start editing.
+    @discardableResult
+    public func debugTypeAndCommit(_ text: String, commit: Bool = true) -> Bool {
+        debugType(text)
+        guard let editor = field.currentEditor() as? NSTextView else { return false }
+        guard commit else { return true }
+        guard let enter = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window?.windowNumber ?? 0, context: nil, characters: "\r",
+            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36
+        ) else { return false }
+        editor.keyDown(with: enter)
+        return true
     }
 
     var fieldEditor: OmnibarFieldEditor? { field.editor }
@@ -260,7 +300,7 @@ public final class AddressBarView: NSView {
 
     /// Reports what the field editor holds now. The applier's own writes
     /// are echoes and are dropped.
-    private func observeField(kind: OmnibarState.EditKind?) {
+    func observeField(kind: OmnibarState.EditKind?) {
         guard !controller.isApplying, let editor = field.currentEditor() as? NSTextView else { return }
         let marked = editor.hasMarkedText() ? editor.markedRange() : nil
         controller.send(.fieldChanged(.init(text: editor.string, selection: editor.selectedRange(), marked: marked), kind))
@@ -282,6 +322,10 @@ public final class AddressBarView: NSView {
         case .ended(let reason): onEvent?(.didEndEditing(reason))
         case .beep: NSSound.beep()
         case .deleteSuggestion(let url): suggestionEngine.deleteSuggestion(url)
+        case .typedNavigation(let url): suggestionEngine.noteTyped(url)
+        case .copyAnswer(let answer):
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(answer, forType: .string)
         case .keywordStarted, .keywordEnded: onKeywordSession?(effect)
         case .query, .cancelQuery, .keywordInput: break
         }
@@ -326,63 +370,6 @@ public final class AddressBarView: NSView {
         super.viewDidChangeEffectiveAppearance()
         if !field.isFieldEditorActive {
             field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
-        }
-    }
-}
-
-extension AddressBarView: OmnibarPopupSurface {
-    func showRows(_ rows: [BrowserSuggestion], highlighted: Int?) {
-        guard let window else { return }
-        panel.show(rows, highlighted: highlighted, below: self, in: window)
-    }
-
-    func highlightRow(_ row: Int?) { panel.highlight(row) }
-
-    func dismissRows() { panel.dismiss() }
-}
-
-extension AddressBarView: OmnibarFieldEditorSink {
-    func fieldEditorDidChange(kind: OmnibarState.EditKind?) { observeField(kind: kind) }
-
-    func fieldEditorKey(_ key: OmnibarInput.Key) -> Bool { controller.send(.key(key)) }
-
-    func fieldEditorMouseDown(clickCount: Int, button: OmnibarInput.MouseButton, word: NSRange?) {
-        controller.send(.fieldMouseDown(clickCount: clickCount, button: button, word: word))
-    }
-
-    func fieldEditorMouseUp() { controller.send(.fieldMouseUp) }
-
-    var copyContent: OmnibarCopy? { OmnibarReducer.copyContent(of: controller.state, resolver: resolver) }
-
-    var canUndo: Bool { controller.state.hasFocus && !controller.state.undo.isEmpty }
-    var canRedo: Bool { controller.state.hasFocus && !controller.state.redo.isEmpty }
-}
-
-extension AddressBarView: NSTextFieldDelegate {
-    public func controlTextDidChange(_ notification: Notification) {
-        observeField(kind: field.editor?.lastEditKind ?? .insert)
-    }
-
-    public func controlTextDidEndEditing(_ notification: Notification) {
-        controller.send(.focusLost)
-    }
-
-    public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        switch selector {
-        case #selector(NSResponder.moveDown(_:)): controller.send(.key(.down))
-        case #selector(NSResponder.moveUp(_:)): controller.send(.key(.up))
-        case #selector(NSResponder.insertTab(_:)): controller.send(.key(.tab))
-        case #selector(NSResponder.insertBacktab(_:)): controller.send(.key(.backTab))
-        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertLineBreak(_:)):
-            controller.send(.key(.enter(.init(NSApp.currentEvent?.modifierFlags ?? []))))
-        case #selector(NSResponder.cancelOperation(_:)): controller.send(.key(.escape))
-        case #selector(NSResponder.selectAll(_:)): controller.send(.key(.selectAll))
-        // The Home key (Shift-Home extends); Cmd-Left is a caret move.
-        case #selector(NSResponder.scrollToBeginningOfDocument(_:)): controller.send(.key(.home(extend: false)))
-        case #selector(NSResponder.moveToBeginningOfDocumentAndModifySelection(_:)): controller.send(.key(.home(extend: true)))
-        // Backspace at the start leaves an extension keyword session.
-        case #selector(NSResponder.deleteBackward(_:)): controller.send(.key(.backspaceAtStart))
-        default: false
         }
     }
 }

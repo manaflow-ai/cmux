@@ -44,6 +44,19 @@ import Testing
             == .deny(.notAllowlisted("surface.send_text")))
     }
 
+    /// `link.open` (deep links) navigates this Mac's windows, so a remote
+    /// session must never drive it: not as a method name, and not through
+    /// `action.run`, the v2 method that runs catalog actions by id.
+    @Test func linkOpenCanNeverBeRelayed() {
+        let policy = RemoteRelayPolicy(allowed: ["link.open", "action.run", "link.open_url", "cmux.link.open"])
+        #expect(policy.allowed.isEmpty, "a method that opens a link or runs an action can never be allowlisted")
+        let tab = "cmux://tab/tab_0123456789abcdef0123456789abcdef"
+        #expect(RemoteRelayPolicy.denyAll.decide(method: "link.open", params: ["url": .string(tab)], owned: owned)
+            == .deny(.notAllowlisted("link.open")))
+        #expect(policy.decide(method: "action.run", params: ["action": .string("link.open"), "args": .object(["url": .string(tab)])],
+                              owned: owned) == .deny(.notAllowlisted("action.run")))
+    }
+
     @Test func remoteBrowserRecordsOpenOnlyWebPages() {
         #expect(RemoteRelayPolicy.remoteBrowserURL("https://example.com/a")?.absoluteString == "https://example.com/a")
         #expect(RemoteRelayPolicy.remoteBrowserURL("http://build-box:3000/")?.absoluteString == "http://build-box:3000/")
@@ -53,5 +66,15 @@ import Testing
             #expect(RemoteRelayPolicy.remoteBrowserURL(denied) == nil, "\(denied)")
         }
         #expect(RemoteRelayPolicy.remoteBrowserURL(nil) == nil)
+    }
+
+    /// A `remote_view` tab record from another machine's tree never opens
+    /// here, in every build (plans/cmux-next/remote-desktop.md 11.0): the
+    /// gate drops the address before any page is made.
+    @Test func remoteBrowserRecordsNeverOpenARemoteViewTab() {
+        for address in ["cmux://remote-view?host=localhost&target=display:1&mode=control",
+                        "cmux://remote-view?host=mock", "CMUX://REMOTE-VIEW?host=127.0.0.1", " cmux://remote-view?host=local "] {
+            #expect(RemoteRelayPolicy.remoteBrowserURL(address) == nil, "\(address)")
+        }
     }
 }

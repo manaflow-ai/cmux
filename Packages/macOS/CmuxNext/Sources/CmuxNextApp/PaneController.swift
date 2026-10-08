@@ -1,9 +1,11 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextTabs
 import Observation
 
@@ -28,14 +30,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// How near the layout reports this pane to the viewport.
     private(set) var presence: SurfacePresence = .hidden
     var isVisible: Bool { presence == .visible }
-    /// Tabs closed locally while the daemon confirms (Chrome-speed close).
+    /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
-    /// A tab this app just created here; selected once the daemon reports it.
-    var pendingSelectSurface: SurfaceID?
+    /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
+    private(set) var pendingSelectSurface: SurfaceID?
     /// Same, named by tab resource id (a reopened tab's restored view).
-    var pendingSelectTab: String?
+    private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
-    private var buttonsObservation: Task<Void, Never>?
 
     struct Snapshot: Equatable {
         var items: [StripTabItem]
@@ -58,20 +59,23 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        view.onResize = { [weak services] in services?.surfaceInvariant.noteChange() }
+        view.stripView.hoverCards = services.hoverCards
+        view.onResize = { [weak services, weak paneView = view] in
+            services?.surfaceInvariant.noteChange()
+            services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
+        }
         observe()
     }
 
     func teardown() {
         observation?.cancel()
-        buttonsObservation?.cancel()
         services.presentation.cancel(self)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
-        // Agent tabs of panes the live tree no longer lists close now
+        // Page tabs of panes the live tree no longer lists close now
         // rather than at the store's next observation; a workspace switch or
         // a layout move keeps the pane listed, so its tabs stay.
-        services.agentTabs.closeGonePanes(in: daemon.store)
+        services.closeGoneLocalTabs(in: daemon.store)
         currentTabKey = nil
         view.detachContent()
         services.surfaceInvariant.noteChange()
@@ -88,13 +92,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
             }
         }
         apply(snapshot())
-        let buttons = services.tabBarButtons!
-        buttonsObservation = Task { [weak self] in
-            for await list in Observations({ buttons.buttons }) {
-                guard let self else { return }
-                if self.stripModel.trailingButtons != list { self.stripModel.trailingButtons = list }
-            }
-        }
     }
 
     func snapshot() -> Snapshot {
@@ -104,14 +101,25 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
-            var item = TabItemMapping.shared.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
+            // A new tab page is "New Tab", with the new-tab icon, until it
+            // becomes a chat (then the chat's title and icon).
+            let isNewTabPage = tab.agentSession != nil && services.agentTabs.pageTabs.ids.contains(tab.id)
+            let untitled = tab.agentSession != nil
+                ? isNewTabPage ? Strings.untitledBrowser : AgentPaneModel.tabTitle
+                : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
+            var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled, isNewTabPage: isNewTabPage)
+            if tab.page != nil, let page = services.pages.storeTabItem(tab) {
+                // A page tab names and badges itself like the page it shows.
+                item.title = page.title
+                item.icon = page.icon
+            }
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
             if tab.kind == .remoteTerminal {
                 // Its terminal runs on another machine: that machine's name.
                 item.machineBadge = services.remoteTerminals.badge(for: tab)
-                item.icon = .symbol("terminal")
+                item.icon = .icon(.terminal)
             } else if tab.kind != .browser {
                 item.machineBadge = machine
                 item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
@@ -130,22 +138,21 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID)
                 }
-                browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL).apply(to: &item)
+                browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
             }
+            TabItemMapping.shared.applyUserIcon(tab, to: &item)
             return item
         }
         for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {
             let page = services.cache.existingBrowser(local.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
-                                    icon: .symbol("globe"))
+                                    icon: .icon(.browser))
             item.isDormant = services.cache.dormantTabs.contains(local.id)
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
         }
-        for key in services.agentTabs.tabIDs(in: paneKey) where !pendingClosed.contains(key) {
-            items.append(services.agentTabs.stripItem(key))
-        }
+        items += services.localTabItems(in: paneKey, hiding: pendingClosed)
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groups = pane.tabGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
@@ -157,14 +164,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
                         generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue))
     }
 
-    /// The favicon, throbber or globe of browser tab `key`: its live page's
-    /// load state and favicon, else the favicon its record names.
-    private func browserIcon(key: String, recordFavicon: String?) -> BrowserTabIconState {
+    /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
+    /// address, load state and favicon, else the address and favicon its record names.
+    private func browserIcon(key: String, recordFavicon: String?, recordURL: String? = nil) -> BrowserTabIconState {
         _ = services.cache.pageInstalls.revision
         let page = services.cache.existingBrowser(key)?.tab.state
-        let address = page.map { $0.faviconURL?.absoluteString } ?? recordFavicon
+        let address = services.cache.pageRequests.proxiedTabs.appFetchableFavicon(page.map { $0.faviconURL?.absoluteString } ?? recordFavicon, key: key, page: services.cache.existingBrowser(key)?.tab)
         let image = services.favicons.image(for: address, profile: services.browserProfiles.engineProfile(forTab: key))
-        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image)
+        let url = page?.url ?? recordURL.flatMap(URL.init(string:))
+        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url)
     }
 
     /// Pushes daemon truth into the strip. `force` resets optimistic strip
@@ -173,6 +181,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if force { view.stripView.discardPendingReorder() }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
+        if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
             state?.selection.select(tab.id, in: paneKey)
@@ -183,19 +192,44 @@ final class PaneController: SurfacePresenter, PresentablePane {
             pendingSelectTab = nil
             selectNew = true
         }
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex)
+        // Members of a collapsed group are hidden: a closed selected tab's
+        // successor skips them while a shown tab survives (close-focus.md).
+        let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
+        let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
+                                                defaultIndex: snapshot.defaultIndex, hidden: hidden)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
+        if view.underlay != nil, let key = currentTabKey, !services.agentTabs.isNewTabPage(key) { view.dropBackdrop(keeping: nil) } // became a chat
         if selectNew {
             // A tab this window created: show it now (focus is the
             // coordinator's expectation, not decided here).
             showSelected()
+        } else if let selectedID, selectedID.rawValue != currentTabKey {
+            PaneSelectionPresenter(pane: self).present() // a close selected the neighbor
         } else {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)
         }
         // Focus follows selection; the coordinator re-targets the keyboard.
         workspace?.sendTopology()
+    }
+
+    /// Selects the tab on `surface`, which this app just created here, once
+    /// the daemon reports it, and shows it now when it already does. An
+    /// action run without view-change permission (a CLI, script or agent
+    /// run without `focus: true`) creates the tab in the background.
+    func selectWhenReported(surface: SurfaceID) {
+        guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
+        pendingSelectSurface = surface
+        apply(snapshot())
+    }
+
+    /// Same, for a tab named by its resource id (a reopened tab).
+    func selectWhenReported(tab: String) {
+        guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
+        pendingSelectTab = tab
+        apply(snapshot())
     }
 
     /// Re-pushes daemon truth after a rejection.
@@ -215,13 +249,19 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let key = stripModel.selectedID?.rawValue
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
+            // Another tab's last page from the launch must not stay under this one.
+            view.clearLaunchImage()
         }
         if let currentTabKey, currentTabKey != key { services.cache.withdraw(currentTabKey, by: self) }
         // May replace a stale surface, displacing the view shown here.
         let content = key.flatMap(content(for:))
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
-        view.show(content?.view)
+        if view.stripView.window != nil { view.stripView.sync(fromModel: true) } // strip + content: one transaction (L4)
+        view.show(content?.view, overBackdrop: key.map(services.agentTabs.isNewTabPage) == true) // PaneContentView+NewTabBackdrop
+        // Terminals come in on their first frame (`LaunchSettle`); other
+        // content (a page, an agent) is ready once shown.
+        if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { workspace?.focus.send(.contentPresented(pane: paneKey)) }
@@ -238,13 +278,19 @@ final class PaneController: SurfacePresenter, PresentablePane {
         services.surfaceInvariant.noteChange()
     }
 
+    /// The selected tab is a terminal that will draw a frame (not a dead one).
+    var showsLiveTerminal: Bool {
+        guard let key = stripModel.selectedID?.rawValue, let tab = pane.tabs.first(where: { $0.id == key }) else { return false }
+        return tab.kind == .pty && !tab.dead
+    }
+
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool {
         workspace?.focus.state.pane == paneKey
     }
 
     func content(for key: String) -> TabContent? {
-        if key.hasPrefix(LocalAgentTab.prefix) { return services.agentTabs.view(for: key).map(TabContent.agent) }
+        if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
             let local = state?.localBrowserTabs[paneKey]?.first { $0.id == key }
             // A local tab of an incognito window uses its off-the-record profile.
@@ -255,13 +301,18 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }
         switch tab.kind {
         case .pty:
-            let entry = services.cache.terminal(for: tab, daemon: daemon)
+            let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
             services.themes.terminalDidMount(entry)
             return .terminal(entry)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
+        case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
+        case .conversation where tab.page != nil:
+            return services.pages.view(forStoreTab: tab, in: daemon.store, window: state.flatMap { services.windows.controller(for: $0.id) })
+                .map(TabContent.page)
+        case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:
             return nil
         }
@@ -274,7 +325,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func existingContent(for key: String) -> TabContent? {
         if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
         if let view = services.agentTabs.existingView(key) { return .agent(view) }
+        if let notice = services.agentTabs.notices[services.agentTabs.resolve(key)] { return .notice(notice) }
+        if let view = services.pages.existingView(key) { return .page(view) }
         if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
+        if let home = services.home.existingTabView(key) { return .conversation(home) }
         return services.cache.existingBrowser(key).map(TabContent.browser)
     }
 
@@ -282,7 +336,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var selectedContentIsAlive: Bool {
         guard let key = stripModel.selectedID?.rawValue else { return true }
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
-            || services.agentTabs.existingView(key) != nil
+            || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
     }
 
     /// The layout reported this pane on screen, in the keep-alive band, or away.

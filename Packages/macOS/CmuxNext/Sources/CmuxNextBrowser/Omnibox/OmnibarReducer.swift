@@ -42,6 +42,7 @@ nonisolated struct OmnibarStep {
         case .rowClick(let row, let disposition): rowClick(row, disposition)
         case .popupScroll: break // at most 8 rows: the card never scrolls, the wheel is swallowed
         case .suggestions(let generation, let rows): suggestionsArrived(rows, generation: generation)
+        case .moreSuggestions(let generation, let rows, let capacity): moreSuggestionsArrived(rows, generation: generation, capacity: capacity)
         case .pageURLChanged(let url): pageURLChanged(url)
         case .searchEngineChanged: if state.phase == .editing { refreshSuggestions(keepSelection: true) }
         case .pasteAndGo(let text): pasteAndGo(text)
@@ -58,8 +59,8 @@ nonisolated struct OmnibarStep {
     }
 
     /// Focus arrived: the URL all selected, or the text left behind when
-    /// focus last moved away (Chrome keeps it), all selected. Keyboard focus
-    /// (Cmd-L) shows the full URL (Chrome `OmniboxViewViews::SetFocus` calls
+    /// focus last moved away, all selected. Keyboard focus
+    /// (Cmd-L) shows the full URL (Chromium `OmniboxViewViews::SetFocus` calls
     /// `OmniboxEditModel::Unelide`); a click or a programmatic focus keeps
     /// the steady-state text until the selection changes.
     mutating func beginFocus(_ source: OmnibarInput.FocusSource) {
@@ -95,7 +96,7 @@ nonisolated struct OmnibarStep {
             state.edit = .init()
         }
         if state.phase == .editing {
-            // Chrome `OmniboxViewViews::OnBlur`: typed text that equals the
+            // Chromium `OmniboxViewViews::OnBlur`: typed text that equals the
             // permanent display text reverts to it.
             let text = state.visibleUserText
             state.retainedText = text.isEmpty || text == state.displayText ? nil : text
@@ -127,7 +128,7 @@ nonisolated struct OmnibarStep {
             // A navigation supersedes text left behind by an earlier blur.
             state.retainedText = nil
         case .focused:
-            // Chrome `OmniboxViewViews::Update`: new permanent text while the
+            // Chromium `OmniboxViewViews::Update`: new permanent text while the
             // user has not typed reverts to the display text, all selected.
             state.elided = state.canElide
             state.edit = .init(selection: Self.all(state.fieldText))

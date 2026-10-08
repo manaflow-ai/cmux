@@ -1,6 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
-import GhosttyKit
+import GhosttyNextKit
 
 // Keyboard and IME input.
 //
@@ -18,7 +18,7 @@ extension TerminalSurfaceView {
         }
         // Copy mode takes every key except Command chords before Ghostty or
         // an input method sees it.
-        if handleCopyModeKeyDown(event) { return }
+        if copyMode.handleKeyDown(event) { return }
 
         // Ghostty decides which modifiers take part in text translation (for
         // example `macos-option-as-alt`). Rebuild the event only when that
@@ -80,7 +80,7 @@ extension TerminalSurfaceView {
     }
 
     public override func keyUp(with event: NSEvent) {
-        if handleCopyModeKeyUp(event) { return }
+        if copyMode.handleKeyUp(event) { return }
         sendKey(GHOSTTY_ACTION_RELEASE, event: event)
     }
 
@@ -89,74 +89,10 @@ extension TerminalSurfaceView {
         sendKey(action, event: event)
     }
 
-    /// Key equivalents reach the view before the main menu. Ghostty
-    /// keybinds run here, except that a cmux menu item with the same chord
-    /// wins, so cmux shortcuts are never shadowed by Ghostty defaults such as
-    /// `cmd+t`. Unbound Command and Control chords are sent back through
-    /// `keyDown` after AppKit had its chance (see `doCommand(by:)`).
+    /// Key equivalents reach the view before the main menu
+    /// (`TerminalKeyEquivalent`).
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.type == .keyDown, isFirstResponder, let surface else { return false }
-
-        var flags = ghostty_binding_flags_e(rawValue: 0)
-        var keyEvent = GhosttyInput.keyEvent(event, action: GHOSTTY_ACTION_PRESS)
-        let isBinding = (event.characters ?? "").withCString { pointer in
-            keyEvent.text = pointer
-            return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
-        }
-        if isBinding {
-            if NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
-                return true
-            }
-            keyDown(with: event)
-            return true
-        }
-
-        let equivalent: String
-        switch event.charactersIgnoringModifiers {
-        case "\r":
-            // Ctrl-Return goes to the terminal instead of the default button.
-            guard event.modifierFlags.contains(.control) else { return false }
-            equivalent = "\r"
-        case "/":
-            // Ctrl-/ is Ctrl-_ in terminals; AppKit would beep.
-            guard event.modifierFlags.contains(.control),
-                  event.modifierFlags.isDisjoint(with: [.shift, .command, .option]) else { return false }
-            equivalent = "_"
-        default:
-            // Synthetic events (zero timestamp) come from AppKit key
-            // bindings such as Cmd-. -> cancel; never encode those.
-            guard event.timestamp != 0 else { return false }
-            guard !event.modifierFlags.isDisjoint(with: [.command, .control]) else {
-                lastPerformKeyEventTimestamp = nil
-                return false
-            }
-            // Second pass for the same event: nothing in AppKit claimed it,
-            // so encode it for the terminal.
-            if let previous = lastPerformKeyEventTimestamp {
-                lastPerformKeyEventTimestamp = nil
-                if previous == event.timestamp {
-                    equivalent = event.characters ?? ""
-                    break
-                }
-            }
-            lastPerformKeyEventTimestamp = event.timestamp
-            return false
-        }
-
-        guard let rewritten = NSEvent.keyEvent(
-            with: .keyDown,
-            location: event.locationInWindow,
-            modifierFlags: event.modifierFlags,
-            timestamp: event.timestamp,
-            windowNumber: event.windowNumber,
-            context: nil,
-            characters: equivalent,
-            charactersIgnoringModifiers: equivalent,
-            isARepeat: event.isARepeat,
-            keyCode: event.keyCode
-        ) else { return false }
-        keyDown(with: rewritten)
-        return true
+        TerminalKeyEquivalent(view: self).perform(event)
     }
 
     /// Swallows unhandled selectors so AppKit does not beep, and re-sends a

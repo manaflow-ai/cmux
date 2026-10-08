@@ -44,6 +44,15 @@ import Testing
         #expect(Set(snapshot.diagnostics.map(\.path)) == ["focusRing.style", "focusRing.color", "focusRing.width", "focusRing.enabled"])
     }
 
+    @Test func readsFocusRingContrast() throws {
+        #expect(try parse("{}").focusRing.contrast == .subtle)
+        #expect(try parse(#"{"focusRing": {"contrast": "strong"}}"#).focusRing.contrast == .strong)
+        let bad = try parse(#"{"focusRing": {"contrast": "loud"}}"#)
+        #expect(bad.focusRing.contrast == .subtle)
+        #expect(bad.diagnostics.map(\.path) == ["focusRing.contrast"])
+        #expect(SettingsSchema.all.contains { $0.path == ["focusRing", "contrast"] })
+    }
+
     @Test func readsAttention() throws {
         let attention = try parse(#"""
         {"notifications": {"attention": {"style": "pulse", "color": "#00FFAA", "width": 4, "blinkCount": 3,
@@ -76,5 +85,108 @@ import Testing
         applier.apply(try parse("{}"))
         #expect(design.focusRing == FocusRingSettings())
         #expect(design.attention == AttentionSettings())
+    }
+}
+
+/// `appearance.statusIndicator.*`.
+@Suite struct StatusIndicatorSettingsTests {
+    func parse(_ text: String) throws -> CmuxConfigSnapshot {
+        CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
+    }
+
+    @Test func defaultsToTheThinThemeColoredArc() throws {
+        let snapshot = try parse("{}")
+        #expect(snapshot.statusIndicator == StatusIndicatorSettings())
+        #expect(snapshot.statusIndicator.style == .arc)
+        #expect(snapshot.statusIndicator.color == nil)
+    }
+
+    @Test func readsEveryField() throws {
+        let settings = try parse(#"""
+        {"appearance": {"statusIndicator": {"style": "native", "size": 0.8, "thickness": 2, "color": "#88AA44"}}}
+        """#).statusIndicator
+        #expect(settings.style == .native)
+        #expect(settings.scale == 0.8)
+        #expect(settings.thickness == 2)
+        #expect(settings.color == ThemeRGB(hex: 0x88AA44))
+    }
+
+    @Test func invalidStyleKeepsTheDefaultAndOutOfRangeClamps() throws {
+        let snapshot = try parse(#"{"appearance": {"statusIndicator": {"style": "rainbow", "thickness": 40}}}"#)
+        #expect(snapshot.statusIndicator.style == .arc)
+        #expect(snapshot.statusIndicator.thickness == StatusIndicatorSettings.thicknessRange.upperBound)
+        #expect(snapshot.diagnostics.count == 2)
+    }
+
+    @MainActor @Test func appliesToDesignSettings() throws {
+        let design = DesignSettings()
+        let applier = SettingsApplier(design: design, registry: ActionRegistry.standard())
+        applier.apply(try parse(#"{"appearance": {"statusIndicator": {"style": "dot"}}}"#))
+        #expect(design.statusIndicator.style == .dot)
+        applier.apply(try parse("{}"))
+        #expect(design.statusIndicator == StatusIndicatorSettings())
+    }
+
+    @Test func schemaListsTheIndicatorSettings() {
+        for key in ["style", "size", "thickness", "color"] {
+            #expect(SettingsSchema.descriptor(for: ["appearance", "statusIndicator", key]) != nil)
+        }
+    }
+}
+
+/// `appearance.statusIndicator.honorStatusStyle` and `status.*`.
+@Suite struct StatusBehaviorSettingsTests {
+    func parse(_ text: String) throws -> CmuxConfigSnapshot {
+        CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
+    }
+
+    @Test func defaultsMatchTheDocumentedValues() throws {
+        let snapshot = try parse("{}")
+        #expect(snapshot.statusIndicator.honoredStyleSources == Set(StatusReport.Source.allCases))
+        #expect(snapshot.statusBehavior == StatusBehaviorSettings())
+        #expect(snapshot.statusBehavior.inferCommandBusy)
+        #expect(snapshot.statusBehavior.inferCommandBusyAfter == 3)
+        #expect(snapshot.statusBehavior.runNotifyMinimumSeconds == 10)
+        #expect(!snapshot.statusBehavior.runNotifyWhenVisible)
+    }
+
+    /// WORKING-AND-LOADING-INDICATORS: each tab indicator has its own switch, on by default.
+    @Test func tabIndicatorSwitchesDefaultOnAndParse() throws {
+        let defaults = try parse("{}").statusIndicator
+        #expect(defaults.showsAgentWorkingOnTabs)
+        #expect(defaults.showsPageLoading)
+        let off = try parse(#"{"appearance": {"statusIndicator": {"showAgentWorkingOnTabs": false, "showPageLoading": false}}}"#)
+        #expect(!off.statusIndicator.showsAgentWorkingOnTabs)
+        #expect(!off.statusIndicator.showsPageLoading)
+        #expect(off.diagnostics.isEmpty)
+        for key in ["showAgentWorkingOnTabs", "showPageLoading"] {
+            #expect(SettingsSchema.descriptor(for: ["appearance", "statusIndicator", key])?.defaultValue == .bool(true))
+        }
+    }
+
+    @Test func honorStatusStyleTakesABoolOrAListOfSources() throws {
+        #expect(try parse(#"{"appearance": {"statusIndicator": {"honorStatusStyle": false}}}"#).statusIndicator.honoredStyleSources.isEmpty)
+        let some = try parse(#"{"appearance": {"statusIndicator": {"honorStatusStyle": ["explicit", "run"]}}}"#)
+        #expect(some.statusIndicator.honoredStyleSources == [.explicit, .run])
+        let bad = try parse(#"{"appearance": {"statusIndicator": {"honorStatusStyle": ["nope"]}}}"#)
+        #expect(bad.statusIndicator.honoredStyleSources == Set(StatusReport.Source.allCases))
+        #expect(bad.diagnostics.count == 1)
+    }
+
+    @Test func readsEveryBehaviorField() throws {
+        let behavior = try parse(#"""
+        {"status": {"inferCommandBusy": false, "inferCommandBusyAfter": 7, "runNotifyMinimumSeconds": 30, "runNotifyWhenVisible": true}}
+        """#).statusBehavior
+        #expect(!behavior.inferCommandBusy)
+        #expect(behavior.inferCommandBusyAfter == 7)
+        #expect(behavior.runNotifyMinimumSeconds == 30)
+        #expect(behavior.runNotifyWhenVisible)
+    }
+
+    @Test func schemaListsTheBehaviorSettings() {
+        for path in [["appearance", "statusIndicator", "honorStatusStyle"], ["status", "inferCommandBusy"],
+                     ["status", "inferCommandBusyAfter"], ["status", "runNotifyMinimumSeconds"], ["status", "runNotifyWhenVisible"]] {
+            #expect(SettingsSchema.descriptor(for: path) != nil)
+        }
     }
 }

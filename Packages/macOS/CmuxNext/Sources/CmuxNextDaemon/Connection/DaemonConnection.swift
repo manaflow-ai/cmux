@@ -25,61 +25,13 @@ import os
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
-    public struct Configuration: Sendable {
-        public var clientName: String
-        public var requiredCapabilities: [String]
-        public var advertisedCapabilities: [String]
-        public var treeEvents: TreeEventMode
-        /// Spacing and budget of reconnect attempts.
-        public var retry: RetryPolicy
-        /// A connection that stays up this long resets the reconnect backoff.
-        public var healthyAfter: Duration
-        /// Extra events that may let a reconnect succeed (network, sign-in).
-        /// The connection also watches its daemon socket through it.
-        public var retryWake: RetryWake?
-        /// Deadline for every control-plane request (architecture.md 5a).
-        /// A miss throws `DaemonError.timedOut`; nil disables it (tests only).
-        public var requestTimeout: Duration?
-        /// Deadline for `list-workspaces` snapshots, which can be large.
-        public var snapshotTimeout: Duration?
-        /// Deadline for commands that launch a terminal host
-        /// (`TerminalSpawningRequest`): cmux-tui's own 3 s launch bound plus margin.
-        public var spawnTimeout: Duration?
-        /// Per-terminal `env` the convenience spawn calls send when the daemon
-        /// supports `terminal-env-v1` and the caller passed none. Nil sends none.
-        public var terminalEnvironment: (@Sendable () async -> [String: String])?
-
-        public init(
-            clientName: String = "cmux-next",
-            requiredCapabilities: [String] = DaemonCapabilities.shared.required,
-            advertisedCapabilities: [String] = DaemonCapabilities.shared.advertised,
-            treeEvents: TreeEventMode = .deltas,
-            retry: RetryPolicy = .reconnect,
-            healthyAfter: Duration = .seconds(10),
-            retryWake: RetryWake? = nil,
-            requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
-            snapshotTimeout: Duration? = .seconds(10),
-            spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
-            terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.instance.shared()
-        ) {
-            self.clientName = clientName
-            self.requiredCapabilities = requiredCapabilities
-            self.advertisedCapabilities = advertisedCapabilities
-            self.treeEvents = treeEvents
-            self.retry = retry
-            self.healthyAfter = healthyAfter
-            self.retryWake = retryWake
-            self.requestTimeout = requestTimeout
-            self.snapshotTimeout = snapshotTimeout
-            self.spawnTimeout = requestTimeout == nil ? nil : spawnTimeout
-            self.terminalEnvironment = terminalEnvironment
-        }
-    }
+    /// `DaemonConnectionConfiguration`.
+    public typealias Configuration = DaemonConnectionConfiguration
 
     private enum Phase {
         case idle
         case connecting
-        case ready(LineTransport, serial: UInt64)
+        case ready(LineTransport, serial: UInt64, userOriginAllowed: Bool)
         case waiting
         case closed
     }
@@ -92,14 +44,19 @@ public actor DaemonConnection {
     private let clock: any Clock<Duration>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
     private var phase: Phase = .idle
-    private var serial: UInt64 = 0
+    private(set) var serial: UInt64 = 0
+    /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
+    var sessionStream: String?
     private var reconnectTask: Task<Void, Never>?
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
+    private let heartbeat = BridgeHeartbeat()
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
+    /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
+    public var userOriginAllowed: Bool { if case .ready(_, _, let allowed) = phase { allowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
 
     public init(
@@ -136,9 +93,10 @@ public actor DaemonConnection {
     /// Stops reconnecting, closes the socket, and finishes `events`.
     public func close() {
         healthy.cancel()
+        heartbeat.stop()
         reconnectTask?.cancel()
         reconnectTask = nil
-        if case .ready(let transport, _) = phase { transport.close() }
+        if case .ready(let transport, _, _) = phase { transport.close() }
         phase = .closed
         continuation.finish()
     }
@@ -181,8 +139,11 @@ public actor DaemonConnection {
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
-        guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
-        return try await Self.perform(request, on: transport, timeout: timeout)
+        guard case .ready(let transport, _, _) = phase else { throw DaemonError.notConnected }
+        try R.requireServed(by: identity)
+        let response = try await Self.perform(request, on: transport, timeout: timeout)
+        DaemonCommandScope.noteCreated(by: request, response: response)
+        return response
     }
 
     /// The event sequence this connection has routed so far, or nil when
@@ -191,41 +152,28 @@ public actor DaemonConnection {
     /// every event the daemon emitted before that reply (the reply's
     /// `eventBarrier` is at most this). Sequences grow across reconnects.
     public func eventSequence() -> UInt64? {
-        guard case .ready(let transport, let serial) = phase else { return nil }
+        guard case .ready(let transport, let serial, _) = phase else { return nil }
         return DaemonEventEnvelope.sequence(serial: serial, index: transport.routedEventCount)
     }
 
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
-    /// on the control socket and decodes its `result`.
+    /// on the control socket and decodes its `result`; `timeout` replaces the request deadline.
     func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
-                                       as type: R.Type) async throws -> R {
-        guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
-        let response = try await transport.request(cmd: envelope(0).operation, timeout: configuration.requestTimeout) { id in
+                                       as type: R.Type, timeout: Duration? = nil) async throws -> R {
+        guard case .ready(let transport, _, _) = phase else { throw DaemonError.notConnected }
+        let response = try await transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).line()
         }
         return try ResourceRequestEnvelope.decodeResult(R.self, from: response.line)
     }
 
-    /// `list-workspaces` plus the sequence of the last event it supersedes.
-    public func snapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
-        guard case .ready(let transport, let serial) = phase else { throw DaemonError.notConnected }
-        let response = try await transport.request(cmd: ListWorkspacesRequest.command, timeout: configuration.snapshotTimeout) { id in
-            try WireCoding.encodeRequest(ListWorkspacesRequest(), id: id)
-        }
-        var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
-        if identity?.supports(DaemonCapabilities.shared.savedTabGroups) == true, tree.savedTabGroups.isEmpty {
-            // Saved groups are not part of `list-workspaces`. Their changes
-            // emit `tree-changed`, which triggers this snapshot again.
-            tree.savedTabGroups = try await Self.perform(ListSavedTabGroupsRequest(), on: transport,
-                                                         timeout: configuration.requestTimeout).savedGroups
-            tree.linkSavedTabGroups()
-        }
-        if identity?.supports(DaemonCapabilities.shared.profiles) == true {
-            // Personal state is its own read; its changes emit
-            // `personal-changed`, which triggers this snapshot again.
-            tree.personal = try await Self.perform(ListPersonalRequest(), on: transport, timeout: configuration.requestTimeout)
-        }
-        return (tree, DaemonEventEnvelope.sequence(serial: serial, index: response.eventBarrier))
+    /// Delivers an event the connection itself produced, after those routed so far.
+    func yieldEvent(_ envelope: DaemonEventEnvelope) { continuation.yield(envelope) }
+
+    /// The ready transport and its connection serial, or nil when not connected.
+    var ready: (transport: LineTransport, serial: UInt64)? {
+        guard case .ready(let transport, let serial, _) = phase else { return nil }
+        return (transport, serial)
     }
 
     static func perform<R: DaemonRequest>(_ request: R, on transport: LineTransport,
@@ -244,14 +192,20 @@ public actor DaemonConnection {
         let serial = serial
         do {
             let endpoint = try await endpointProvider()
-            let transport = try LineTransport(path: endpoint.socketPath)
+            DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
+            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+            DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
             transport.start(
-                onEvent: { name, line, index in
+                onEvent: { [weak self] name, line, index in
                     let envelope = DaemonEventEnvelope(
                         sequence: DaemonEventEnvelope.sequence(serial: serial, index: index),
                         event: DaemonEvent.decode(name: name, line: line))
+                    if case .sessionState(let item) = envelope.event, item.endsStream {
+                        // task-owner: hop onto the actor; a stale serial is ignored there
+                        Task { await self?.sessionStreamEvent(item, serial: serial) }
+                    }
                     gate.deliver(envelope) { continuation.yield($0) }
                 },
                 onClose: { [weak self] reason in
@@ -259,7 +213,7 @@ public actor DaemonConnection {
                     Task { await self?.transportClosed(serial: serial, reason: reason) }
                 }
             )
-            let identity = try await handshake(transport)
+            let (identity, userOriginAllowed) = try await handshake(transport)
             guard self.serial == serial, !isClosedPhase else {
                 transport.close()
                 throw DaemonError.connectionClosed(reason: "superseded")
@@ -269,12 +223,15 @@ public actor DaemonConnection {
             } ?? false
             self.identity = identity
             self.endpoint = endpoint
-            phase = .ready(transport, serial: serial)
+            phase = .ready(transport, serial: serial, userOriginAllowed: userOriginAllowed)
             wake.watch(file: endpoint.socketPath)
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
+            if endpoint.bridge != nil { heartbeat.start(transport, every: configuration.bridgeHeartbeat, misses: configuration.bridgeHeartbeatMisses) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged))
             gate.open(first: connected) { continuation.yield($0) }
+            // task-owner: one request with the control deadline; a stale serial returns at once
+            Task { [weak self] in await self?.openSessionEvents(serial: serial) }
             logger.info("connected to cmux-tui \(identity.session, privacy: .public) pid \(identity.pid) gen \(identity.generation.rawValue, privacy: .public)")
             return identity
         } catch {
@@ -283,13 +240,19 @@ public actor DaemonConnection {
         }
     }
 
-    private var isClosedPhase: Bool {
-        if case .closed = phase { return true }
-        return false
-    }
+    private var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
 
-    private func handshake(_ transport: LineTransport) async throws -> DaemonIdentity {
-        let identity = try await Self.perform(IdentifyRequest(), on: transport, timeout: configuration.requestTimeout)
+    /// `identify`, `set-client-info` and `subscribe` go out together (one
+    /// round trip, with `client-hello` when configured: `HandshakeLines`);
+    /// the identity is checked before the connection is used. Against the
+    /// wrong or an incompatible daemon the other lines are harmless, and the
+    /// socket closes. The page relay has its own (`PageRelayHandshake`).
+    private func handshake(_ transport: LineTransport) async throws -> (DaemonIdentity, userOriginAllowed: Bool) {
+        if configuration.role == .pageRelay { return (try await PageRelayHandshake.run(transport, configuration: configuration), false) }
+        let handshake = await HandshakeLines.send(transport, configuration: configuration, logger: logger)
+        let replies = handshake.lines
+        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
+        DaemonLaunchTimings.shared.mark("daemon.identify_end")
         guard identity.app == "cmux-tui" else {
             transport.close()
             throw DaemonError.wrongApp(identity.app)
@@ -303,13 +266,8 @@ public actor DaemonConnection {
             transport.close()
             throw DaemonError.missingCapabilities(missing)
         }
-        _ = try await Self.perform(
-            SetClientInfoRequest(name: configuration.clientName, kind: "frontend", capabilities: configuration.advertisedCapabilities),
-            on: transport, timeout: configuration.requestTimeout
-        )
-        _ = try await Self.perform(SubscribeRequest(treeEvents: configuration.treeEvents), on: transport,
-                                   timeout: configuration.requestTimeout)
-        return identity
+        _ = try (replies[1].get(), replies[2].get())
+        return (identity, handshake.userOriginAllowed)
     }
 
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
@@ -336,8 +294,7 @@ public actor DaemonConnection {
         }
     }
 
-    /// The connection stayed up for `healthyAfter`: the next drop starts
-    /// the backoff from its first step again.
+    /// Up for `healthyAfter`: the next drop starts the backoff from its first step.
     private func stayedHealthy(serial: UInt64) {
         guard serial == self.serial, case .ready = phase else { return }
         pacer.reset()
@@ -346,8 +303,7 @@ public actor DaemonConnection {
     private func reconnectLoop() async {
         // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
         while !Task.isCancelled {
-            // A drop or a failed attempt: space the next one, or wait for an
-            // event once the timed budget is spent.
+            // A drop or a failed attempt: space the next one (events only past the budget).
             wake.rebaseline()
             let delay = pacer.failed()
             guard await wake.awaitWake(delay: delay, clock: clock) != .cancelled else { break }

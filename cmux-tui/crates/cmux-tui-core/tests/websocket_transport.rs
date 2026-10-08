@@ -211,7 +211,7 @@ fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
 }
 
 #[test]
-fn websocket_pairing_is_approved_over_trusted_unix_and_credential_reconnects() {
+fn websocket_pairing_is_approved_by_the_tui_and_credential_reconnects() {
     let mux = Mux::new("ws-pairing", SurfaceOptions::default());
     let socket_path = unique_socket("ws-pairing");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
@@ -234,12 +234,15 @@ fn websocket_pairing_is_approved_over_trusted_unix_and_credential_reconnects() {
     assert_eq!(tui_challenge["request"], browser_challenge["pairing"]["id"]);
 
     let request = tui_challenge["request"].as_u64().unwrap();
+    // A plain Unix connection (an agent, a script) may not approve; the
+    // in-process TUI (or the verified app) does.
     writeln!(
         unix_writer,
         r#"{{"id":2,"cmd":"pairing-response","request":{request},"approve":true}}"#
     )
     .unwrap();
-    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 2)["ok"], true);
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 2)["ok"], false);
+    assert!(mux.respond_pairing(request, true));
     let paired = read_until(&mut websocket, |value| value.get("paired").is_some());
     let credential = paired["paired"]["credential"].as_str().unwrap().to_string();
     send_json(&mut websocket, json!({"id": 3, "cmd": "identify"}));
@@ -450,7 +453,7 @@ fn clients_list_identify_resize_and_detach_across_transports() {
     let mut websocket = authenticated_connect(websocket_server.local_addr());
     send_json(
         &mut websocket,
-        json!({"id": 3, "cmd": "set-client-info", "name": "lawrences-iphone", "kind": "web"}),
+        json!({"id": 3, "cmd": "set-client-info", "name": "test-iphone", "kind": "web"}),
     );
     assert_eq!(read_until(&mut websocket, |value| value["id"] == 3)["ok"], true);
     send_json(&mut websocket, json!({"id": 4, "cmd": "attach-surface", "surface": surface}));
@@ -468,7 +471,7 @@ fn clients_list_identify_resize_and_detach_across_transports() {
     let ws_client = clients.iter().find(|client| client["transport"] == "ws").unwrap();
     assert_eq!(unix_client["self"], true);
     assert_eq!(ws_client["self"], false);
-    assert_eq!(ws_client["name"], "lawrences-iphone");
+    assert_eq!(ws_client["name"], "test-iphone");
     assert_eq!(ws_client["kind"], "web");
     assert_eq!(unix_client["attached"], json!([surface]));
     assert_eq!(ws_client["attached"], json!([surface]));

@@ -12,10 +12,13 @@ enum NotificationHandlers {
     static let ack = DaemonCapabilities.shared.notificationAck
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let daemon = context.daemon
+        let services = context.services
         let panel = NotificationsPanelController(context: context)
         registry.bind("showNotifications", run: { _ in panel.toggle() })
-        registry.bind("clearAllNotifications", requires: ack, daemon: daemon, run: { _ in
+        let feedPanel = FeedPanelController(context: context)
+        registry.bind("feed.show", run: { _ in feedPanel.toggle() })
+        services.pages.register(services.feedPage)
+        registry.bind("clearAllNotifications", requires: ack, daemon: context.daemon, run: { _ in
             _ = try context.requireConnection()
             context.daemon.send("notification.clear") { connection in
                 try await connection.clearNotifications()
@@ -23,18 +26,18 @@ enum NotificationHandlers {
             }
         })
         registry.bind("jumpToUnread", run: { _ in try open(latestUnread(context), context) })
-        registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: daemon, run: { _ in
+        registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: context.daemon, run: { _ in
             let tabs = unread(context)
             guard let oldest = tabs.first else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge([oldest.tab.surface], context)
             if tabs.count > 1 { try open(tabs[1], context) }
         })
-        registry.bind("markAllNotificationsRead", requires: ack, daemon: daemon, run: { _ in
+        registry.bind("markAllNotificationsRead", requires: ack, daemon: context.daemon, run: { _ in
             let tabs = unread(context)
             guard !tabs.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge(tabs.map(\.tab.surface), context)
         })
-        registry.bind("toggleUnread", requires: ack, daemon: daemon, run: { invocation in
+        registry.bind("toggleUnread", requires: ack, daemon: context.daemon, run: { invocation in
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
                 throw ActionFailure(message: MiscHandlerStrings.noPane)
             }
@@ -49,7 +52,7 @@ enum NotificationHandlers {
             try open(located, context)
             panel.close()
         })
-        registry.bind("notificationToggleRead", requires: ack, daemon: daemon, run: { invocation in
+        registry.bind("notificationToggleRead", requires: ack, daemon: context.daemon, run: { invocation in
             if let row = try panel.row(invocation) {
                 guard row.unread, let surface = row.surface else { throw ActionFailure(message: MiscHandlerStrings.markUnread) }
                 return try acknowledge([surface], context)
@@ -57,11 +60,11 @@ enum NotificationHandlers {
             guard let latest = unread(context).last else { throw ActionFailure(message: MiscHandlerStrings.markUnread) }
             try acknowledge([latest.tab.surface], context)
         })
-        registry.bind("notificationDismiss", requires: ack, daemon: daemon, run: { invocation in
+        registry.bind("notificationDismiss", requires: ack, daemon: context.daemon, run: { invocation in
             guard let row = try panel.row(invocation) else { return try acknowledge([latestUnread(context).tab.surface], context) }
             try dismiss(row, panel: panel, context)
         })
-        registry.bind("notificationCopy", requires: ack, daemon: daemon, run: { invocation in
+        registry.bind("notificationCopy", requires: ack, daemon: context.daemon, run: { invocation in
             _ = try context.requireConnection()
             if let row = try panel.row(invocation) { return context.copy(row.copyText) }
             context.daemon.send("copy-notification") { connection in

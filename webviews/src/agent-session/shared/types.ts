@@ -29,7 +29,23 @@ export type AgentSessionTheme = {
   /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
   accentText?: string;
   danger: string;
+  /// Caution, softer than `danger` (ANSI yellow): the full-access mode chip.
+  warning?: string;
+  /// The primary action (the composer's Send): the theme's ANSI blue.
+  highlight?: string;
+  /// Glyphs on `highlight`.
+  highlightText?: string;
   shadow: string;
+  /// The terminal's 16 ANSI colors, for syntax colors that follow the theme; the cmux-next
+  /// pane sends it. Without it, code keeps the built-in dark hues on the theme's text colors.
+  palette?: string[];
+  /// appearance.borders; `none` sets `data-borders="none"` on the root, which clears the
+  /// pane's own edges and rings (the composer, menus, code and tool cards). `border` and
+  /// `borderStrong` are already transparent then. Absent means default.
+  borders?: "default" | "none";
+  /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
+  /// Motion; 0 means apply at once), as `--agent-motion-*`. Absent keeps the stylesheet defaults.
+  motion?: { hover: number; focus: number; fadeIn: number; fadeOut: number };
 };
 
 export type AppContext = {

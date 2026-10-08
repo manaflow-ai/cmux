@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import CmuxNextBrowser
 
-/// Chrome's selection rules through the real AppKit field and field editor.
+/// The omnibar selection rules through the real AppKit field and field editor.
 /// A click is replayed in AppKit's order (the field becomes first responder,
 /// the field editor reports the press, its tracking loop sets the selection,
 /// then the release): a test process has no running event loop for the
@@ -40,9 +40,24 @@ import Testing
             chrome.layoutSubtreeIfNeeded()
         }
 
+        /// Waits until the bar shows the page the tab loaded. The chrome
+        /// renders tab state through `ObservationLoop`, a later main-actor
+        /// turn; a fixed number of yields lost that race on a loaded runner
+        /// (fleet job a6b1e3dc4f8ad234d8d8972b: the first click focused a
+        /// bar that had no page URL yet, so nothing was elided).
+        func pageShown() async {
+            guard !pageReady else { return }
+            let url = tab.state.url?.absoluteString
+            for _ in 0..<10_000 where bar.debugSnapshot.text != url { await Task.yield() }
+            pageReady = true
+            chrome.layoutSubtreeIfNeeded()
+        }
+        private var pageReady = false
+
         /// One click whose tracking selects `selection` in the text shown at
         /// the press; `word` is the word under the pointer then.
         func click(count: Int = 1, word: NSRange? = nil, selecting selection: NSRange) async {
+            await pageShown()
             await settle()
             if bar.fieldEditor?.window == nil || !bar.isEditing {
                 bar.pendingFocusSource = .mouse
@@ -116,7 +131,7 @@ import Testing
         #expect(h.snapshot.fieldSelection == range(0, 0))
     }
 
-    @Test func copyingTheElidedURLCopiesTheFullURL() async throws {
+    @Test(.requiresPasteboard) func copyingTheElidedURLCopiesTheFullURL() async throws {
         let h = Harness()
         await h.click(selecting: range(3, 0))
         let editor = try #require(h.bar.fieldEditor)

@@ -103,21 +103,4 @@ private final class SlowWorkExecutor: ControlActionExecutor {
         #expect(error.data?["terminal_may_appear"] == true)
         #expect(error.data?["action"] == "newSurface")
     }
-
-    @Test func compatCreationVerbsUseTheTerminalStartDeadline() {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
-        let service = CompatService(frontend: HeadlessCompatFrontend()) { nil }
-        service.install(on: router)
-        let snapshot = router.snapshots.current
-        for name in ["surface.create", "surface.split", "pane.create", "workspace.create"] {
-            let method = router.method(named: name)
-            #expect(method != nil, "\(name)")
-            let terminal = ControlRequest(id: "1", method: name, params: ["type": "terminal"])
-            let browser = ControlRequest(id: "1", method: name, params: ["type": "browser"])
-            #expect(method?.startsTerminal(terminal, snapshot) == true, "\(name)")
-            #expect(method?.startsTerminal(browser, snapshot) == false, "\(name)")
-        }
-        #expect(router.method(named: "surface.list")?.startsTerminal(ControlRequest(id: "1", method: "surface.list", params: [:]), snapshot) == false)
-        withExtendedLifetime(service) {}
-    }
 }

@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
-# Installs the cmux-tui client into an app bundle as Contents/Resources/bin/cmux-tui,
-# the same way the Ghostty CLI helper is bundled: the app carries the exact client
-# that talks to cmux Cloud machines, so the Machines panel needs no separate install.
+# Installs the cmux-tui binary into an app bundle as Contents/Resources/bin/cmux, the
+# cmux CLI, with bin/cmux-tui and bin/acpmux as relative symlinks to it (the binary
+# picks its program from argv[0]; plans/cmux-next/cli.md). When the manifest publishes
+# cmux-tui-app-host-<target>, the app host goes to Contents/Resources/bin/cmux-app-host,
+# where the daemon looks for it; cmux-tui-cloud-server-<target> (the first-party Cloud
+# app server, cmux/cloud) goes beside it as bin/cmux-cloud. The app carries the exact client that talks to cmux
+# Cloud machines, so the Machines panel needs no separate install.
+# cmux-tui-browser-host-<target> goes beside bin/cmux as bin/cmux-browser-host, where
+# the daemon looks for it (the sibling of its own executable), but only once
+# scripts/cmux-next/notices/bundle-map.json maps that path: release and nightly
+# bundles fail check_bundle_notices.py on an unmapped Mach-O, and the map's test
+# requires its THIRD_PARTY_LICENSES.md section. Until then it is not installed.
 #
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
@@ -10,7 +19,7 @@
 # Downloads are cached per commit under CMUX_TUI_CLIENT_CACHE.
 #
 #   scripts/install-cmux-tui-client.sh <app-path> [--manifest-url <url>] [--cache-dir <dir>]
-#     [--expected-commit <sha>] [--require-capability <name>]...
+#     [--expected-commit <sha>] [--require-capability <name>]... [--require-acpmux]
 #     [--arch <native|arm64|x86_64|universal>]
 #     [--attest-signer-workflow <owner/repo/.github/workflows/name.yml>] [--allow-unattested]
 #
@@ -24,6 +33,10 @@
 # machine without an authenticated gh; CI never passes it. A CMUX_TUI_CLIENT_LOCAL
 # binary is not downloaded and is not subject to it.
 #
+# acpmux is linked into the same binary, so bin/acpmux needs no separate download.
+# Builds from before that lack it: `bin/acpmux --version` then does not identify as
+# acpmux, which is a warning, or an error with --require-acpmux.
+#
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
 # CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
@@ -32,7 +45,7 @@
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
 
-usage() { sed -n '2,22p' "$0"; }
+usage() { sed -n '2,23p' "$0"; }
 
 APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
@@ -41,6 +54,7 @@ EXPECTED_COMMIT=""
 ARCH="universal"
 ATTEST_SIGNER_WORKFLOW="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
 ALLOW_UNATTESTED=0
+REQUIRE_ACPMUX=0
 REQUIRED_CAPABILITIES=()
 while (( $# )); do
   case "$1" in
@@ -50,6 +64,7 @@ while (( $# )); do
     --expected-commit) shift; EXPECTED_COMMIT="${1:?--expected-commit needs a value}" ;;
     --attest-signer-workflow) shift; ATTEST_SIGNER_WORKFLOW="${1:?--attest-signer-workflow needs a value}" ;;
     --allow-unattested) ALLOW_UNATTESTED=1 ;;
+    --require-acpmux) REQUIRE_ACPMUX=1 ;;
     --require-capability) shift; REQUIRED_CAPABILITIES+=("${1:?--require-capability needs a value}") ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -80,7 +95,8 @@ esac
   exit 64
 }
 DEST_DIR="$APP_PATH/Contents/Resources/bin"
-DEST="$DEST_DIR/cmux-tui"
+DEST="$DEST_DIR/cmux"
+ALIASES=(cmux-tui acpmux)
 mkdir -p "$DEST_DIR"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
@@ -95,10 +111,28 @@ verify_manifest_attestation() {
     exit 1
   }
   [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
-  gh attestation verify "$MANIFEST" "${args[@]}" >&2 || {
+  # An exhausted GitHub API quota says nothing about the attestation, and
+  # failing on it discards a signed nightly leg (run 37526635018). Retry only
+  # that answer, with backoff (1, 2, 4, 8 minutes by default); any other
+  # failure is a verdict and stays final.
+  local delay="${CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS:-60}"
+  local retries_left="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-4}"
+  local output status
+  while :; do
+    status=0
+    output="$(gh attestation verify "$MANIFEST" "${args[@]}" 2>&1)" || status=$?
+    [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+    [[ $status -eq 0 ]] && return 0
+    if [[ "$output" == *"rate limit"* ]] && (( retries_left > 0 )); then
+      echo "cmux-tui attestation lookup was rate-limited; retrying in ${delay}s ($retries_left retries left)" >&2
+      sleep "$delay"
+      retries_left=$((retries_left - 1))
+      delay=$((delay * 2))
+      continue
+    fi
     echo "error: no valid build-provenance attestation for the cmux-tui manifest at $MANIFEST_URL (signer $ATTEST_SIGNER_WORKFLOW)" >&2
     exit 1
-  }
+  done
 }
 
 verify_probe() {
@@ -126,10 +160,57 @@ PY
   done
 }
 
+# Remove first: overwriting a signed Mach-O in place keeps the kernel's cached
+# code signature for the old inode and the new binary dies with SIGKILL. The
+# aliases are relative symlinks so the bundle stays relocatable and codesign
+# treats them as links, not second copies.
+install_binary() {
+  local name
+  rm -f "$DEST"
+  install -m 755 "$1" "$DEST"
+  for name in "${ALIASES[@]}"; do
+    rm -rf "${DEST_DIR:?}/$name"
+    ln -s cmux "$DEST_DIR/$name"
+  done
+}
+
+# acpmux is linked into the binary; bin/acpmux runs it through argv[0].
+check_acpmux() {
+  local version
+  version="$("$DEST_DIR/acpmux" --version 2>/dev/null || true)"
+  [[ "$version" == acpmux\ * ]] && return 0
+  if (( REQUIRE_ACPMUX )); then
+    echo "error: installed binary does not run acpmux through bin/acpmux: $version" >&2
+    exit 1
+  fi
+  echo "warning: installed binary does not run acpmux through bin/acpmux ($version); the agent chat pane falls back to acpmux on PATH" >&2
+}
+
+# The companions this bundle may carry: the browser host only once its license
+# notices are mapped (see the header).
+COMPANIONS=(cmux-app-host cmux-cloud)
+BUNDLE_MAP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/notices/bundle-map.json"
+if python3 -c 'import json,sys; sys.exit(0 if any(e.get("path") == "Contents/Resources/bin/cmux-browser-host" for e in json.load(open(sys.argv[1]))["entries"]) else 1)' "$BUNDLE_MAP" 2>/dev/null; then
+  COMPANIONS+=(cmux-browser-host)
+  SHIP_BROWSER_HOST=1
+else
+  SHIP_BROWSER_HOST=0
+  echo "note: bin/cmux-browser-host is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
+fi
+
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
-  install -m 755 "$CMUX_TUI_CLIENT_LOCAL" "$DEST"
+  install_binary "$CMUX_TUI_CLIENT_LOCAL"
+  # A local client brings its app host and app servers when they sit beside it.
+  rm -f "$DEST_DIR/cmux-browser-host"
+  for companion in "${COMPANIONS[@]}"; do
+    rm -f "$DEST_DIR/$companion"
+    if [[ -f "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" ]]; then
+      install -m 755 "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" "$DEST_DIR/$companion"
+    fi
+  done
   verify_probe
+  check_acpmux
   echo "Installed local cmux-tui client at $DEST"
   exit 0
 fi
@@ -221,12 +302,52 @@ case "$ARCH" in
     VERIFY_ARCHS=(arm64 x86_64)
     ;;
 esac
-install -m 755 "$CLIENT" "$DEST"
+install_binary "$CLIENT"
+# The app host (apps-v1) and the first-party app servers ship from the same build when
+# the manifest has them. Older builds have none; then none is bundled (the app reports
+# that it needs a newer cmux-tui, and the supervisor answers apps.server_missing).
+manifest_has() {
+  python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) else 1)' "$MANIFEST" "$1"
+}
+# install_companion <artifact prefix> <installed name>: both darwin slices, lipo'd
+# like the client, sha256-verified by fetch_slice.
+install_companion() {
+  local prefix="$1" name="$2" dest="$DEST_DIR/$2" binary arm x64 arch
+  if ! { manifest_has "$prefix-aarch64-apple-darwin" && manifest_has "$prefix-x86_64-apple-darwin"; }; then
+    rm -f "$dest"
+    echo "note: cmux-tui ${COMMIT:0:10} publishes no $name"
+    return 0
+  fi
+  case "$ARCH" in
+    arm64) binary="$(fetch_slice "$prefix-aarch64-apple-darwin")" ;;
+    x86_64) binary="$(fetch_slice "$prefix-x86_64-apple-darwin")" ;;
+    universal)
+      arm="$(fetch_slice "$prefix-aarch64-apple-darwin")"
+      x64="$(fetch_slice "$prefix-x86_64-apple-darwin")"
+      binary="$BUILD_DIR/$name-universal"
+      if [[ ! -f "$binary" ]]; then
+        lipo -create "$arm" "$x64" -output "$binary.tmp"
+        mv -f "$binary.tmp" "$binary"
+      fi
+      ;;
+  esac
+  rm -f "$dest"
+  install -m 755 "$binary" "$dest"
+  for arch in "${VERIFY_ARCHS[@]}"; do lipo "$dest" -verify_arch "$arch"; done
+}
+install_companion cmux-tui-app-host cmux-app-host
+install_companion cmux-tui-cloud-server cmux-cloud
+if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
+  install_companion cmux-tui-browser-host cmux-browser-host
+else
+  rm -f "$DEST_DIR/cmux-browser-host"
+fi
 # One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
 # arch after -verify_arch and read the second as an extra input file, failing
 # with "requires exactly one input file".
 for arch in "${VERIFY_ARCHS[@]}"; do lipo "$DEST" -verify_arch "$arch"; done
 verify_probe
+check_acpmux
 # Bootstrap payloads share the signed client's exact build. End-user SSH hosts
 # need neither Node/npm nor access to an artifact server, and the client verifies
 # these hashes again before uploading the selected platform executable.

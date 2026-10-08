@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{
-    EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
-    StreamEndReason, StreamItemEnvelope,
+    EnvelopeType, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope, StreamEndReason,
+    StreamItemEnvelope,
 };
 use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
@@ -16,7 +16,7 @@ use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
-const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
+pub(super) const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
 const SUPPORTED_SERVER_APP: &str = "cmux-tui";
 /// The session-journal wire shape is compatible from its introduction through
 /// the current protocol. Future protocol versions need an explicit review.
@@ -29,40 +29,24 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: streams require --jsonl, --quiet, or human output");
         return 2;
     }
-    let Some(params) = plan.params.as_object_mut() else {
-        eprintln!("cmux: request params are not an object");
+    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan.params) {
+        eprintln!("cmux: {error}");
         return 2;
-    };
-    if let Some(machine) = &global.machine
-        && params.get("machine").is_none_or(|value| value.as_str() == Some("current"))
-    {
-        params.insert("machine".into(), Value::String(machine.clone()));
     }
-    if let Some(session) = &global.session
-        && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
-    {
-        params.insert("session".into(), Value::String(session.clone()));
-    }
-    let request = match request_value(&plan) {
+    let mut request = match request_value(&plan) {
         Ok(request) => request,
         Err(error) => {
             eprintln!("cmux: {error}");
             return 2;
         }
     };
-    let encoded = match serde_json::to_vec(&request) {
-        Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => encoded,
-        Ok(_) => {
-            eprintln!("cmux: request exceeds the 4 MiB protocol limit");
-            return 2;
-        }
-        Err(error) => {
-            eprintln!("cmux: cannot encode request: {error}");
-            return 2;
-        }
+    let mut encoded = match encode_request(&request) {
+        Ok(encoded) => encoded,
+        Err(code) => return code,
     };
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
+    let key_report = KeyReport::new(request.get("idempotency_key").and_then(Value::as_str));
 
     let (socket, socket_is_derived) = match resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
@@ -74,7 +58,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("cannot connect to session socket {}: {error}", socket.display());
+            eprintln!("{}", connect_failure(&socket, &error));
             return 3;
         }
     };
@@ -86,11 +70,50 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             Err(exit_code) => return exit_code,
         }
     }
+    // The caller's terminal belongs to the session its environment names; an
+    // explicit route targets that session's current workspace.
+    let caller_route = global.socket.is_none() && global.session.is_none();
+    // A browser tab in a session a cmux app owns is the app's to render.
     #[cfg(unix)]
-    let signal_interrupt_armed = plan.stream && arm_signal_interrupt(reader.get_ref().as_ref());
+    if let Some(code) = super::frontend_browser::run_in_app(
+        &global,
+        &plan,
+        &request,
+        &mut reader,
+        &socket,
+        caller_route,
+        &key_report,
+    ) {
+        return code;
+    }
+    if !plan.resolve.is_empty() {
+        if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route) {
+            // A browser tab's page zoom: the app hosts the page and owns it.
+            #[cfg(unix)]
+            if let super::resolve::Failure::AppAction { action, target } = &failure {
+                let args = ["--target".to_owned(), target.clone()];
+                return match super::app::run_action(action, &args, super::app::ActionName::Any) {
+                    Ok(command) => super::app::run(&global, command),
+                    Err(error) => print_local_error(
+                        &json!({"code":"usage.invalid","message":error.to_string(),"details":{},"retryable":false}),
+                        global.output,
+                        2,
+                    ),
+                };
+            }
+            return failure.report(global.output);
+        }
+        request["params"] = plan.params.clone();
+        encoded = match encode_request(&request) {
+            Ok(encoded) => encoded,
+            Err(code) => return code,
+        };
+    }
+    #[cfg(unix)]
+    let interrupt_handled = !plan.stream || stream_interrupt(reader.get_ref().as_ref());
     #[cfg(not(unix))]
-    let signal_interrupt_armed = false;
-    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, signal_interrupt_armed));
+    let interrupt_handled = !plan.stream;
+    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, interrupt_handled));
     if let Err(error) = reader.get_mut().write_all(&encoded).and_then(|_| {
         reader.get_mut().write_all(b"\n")?;
         reader.get_mut().flush()
@@ -99,9 +122,91 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 0;
         }
         eprintln!("transport error: {error}");
+        // Part of the request may have reached the daemon.
+        key_report.finish(global.output);
         return 3;
     }
-    run_response(&mut reader, &global, &plan, &request_id)
+    let code = run_response(&mut reader, &global, &plan, &request_id, &key_report);
+    if code != 0 {
+        key_report.finish(global.output);
+    }
+    code
+}
+
+fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
+    super::resolve::encode_request_bytes(request).map_err(|error| {
+        eprintln!("cmux: {error}");
+        2
+    })
+}
+
+/// Reports a mutation's idempotency key once when the command fails after
+/// its request was sent, so `--idempotency-key` can retry it safely
+/// (plans/cmux-next/state-ownership.md, section 4).
+pub(super) struct KeyReport {
+    key: Option<String>,
+    done: std::cell::Cell<bool>,
+}
+
+impl KeyReport {
+    pub(super) fn new(key: Option<&str>) -> Self {
+        Self { key: key.map(str::to_owned), done: std::cell::Cell::new(false) }
+    }
+
+    /// Nothing to retry: the mutation succeeded, or the app never ran it.
+    pub(super) fn succeeded(&self) {
+        self.done.set(true);
+    }
+
+    /// Adds `details.idempotency_key` to an error the command prints in a
+    /// JSON mode. Human modes print the note after the message instead.
+    pub(super) fn annotate(&self, error: &mut Value, output: OutputMode) {
+        let Some(key) = self.key.as_deref() else { return };
+        if !matches!(output, OutputMode::Json | OutputMode::JsonLines) || !error.is_object() {
+            return;
+        }
+        let details = &mut error["details"];
+        if !details.is_object() {
+            *details = json!({});
+        }
+        details
+            .as_object_mut()
+            .expect("details is an object")
+            .entry("idempotency_key")
+            .or_insert(Value::String(key.to_owned()));
+        self.done.set(true);
+    }
+
+    /// Prints the key unless an annotated error or a success already did.
+    pub(super) fn finish(&self, output: OutputMode) {
+        let Some(key) = self.key.as_deref() else { return };
+        if self.done.replace(true) {
+            return;
+        }
+        let note =
+            crate::localization::catalog().local_server.mutation_key_note.replace("{key}", key);
+        match output {
+            OutputMode::Json | OutputMode::JsonLines => {
+                let error = json!({
+                    "code": "mutation.outcome_unknown",
+                    "message": note,
+                    "details": {"idempotency_key": key},
+                    "retryable": true,
+                });
+                let _ = serde_json::to_writer(io::stderr().lock(), &error);
+                eprintln!();
+            }
+            OutputMode::Quiet | OutputMode::Human => eprintln!("{note}"),
+        }
+    }
+}
+
+/// Makes a stream end on SIGINT, SIGTERM or SIGHUP without a read timeout:
+/// a watcher thread shuts the socket down, or, when that thread cannot
+/// start, the signals get their default action back and end the process.
+#[cfg(unix)]
+fn stream_interrupt(stream: &dyn transport::Stream) -> bool {
+    arm_signal_interrupt(stream) || crate::restore_default_termination_signals().is_ok()
 }
 
 #[cfg(unix)]
@@ -214,9 +319,15 @@ fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Option<Duration> {
+/// `interrupt_handled` is false only for a stream on a platform with no
+/// signal watcher (Windows): there a console interrupt only sets the
+/// shutdown flag, so the read wakes every 250 ms to look at it.
+pub(super) fn response_read_timeout(
+    plan: &RequestPlan,
+    interrupt_handled: bool,
+) -> Option<Duration> {
     if plan.stream {
-        return (!signal_interrupt_armed).then_some(Duration::from_millis(250));
+        return (!interrupt_handled).then_some(Duration::from_millis(250));
     }
     if matches!(
         &plan.operation,
@@ -236,7 +347,7 @@ fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Op
     Some(Duration::from_secs(10))
 }
 
-fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
+pub(super) fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     let class = plan.operation.class();
     let mut request = json!({
         "protocol": PROTOCOL,
@@ -259,7 +370,7 @@ fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     Ok(request)
 }
 
-fn random_request_id() -> Result<String, UsageError> {
+pub(super) fn random_request_id() -> Result<String, UsageError> {
     random_prefixed("request")
 }
 
@@ -272,6 +383,7 @@ fn run_response(
     global: &GlobalArgs,
     plan: &RequestPlan,
     request_id: &str,
+    key_report: &KeyReport,
 ) -> i32 {
     let mut accepted_stream = false;
     let expose_stream_lifecycle = matches!(
@@ -320,12 +432,27 @@ fn run_response(
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
                     }
+                    key_report.annotate(&mut error, global.output);
+                    if hints::settles_mutation(&error) {
+                        key_report.succeeded();
+                    }
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
+                key_report.succeeded();
                 if !plan.stream {
-                    let code = print_success(&result, global.output);
-                    return if code == 0 { success_exit_code(plan, &result) } else { code };
+                    // Focus in a session a cmux app owns is the app's (app_focus).
+                    #[cfg(unix)]
+                    let result = match &plan.operation {
+                        WireOperation::Typed(operation) => {
+                            match super::app_focus::after_daemon(global, *operation, result) {
+                                Ok(result) => result,
+                                Err(error) => return print_operation_error(&error, global.output),
+                            }
+                        }
+                        WireOperation::Raw { .. } => result,
+                    };
+                    return print_result(global, plan, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     eprintln!("protocol error: stream response did not confirm the requested ID");
@@ -395,18 +522,18 @@ fn run_response(
                     return print_operation_error(&error, global.output);
                 }
                 let message = end.recovery.unwrap_or_else(|| "stream ended with an error".into());
-                eprintln!("{message}");
+                eprintln!("{}", sanitize_human_block(&message));
                 return 1;
             }
             _ => {
-                eprintln!("protocol error: unexpected envelope type");
+                eprintln!("protocol error: {}", hints::wrong_protocol());
                 return 3;
             }
         }
     }
 }
 
-fn read_envelope(
+pub(super) fn read_envelope(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     allow_timeout: bool,
 ) -> Result<Option<Value>, String> {
@@ -427,6 +554,7 @@ fn read_envelope(
                 }
                 continue;
             }
+            Err(error) if hints::is_no_answer(&error) => return Err(hints::no_answer().into()),
             Err(error) => return Err(format!("transport error: {error}")),
         }
         if bytes.len() > RESPONSE_LIMIT {
@@ -445,6 +573,18 @@ fn read_envelope(
     }
 }
 
+/// Prints a request's successful result as the command shows it; returns
+/// the exit code.
+pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Value) -> i32 {
+    let result = plan.view.project(result);
+    let shown = match global.output {
+        OutputMode::Human => human_view(plan, &result),
+        _ => std::borrow::Cow::Borrowed(&result),
+    };
+    let code = print_success(&shown, global.output);
+    if code == 0 { success_exit_code(plan, &result) } else { code }
+}
+
 /// `terminal <id> screen wait` reports a timeout as a normal result with
 /// `matched: false`. The result is still printed, but the exit status is 1
 /// (spec/commands.md), so a script can tell a timeout from a match.
@@ -454,6 +594,39 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
     ) && result.get("matched") == Some(&Value::Bool(false));
     i32::from(unmatched_wait)
+}
+
+/// What the human table shows for a result. `workspace list --order
+/// personal` adds an ORDER column (the row's place in the returned order),
+/// because INDEX stays the session order.
+fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
+    let personal = matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
+    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
+    match result.as_array() {
+        Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
+            rows.iter()
+                .enumerate()
+                .map(|(order, row)| {
+                    let mut row = row.clone();
+                    if let Some(object) = row.as_object_mut() {
+                        object.insert("order".into(), json!(order));
+                    }
+                    row
+                })
+                .collect(),
+        )),
+        Some(rows) if is_closed_list(plan) => std::borrow::Cow::Owned(closed_view::summarize(rows)),
+        _ => std::borrow::Cow::Borrowed(result),
+    }
+}
+
+fn is_closed_list(plan: &RequestPlan) -> bool {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::ClosedList)
+    )
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
@@ -472,7 +645,7 @@ fn print_success(value: &Value, output: OutputMode) -> i32 {
     }
 }
 
-fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
+pub(super) fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
     print_local_error(error, output, 1)
 }
 
@@ -535,22 +708,27 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
             eprintln!();
         }
         OutputMode::Quiet | OutputMode::Human => {
-            let _ = io::stderr().lock().write_all(human_error_text(error).as_bytes());
+            eprint!("{}", human_error_lines(error));
         }
     }
     exit_code
 }
 
-/// The human form of a local error: its message, then any candidates.
-fn human_error_text(error: &Value) -> String {
+/// Render an operation error for human-readable stderr. The message and any
+/// candidate names can carry remote-supplied text, so they get the same
+/// visible sanitizing as human stdout.
+fn human_error_lines(error: &Value) -> String {
     let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
-    let mut text = format!("{}\n", visible_controls(message));
+    let mut text = sanitize_human_block(message);
+    text.push('\n');
     if let Some(candidates) =
         error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)
     {
         for candidate in candidates {
             if let Some(candidate) = candidate.as_str() {
-                text.push_str(&format!("  {}\n", visible_controls(candidate)));
+                text.push_str("  ");
+                text.push_str(&sanitize_human_cell(candidate));
+                text.push('\n');
             }
         }
     }
@@ -611,7 +789,8 @@ fn append_human(value: &Value, output: &mut String) {
     match value {
         Value::Null => {}
         Value::String(value) => {
-            output.push_str(&visible_controls(value));
+            let value = sanitize_human_block(value);
+            output.push_str(&value);
             if !value.ends_with('\n') {
                 output.push('\n');
             }
@@ -727,7 +906,7 @@ fn flatten_human_object(
         if let Value::Object(nested) = value {
             flatten_human_object(Some(&path), nested, rows);
         } else {
-            rows.push((visible_controls(&path), human_cell(value)));
+            rows.push((sanitize_human_cell(&path), human_cell(value)));
         }
     }
 }
@@ -735,35 +914,19 @@ fn flatten_human_object(
 fn human_cell(value: &Value) -> String {
     match value {
         Value::Null => "-".to_string(),
-        Value::String(value) => visible_controls(&value.replace(['\r', '\n'], "\\n")),
+        Value::String(value) => sanitize_human_cell(value),
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
-        value => visible_controls(
+        // serde_json escapes C0 controls but writes C1 controls and the
+        // Unicode separators raw, so the serialized form needs the same pass.
+        value => sanitize_human_cell(
             &serde_json::to_string(value).expect("JSON value serialization cannot fail"),
         ),
     }
 }
 
-/// Daemon and terminal-derived text shows control characters as escapes
-/// (`\u{1b}`) so it cannot drive the terminal that runs the CLI. Newlines and
-/// tabs are layout, not commands, and pass through.
-fn visible_controls(text: &str) -> String {
-    if !text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
-        return text.to_string();
-    }
-    let mut visible = String::with_capacity(text.len());
-    for c in text.chars() {
-        if c.is_control() && c != '\n' && c != '\t' {
-            visible.extend(c.escape_default());
-        } else {
-            visible.push(c);
-        }
-    }
-    visible
-}
-
 fn human_header(key: &str) -> String {
-    visible_controls(&key.replace('_', " ").to_uppercase())
+    sanitize_human_cell(&key.replace('_', " ").to_uppercase())
 }
 
 fn human_key_rank(key: &str) -> usize {
@@ -773,7 +936,7 @@ fn human_key_rank(key: &str) -> usize {
         "title" => 2,
         "kind" => 3,
         "state" => 4,
-        "lifecycle" => 5,
+        "lifecycle" | "order" => 5,
         "index" => 6,
         "focused" => 7,
         "running" => 8,
@@ -795,6 +958,17 @@ pub(super) fn resolve_socket_with_env(
         return Ok((path.clone(), false));
     }
     if let Some(session) = &global.session {
+        // The bundling app starts its own session under the Darwin per-user
+        // temp directory, whatever this process's TMPDIR is.
+        #[cfg(target_os = "macos")]
+        if let Some(identity) = crate::app_identity::AppIdentity::detect(
+            |name| env(name).and_then(|value| value.into_string().ok()),
+            std::env::current_exe().ok().as_deref(),
+        ) && identity.daemon_session().as_deref() == Some(session.as_str())
+            && let Some(path) = crate::app_identity::app_daemon_socket(&identity)
+        {
+            return Ok((path, true));
+        }
         return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
@@ -804,296 +978,23 @@ pub(super) fn resolve_socket_with_env(
             return Ok((PathBuf::from(path), false));
         }
     }
+    // The `cmux` bundled in a cmux app talks to that app's session.
+    #[cfg(target_os = "macos")]
+    if let Some(identity) = crate::app_identity::AppIdentity::detect(
+        |name| env(name).and_then(|value| value.into_string().ok()),
+        std::env::current_exe().ok().as_deref(),
+    ) && let Some(path) = crate::app_identity::app_daemon_socket(&identity)
+    {
+        return Ok((path, true));
+    }
     Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
 
+mod closed_view;
+mod hints;
+mod sanitize;
+pub(super) use hints::connect_failure;
+use sanitize::{sanitize_human_block, sanitize_human_cell};
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use cmux_tui_core::resource::ResourceOperation;
-
-    fn plan(operation: ResourceOperation) -> RequestPlan {
-        RequestPlan {
-            operation: WireOperation::Typed(operation),
-            params: json!({}),
-            idempotency_key: None,
-            stream: false,
-        }
-    }
-
-    #[test]
-    fn screen_wait_timeout_exits_one_and_a_match_exits_zero() {
-        let wait = plan(ResourceOperation::TerminalWait);
-        assert_eq!(success_exit_code(&wait, &json!({"matched": false, "text": ""})), 1);
-        assert_eq!(success_exit_code(&wait, &json!({"matched": true, "text": "ready"})), 0);
-        let read = plan(ResourceOperation::TerminalScreenRead);
-        assert_eq!(success_exit_code(&read, &json!({"matched": false})), 0);
-    }
-
-    #[test]
-    fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
-        let identity = json!({"app":"other", "protocol":12, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-        assert!(validate_capability_identity(&identity).is_err());
-    }
-
-    #[test]
-    fn capability_preflight_rejects_pre_capability_protocol_even_when_capability_is_present() {
-        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION - 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-        assert!(validate_capability_identity(&identity).is_err());
-    }
-
-    #[test]
-    fn capability_preflight_accepts_capability_introduction_protocol() {
-        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-        assert!(validate_capability_identity(&identity).is_ok());
-    }
-
-    #[test]
-    fn capability_preflight_accepts_current_protocol() {
-        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-        assert_eq!(validate_capability_identity(&identity), Ok(()));
-    }
-
-    #[test]
-    fn capability_preflight_rejects_future_protocol() {
-        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION + 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
-    }
-
-    #[test]
-    fn capability_preflight_rejects_max_protocol() {
-        let identity = json!({"app":"cmux-tui", "protocol":u64::MAX, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
-    }
-
-    #[test]
-    fn capability_preflight_rejects_malformed_capabilities() {
-        for capabilities in [json!(null), json!("journal-v1"), json!(["journal-v1", false])] {
-            assert!(
-                validate_capability_identity(&json!({
-                    "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
-                }))
-                .is_err()
-            );
-        }
-    }
-
-    #[test]
-    fn mutation_request_has_a_key_and_read_does_not() {
-        let mutation = RequestPlan {
-            operation: WireOperation::Typed(ResourceOperation::WorkspaceCreate),
-            params: json!({"initial_content":"empty"}),
-            idempotency_key: None,
-            stream: false,
-        };
-        assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
-
-        let read = RequestPlan {
-            operation: WireOperation::Typed(ResourceOperation::WorkspaceList),
-            params: json!({}),
-            idempotency_key: None,
-            stream: false,
-        };
-        assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
-    }
-
-    /// Daemon and terminal-derived strings never write raw control
-    /// sequences (ESC, BEL, C1, OSC, CSI) to the terminal that runs the CLI.
-    #[test]
-    fn sec_audit_human_output_shows_controls_instead_of_sending_them() {
-        let hostile = "title\u{1b}]0;owned\u{7}\u{9b}2J\u{1b}[2Jend";
-        let outputs = [
-            human_text(&json!(hostile)),
-            human_text(&json!([{"name": hostile}])),
-            human_text(&json!({"name": hostile})),
-            human_error_text(&json!({"message": hostile, "details": {"candidates": [hostile]}})),
-        ];
-        for output in outputs {
-            assert!(
-                !output.chars().any(|c| c.is_control() && c != '\n' && c != '\t'),
-                "{output:?}"
-            );
-            assert!(output.contains("title") && output.contains("end"), "{output:?}");
-        }
-    }
-
-    #[test]
-    fn human_lists_are_readable_tables_instead_of_json_lines() {
-        let output = human_text(&json!([
-            {"id":"ws_a","name":"build","focused":true},
-            {"id":"ws_b","name":"docs","focused":false}
-        ]));
-        assert_eq!(output, "ID    NAME   FOCUSED\nws_a  build  true\nws_b  docs   false\n");
-        assert!(!output.contains(['{', '}', '"']));
-    }
-
-    #[test]
-    fn human_tables_pad_wide_cells_by_terminal_width() {
-        let output = human_text(&json!([
-            {"name":"界","value":"a"},
-            {"name":"x","value":"界"}
-        ]));
-        assert_eq!(output, "NAME  VALUE\n界    a\nx     界\n");
-    }
-
-    #[test]
-    #[allow(clippy::unicode_not_nfc)]
-    fn human_tables_pad_halfwidth_dakuten_by_terminal_width() {
-        let output = human_text(&json!([
-            {"name":"ｶﾞ","value":"a"},
-            {"name":"x","value":"ｶﾞ"}
-        ]));
-        assert_eq!(output, "NAME  VALUE\nｶﾞ    a\nx     ｶﾞ\n");
-    }
-
-    #[test]
-    fn human_single_array_wrappers_use_the_same_table() {
-        let output = human_text(&json!({
-            "workspaces": [
-                {"id":"ws_a","name":"build"},
-                {"id":"ws_b","name":"docs"}
-            ]
-        }));
-        assert_eq!(output, "ID    NAME\nws_a  build\nws_b  docs\n");
-    }
-
-    #[test]
-    fn human_records_flatten_nested_results_without_losing_fields() {
-        let output = human_text(&json!({
-            "generation": "generation-1",
-            "revision": "7",
-            "replayed": false,
-            "value": {"kind": "workspace", "workspace_id": "ws_a"}
-        }));
-        for expected in [
-            "generation",
-            "generation-1",
-            "revision",
-            "7",
-            "replayed",
-            "false",
-            "value.kind",
-            "workspace",
-            "value.workspace_id",
-            "ws_a",
-        ] {
-            assert!(output.contains(expected), "missing {expected:?} in {output:?}");
-        }
-        assert!(!output.contains(['{', '}', '"']));
-    }
-
-    #[test]
-    fn terminal_wait_transport_timeout_follows_the_operation_timeout() {
-        for operation in [ResourceOperation::TerminalWait, ResourceOperation::TerminalWaitExit] {
-            let bounded = RequestPlan {
-                operation: WireOperation::Typed(operation),
-                params: json!({"timeout_ms":"5000"}),
-                idempotency_key: None,
-                stream: false,
-            };
-            assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
-
-            let unbounded = RequestPlan { params: json!({}), ..bounded };
-            assert_eq!(response_read_timeout(&unbounded, false), None);
-        }
-    }
-
-    #[test]
-    fn stream_timeout_polling_is_only_a_signal_watcher_fallback() {
-        let stream = RequestPlan {
-            operation: WireOperation::Typed(ResourceOperation::SessionJournalSubscribe),
-            params: json!({}),
-            idempotency_key: None,
-            stream: true,
-        };
-        assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
-        assert_eq!(response_read_timeout(&stream, true), None);
-    }
-
-    #[test]
-    fn terminal_input_errors_use_localized_copy_and_keep_wire_reasons() {
-        for operation in [
-            ResourceOperation::TerminalInputWrite,
-            ResourceOperation::TerminalInputKeys,
-            ResourceOperation::TerminalInputMouse,
-            ResourceOperation::TerminalInputFocus,
-        ] {
-            for locale in ["en", "ja"] {
-                let catalog = crate::localization::catalog_for_locale(locale);
-                let plan = RequestPlan {
-                    operation: WireOperation::Typed(operation),
-                    params: json!({}),
-                    idempotency_key: Some("input-error".into()),
-                    stream: false,
-                };
-                for (reason, expected) in [
-                    ("terminal_input_too_large", catalog.terminal_input.too_large),
-                    ("terminal_input_unavailable", catalog.terminal_input.unavailable),
-                    (
-                        "terminal_input_confirmation_unsupported",
-                        catalog.terminal_input.confirmation_unsupported,
-                    ),
-                    ("terminal_input_delivery_failed", catalog.terminal_input.delivery_failed),
-                ] {
-                    let wire = json!({"code":"operation.failed", "message":reason,
-                        "details":{"reason":reason}, "retryable":false});
-                    let mut human = wire.clone();
-                    localize_operation_error_with_catalog(&plan, &mut human, catalog);
-                    assert_eq!(human["message"], expected);
-                    assert_ne!(human["message"], reason);
-                    assert_eq!(human["details"], wire["details"]);
-                    assert_eq!(wire["message"], reason);
-                    assert_eq!(human["retryable"], false);
-                }
-            }
-        }
-        assert_ne!(
-            crate::localization::catalog_for_locale("en").terminal_input,
-            crate::localization::catalog_for_locale("ja").terminal_input
-        );
-    }
-
-    #[test]
-    fn stopped_owner_reload_error_is_localized_for_human_output() {
-        const PROBE_LOCALE: &str = "CMUX_TEST_STOPPED_OWNER_RELOAD_LOCALE";
-        if let Ok(locale) = std::env::var(PROBE_LOCALE) {
-            let plan = RequestPlan {
-                operation: WireOperation::Typed(ResourceOperation::SessionReloadConfig),
-                params: json!({}),
-                idempotency_key: Some("reload-owner-stopped".into()),
-                stream: false,
-            };
-            let mut error = json!({
-                "code":"operation.failed",
-                "message":"owner_stopped",
-                "details":{"operation":"session.reload_config","reason":"owner_stopped"},
-                "retryable":false,
-            });
-
-            localize_operation_error(&plan, &mut error);
-
-            let expected = match locale.as_str() {
-                "en_US.UTF-8" => {
-                    "the local server stopped before it applied the configuration reload; start the session and retry"
-                }
-                "ja_JP.UTF-8" => {
-                    "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを起動して再試行してください"
-                }
-                _ => panic!("unexpected probe locale {locale}"),
-            };
-            assert_eq!(error["message"], expected);
-            return;
-        }
-
-        for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
-            let status = std::process::Command::new(std::env::current_exe().unwrap())
-                .arg("stopped_owner_reload_error_is_localized_for_human_output")
-                .arg("--nocapture")
-                .env(PROBE_LOCALE, locale)
-                .env("LC_ALL", locale)
-                .status()
-                .unwrap();
-            assert!(status.success(), "{locale} localization probe failed");
-        }
-    }
-}
+mod tests;

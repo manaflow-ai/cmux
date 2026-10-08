@@ -161,6 +161,12 @@ struct OverflowTests {
         #expect(TabScrollMath.fadedEdges(offset: 300, contentWidth: 1000, viewportWidth: 400) == (true, true))
         #expect(TabScrollMath.fadedEdges(offset: 600, contentWidth: 1000, viewportWidth: 400) == (true, false))
         #expect(TabScrollMath.fadedEdges(offset: 0, contentWidth: 300, viewportWidth: 400) == (false, false))
+        // Half a point of slack, and a rubber band past either end, show no fade there.
+        #expect(TabScrollMath.fadedEdges(offset: 0.5, contentWidth: 1000, viewportWidth: 400) == (false, true))
+        #expect(TabScrollMath.fadedEdges(offset: 599.5, contentWidth: 1000, viewportWidth: 400) == (true, false))
+        #expect(TabScrollMath.fadedEdges(offset: -30, contentWidth: 1000, viewportWidth: 400) == (false, true))
+        #expect(TabScrollMath.fadedEdges(offset: 640, contentWidth: 1000, viewportWidth: 400) == (true, false))
+        #expect(TabScrollMath.fadedEdges(offset: -30, contentWidth: 300, viewportWidth: 400) == (false, false))
     }
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import os
 
 /// Chromium's application protocols (base/message_loop/message_pump_apple.h,
@@ -40,7 +41,11 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     var inputObserver: ((NSEvent) -> Void)?
     /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
     /// (focus has moved to the clicked pane), with its window.
-    var mouseDownObserver: ((NSWindow?) -> Void)?
+    var mouseDownObserver: ((NSEvent) -> Void)?
+    /// The event in dispatch is the app's own synthetic input
+    /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
+    /// no-activate guard and the browser host's user-input path both read it.
+    private(set) var currentEventIsSynthetic = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     @objc(isHandlingSendEvent)
@@ -50,13 +55,23 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
     override func sendEvent(_ event: NSEvent) {
+        let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
+        if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
+        defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
+        let previousSynthetic = currentEventIsSynthetic
+        currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
+        defer { currentEventIsSynthetic = previousSynthetic }
         inputObserver?(event)
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
+        if event.type == .keyDown {
+            // Router-consumed keys never reach AppKit local event monitors.
+            (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown()
+        }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         super.sendEvent(event)
-        if event.type == .leftMouseDown || event.type == .rightMouseDown { mouseDownObserver?(event.window) }
+        if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { mouseDownObserver?(event) }
     }
 
     // MARK: Accessibility windows

@@ -40,7 +40,8 @@ public struct CookieImporter: Sendable {
             guard let file = BrowserSourceDetector.chromiumCookieFile(profile.path), let service = browser.safeStorageService else {
                 return CookieReadResult(cookies: [])
             }
-            let password = try keys.password(service: service)
+            // The cookie crypto takes `Data` (one short-lived copy of the key, freed after this read).
+            let password = try keys.password(service: service).withUnsafeBytes { Data($0) }
             return try ChromiumCookieReader().read(file, crypto: ChromiumCookieCrypto(safeStoragePassword: password), now: now)
         case .firefox:
             return try FirefoxCookieReader().read(profile.path.appending(path: "cookies.sqlite"), now: now)
@@ -54,7 +55,7 @@ public struct CookieImporter: Sendable {
             case .missing: return CookieReadResult(cookies: [])
             case .readable: return try SafariBinaryCookies().parse(Data(contentsOf: file), now: now)
             }
-        case .webkit:
+        case .webkit, .other:
             throw CookieImportError.malformed(browser.displayName)
         }
     }

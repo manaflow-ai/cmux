@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { encodeTerminalKey, type TerminalKeyEvent } from "../src/lib/keyEncoding";
 
 function key(value: string, overrides: Partial<TerminalKeyEvent> = {}): TerminalKeyEvent {

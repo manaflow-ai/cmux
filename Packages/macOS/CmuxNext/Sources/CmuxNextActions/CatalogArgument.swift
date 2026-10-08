@@ -51,6 +51,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "pane", title: String(localized: "argument.pane", defaultValue: "Pane", bundle: .module), kind: .target(.pane))
     }
 
+    /// A recently closed item (`closed_…`); Recently Closed lists them.
+    static var closedItem: ActionArgument {
+        ActionArgument(name: "closed", title: String(localized: "argument.closed", defaultValue: "Closed Item", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var tabTab: ActionArgument {
         ActionArgument(name: "tab", title: String(localized: "argument.tab", defaultValue: "Tab", bundle: .module), kind: .target(.tab))
     }
@@ -72,20 +78,39 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "direction", title: String(localized: "argument.direction", defaultValue: "Direction", bundle: .module), kind: .enumeration([choice("right"), choice("down"), choice("left"), choice("up")]))
     }
 
-    /// A sticky column's viewport edge (plans/cmux-next/sticky-column.md).
+    /// A docked column's viewport edge (plans/cmux-next/dock-column.md).
+    /// Top and bottom are edge docks (layout-model.md, edge-docks-v1).
     static var edgeChoice: ActionArgument {
         ActionArgument(name: "edge", title: String(localized: "argument.edge", defaultValue: "Edge", bundle: .module),
-                       kind: .enumeration([choice("right"), choice("left")]))
+                       kind: .enumeration([choice("right"), choice("left"), choice("top"), choice("bottom")]))
     }
 
     /// Docked (the strip makes room) or overlay (floats over the strip).
-    static var stickyModeChoice: ActionArgument {
-        ActionArgument(name: "mode", title: String(localized: "argument.stickyMode", defaultValue: "Mode", bundle: .module),
+    static var dockModeChoice: ActionArgument {
+        ActionArgument(name: "mode", title: String(localized: "argument.dockMode", defaultValue: "Mode", bundle: .module),
                        kind: .enumeration([choice("docked"), choice("overlay")]))
     }
 
     static var commandString: ActionArgument {
         ActionArgument(name: "command", title: String(localized: "argument.command", defaultValue: "Command", bundle: .module), kind: .string)
+    }
+
+    static var pathString: ActionArgument {
+        ActionArgument(name: "path", title: String(localized: "argument.path", defaultValue: "Path", bundle: .module), kind: .string)
+    }
+
+    /// A file to open; without one the action asks with the cmux picker.
+    static var optionalPathString: ActionArgument {
+        ActionArgument(name: "path", title: String(localized: "argument.path", defaultValue: "Path", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    static var contentsString: ActionArgument {
+        ActionArgument(name: "contents", title: String(localized: "argument.contents", defaultValue: "Contents", bundle: .module), kind: .string)
+    }
+
+    static var publicKeyString: ActionArgument {
+        ActionArgument(name: "publicKey", title: String(localized: "argument.publicKey", defaultValue: "SSH Public Key", bundle: .module), kind: .string)
     }
 
     static var appString: ActionArgument {
@@ -138,7 +163,7 @@ nonisolated enum CatalogArgument {
             ActionEnumCase(value: "cmux", title: String(localized: "argument.value.keymap.cmux", defaultValue: "cmux (Default)", bundle: .module)),
             ActionEnumCase(value: "iterm2", title: String(localized: "argument.value.keymap.iterm2", defaultValue: "iTerm2", bundle: .module)),
             ActionEnumCase(value: "terminal", title: String(localized: "argument.value.keymap.terminal", defaultValue: "Terminal.app", bundle: .module)),
-            ActionEnumCase(value: "tmux", title: String(localized: "argument.value.keymap.tmux", defaultValue: "tmux-style (Ctrl-B Prefix)", bundle: .module)),
+            ActionEnumCase(value: "tmux", title: String(localized: "argument.value.keymap.tmux", defaultValue: "Prefix chords (Ctrl-B)", bundle: .module)),
         ]))
     }
 
@@ -151,6 +176,26 @@ nonisolated enum CatalogArgument {
     }
 
     /// Optional page to open (`openBrowser`).
+    /// Optional palette scope id (`palette.open`): `tabs`, `workspaces`,
+    /// `app:<id>#<scope>`; the full palette when absent.
+    static var scopeString: ActionArgument {
+        ActionArgument(name: "scope", title: String(localized: "argument.scope", defaultValue: "Scope", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    /// Optional search text (`tab.search`): the page opens with it typed.
+    static var queryString: ActionArgument {
+        ActionArgument(name: "query", title: String(localized: "argument.query", defaultValue: "Search", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    /// Optional browser profile (`openBrowser`): "agent" for the clean agent
+    /// profile, or an existing profile id (plans/cmux-next/passwords.md, 3.4).
+    static var browserProfileString: ActionArgument {
+        ActionArgument(name: "profile", title: String(localized: "argument.browserProfile", defaultValue: "Browser Profile", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var urlString: ActionArgument {
         ActionArgument(name: "url", title: String(localized: "argument.url", defaultValue: "URL", bundle: .module), kind: .string, isRequired: false)
     }
@@ -160,6 +205,13 @@ nonisolated enum CatalogArgument {
     static var engineChoice: ActionArgument {
         ActionArgument(name: "engine", title: String(localized: "argument.engine", defaultValue: "Engine", bundle: .module),
                        kind: .enumeration([choice("webkit"), choice("cef")]), isRequired: false)
+    }
+
+    /// Where `file.open` opens a file: a tab in the pane, or the text editor.
+    /// Without it, a tab.
+    static var whereChoice: ActionArgument {
+        ActionArgument(name: "where", title: String(localized: "argument.where", defaultValue: "Open In", bundle: .module),
+                       kind: .enumeration([choice("tab"), choice("editor")]), isRequired: false)
     }
 
     /// Optional `confirm` flag every destructive action takes.
@@ -176,7 +228,8 @@ nonisolated enum CatalogArgument {
         switch value {
         case "grey": String(localized: "argument.value.grey", defaultValue: "Grey", bundle: .module)
         case "docked": String(localized: "argument.value.docked", defaultValue: "Docked", bundle: .module)
-        case "overlay": String(localized: "argument.value.overlay", defaultValue: "Overlay", bundle: .module)
+        // UI name "Floating"; the value stays `overlay` on the wire and in cmux.json.
+        case "overlay": String(localized: "argument.value.overlay", defaultValue: "Floating", bundle: .module)
         case "blue": String(localized: "argument.value.blue", defaultValue: "Blue", bundle: .module)
         case "red": String(localized: "argument.value.red", defaultValue: "Red", bundle: .module)
         case "yellow": String(localized: "argument.value.yellow", defaultValue: "Yellow", bundle: .module)
@@ -206,6 +259,8 @@ nonisolated enum CatalogArgument {
         case "down": String(localized: "argument.value.down", defaultValue: "Down", bundle: .module)
         case "left": String(localized: "argument.value.left", defaultValue: "Left", bundle: .module)
         case "up": String(localized: "argument.value.up", defaultValue: "Up", bundle: .module)
+        case "tab": String(localized: "argument.value.tab", defaultValue: "Tab", bundle: .module)
+        case "editor": String(localized: "argument.value.editor", defaultValue: "Editor", bundle: .module)
         default: value
         }
     }

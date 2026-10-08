@@ -1,18 +1,21 @@
 public import Foundation
 
-/// Reads and writes `~/.config/cmux/cmux.json`. An actor so file IO and
+/// Reads and writes `~/.config/cmux/cmux-next.json`. An actor so file IO and
 /// parsing stay off the main actor and writes are serialized. Writes edit
 /// the JSONC source in place (comments and unknown keys survive) and
 /// publish atomically; the file watcher then reloads and applies them, so
 /// there is one path from disk to live settings.
 public actor CmuxConfigFile {
     public nonisolated let url: URL
+    /// Keys an MDM profile or the team policy manages; every write checks it.
+    public nonisolated let managedGuard: ManagedKeyGuard
 
-    public init(url: URL) {
+    public init(url: URL, managedGuard: ManagedKeyGuard = ManagedKeyGuard()) {
         self.url = url
+        self.managedGuard = managedGuard
     }
 
-    /// The conventional location, `<home>/.config/cmux/cmux.json`, unless
+    /// The conventional location, `<home>/.config/cmux/cmux-next.json`, unless
     /// `CMUX_NEXT_CONFIG_FILE` names another file. The override keeps test
     /// launches of tagged builds from reading or writing the user's file
     /// (`home` is the account's home, which ignores `$HOME`).
@@ -23,7 +26,39 @@ public actor CmuxConfigFile {
         if let path = environment[overrideKey], !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
-        return home.appending(path: ".config/cmux/cmux.json")
+        return home.appending(path: ".config/cmux/cmux-next.json")
+    }
+
+    /// Returns the next config URL and seeds it once from classic cmux's
+    /// `cmux.json` when the next file does not exist. An explicit override is
+    /// returned unchanged and is never seeded from the user's files.
+    ///
+    /// The caller supplies the home and file manager so first-launch behavior
+    /// is deterministic in tests and never depends on `$HOME`.
+    public static func prepareDefaultURL(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        if let override = environment[overrideKey], !override.isEmpty {
+            return defaultURL(home: home, environment: environment)
+        }
+
+        let next = defaultURL(home: home, environment: environment)
+        guard !fileManager.fileExists(atPath: next.path) else { return next }
+
+        let classic = next.deletingLastPathComponent().appendingPathComponent("cmux.json")
+        try fileManager.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            if fileManager.fileExists(atPath: classic.path) {
+                try fileManager.copyItem(at: classic, to: next)
+            } else {
+                try Data("{}\n".utf8).write(to: next, options: .withoutOverwriting)
+            }
+        } catch CocoaError.fileWriteFileExists {
+            // Another cmux-next launch won the first-launch race. Keep its file.
+        }
+        return next
     }
 
     /// Environment variable that replaces the settings file path.
@@ -35,7 +70,7 @@ public actor CmuxConfigFile {
 
         public var description: String {
             switch self {
-            case .unreadable(let message): "cmux.json is not valid JSONC: \(message)"
+            case .unreadable(let message): "cmux-next.json is not valid JSONC: \(message)"
             case .invalidPath(let path): "invalid settings path '\(path)'"
             }
         }
@@ -43,6 +78,12 @@ public actor CmuxConfigFile {
 
     /// The raw source text, or "" when the file does not exist.
     public func source() throws -> String {
+        try Self.source(at: url)
+    }
+
+    /// The file's text at `url` on the calling thread (the launch's first
+    /// load); a missing file is empty.
+    public nonisolated static func source(at url: URL) throws -> String {
         do {
             return try String(contentsOf: url, encoding: .utf8)
         } catch CocoaError.fileReadNoSuchFile {
@@ -70,6 +111,7 @@ public actor CmuxConfigFile {
     /// Sets `path` to `value` and publishes the file atomically.
     public func set(_ value: JSONValue, at path: [String]) throws {
         guard !path.isEmpty else { throw Failure.invalidPath("") }
+        try managedGuard.checkSet(value, at: path)
         let current = try source()
         _ = try validated(current)
         try publish(try JSONC.setting(value, at: path, in: current))
@@ -78,6 +120,7 @@ public actor CmuxConfigFile {
     /// Removes the member at `path`. No-op when absent.
     public func remove(_ path: [String]) throws {
         guard !path.isEmpty else { throw Failure.invalidPath("") }
+        try managedGuard.checkRemove(path)
         let current = try source()
         _ = try validated(current)
         let updated = try JSONC.removing(path, in: current)
@@ -88,6 +131,9 @@ public actor CmuxConfigFile {
     /// so the watcher never applies a half-done edit.
     public func apply(_ edits: [(path: [String], value: JSONValue?)]) throws {
         guard edits.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
+        for edit in edits {
+            if let value = edit.value { try managedGuard.checkSet(value, at: edit.path) } else { try managedGuard.checkRemove(edit.path) }
+        }
         let current = try source()
         _ = try validated(current)
         var updated = current
@@ -111,7 +157,7 @@ public actor CmuxConfigFile {
     }
 
     private func publish(_ text: String) throws {
-        // Write through a symlinked cmux.json (dotfile repos) instead of
+        // Write through a symlinked cmux-next.json (dotfile repos) instead of
         // replacing the link with a regular file.
         let url = self.url.resolvingSymlinksInPath()
         let directory = url.deletingLastPathComponent()

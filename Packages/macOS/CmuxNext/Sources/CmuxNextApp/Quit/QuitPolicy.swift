@@ -24,8 +24,11 @@ enum QuitPolicy {
     static func needsFacts(_ origin: QuitOrigin) -> Bool { origin == .interactive }
 
     /// Quit at once with a choice, or ask. `facts` is read only for an
-    /// interactive quit.
-    static func decide(_ origin: QuitOrigin, behavior: QuitBehavior, facts: QuitFacts) -> QuitDecision {
+    /// interactive quit. A quit asks at most once (#17501): after the
+    /// unsaved-changes question (`alreadyAsked`) it never asks again, and
+    /// idle terminals and agents, which keep running and reattach on the
+    /// next launch, are never a reason to ask.
+    static func decide(_ origin: QuitOrigin, behavior: QuitBehavior, facts: QuitFacts, alreadyAsked: Bool = false) -> QuitDecision {
         let remembered: QuitSessionsChoice? = switch behavior {
         case .ask: nil
         case .keep: .keep
@@ -33,14 +36,17 @@ enum QuitPolicy {
         case .endEverything: .endEverything
         }
         switch origin {
-        case .powerOff: return .quit(.keep)
+        // Power off and SIGTERM never ask and never end terminals.
+        case .powerOff, .signal: return .quit(.keep)
         case .explicit(let choice): return .quit(choice)
         case .scripted: return .quit(remembered ?? .keep)
         case .interactive: break
         }
-        let hasTerminals = facts.terminals > 0
+        // Only work in progress asks: a foreground program or an agent in a turn.
+        let busyTerminals = !facts.programs.isEmpty
+        let busyAgents = (facts.agents?.inTurn ?? 0) > 0
         let incognito = !facts.incognitoPrograms.isEmpty
-        guard hasTerminals || incognito else { return .quit(remembered ?? .keep) }
+        guard !alreadyAsked, busyTerminals || busyAgents || incognito else { return .quit(remembered ?? .keep) }
         // A remembered choice skips the alert unless incognito windows would
         // end running programs (that confirmation is not remembered); the
         // alert then only confirms the incognito close, and Quit applies the
@@ -52,8 +58,12 @@ enum QuitPolicy {
             busiest: busiest(facts.programs),
             incognitoPrograms: facts.incognitoPrograms,
             remoteSessions: facts.remoteSessions,
-            offersSessionChoice: hasTerminals && remembered == nil,
-            defaultChoice: remembered ?? .keep
+            offersSessionChoice: (busyTerminals || busyAgents) && remembered == nil,
+            defaultChoice: remembered ?? .keep,
+            agents: facts.agents?.live,
+            agentsInTurn: facts.agents?.inTurn ?? 0,
+            busyAgents: Array((facts.agents?.inTurnNames ?? []).prefix(busiestLimit)),
+            chiefKeepsRunning: facts.agents?.chiefInTurn ?? false
         ))
     }
 

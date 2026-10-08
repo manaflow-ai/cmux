@@ -17,11 +17,11 @@
 # built on one pool could never hit on another.
 #
 # scripts/ci/canonical-build-root.sh removes that disagreement by building from
-# a fixed location every pool can reproduce. When the build runs there the key
-# drops the paths, because they are now a constant, and one seed serves every
-# pool. A build anywhere else keeps the old path-scoped key and its own private
-# cache, so an unconverted lane degrades to a miss rather than downloading a
-# seed whose entries cannot hit.
+# a stable per-runner location every job on that runner can reproduce. A
+# self-hosted runner derives its root from RUNNER_NAME, so another runner on
+# the same Mac cannot remove its source tree or DerivedData. The root is part
+# of the fingerprint when it is not the historical default, so a build never
+# adopts a cache whose absolute paths belong to another runner.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,8 +37,8 @@ usage() {
 # Same limit as the Release seed in nightly.yml.
 cache_limit_bytes=3221225472
 
-# Keep in sync with scripts/ci/canonical-build-root.sh.
-CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+# Keep root selection in sync with scripts/ci/canonical-build-root.sh.
+CANONICAL_BUILD_ROOT="$("$SCRIPT_DIR/canonical-build-root.sh" --print-root)"
 
 # How Swift Build's llbuild decides a file changed. The default,
 # device-agnostic, compares modification times, which cannot survive a move to
@@ -212,6 +212,15 @@ build() {
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   local -a cache_setting=(
     'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)'
+    # Keep cache keys stable when a PR runner's checkout and DerivedData live
+    # under a different absolute root than the fleet CAS writer.
+    SWIFT_ENABLE_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PREFIX_MAPPING=YES
+    SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES
+    # Xcode 26.6 emits one bounded remark per cache query. The build metrics
+    # receipt turns those remarks into cacheable-task and hit counters.
+    COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES
   )
   # Before Xcode 26.6 the legacy `cmux` app target had a cache defect: the
   # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH

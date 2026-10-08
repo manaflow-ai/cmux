@@ -1,7 +1,9 @@
+import CmuxNextDesign
 import AppKit
 import Foundation
 import Testing
 import WebKit
+import CmuxNextPages
 @testable import CmuxNextAgentPane
 
 @MainActor
@@ -23,9 +25,8 @@ import WebKit
         #expect(standard.webView.configuration.preferences.isWebKitFeatureEnabled(key) == true)
     }
 
-    /// An adaptive pane starts at full rate, caps it after a scroll that
-    /// misses frames, and leaves a fixed-rate pane alone.
-    @Test func anAdaptivePaneCapsItsRateAfterAScrollThatMissesFrames() async throws {
+    /// Native code reports display information and applies only an adaptive page's decision.
+    @Test func anAdaptivePaneAppliesThePagesDecisionAndLeavesFixedRatePanesAlone() async throws {
         let adaptive = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page), renderRate: .adaptive))
         defer { adaptive.close() }
         let full = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page), renderRate: .full))
@@ -35,8 +36,12 @@ import WebKit
         full.displayFramesPerSecond = { 160 }
         #expect(adaptive.rendersAtFullRate)
         let missed = Array(repeating: 12.5, count: 120)
-        _ = await adaptive.model.respond(to: .framePacing(missed))
-        _ = await full.model.respond(to: .framePacing(missed))
+        let reply = await adaptive.model.respond(to: .framePacing(missed))
+        let settings = try #require(reply["value"] as? [String: Any])
+        #expect(settings["adaptive"] as? Bool == true)
+        #expect(settings["displayInterval"] as? Double == 6.25)
+        _ = await adaptive.model.respond(to: .renderRate(false))
+        _ = await full.model.respond(to: .renderRate(false))
         #expect(!adaptive.rendersAtFullRate)
         #expect(full.rendersAtFullRate)
     }
@@ -52,7 +57,7 @@ import WebKit
         pane.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         pane.snapshotPage = { NSImage(size: NSSize(width: 400, height: 300)) }
         var steps: [(hidden: Bool, covered: Bool)] = []
-        pane.pause = { [unowned pane] _ in
+        pane.clock = StepClock { [unowned pane] _ in
             steps.append((pane.webView.isHidden, pane.subviews.contains { $0 is NSImageView }))
         }
         pane.rendersAtFullRate = true
@@ -82,11 +87,24 @@ import WebKit
         window.isReleasedWhenClosed = false
         window.contentView = pane
         pane.snapshotPage = { NSImage(size: NSSize(width: 400, height: 300)) }
-        pane.pause = { _ in }
+        pane.clock = StepClock { _ in }
         #expect(window.makeFirstResponder(pane.webView))
         pane.rendersAtFullRate = true
         await pane.rateReapply?.value
         #expect(window.firstResponder === pane.webView)
+    }
+
+    /// WKWebView paints an opaque backing behind every page, which hid a
+    /// translucent theme's backdrop (background-opacity below 1). The page
+    /// paints its own background with the theme's opacity, so the web view
+    /// draws none.
+    @Test func theWebViewLeavesItsBackgroundToThePage() throws {
+        let pane = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { pane.close() }
+        // A WebKit without the SPI keeps its default backing.
+        guard pane.webView.responds(to: NSSelectorFromString("_setDrawsBackground:")),
+              pane.webView.responds(to: NSSelectorFromString("_drawsBackground")) else { return }
+        #expect(pane.webView.value(forKey: "drawsBackground") as? Bool == false)
     }
 
     @Test func anUnknownFeatureIsLeftAlone() {

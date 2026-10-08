@@ -27,6 +27,25 @@ import Testing
         }
     }
 
+    /// This build's scheme goes to `link.open`, the one resolution path;
+    /// the sign-in callback keeps going to auth, and other builds' schemes
+    /// are not ours to open.
+    @Test func thisBuildsLinksGoToLinkOpen() {
+        let router = ExternalOpenRouter(linkScheme: "cmux-dev-mytag")
+        let tab = URL(string: "cmux-dev-mytag://tab/tab_0123456789abcdef0123456789abcdef")!
+        #expect(router.route(tab) == .deepLink(tab))
+        let session = URL(string: "CMUX-DEV-MYTAG://session/s1#turn-t1")!
+        #expect(router.route(session) == .deepLink(session))
+        // Anything else in the scheme is still link.open's to refuse with a reason.
+        let unknown = URL(string: "cmux-dev-mytag://bogus/1")!
+        #expect(router.route(unknown) == .deepLink(unknown))
+        for text in ["cmux-dev-mytag://auth-callback?code=1", "cmux-dev-mytag://AUTH-CALLBACK", "cmux://tab/tab_0123456789abcdef0123456789abcdef",
+                     "cmux-dev://tab/tab_0123456789abcdef0123456789abcdef"] {
+            #expect(router.route(URL(string: text)!) == .unsupported, "\(text)")
+        }
+        #expect(ExternalOpenRouter().route(tab) == .unsupported, "no scheme, no links")
+    }
+
     @Test func manPageLinks() {
         #expect(router.route(URL(string: "x-man-page://ls")!) == .terminal(cwd: nil, command: "man 'ls'"))
         #expect(router.route(URL(string: "x-man-page://1/printf")!) == .terminal(cwd: nil, command: "man '1' 'printf'"))
@@ -41,13 +60,63 @@ import Testing
         #expect(router.route(URL(fileURLWithPath: "/Users/me/it's.sh")) == .terminal(cwd: "/Users/me", command: #"sh '/Users/me/it'\''s.sh'"#))
         #expect(router.route(URL(fileURLWithPath: "/tmp/setup.zsh")) == .terminal(cwd: "/tmp", command: "zsh '/tmp/setup.zsh'"))
         #expect(router.route(URL(fileURLWithPath: "/opt/bin/tool")) == .terminal(cwd: "/opt/bin", command: "'/opt/bin/tool'"))
-        #expect(router.route(URL(fileURLWithPath: "/tmp/notes.txt")) == .unsupported)
+    }
+
+    /// The script extensions a terminal opens from Finder (`.command`, `.tool`,
+    /// `.sh`, `.zsh`, `.csh`, `.pl`): each runs in its folder, with its own
+    /// interpreter when it has no execute bit.
+    @Test func everyTerminalScriptExtensionRuns() {
+        #expect(router.route(URL(fileURLWithPath: "/tmp/build.tool")) == .terminal(cwd: "/tmp", command: "sh '/tmp/build.tool'"))
+        #expect(router.route(URL(fileURLWithPath: "/tmp/login.csh")) == .terminal(cwd: "/tmp", command: "csh '/tmp/login.csh'"))
+        #expect(router.route(URL(fileURLWithPath: "/tmp/report.pl")) == .terminal(cwd: "/tmp", command: "perl '/tmp/report.pl'"))
+        #expect(router.route(URL(string: "file:///tmp/setup.zsh")!) == .terminal(cwd: "/tmp", command: "zsh '/tmp/setup.zsh'"))
+    }
+
+    /// Images, PDFs, media, text, source code and Markdown go to the shared
+    /// file opener (`file.open`), which picks their surface.
+    @Test func otherFilesGoToTheSharedFileOpener() {
+        for path in ["/tmp/a.png", "/tmp/b.gif", "/tmp/c.jpeg", "/tmp/d.webp", "/tmp/e.avif", "/tmp/f.pdf", "/tmp/g.ogg",
+                     "/tmp/h.ogv", "/tmp/i.webm", "/tmp/j.js", "/tmp/notes.txt", "/tmp/README.md", "/tmp/data"] {
+            #expect(router.route(URL(fileURLWithPath: path)) == .file(URL(fileURLWithPath: path)), "\(path)")
+        }
+    }
+
+    /// Web pages, SVG and saved pages (MHTML, web archives) open as pages.
+    @Test func pagesAndSavedPagesOpenAsBrowserTabs() {
+        for path in ["/tmp/logo.svg", "/tmp/saved.mhtml", "/tmp/saved.mht", "/tmp/saved.webarchive", "/tmp/page.xhtml"] {
+            #expect(router.route(URL(fileURLWithPath: path)) == .browserTab(URL(fileURLWithPath: path)), "\(path)")
+        }
+    }
+
+    /// A web page continued from another device (Handoff) opens as a
+    /// browser tab; any other activity or a non-web URL is refused.
+    @Test func continuedWebPagesOpenBrowserTabs() {
+        let url = URL(string: "https://cmux.com/docs")!
+        #expect(router.route(continuing: NSUserActivityTypeBrowsingWeb, webpageURL: url) == .browserTab(url))
+        #expect(router.route(continuing: NSUserActivityTypeBrowsingWeb, webpageURL: URL(string: "file:///etc/hosts")!) == .unsupported)
+        #expect(router.route(continuing: NSUserActivityTypeBrowsingWeb, webpageURL: URL(string: "javascript:alert(1)")!) == .unsupported)
+        #expect(router.route(continuing: NSUserActivityTypeBrowsingWeb, webpageURL: nil) == .unsupported)
+        #expect(router.route(continuing: "com.example.edit", webpageURL: url) == .unsupported)
     }
 
     @Test func foldersOpenATerminalThere() {
         #expect(router.route(URL(fileURLWithPath: "/Users/me/Projects")) == .terminal(cwd: "/Users/me/Projects", command: nil))
         #expect(router.newTabHere("/Users/me/Projects") == .terminal(cwd: "/Users/me/Projects", command: nil))
         #expect(router.newTabHere("/Users/me/Projects/readme.md") == .terminal(cwd: "/Users/me/Projects", command: nil))
+        #expect(router.route(URL(string: "file:///Users/me/Projects/")!) == .terminal(cwd: "/Users/me/Projects", command: nil))
+    }
+
+    /// A feed item's link opens only as a web page or this build's link,
+    /// never a file, a script or a terminal command.
+    @Test func webLinksFromInsideCmuxNeverRunAnything() {
+        let router = ExternalOpenRouter(linkScheme: "cmux-dev-t", isDirectory: { _ in false }, isExecutable: { _ in true })
+        let page = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
+        #expect(router.routeWebLink(page) == .browserTab(page))
+        let link = URL(string: "cmux-dev-t://tab/tab_0123456789abcdef0123456789abcdef")!
+        #expect(router.routeWebLink(link) == .deepLink(link))
+        for text in ["file:///tmp/x.sh", "file:///tmp/x.pl", "file:///tmp/page.html", "file:///tmp/a.png", "ssh://host", "x-man-page://ls"] {
+            #expect(router.routeWebLink(URL(string: text)!) == .unsupported, "\(text)")
+        }
     }
 
     @Test func otherSchemesAreUnsupported() {

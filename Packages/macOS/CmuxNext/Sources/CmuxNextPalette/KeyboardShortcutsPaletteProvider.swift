@@ -12,6 +12,11 @@ public final class KeyboardShortcutsPaletteProvider: PaletteProvider {
         self.registry = registry
     }
 
+    // A palette reset (Cmd-Shift-P reopen) can release this inside an
+    // action's task-local scope or from a search task; teardown must not
+    // need a main-actor hop (RegistryPaletteProvider, #17590).
+    nonisolated deinit {}
+
     public var immediateItems: [PaletteItem]? { makeItems() }
     public func items() async -> [PaletteItem] { makeItems() }
 
@@ -19,7 +24,7 @@ public final class KeyboardShortcutsPaletteProvider: PaletteProvider {
         let editShortcut = editShortcut
         return registry.entries.compactMap { entry -> PaletteItem? in
             let id = entry.descriptor.id
-            guard let keycaps = registry.shortcutKeycaps(for: id) else { return nil }
+            guard registry.disabledFeature(for: id) == nil, let keycaps = registry.shortcutKeycaps(for: id) else { return nil }
             var keywords = entry.descriptor.keywords + [id.rawValue]
             if let shortcut = registry.effectiveShortcut(for: id) { keywords += shortcut.searchTokens }
             keywords.append(keycaps.joined())

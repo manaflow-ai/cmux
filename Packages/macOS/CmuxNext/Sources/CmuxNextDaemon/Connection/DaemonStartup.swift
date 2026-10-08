@@ -46,14 +46,29 @@ public struct DaemonStartup: Sendable {
     /// succeeds. Calls `onFailure` after each failed attempt (the failed
     /// connection is already closed). Returns nil when the task is cancelled
     /// or the failure is permanent.
+    ///
+    /// `first`, when given, is the first attempt's outcome (an attempt
+    /// already running, `DaemonPrestart`); `makeConnection` makes the rest.
     public func connect(
         policy: RetryPolicy = .firstConnect,
         wake: RetryWake = RetryWake(owner: "DaemonStartup"),
         clock: any Clock<Duration> = ContinuousClock(),
+        first: (@Sendable () async -> DaemonPrestart.Outcome)? = nil,
         makeConnection: @Sendable () -> DaemonConnection,
         onFailure: @Sendable (DaemonError) async -> Void
     ) async -> (DaemonConnection, DaemonIdentity)? {
         var pacer = RetryPacer(policy)
+        if let first {
+            switch await first() {
+            case .success(let connected):
+                return connected
+            case .failure(let failure):
+                if Task.isCancelled { return nil }
+                await onFailure(failure)
+                if isPermanent(failure) { return nil }
+                guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
+            }
+        }
         // wakeup-allow: each iteration waits in RetryPacer (capped backoff, then events only)
         while !Task.isCancelled {
             let connection = makeConnection()

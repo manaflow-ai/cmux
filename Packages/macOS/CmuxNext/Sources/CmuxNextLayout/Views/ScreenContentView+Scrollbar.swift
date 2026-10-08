@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The strip scrollbar (sticky-column.md, B1 to B5): placed along the
+/// The strip scrollbar (dock-column.md, B1 to B5): placed along the
 /// bottom of the strip's uncovered range, fed the presented offset each
 /// frame, and driving the scroll reducer like a trackpad gesture (thumb
 /// drag) or a wheel notch (track click).
@@ -18,10 +18,13 @@ extension ScreenContentView {
         let uncovered = uncoveredRect
         let inset = Metrics.space4
         let height = StripScrollbarView.bandHeight
-        let band = CGRect(x: uncovered.minX + inset, y: bounds.height - height, width: max(0, uncovered.width - inset * 2), height: height)
+        // Along the bottom of the strip's uncovered area, so it sits above a
+        // bottom dock (layout-model.md F4).
+        let band = CGRect(x: uncovered.minX + inset, y: uncovered.maxY - height, width: max(0, uncovered.width - inset * 2), height: height)
         let offset = scroll.value
-        // Only scrolling flashes it (a spring step, a gesture, the wheel, the
-        // scrollbar); a resize or layout change that moves the offset does not.
+        // Only scrolling flashes it (a spring step or a reveal that snapped in
+        // its place, a gesture, the wheel, the scrollbar); a resize or layout
+        // change that moves the offset does not.
         let scrolled = scrollbarFlash && (scrollbarOffset.map { abs($0 - offset) > 0.25 } ?? true)
         scrollbarFlash = false
         scrollbarOffset = offset
@@ -31,7 +34,7 @@ extension ScreenContentView {
     }
 
     private func makeScrollbar() -> StripScrollbarView {
-        let bar = StripScrollbarView()
+        let bar = StripScrollbarView(hideClock: context.scrollbarClock)
         addSubview(bar)
         scrollbar = bar
         bar.onDragBegan = { [weak self] in
@@ -56,7 +59,7 @@ extension ScreenContentView {
         return bar
     }
 
-    /// The scrollbar's state for `debug.sticky`: mode, shown, thumb and
+    /// The scrollbar's state for `debug.dock`: mode, shown, thumb and
     /// band (local coordinates).
     var scrollbarReport: (shown: Bool, thumb: CGRect?, band: CGRect)? {
         guard let scrollbar, !scrollbar.isHidden else { return nil }

@@ -5,12 +5,14 @@ import CmuxNextDaemon
 
 /// Browser-category actions that act on the focused page or create browser
 /// panes. Back, forward, reload, zoom, and the address bar are bound in
-/// `AppActions.bindBrowser`; viewer families without a surface yet
-/// (diff, Markdown, file preview) are unavailable here.
+/// `AppActions.bindBrowser`; the diff viewer in `DiffHandlers`; viewer
+/// families without a surface yet (Markdown, file preview) are unavailable here.
 enum BrowserHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         bindPage(into: registry, context: context)
+        BrowserToolbarHandlers.bind(into: registry, context: context)
         bindSplits(into: registry, context: context)
+        bindLinkHints(into: registry, context: context)
         bindUnavailable(registry)
     }
 
@@ -31,12 +33,22 @@ enum BrowserHandlers {
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
             window.focus.send(.toggleBrowserFocusMode(tab: entry.tab.id.rawValue))
         })
-        registry.bind("toggleBrowserDeveloperTools", run: { WebInspector.toggle(try context.page($0).tab) })
+        registry.bind("toggleBrowserDeveloperTools", run: { invocation in
+            let entry = try context.page(invocation)
+            WebInspector.toggle(entry.tab)
+            // WebKit's inspector visibility is not observable; Chromium's is.
+            entry.chrome.toolbarButtons.refresh()
+        })
         registry.bind("showBrowserJavaScriptConsole", run: { WebInspector.showConsole(try context.page($0).tab) })
         registry.bind("inspectBrowserElement", run: { WebInspector.inspectElement(try context.page($0).tab) })
+        // The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
         registry.bind("toggleBrowserDesignMode", run: { invocation in
-            let tab = try context.page(invocation).tab
-            Task { _ = try? await tab.evaluate("document.designMode = document.designMode === 'on' ? 'off' : 'on'") }
+            let entry = try context.page(invocation)
+            let modes = entry.chrome.toolbarButtons.modes
+            modes.designMode.toggle()
+            let script = "document.designMode = '\(modes.designMode ? "on" : "off")'"
+            let tab = entry.tab
+            Task { _ = try? await tab.evaluate(script) }
         })
         registry.bind("palette.browserOpenDefault", run: { invocation in
             guard let url = try context.page(invocation).tab.state.url, url.scheme != "about" else {
@@ -44,15 +56,13 @@ enum BrowserHandlers {
             }
             try context.open(url)
         })
+        // WebKit follows its view's appearance, Chromium a media emulation;
+        // a page that is not loaded yet gets it when it is (the toolbar's bind).
         registry.bind("browserTheme", run: { invocation in
-            // In-view engines follow the view's appearance for
-            // prefers-color-scheme; nil follows the app.
-            let view = try context.page(invocation).tab.contentView
-            view.appearance = switch invocation["theme"]?.stringValue {
-            case "light": NSAppearance(named: .aqua)
-            case "dark": NSAppearance(named: .darkAqua)
-            default: nil
-            }
+            let entry = try context.page(invocation)
+            let scheme = BrowserToolbarHandlers.colorScheme(invocation)
+            entry.chrome.toolbarButtons.modes.colorScheme = scheme
+            (entry.tab as? any BrowserColorSchemeApplying)?.applyColorScheme(scheme)
         })
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
@@ -74,26 +84,57 @@ enum BrowserHandlers {
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
             registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
+                try splitBrowser(from: try context.pane(invocation), direction: direction, context: context)
+            })
+        }
+    }
+
+    /// A new app-rendered browser tab in a new split beside `pane`: the
+    /// default engine at `url` in browser profile `profile`, else the
+    /// new-tab page with its address bar focused; with `url` the page takes
+    /// focus.
+    static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
+                             context: AppActionContext) throws {
+        let handle = pane.pane.handle
+        let connection = try context.requireConnection()
+        let browserTabs = context.services.cache.browserTabs!
+        // The default engine (never refused: no engine is requested).
+        guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        let intent = pane.workspace?.beginFocusIntent()
+        let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
+        Task {
+            do {
+                let surface = try await browserTabs.open(choice, in: handle, url: address, profile: profile)
+                try await connection.split(handle, direction: direction, movingTab: surface)
+                // The new pane takes focus (its address bar the keyboard
+                // for a new-tab page). The daemon may report the tab in the
+                // source pane before the move: land only in the new pane.
+                pane.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, awayFrom: pane.paneKey,
+                                            generation: intent)
+            } catch {
+                context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// `f` and `F` in a Chromium page (`LinkHintController`).
+    private static func bindLinkHints(into registry: ActionRegistry, context: AppActionContext) {
+        for (id, mode) in [("browserLinkHints", LinkHintSession.Mode.follow), ("browserLinkHintsNewSplit", .newSplit)] {
+            registry.bind(ActionID(rawValue: id), run: { invocation in
                 let pane = try context.pane(invocation)
-                let handle = pane.pane.handle
-                let connection = try context.requireConnection()
-                let browserTabs = context.services.cache.browserTabs!
-                // The default engine (never refused: no engine is requested).
-                guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
-                let intent = pane.workspace?.beginFocusIntent()
-                let address = context.services.newTabAddress(for: choice)
-                Task {
-                    do {
-                        let surface = try await browserTabs.open(choice, in: handle, url: address)
-                        try await connection.split(handle, direction: direction, movingTab: surface)
-                        // The new pane takes focus and its address bar the keyboard.
-                        // The daemon may report the tab in the source pane
-                        // before the move: land only in the new pane.
-                        pane.workspace?.expectFocus(on: surface, target: .addressBar, awayFrom: pane.paneKey, generation: intent)
-                    } catch {
-                        context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
-                    }
-                }
+                let entry = try context.page(invocation)
+                guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: LinkHintStrings.engine) }
+                let services = context.services
+                let controller = services.windowController(showing: pane)
+                let tabKey = services.cache.key(of: tab)
+                // Links stay in the page's browser profile.
+                let profile = tabKey.flatMap(services.cache.tabModel).map(services.browserProfiles.profileID(ofTab:))
+                services.linkHints.start(mode, tab: tab, window: controller?.window, isFocused: { [weak controller] in
+                    guard let controller, case .browserPage(_, let shown) = controller.focus.state.resolved else { return false }
+                    return shown == tabKey && KeyRouter.allows(.content, focus: controller.focus.state)
+                }, openInSplit: { url in
+                    try? splitBrowser(from: pane, direction: .right, url: url, profile: profile, context: context)
+                }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
             })
         }
     }
@@ -104,16 +145,7 @@ enum BrowserHandlers {
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
         unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
         unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
-        unavailable(["openLinkInNewTab", "openLinkInDefaultBrowser"], MiscHandlerStrings.linkTarget)
         unavailable(["browserScreenshotSection"], MiscHandlerStrings.sectionScreenshot)
-        unavailable(["saveFilePreview", "toggleFileEditorWordWrap"], MiscHandlerStrings.filePreview)
-        unavailable(["markdownZoomIn", "markdownZoomOut", "markdownZoomReset"], MiscHandlerStrings.markdownViewer)
         unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)
-        unavailable([
-            "openDiffViewer", "palette.openDirectoryDiffViewer",
-            "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp",
-            "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop",
-            "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile",
-        ], MiscHandlerStrings.diffViewer)
     }
 }

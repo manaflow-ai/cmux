@@ -21,14 +21,16 @@ struct TabPaneTerminalBindingTests {
         let services = Coverage.boundServices()
         let group = ActionTargetRef(kind: .tabGroup, id: "g1")
         for id in ["tabGroup.rename", "tabGroup.color.red", "tabGroup.moveLeft", "tabGroup.save"] {
-            #expect(Coverage.run(services, id, target: group) == .refused("needs daemon capability tab-groups-v1"), "\(id)")
+            let outcome = Coverage.run(services, id, target: group)
+            #expect(CapabilityRefusalTests.refusedByGate(outcome), "\(id): \(outcome)")
         }
     }
 
     @Test func unportedFeaturesSayWhatTheyNeed() {
         let services = Coverage.boundServices()
         #expect(Coverage.run(services, "toggleCanvasLayout") == .refused("needs canvas layout, which cmux-next does not have yet"))
-        #expect(Coverage.run(services, "palette.copyPaneLink") == .refused("needs cmux-next deep link navigation (cmux:// handler)"))
+        // Copy Pane Link works now (cmux:// links); with no window it has no pane to link.
+        #expect(Coverage.run(services, "palette.copyPaneLink") == .refused(MiscHandlerStrings.noPane))
     }
 
     @Test func missingTargetsAreRefusedNotSilentlyIgnored() {
@@ -38,7 +40,7 @@ struct TabPaneTerminalBindingTests {
         #expect(Coverage.run(services, "column.center") == .refused(MiscHandlerStrings.noPane))
         #expect(Coverage.run(services, "column.center", target: ActionTargetRef(kind: .column, id: "c9")) == .refused("no column c9 is shown"))
         let missing = ActionTargetRef(kind: .tab, id: "missing")
-        #expect(Coverage.run(services, "tab.moveToNewColumn", target: missing) == .refused("no tab missing"))
+        #expect(Coverage.run(services, "tab.moveToNewColumn", target: missing) == .notFound("no tab missing"))
         #expect(Coverage.run(services, "reopenClosedBrowserPanel") == .refused("no recently closed tab"))
     }
 }

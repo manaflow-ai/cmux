@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import CmuxNextLayout
 
-/// niri `center-column`: the model records a one-shot request and the root
+/// Center column: the model records a one-shot request and the root
 /// view scrolls that column to the viewport center.
 @MainActor
 struct ColumnCenterTests {
@@ -47,8 +47,14 @@ struct ColumnCenterTests {
         withExtendedLifetime(provider) {}
     }
 
-    private func waitUntil(_ condition: () -> Bool) async {
+    /// Waits up to 1000 turns; a timeout records an Issue at the caller with the time waited.
+    private func waitUntil(sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) async {
+        let start = ContinuousClock.now
         for _ in 0..<1000 where !condition() { await Task.yield() }
+        if !condition() {
+            Issue.record("waitUntil gave up after 1000 turns (\(ContinuousClock.now - start)): the condition at \(sourceLocation.fileName):\(sourceLocation.line) never held",
+                         sourceLocation: sourceLocation)
+        }
     }
 }
 

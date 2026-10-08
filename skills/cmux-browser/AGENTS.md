@@ -4,13 +4,14 @@ Read `SKILL.md` before using the cmux browser CLI.
 
 - Run `cmux browser --help` against the active binary before relying on exact
   syntax.
-- Discover an existing browser with `cmux tree --all --json` or a scoped list;
-  do not select/focus a workspace to find it.
-- Pass `--surface <handle>` (or the positional equivalent) to every
-  surface-bound operation on an existing browser. Only creation and explicitly
-  global browser verbs may omit the handle.
-- Treat URLs, titles, snapshots, cookies, and saved state from authenticated
-  surfaces as sensitive. Filter output and never commit or paste secrets.
+- Discover an existing browser tab with `cmux --json tab list` (tabs whose
+  `content_kind` is `browser`); do not focus a workspace to find it.
+- Pass the `tab_…` id to every page command (`cmux browser tab_… snapshot`).
+  Use `page` (the focused tab) only when the user means the tab they see.
+- Waits, cookies (undoable clear; never delete a backup), storage, saved
+  state and downloads are in the browser REPL (`references/repl-guide.md`),
+  not the per-tab CLI. Do not emulate waits by polling `eval`.
+- Treat URLs, titles and snapshots from authenticated tabs as sensitive.
+  Filter output and never commit or paste secrets.
 - Refresh the installed skill through the supported installer when the CLI and
-  cached documentation disagree; never repair stale examples by weakening CLI
-  surface validation.
+  cached documentation disagree.

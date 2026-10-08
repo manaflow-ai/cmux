@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
@@ -33,11 +35,42 @@ final class ThemeCoordinator {
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
     private var observation: Task<Void, Never>?
+    /// The scopes whose theme this coordinator set.
+    private let themed = NSHashTable<ThemeScope>.weakObjects()
 
     init(services: AppServices, terminalThemes: TerminalThemeStore) {
         self.services = services
         self.terminalThemes = terminalThemes
-        resolver.onChange = { [weak self] in self?.apply(forceSurfaces: true) }
+        resolver.onChange = { [weak self] in
+            self?.apply(forceSurfaces: true)
+            self?.applyChromeTheme()
+        }
+    }
+
+    // MARK: App theme (appearance.appTheme)
+
+    /// `appearance.appTheme` as last read; nil follows the terminal theme.
+    private var chromeTheme: String?
+    private var chromeObservation: Task<Void, Never>?
+
+    /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
+    /// resolved like the other theme levels (the variant for the system appearance, the user's
+    /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
+    func followChromeTheme(_ settings: SettingsController) {
+        chromeTheme = settings.snapshot.chromeTheme
+        applyChromeTheme()
+        chromeObservation = Task { [weak self] in
+            for await theme in Observations({ settings.snapshot.chromeTheme }) {
+                guard let self, theme != self.chromeTheme else { continue }
+                self.chromeTheme = theme
+                self.applyChromeTheme()
+            }
+        }
+    }
+
+    private func applyChromeTheme() {
+        let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
+        ThemeStore.shared.setAppTheme(resolved.map { AppTheme.derive(from: $0.input) })
     }
 
     func start() {
@@ -147,6 +180,10 @@ final class ThemeCoordinator {
 
     private func setTheme(of scope: ThemeScope, to text: String?) {
         let resolved = resolver.resolve(text.flatMap(ThemeSpec.init))
+        // Re-resolves run on every Ghostty config reload in the process; a
+        // theme this coordinator never set is not its to clear.
+        guard resolved != nil || themed.contains(scope) else { return }
+        if resolved == nil { themed.remove(scope) } else { themed.add(scope) }
         scope.setOverride(resolved?.spec, input: resolved?.input)
     }
 
@@ -175,6 +212,13 @@ final class ThemeCoordinator {
 
     /// The `theme` value a picker shows as current for its target.
     func currentChoice(_ action: ActionID, target: ActionTargetRef?) -> String? {
+        if action == "browserTheme" {
+            // The page's forced color scheme (the toolbar's theme menu checks it).
+            let entry = if let target, target.kind == .tab { services.cache.existingBrowser(target.id) } else {
+                try? AppActionContext(services: services).page(ActionInvocation(target: target))
+            }
+            return entry?.chrome.toolbarButtons.modes.colorScheme.rawValue
+        }
         guard let resolved = previewTarget?(action, target) else { return nil }
         let current: String? = switch resolved {
         case .room(let room): roomTheme(room)

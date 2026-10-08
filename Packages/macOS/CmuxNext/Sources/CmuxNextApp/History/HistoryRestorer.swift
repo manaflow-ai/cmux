@@ -12,8 +12,10 @@ struct HistoryRestorer {
     /// Runs the entry's primary action. `newTab` opens a page beside the
     /// focused tab instead of in it.
     func open(_ entry: HistoryEntry, newTab: Bool = false) {
+        // From a top page (History on top): the entry opens in the window's workspace.
+        let leftPage = TopPages.leave(services)
         switch entry.payload {
-        case .page(let url, let profile): openPage(url, profile: profile, newTab: newTab)
+        case .page(let url, let profile): openPage(url, profile: profile, newTab: newTab || leftPage)
         case .location(let location, _):
             if !services.locationTrail.goTo(location) { services.registry.refuse(HistoryAppStrings.entryGone) }
         case .closed(let item): reopen(item)
@@ -24,7 +26,10 @@ struct HistoryRestorer {
 
     func openPage(_ text: String, profile: String?, newTab: Bool) {
         guard let url = URL(string: text) else { return }
-        let pane = services.windows.active?.focusedPane
+        let leftPage = TopPages.leave(services)
+        let newTab = newTab || leftPage
+        let window = services.windows.active
+        let pane = window?.focusedPane ?? window?.content?.panes.values.first
         if !newTab, let pane, let tab = pane.selectedTab, tab.kind == .browser,
            let page = services.cache.existingBrowser(tab.id)?.tab {
             page.load(url)
@@ -39,6 +44,12 @@ struct HistoryRestorer {
 
     /// Reopens a closed tab, screen or workspace from a history list.
     func reopen(_ item: ClosedItem) {
+        if let id = DaemonClosedHistory.daemonID(fromHistoryID: item.id) {
+            guard let entry = DaemonClosedHistory.entry(id, in: services) else {
+                return services.registry.refuse(HistoryAppStrings.entryGone)
+            }
+            return DaemonClosedHistory.reopen(entry, services: services)
+        }
         let context = AppActionContext(services: services)
         switch item.kind {
         case .terminalTab, .browserTab:
@@ -53,12 +64,20 @@ struct HistoryRestorer {
                 services.closedWorkspaces.restore(record)
                 return services.registry.refuse(HistoryAppStrings.reopenWorkspaceOnMachine(record.machine))
             }
-            WorkspaceHandlers.createAndShow(context, name: record.name, cwd: record.cwd)
+            // A reopen gets a new workspace id; the closed workspace's agent-home folder (its chat
+            // files) moves to it before its first chat (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+            let key = services.closedWorkspaces.reopenKey(for: record)
+            WorkspaceHandlers.createAndShow(context, name: record.name, cwd: record.cwd, key: key)
         }
     }
 
     /// Reopens one closed tab (`nil`: the newest) where it was.
     func reopen(closedID: String?) {
+        // The newest tab a daemon recorded, when the app's tracker has none.
+        if closedID == nil, services.closedTabs?.records.isEmpty ?? true,
+           let newest = DaemonClosedHistory.entries([.tab], in: services).first {
+            return DaemonClosedHistory.reopen(newest, services: services)
+        }
         guard let tracker = services.closedTabs else { return }
         let record = closedID.map { tracker.take($0) } ?? tracker.popLast()
         guard let record else {
