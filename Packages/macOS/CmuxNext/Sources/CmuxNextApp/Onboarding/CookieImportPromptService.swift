@@ -58,7 +58,7 @@ final class CookieImportPromptService {
     private func page(_ url: URL, _ entry: BrowserEntry) -> CookieImportPage {
         let tab = entry.tab
         let personal = !OffTheRecordProfiles.shared.isOffTheRecord(tab.profileID) && !tab.isAgentDriven
-            && tab.profileID.rawValue.uuidString.lowercased() != AgentBrowserProfile.id.lowercased()
+            && BrowserProfileRecord.wireID(for: tab.profileID) != AgentBrowserProfile.id
         // A window toast (a recovered draft, an undo) sits in the same spot: the card waits for a later page.
         let toast = entry.chrome.window.map { !CmuxToastCenter.shared.toasts(in: $0).isEmpty } ?? false
         return CookieImportPage(url: url, isChromium: tab.engineKind == .cef, isPersonal: personal,
@@ -71,14 +71,17 @@ final class CookieImportPromptService {
         let offer = BrowserCookieImportOffer(icons: browsers.map(\.icon), title: CookieImportPromptStrings.title,
                                              detail: CookieImportPromptStrings.detail, importTitle: CookieImportPromptStrings.importCookies,
                                              notNowTitle: CookieImportPromptStrings.notNow, neverTitle: CookieImportPromptStrings.never)
-        chrome.showCookieImportOffer(offer) { [weak self] choice in self?.answer(choice) }
+        let target = BrowserProfileRecord.wireID(for: chrome.tab.profileID)
+        chrome.showCookieImportOffer(offer) { [weak self] choice in self?.answer(choice, profile: target) }
     }
 
-    func answer(_ choice: BrowserCookieImportChoice) {
+    /// `profile`: the cmux browser profile of the tab that showed the card;
+    /// Import Cookies brings the cookies into it, so that tab stays signed in.
+    func answer(_ choice: BrowserCookieImportChoice, profile: String? = nil) {
         update { $0.answer(choice, now: now()) }
         guard choice == .importCookies else { return }
         guard let onboarding = services?.onboarding else { return }
-        onboarding.show(step: .importData, importKinds: [.cookies])
+        onboarding.show(step: .importData, importKinds: [.cookies], importTarget: profile)
         // The person asked to import: finding their browsers now is theirs, not a launch-time read.
         onboarding.controller?.model.importer.detect()
     }

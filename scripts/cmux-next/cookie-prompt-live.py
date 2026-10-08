@@ -192,6 +192,17 @@ try:
     # A browser workspace gives the window a pane with a tab, so openBrowser has a target.
     print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
     settle(3.0)
+    # A window toast (here the pin undo toast) holds the card back: a page that finishes under it shows none.
+    rpc("action.run", {"action": "palette.toggleTabPin"})
+    toasts = wait_for(lambda: rpc("debug.filepages").get("toasts"), "a window toast to wait under", 5)
+    if toasts:
+        rpc("debug.omnibar_type", {"text": "https://example.net/"})
+        settle(4.0)
+        state = prompt()
+        check(state.get("shown_on") == [] and not state.get("shown_this_launch"), f"no card while a toast shows ({toasts}): {state}")
+        wait_for(lambda: not rpc("debug.filepages").get("toasts"), "the toast to end", 15)
+    else:
+        print("SKIP toast wait: the pin made no toast", flush=True)
     # The person's path: a URL typed into the omnibar of their own tab. (A tab an agent opens
     # through openBrowser is agent-driven and never shows the card.)
     typed = rpc("debug.omnibar_type", {"text": "https://example.com/"})
@@ -234,12 +245,15 @@ try:
     state = prompt("answer", choice="never")
     check(state.get("never_show") is True, f"Don't Show Again ends it: {state}")
     prompt("reset")
+    shown_tab = (wait_for(lambda: prompt("show").get("shown_on"), "the card again for Import Cookies", 10) or [None])[0]
     state = prompt("answer", choice="import")
     onboarding = rpc("debug.onboarding", {"action": "state"})
     print("onboarding after Import Cookies:", json.dumps(onboarding)[:600], flush=True)
     check(onboarding.get("step") == "importData", f"Import Cookies opens the import step: {onboarding.get('step')}")
     kinds = onboarding.get("import", {}).get("kinds") or onboarding.get("kinds")
     check(kinds == ["cookies"], f"only cookies checked: {kinds}")
+    target = onboarding.get("merge_target")
+    check(target is not None, f"Import Cookies from the card imports into the profile of tab {shown_tab}: merge_target={target}")
     settle()
     capture("import-step-cookies")
     rpc("debug.onboarding", {"action": "close"})

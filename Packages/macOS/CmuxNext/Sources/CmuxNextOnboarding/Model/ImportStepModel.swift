@@ -45,6 +45,10 @@ public final class ImportStepModel {
     /// The kinds a caller opened the step on (the cookie import card: cookies
     /// only); detection then leaves passwords unchecked unless they are among them.
     @ObservationIgnored private var presetKinds: Set<ImportDataKind>?
+    /// The cmux browser profile every source goes into (the cookie import
+    /// card: the profile of the tab that showed it); nil makes one new
+    /// profile per source.
+    public private(set) var mergeTarget: String?
     @ObservationIgnored private let services: any OnboardingServices
     @ObservationIgnored private var task: Task<Void, Never>?
     /// The plan being run, and each started row's count so far (progress
@@ -163,10 +167,17 @@ public final class ImportStepModel {
     /// Checks only `preset` (the cookie import card opens the step on
     /// cookies); the person can still check the other kinds. Ignored while
     /// an import or its consent screen runs.
-    public func preset(kinds preset: Set<ImportDataKind>) {
+    public func preset(kinds preset: Set<ImportDataKind>, into target: String? = nil) {
         guard canEditSelection || phase == .idle || phase == .detecting else { return }
         presetKinds = preset
         kinds = preset.filter { $0 != .passwords || passwordStore }
+        mergeTarget = target
+    }
+
+    /// Back to one new profile per source (the step opened from anywhere but the card).
+    public func resetTarget() {
+        guard canEditSelection || phase == .idle || phase == .detecting else { return }
+        mergeTarget = nil
     }
 
     public func toggle(_ kind: ImportDataKind) {
@@ -186,7 +197,7 @@ public final class ImportStepModel {
     public var plan: ImportPlan {
         ImportPlan(items: profiles.filter { selectedProfiles.contains($0.id) }.map { profile in
             ImportPlan.Item(profile: profile, kinds: passwordConsent.contains(profile.id) ? kinds : kinds.subtracting([.passwords]))
-        })
+        }, mergeTarget: mergeTarget)
     }
 
     /// Checked profiles with passwords to bring: the consent screen's list.
