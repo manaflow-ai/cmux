@@ -2,9 +2,18 @@ import Foundation
 import Network
 import os
 
+/// The small socket surface owned by `DirectWriter`. Keeping the writer on a
+/// protocol makes its admission and cancellation behavior testable without a
+/// real Network.framework connection; `DirectSocket` is the production
+/// implementation.
+protocol DirectWriterSocket: Sendable {
+    func send(record body: Data) async throws
+    func cancel()
+}
+
 /// Async wrapper around one NWConnection carrying length-prefixed records:
 /// `u32 LE length | body` (the a0-rpc byte-stream convention).
-final class DirectSocket: Sendable {
+final class DirectSocket: Sendable, DirectWriterSocket {
     let connection: NWConnection
     private let queue: DispatchQueue
     private let readyGate = OSAllocatedUnfairLock<CheckedContinuation<Void, any Error>?>(initialState: nil)

@@ -18,7 +18,7 @@ actor DirectWriter {
         let continuation: CheckedContinuation<Void, any Error>
     }
 
-    private let socket: DirectSocket
+    private let socket: any DirectWriterSocket
     private var cipher: NoiseCipherState
     private var queue = DirectSendQueue(maxQueuedBulkBytes: DirectWriter.maxQueuedBulkBytes)
     private var pending: [UInt64: Pending] = [:]
@@ -32,7 +32,7 @@ actor DirectWriter {
     private var closing = false
     private var bytesPerSecond: Int?
 
-    init(socket: DirectSocket, cipher: NoiseCipherState, bytesPerSecond: Int? = nil) {
+    init(socket: any DirectWriterSocket, cipher: NoiseCipherState, bytesPerSecond: Int? = nil) {
         self.socket = socket
         self.cipher = cipher
         self.bytesPerSecond = bytesPerSecond
@@ -156,7 +156,13 @@ actor DirectWriter {
         nextID &+= 1
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                if closing {
+                // The cancellation handler may run before this operation is
+                // entered when the caller was already canceled. Resume here
+                // as well so a waiter cannot be appended after the handler's
+                // actor hop has already looked for it.
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if closing {
                     continuation.resume(throwing: DirectTransportError.closed)
                 } else if canEnqueueBulk(bytes: bytes) {
                     continuation.resume()
