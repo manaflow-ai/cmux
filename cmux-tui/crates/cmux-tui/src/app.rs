@@ -39980,6 +39980,40 @@ mod tests {
     }
 
     #[test]
+    fn enter_does_not_approve_a_rendered_pairing_dialog() {
+        // A dialog can appear while the user types in a terminal; the Enter
+        // that ends their command line must not admit a browser. Approval is
+        // an explicit `y` (or the Approve button).
+        let mux = Mux::new("pairing-explicit-confirm-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let action =
+            app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
+            .unwrap();
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id),
+            "Enter closed the pairing dialog"
+        );
+        assert!(decision.try_recv().is_err(), "Enter approved a pairing request");
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert!(app.pairing_dialog.is_none());
+        assert!(matches!(
+            decision.recv_timeout(Duration::from_secs(1)),
+            Ok(cmux_tui_core::PairingDecision::Approved { .. })
+        ));
+    }
+
+    #[test]
     fn enter_cannot_approve_an_unrendered_replacement_pairing_dialog() {
         let mux = Mux::new("pairing-key-replacement-barrier-test", SurfaceOptions::default());
         let (first, first_decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
