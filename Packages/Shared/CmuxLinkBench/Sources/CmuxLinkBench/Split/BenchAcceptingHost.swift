@@ -96,7 +96,7 @@ public struct BenchAcceptingHost: Sendable {
                 }
             )
         case .v2Memory, .v3, .reference:
-            throw BenchSplitError.invalidDescriptor("accepting host does not implement rig (rig.rawValue)")
+            throw BenchSplitError.invalidDescriptor("accepting host does not implement rig \(rig.rawValue)")
         }
     }
 
