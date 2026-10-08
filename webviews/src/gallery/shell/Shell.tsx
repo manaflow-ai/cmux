@@ -18,6 +18,7 @@ import { EntryBoundary } from "./EntryBoundary";
 import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
 import { GalleryVariantPick } from "./GalleryVariantPick";
 import { CompareView } from "./CompareView";
+import { BrowseView } from "./BrowseView";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
 import { Tunables } from "./Tunables";
 import { EXPERIMENTAL_AREA, sidebarGroups } from "./groups";
@@ -29,6 +30,7 @@ const VIEW_LABELS: Record<View, string> = {
   locales: "All locales",
   themes: "Themes",
   compare: "Compare arms",
+  browse: "Browse gallery",
 };
 
 export const { router } = createGalleryRouter(Layout);
@@ -118,6 +120,7 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
   );
   const total = entries.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
   const open = (target: { entry: string; variant: string }) => go({ ...target, search: address.search });
+  const browseSearch = { ...address.search, view: "browse" as const };
   return (
     <nav className="gallery-list" aria-label="Gallery entries">
       <div className="gallery-filter">
@@ -142,6 +145,17 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
             }
           }}
         />
+        <a
+          className="gallery-browse-link"
+          href={href({ ...address, search: browseSearch })}
+          aria-current={address.search.view === "browse" ? "page" : undefined}
+          onClick={(event) => {
+            event.preventDefault();
+            go({ ...address, search: browseSearch });
+          }}
+        >
+          Browse all {entries.length} entries
+        </a>
       </div>
       {groups.map(({ area, states: all }) => {
         // A broken or loading file always shows (its card names the file); a loaded one when it matches.
@@ -304,7 +318,7 @@ function Layout() {
             key={state.path}
             state={state}
             loading={<p className="gallery-empty">Loading {state.path}</p>}
-            render={(entry) => <EntryView entry={entry} address={address} />}
+            render={(entry) => <EntryView entry={entry} address={address} states={states} />}
           />
         ) : states.length === 0 ? (
           <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
@@ -319,11 +333,63 @@ function Layout() {
 }
 
 /** One entry's header and stages. */
-function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }) {
+function EntryView({
+  entry,
+  address,
+  states,
+}: {
+  entry: GalleryEntry;
+  address: Address;
+  states: readonly EntryState[];
+}) {
   const [stagesRef, room] = useRoom();
   const { search } = address;
   const variant = entry.variants[address.variant] ? address.variant : Object.keys(entry.variants)[0]!;
   const env: GalleryEnv = search;
+  if (search.view === "browse") {
+    return (
+      <>
+        <header className="gallery-header">
+          <fieldset className="gallery-segmented">
+            <legend>View</legend>
+            {VIEWS.filter((view) => view !== "compare" || entry.experiment).map((view) => (
+              <label key={view}>
+                <input
+                  type="radio"
+                  name="view"
+                  aria-label={VIEW_LABELS[view]}
+                  checked={search.view === view}
+                  onChange={() => go({ ...address, search: { ...search, view } })}
+                />
+                {VIEW_LABELS[view]}
+              </label>
+            ))}
+          </fieldset>
+          <Controls
+            env={env}
+            onChange={(next) =>
+              go(
+                { ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } },
+                true,
+              )
+            }
+          />
+        </header>
+        <BrowseView
+          entries={readyEntries(states)}
+          env={env}
+          tune={search.tune}
+          available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
+          onOpen={(target, targetVariant) =>
+            go({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+          }
+          hrefFor={(target, targetVariant) =>
+            href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+          }
+        />
+      </>
+    );
+  }
   let stages: { key: string; variant: string; env: GalleryEnv; label?: string }[];
   switch (search.view) {
     case "variants":

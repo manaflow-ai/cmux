@@ -46,6 +46,22 @@ body {
   color: var(--g-text);
   font: inherit;
 }
+.gallery-browse-link {
+  display: block;
+  margin: 8px 2px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  color: var(--g-text);
+  text-decoration: none;
+  font-size: 12px;
+  text-align: center;
+}
+.gallery-browse-link:hover,
+.gallery-browse-link[aria-current="page"] {
+  background: var(--g-current);
+  border-color: var(--g-muted);
+}
 .gallery-group h2 {
   position: sticky;
   top: 50px;
@@ -251,6 +267,102 @@ body {
   border: 1px solid var(--g-line);
   border-radius: 6px;
   background: transparent;
+}
+.gallery-browse {
+  padding: 16px 0 24px;
+}
+.gallery-browse-header {
+  margin-bottom: 14px;
+}
+.gallery-browse-header h1 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.gallery-browse-header p {
+  margin: 0;
+  max-width: 80ch;
+  color: var(--g-muted);
+}
+.gallery-browse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.gallery-browse-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--g-line);
+  border-radius: 8px;
+  background: var(--g-panel);
+}
+.gallery-browse-card-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+.gallery-browse-card-header h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.gallery-browse-card-header code {
+  display: block;
+  margin-top: 2px;
+  color: var(--g-muted);
+  font-size: 11px;
+}
+.gallery-browse-kind {
+  flex: 0 0 auto;
+  color: var(--g-muted);
+  font-size: 11px;
+}
+.gallery-browse-variants {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 0 12px 8px;
+}
+.gallery-browse-variants button {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--g-line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--g-text);
+  font: inherit;
+  font-size: 11px;
+}
+.gallery-browse-variants button:hover,
+.gallery-browse-variants button.active {
+  background: var(--g-current);
+  border-color: var(--g-muted);
+}
+.gallery-browse-card .gallery-stage {
+  margin: 0;
+  overflow: hidden;
+}
+.gallery-browse-card .gallery-stage figcaption {
+  padding: 0 12px 6px;
+}
+.gallery-browse-card .gallery-stage figcaption strong {
+  display: none;
+}
+.gallery-browse-card .gallery-window {
+  max-width: 100%;
+  border-inline: 0;
+  border-radius: 0;
+}
+.gallery-browse-card-footer {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--g-line);
+  font-size: 11px;
+}
+.gallery-browse-card-footer a {
+  color: var(--g-muted);
 }
 .gallery-empty {
   padding: 24px;
