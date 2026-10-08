@@ -41,6 +41,7 @@ import {
   type FaqItem,
 } from "../components/pricing-shared";
 import { PricingCheckoutButton } from "../components/pricing-checkout";
+import { ProPlanCard } from "../components/pro-plan-card";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
@@ -115,13 +116,16 @@ export function AppPricingContent({
     [CHECKOUT_CLIENT_PARAM]: appStorePaymentGated ? "ios" : "mac",
     ...checkoutAttributionParamsFrom(params),
   };
-  const proCheckoutHref = appPricingCheckoutURL(
-    "pro",
-    requestOrigin,
-    cmuxScheme,
-    "month",
-    attribution,
-  );
+  const proCheckoutHrefs = {
+    month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month", attribution),
+    year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year", attribution),
+  };
+  const proAnnualLabelSet = {
+    billingPeriod: pricing.billingPeriod,
+    yearly: pricing.pro.annual.yearly,
+    monthly: pricing.monthly,
+    perMonth: pricing.perMonth,
+  };
   const teamCheckoutHref = appPricingCheckoutURL(
     "team",
     requestOrigin,
@@ -250,33 +254,34 @@ export function AppPricingContent({
         </PlanCard>
       ) : null}
 
-      <PlanCard
+      {/* Pro: the only plan sold yearly as well as monthly. */}
+      <ProPlanCard
         name={pricing.pro.name}
-        price={`$${PRO_PRICING_USD.month.billedAmount}`}
-        period={pricing.perMonth}
+        surface="app_pricing"
+        monthlyOnly={isGo}
+        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        labels={proAnnualLabelSet}
+        checkoutHrefs={proCheckoutHrefs}
+        location="app_pricing"
+        requiresSignIn={!pending && !snapshot.authenticated}
+        ctaLabel={pricing.pro.cta}
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
           ) : null
         }
+        action={proAction === "checkout" ? undefined : (
+          <PersonalPlanAction
+            state={proAction}
+            unavailableLabel={pending ? pricing.pro.cta : undefined}
+            portalVisible={portalVisible}
+            checkout={null}
+          />
+        )}
       >
-        <PersonalPlanAction
-          state={proAction}
-          unavailableLabel={pending ? pricing.pro.cta : undefined}
-          portalVisible={portalVisible}
-          checkout={
-            <PricingCheckoutButton
-              href={proCheckoutHref}
-              requiresSignIn={!pending && !snapshot.authenticated}
-              location="app_pricing"
-            >
-              {pricing.pro.cta}
-            </PricingCheckoutButton>
-          }
-        />
         <p className="mt-5 text-sm font-medium">{pricing.pro.featuresLead}</p>
         <FeatureList items={proFeatures} />
-      </PlanCard>
+      </ProPlanCard>
 
       {/* Max: larger machines on the monthly personal plan. */}
       <PlanCard
@@ -534,8 +539,10 @@ type BillingBannerModel = {
 
 /// In-webview sign-in that also signs the native app in: Stack sign-in sets
 /// the webview's session cookies, then /handler/after-sign-in hands tokens to
-/// the app through its <scheme>://auth-callback URL. The stateless callback is
-/// accepted by the app's fallback path (HostBrowserSignInFlow.handleCallbackURL).
+/// the app through its <scheme>://auth-callback URL. The app applies this
+/// stateless callback without a prompt only when its embedded browser delivers
+/// it (same-origin, user-activated link); from any other route the user must
+/// approve it in a native dialog.
 /// web_return_to lets the embedded browser navigate back to this pricing page
 /// (with its appearance params intact) once the app has consumed the callback.
 function appPricingSignInHref(

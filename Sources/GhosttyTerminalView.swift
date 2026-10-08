@@ -912,7 +912,7 @@ class GhosttyApp {
                }) {
                 representations.append(.init(mimeType: "text/plain", string: fallback))
             }
-            GhosttyApp.terminalPasteboard.writeRepresentations(representations, to: location)
+            GhosttySurfaceScrollView.writeClipboard(representations, to: location, from: callbackContext)
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
@@ -3775,6 +3775,28 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+    /// Returns whether a screen transition left the terminal runtime at a
+    /// different backing scale than the window now uses. AppKit can update a
+    /// view's layer during a display move without delivering
+    /// `viewDidChangeBackingProperties`; comparing the committed terminal
+    /// geometry lets the screen notification repair that missed callback while
+    /// avoiding a redundant geometry commit when the normal callback already
+    /// ran.
+    static func shouldReconcileBackingScale(
+        currentScale: CGFloat?,
+        targetScale: CGFloat,
+        epsilon: CGFloat = 0.0001
+    ) -> Bool {
+        guard let currentScale,
+              currentScale.isFinite,
+              currentScale > 0,
+              targetScale.isFinite,
+              targetScale > 0 else {
+            return false
+        }
+        return abs(currentScale - targetScale) > epsilon
+    }
+
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
             return true
@@ -5364,8 +5386,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             queue: .main
         ) { [weak self] notification in
             guard let occludedWindow = notification.object as? NSWindow else { return }
-            // Delivered on the main queue (`queue: .main`), which is the main actor.
-            MainActor.assumeIsolated {
+            // NotificationCenter's `queue: .main` selects the main operation
+            // queue, but it does not establish Swift concurrency's main-actor
+            // executor. AppKit can also post this notification during window
+            // teardown from a non-actor callback. Hop explicitly instead of
+            // assuming the executor, which otherwise traps with EXC_BAD_ACCESS
+            // while a terminal view is being detached.
+            Task { @MainActor [weak self] in
                 self?.applyRendererWindowVisibility(for: occludedWindow)
             }
         }
@@ -5379,7 +5406,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 queue: .main
             ) { [weak self] notification in
                 guard let keyWindow = notification.object as? NSWindow else { return }
-                MainActor.assumeIsolated {
+                Task { @MainActor [weak self] in
                     self?.applyRendererWindowVisibility(for: keyWindow)
                 }
             })
@@ -5399,6 +5426,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Consume the committed bounds and let the portal's queued convergence
         // pass handle any later geometry change.
         _ = reapplyPaneGeometry()
+        // A surface can become visible before its hosted view is reattached to
+        // the real window. In that order the visibility transition correctly
+        // waits for presentation readiness, but no geometry delta may follow
+        // the attachment. Replay the readiness edge here so a renderer born
+        // hidden cannot remain released after its first real window attach.
+        terminalSurface?.rendererPresentationReadinessDidChange()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
         GhosttyApp.shared.synchronizeThemeWithAppearance(
@@ -5557,6 +5590,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = commitPaneGeometry(size: geometry.size, phase: .settled)
         } else {
             _ = commitOwnBounds()
+        }
+    }
+
+    /// Reconciles a display move after AppKit has had a chance to update the
+    /// window's backing scale. The normal backing-properties callback remains
+    /// the fast path; this only commits when the terminal's last published
+    /// geometry still carries the previous display scale.
+    private func scheduleBackingScaleReconciliation() {
+        DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.window else { return }
+                let targetScale = max(1.0, window.backingScaleFactor)
+                let currentScale = self.terminalSurface?.committedPaneGeometry?.backingScale
+                    ?? self.layer?.contentsScale
+                guard Self.shouldReconcileBackingScale(
+                    currentScale: currentScale,
+                    targetScale: targetScale
+                ) else { return }
+                self.recommitPaneGeometryForBackingChange()
+                self.invalidateTextInputCoordinates()
+            }
         }
     }
 
@@ -7696,7 +7750,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         button: ghostty_input_mouse_button_e,
         mods: ghostty_input_mods_e
     ) -> Bool {
-        withPotentialClipboardPasteIntent {
+        withPointerDispatchIntents {
             ghostty_surface_mouse_button(surface, state, button, mods)
         }
     }
@@ -9907,6 +9961,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// occlusion `.visible` bit is remembered per window so the rule can tell a
     /// trustworthy occlusion verdict from a virtual display that never sets it.
     private func applyRendererWindowVisibility(for window: NSWindow) {
+        guard let currentWindow = self.window, currentWindow === window else { return }
         let occlusionVisible = window.occlusionState.contains(.visible)
         if occlusionVisible {
             Self.windowsThatReportedVisible.add(window)
@@ -9935,10 +9990,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        // Let AppKit's backing-properties callback own scale changes. A screen
-        // notification alone does not establish that backing geometry changed;
-        // replaying that callback schedules an extra settled geometry commit
-        // while display topology is still changing.
+        // AppKit normally sends viewDidChangeBackingProperties for a display
+        // move, but some extended-display transitions update the window and
+        // layer without that callback. Defer the check until AppKit finishes
+        // the screen transition, then repair only a stale terminal scale.
+        scheduleBackingScaleReconciliation()
     }
 
     fileprivate static func escapeDropForShell(_ value: String) -> String {
@@ -10429,7 +10485,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
-    let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
+    let linkHoverIndicatorView: LinkHoverIndicatorView
     let passwordInputIndicatorView: TerminalPasswordInputIndicatorView
     let jumpToBottomIndicatorView = TerminalJumpToBottomIndicatorView(frame: .zero)
     private let imageTransferIndicatorContainerView: NSView
@@ -10689,7 +10745,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
-        linkHoverIndicatorView = TerminalLinkHoverIndicatorView(frame: .zero)
+        linkHoverIndicatorView = LinkHoverIndicatorView(frame: .zero)
         passwordInputIndicatorView = TerminalPasswordInputIndicatorView(frame: .zero)
         imageTransferIndicatorContainerView = NSView(frame: .zero)
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
@@ -12287,7 +12343,7 @@ final class GhosttySurfaceScrollView: NSView {
             // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
             // geometry-callback rebind), where a synchronous display can wedge the main
             // thread in Metal against the still-open window transaction.
-            if GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: surfaceView.terminalSurface?.hasPresentedFrame == true) { scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition) }
+            if GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(rendererPresented: surfaceView.terminalSurface?.isRendererPresented == true) { scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition) }
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }

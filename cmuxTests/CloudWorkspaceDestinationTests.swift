@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 struct CloudWorkspaceDestinationTests {
     @Test func receiptReplacesSelectedPlaceholder() throws {
         let suite = "cloud-destination-\(UUID().uuidString)"
@@ -69,6 +69,13 @@ struct CloudWorkspaceDestinationTests {
 
     @Test func machineReservationCommitsPlacementBeforeProvisioningAndPreservesLaterNavigation() async throws {
         let suite = "cloud-destination-\(UUID().uuidString)"
+        let standardDefaults = UserDefaults.standard
+        let previousCloudEnabled = standardDefaults.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        standardDefaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        defer {
+            if let previousCloudEnabled { standardDefaults.set(previousCloudEnabled, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }
+            else { standardDefaults.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }
+        }
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let manager = makeManager(defaults: defaults)

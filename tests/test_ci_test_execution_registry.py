@@ -63,8 +63,14 @@ class RegistryBlastRadiusTests(unittest.TestCase):
              "--lane", "macos-cli-product", "--list"],
             cwd=ROOT, capture_output=True, text=True, check=True,
         )
-        self.assertEqual(result.stdout.splitlines(), ["tests/test_claude_hook_spool.py"])
-        errors, _, _ = validator.validate(ROOT, added={"tests/test_claude_hook_spool.py"})
+        self.assertEqual(
+            result.stdout.splitlines(),
+            ["tests/test_claude_hook_spool.py", "tests/test_cli_hooks_setup_arguments.py"],
+        )
+        errors, _, _ = validator.validate(
+            ROOT,
+            added={"tests/test_claude_hook_spool.py", "tests/test_cli_hooks_setup_arguments.py"},
+        )
         self.assertEqual(errors, [])
 
     def make_root(self, *, tests: list[str], registry: str) -> Path:

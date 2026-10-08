@@ -1,6 +1,8 @@
 import AppKit
+import CmuxCloud
 import CmuxTerminal
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import GhosttyKit
 import Testing
 
@@ -12,6 +14,47 @@ import Testing
 
 @Suite("Cloud clipboard image routing")
 struct CloudImagePasteRoutingTests {
+    /// Covers paste and drop before a native SSH projection registers a legacy remote surface.
+    @Test("Native SSH image paste and file drop use the SSH upload route", arguments: [TerminalImageTransferMode.paste, .drop])
+    @MainActor
+    func nativeSSHTuiUsesRemoteFileUpload(mode: TerminalImageTransferMode) async throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "test@host", port: nil, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil
+        )
+        workspace.remoteConfiguration = configuration
+        let catalog = SurfaceCatalog.shared
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            workspace.teardownAllPanels()
+        }
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: SurfaceResourceID(
+            machine: SurfaceMachineID(rawValue: SSHTuiConnection(configuration: configuration).id),
+            kind: .terminal, key: "term_" + UUID().uuidString
+        ))], workspaceID: workspace.id, restoringWorkspace: workspace)
+        #expect(workspace.usesSSHTui)
+        #expect(workspace.activeRemoteTerminalSurfaceIds.isEmpty)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-upload-\(UUID().uuidString).png")
+        try Data([0x89, 0x50, 0x4e, 0x47]).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let target = await panel.surface.resolvedImageTransferTargetAsync(
+            mode: mode, in: workspace,
+            detector: { _ in
+                Issue.record("Native SSH must use its configured endpoint without local process detection")
+                return nil
+            }
+        )
+        #expect(target == .remote(.workspaceRemote))
+        #expect(TerminalImageTransferPlanner.plan(fileURLs: [url], target: target, mode: mode)
+            == .uploadFiles([url], .workspaceRemote))
+    }
+
     /// Test-only gate shared with the detached detector closure. The semaphore
     /// is immutable and provides the only cross-task mutation.
     private final class DetectionBlocker: @unchecked Sendable {

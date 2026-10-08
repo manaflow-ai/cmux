@@ -35,6 +35,16 @@ if ! awk '
 fi
 
 if ! awk '
+  /^      - name: Upload unsigned nightly app$/ { in_upload=1; next }
+  in_upload && /^      - name:/ { in_upload=0 }
+  in_upload && /compression-level: 0/ { found=1 }
+  END { exit !found }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the precompressed unsigned app artifact must disable a second compression pass"
+  exit 1
+fi
+
+if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
   /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
@@ -79,6 +89,42 @@ if ! grep -Fq 'const headSha = context.sha;' "$WORKFLOW_FILE"; then
   echo "FAIL: each Nightly run must build the exact revision that triggered it"
   exit 1
 fi
+
+if ! awk '
+  /^  decide:/ { in_decide=1; next }
+  in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
+  in_decide && /vars\.CI_NIGHTLY_DECIDE_RUNNER/ && /vars\.LINUX_RUNNER/ { saw_runner_override=1 }
+  END { exit !saw_runner_override }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the short nightly decide gate must use the dedicated runner override with the paid Linux fallback"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Download signing inputs \(parallel\)/ { in_download=1; next }
+  in_download && /^      - name:/ { in_download=0 }
+  in_download && /id: signing-inputs-parallel/ { saw_id=1 }
+  in_download && /download-run-artifact.py/ { downloads++ }
+  in_download && /--name cmux-nightly-unsigned-app --out nightly-inputs\/app/ { saw_app_download=1 }
+  in_download && /--connections 64/ { saw_app_connections=1 }
+  in_download && /app_ok=/ { saw_app_output=1 }
+  in_download && /daemon_ok=/ { saw_daemon_output=1 }
+  in_download && /helper_ok=/ { saw_helper_output=1 }
+  END { exit !(saw_id && downloads == 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly signers must fetch all inputs concurrently and give the large app artifact 64 ranged connections"
+  exit 1
+fi
+
+for fallback in \
+  "if: steps.signing-inputs-parallel.outputs.app_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.daemon_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.helper_ok != 'true'"; do
+  if ! grep -Fq "$fallback" "$WORKFLOW_FILE"; then
+    echo "FAIL: nightly signing input fallback is missing: $fallback"
+    exit 1
+  fi
+done
 
 if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
@@ -276,6 +322,61 @@ if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
+if ! awk '
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
+  /^  generate-nightly-deltas:/ { job="delta"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "sign" && /SPARKLE_PREVIOUS_ARCHIVES_DIR|SPARKLE_MAXIMUM_DELTAS/ { initial_delta=1 }
+  job == "delta" && /--count 1/ { saw_previous=1 }
+  job == "delta" && /SPARKLE_MAXIMUM_DELTAS=1/ { saw_max=1 }
+  job == "delta" && /name: cmux-nightly-deltas-\$\{\{ matrix\.variant \}\}/ { saw_artifact=1 }
+  END { exit !(saw_previous && saw_max && saw_artifact && !initial_delta) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: initial appcasts must be full-only and delta generation must run later per variant"
+  exit 1
+fi
+
+if ! awk '
+  /^  generate-nightly-deltas:/ { delta=NR; next }
+  /^  republish-nightly-deltas:/ { republish=NR; next }
+  /^  publish-nightly:/ { publish=NR; next }
+  /^  report-nightly-failure:/ { report=NR; next }
+  END { exit !(publish && delta && republish && publish < delta && delta < republish && report > republish) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: Sparkle deltas must be downstream of first publication and before failure closeout"
+  exit 1
+fi
+
+if ! awk '
+  /^  generate-nightly-deltas:/ { job="delta"; next }
+  /^  republish-nightly-deltas:/ { job="republish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "delta" && /needs: \[decide, build-nightly-app, publish-nightly\]/ { saw_publish_need=1 }
+  job == "delta" && /fail-fast: false/ { saw_matrix=1 }
+  job == "republish" && /needs: \[decide, build-nightly-app, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
+  job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
+  job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
+  job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && saw_republish && saw_r2) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
+  exit 1
+fi
+
+if ! awk '
+  /^  build-nightly-app:/ { job="app"; next }
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "app" && /Clear build outputs a persistent runner kept/ { in_clear=1; next }
+  in_clear && /^      - name:/ { in_clear=0 }
+  in_clear && /clear-dirs\.sh remote-daemon-assets/ { saw_clear=1 }
+  job == "app" && /Prepare persistent Release DerivedData/ { saw_prepare=1 }
+  job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
+  END { exit !(saw_clear && saw_prepare && saw_key) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: persistent minis must retain channel/toolchain-keyed Release DerivedData"
+  exit 1
+fi
 
 if ! awk '
   /NIGHTLY_APPCAST="appcast-\$\{NIGHTLY_VARIANT\}\.xml"/ { saw_thin_feed=1 }
@@ -327,6 +428,57 @@ if ! awk '
   END { exit !(sign_line && smoke_line && notarize_line && sign_line < smoke_line && smoke_line < notarize_line) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly must smoke-launch the signed app before paying the Apple notarization wait"
+  exit 1
+fi
+
+if ! python3 - "$WORKFLOW_FILE" <<'PY'
+import re
+import sys
+
+workflow = open(sys.argv[1], encoding="utf-8").read()
+
+def step(name):
+    match = re.search(
+        rf"^      - name: {re.escape(name)}\n(.*?)(?=^      - name:|^  [A-Za-z0-9_-]+:)",
+        workflow,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match, f"missing workflow step: {name}"
+    return match.group(1)
+
+helper = step("Start Computer Use helper notarization")
+assert "if: needs.decide.outputs.fast_build != 'true'" in helper
+
+codesign = step("Codesign apps")
+assert 'if [ "$NIGHTLY_FAST_BUILD" = "true" ]' in codesign
+assert "sign_mode=all" in codesign
+assert "sign_mode=all-except-computer-use" in codesign
+
+smoke = step("Smoke launch signed app before notarization")
+cli_smoke = step("Smoke bundled CLI against the signed app")
+assert "if:" not in smoke and "if:" not in cli_smoke
+
+notarize = step("Notarize app ticket through final DMG")
+assert "if: needs.decide.outputs.fast_build != 'true'" in notarize
+assert "id: notarize-nightly" in notarize
+
+recovery = step("Upload pending notarization recovery artifact")
+assert "failure() && needs.decide.outputs.fast_build != 'true' && steps.notarize-nightly.outcome == 'failure'" in recovery
+assert "NIGHTLY_DMG_RELEASE" in recovery
+assert ".notarization.state" in recovery
+assert ".notarization.log" in recovery
+assert "CHANNEL_APP_PATH" in recovery
+
+fast_package = step("Package signed fast dogfood DMG")
+assert "if: needs.decide.outputs.fast_build == 'true'" in fast_package
+assert 'CMUX_SKIP_NOTARIZATION: "true"' in fast_package
+assert "NIGHTLY_DMG_IMMUTABLE" in fast_package
+
+syspolicy = step("Gate distribution with syspolicy_check")
+assert "if: needs.decide.outputs.fast_build != 'true'" in syspolicy
+PY
+then
+  echo "FAIL: fast dogfood must skip notarization and distribution policy only after retaining signing and smoke"
   exit 1
 fi
 
@@ -654,9 +806,16 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Only the six-hour cache warmup may replace an older scheduled run. The daily
-# 08:47 publication schedule and all push/manual lanes must stay serialized so
-# a newer publication cannot cancel an earlier candidate or race its aliases.
+# Main NIGHTLY and nightly-next use the same app identity and Sparkle build
+# ordering. Their full publish runs must share a concurrency group so an older
+# next run cannot finish after a newer main run and fail the cross-feed floor.
+if ! grep -Fq "(github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
+  echo "FAIL: main and nightly-next publishing runs must share one concurrency group"
+  exit 1
+fi
+
+# Every nightly lane must let an in-flight build finish. GitHub still keeps one
+# pending run per group, so a newer push replaces only an older queued run.
 if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
   echo "FAIL: the six-hour cache warmup must have its own replaceable concurrency group"
   exit 1
@@ -669,12 +828,12 @@ if grep -Fq "&& 'cache-seed'" "$WORKFLOW_FILE"; then
   echo "FAIL: scheduled and manual cache seeds must not share the legacy cache-seed group"
   exit 1
 fi
-if ! grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: only the six-hour cache warmup may cancel an older scheduled run"
+if ! grep -Fq "cancel-in-progress: false" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly runs must never cancel an in-flight build"
   exit 1
 fi
-if grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: the publishing schedule must not cancel an older nightly run"
+if grep -Eq "cancel-in-progress: \$\{\{" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly cancellation must be a literal false policy, not an event expression"
   exit 1
 fi
 

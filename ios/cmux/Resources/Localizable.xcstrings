@@ -103949,10 +103949,159 @@
     "mobile.billing.plan.go.size": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"2 vCPUs and 4 GB RAM"}},"de":{"stringUnit":{"state":"translated","value":"2 vCPUs und 4 GB RAM"}},"fr":{"stringUnit":{"state":"translated","value":"2 vCPU et 4 Go de RAM"}},"ar":{"stringUnit":{"state":"translated","value":"2 vCPU وذاكرة RAM بسعة 4 جيجابايت"}},"es":{"stringUnit":{"state":"translated","value":"2 vCPU y 4 GB de RAM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"2 個 vCPU 與 4 GB RAM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"2 个 vCPU 和 4 GB RAM"}},"ko":{"stringUnit":{"state":"translated","value":"vCPU 2개, RAM 4GB"}},"ja":{"stringUnit":{"state":"translated","value":"vCPU 2 基と RAM 4 GB"}}}},
     "mobile.billing.plan.max": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Max"}},"de":{"stringUnit":{"state":"translated","value":"Max"}},"fr":{"stringUnit":{"state":"translated","value":"Max"}},"ar":{"stringUnit":{"state":"translated","value":"Max"}},"es":{"stringUnit":{"state":"translated","value":"Max"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Max"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Max"}},"ko":{"stringUnit":{"state":"translated","value":"Max"}},"ja":{"stringUnit":{"state":"translated","value":"Max"}}}},
     "mobile.billing.plan.max.machines": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Up to 5 Cloud VMs"}},"de":{"stringUnit":{"state":"translated","value":"Bis zu 5 Cloud-VMs"}},"fr":{"stringUnit":{"state":"translated","value":"Jusqu’à 5 VM Cloud"}},"ar":{"stringUnit":{"state":"translated","value":"حتى 5 أجهزة Cloud VM"}},"es":{"stringUnit":{"state":"translated","value":"Hasta 5 VM en la nube"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"最多 5 部 Cloud VM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"最多 5 台 Cloud VM"}},"ko":{"stringUnit":{"state":"translated","value":"최대 5개의 Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"最大 5 台の Cloud VM"}}}},
-    "mobile.billing.plan.max.size": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Up to 16 vCPUs and 32 GB RAM per VM"}},"de":{"stringUnit":{"state":"translated","value":"Bis zu 16 vCPUs und 32 GB RAM pro VM"}},"fr":{"stringUnit":{"state":"translated","value":"Jusqu’à 16 vCPU et 32 Go de RAM par VM"}},"ar":{"stringUnit":{"state":"translated","value":"حتى 16 vCPU وذاكرة RAM بسعة 32 جيجابايت لكل VM"}},"es":{"stringUnit":{"state":"translated","value":"Hasta 16 vCPU y 32 GB de RAM por VM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每部 VM 最多 16 個 vCPU 與 32 GB RAM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每台 VM 最多 16 个 vCPU 和 32 GB RAM"}},"ko":{"stringUnit":{"state":"translated","value":"VM당 최대 vCPU 16개, RAM 32GB"}},"ja":{"stringUnit":{"state":"translated","value":"VM あたり最大 vCPU 16 基と RAM 32 GB"}}}},
+    "mobile.billing.plan.max.size": {"extractionState":"manual","localizations":{"en":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharing 80 vCPUs and 160 GB RAM"
+          }
+        },"de":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemeinsame 80 vCPUs und 160 GB RAM"
+          }
+        },"fr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partageant 80 vCPU et 160 Go de RAM"
+          }
+        },"ar":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتشارك 80 vCPU وذاكرة RAM بسعة 160 جيجابايت"
+          }
+        },"es":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartiendo 80 vCPU y 160 GB de RAM"
+          }
+        },"zh-Hant":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "共用 80 個 vCPU 與 160 GB RAM"
+          }
+        },"zh-Hans":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享 80 个 vCPU 和 160 GB RAM"
+          }
+        },"ko":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 80개, RAM 160GB 공유"
+          }
+        },"ja":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 80 基と RAM 160 GB を共有"
+          }
+        }}},
+    "cloud.pool.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld of %2$lld vCPUs · %3$lld of %4$lld GB RAM in use"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld von %2$lld vCPUs · %3$lld von %4$lld GB RAM belegt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld vCPU sur %2$lld · %3$lld Go de RAM sur %4$lld utilisés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيد الاستخدام: %1$lld من %2$lld وحدة معالجة مركزية افتراضية · %3$lld من %4$lld جيجابايت من الذاكرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld de %2$lld vCPU · %3$lld de %4$lld GB de RAM en uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用 %1$lld / %2$lld 個虛擬 CPU · %3$lld / %4$lld GB 記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用 %1$lld / %2$lld 个虚拟 CPU · %3$lld / %4$lld GB 内存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 중: vCPU %1$lld/%2$lld개 · RAM %3$lld/%4$lld GB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用中: %1$lld / %2$lld vCPU · %3$lld / %4$lld GB RAM"
+          }
+        }
+      }
+    },
     "mobile.billing.plan.pro": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pro"}},"de":{"stringUnit":{"state":"translated","value":"Pro"}},"fr":{"stringUnit":{"state":"translated","value":"Pro"}},"ar":{"stringUnit":{"state":"translated","value":"Pro"}},"es":{"stringUnit":{"state":"translated","value":"Pro"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Pro"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Pro"}},"ko":{"stringUnit":{"state":"translated","value":"Pro"}},"ja":{"stringUnit":{"state":"translated","value":"Pro"}}}},
     "mobile.billing.plan.pro.machines": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Up to 5 Cloud VMs"}},"de":{"stringUnit":{"state":"translated","value":"Bis zu 5 Cloud-VMs"}},"fr":{"stringUnit":{"state":"translated","value":"Jusqu’à 5 VM Cloud"}},"ar":{"stringUnit":{"state":"translated","value":"حتى 5 أجهزة Cloud VM"}},"es":{"stringUnit":{"state":"translated","value":"Hasta 5 VM en la nube"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"最多 5 部 Cloud VM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"最多 5 台 Cloud VM"}},"ko":{"stringUnit":{"state":"translated","value":"최대 5개의 Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"最大 5 台の Cloud VM"}}}},
-    "mobile.billing.plan.pro.size": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Up to 4 vCPUs and 8 GB RAM per VM"}},"de":{"stringUnit":{"state":"translated","value":"Bis zu 4 vCPUs und 8 GB RAM pro VM"}},"fr":{"stringUnit":{"state":"translated","value":"Jusqu’à 4 vCPU et 8 Go de RAM par VM"}},"ar":{"stringUnit":{"state":"translated","value":"حتى 4 vCPU وذاكرة RAM بسعة 8 جيجابايت لكل VM"}},"es":{"stringUnit":{"state":"translated","value":"Hasta 4 vCPU y 8 GB de RAM por VM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每部 VM 最多 4 個 vCPU 與 8 GB RAM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每台 VM 最多 4 个 vCPU 和 8 GB RAM"}},"ko":{"stringUnit":{"state":"translated","value":"VM당 최대 vCPU 4개, RAM 8GB"}},"ja":{"stringUnit":{"state":"translated","value":"VM あたり最大 vCPU 4 基と RAM 8 GB"}}}},
+    "mobile.billing.plan.pro.size": {"extractionState":"manual","localizations":{"en":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharing 20 vCPUs and 40 GB RAM"
+          }
+        },"de":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemeinsame 20 vCPUs und 40 GB RAM"
+          }
+        },"fr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partageant 20 vCPU et 40 Go de RAM"
+          }
+        },"ar":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتشارك 20 vCPU وذاكرة RAM بسعة 40 جيجابايت"
+          }
+        },"es":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartiendo 20 vCPU y 40 GB de RAM"
+          }
+        },"zh-Hant":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "共用 20 個 vCPU 與 40 GB RAM"
+          }
+        },"zh-Hans":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享 20 个 vCPU 和 40 GB RAM"
+          }
+        },"ko":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 20개, RAM 40GB 공유"
+          }
+        },"ja":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 20 基と RAM 40 GB を共有"
+          }
+        }}},
     "mobile.billing.pricePerPeriod": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"de":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"fr":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"ar":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"es":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"ko":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}}}},
     "mobile.billing.privacy": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Privacy Policy"}},"de":{"stringUnit":{"state":"translated","value":"Datenschutzerklärung"}},"fr":{"stringUnit":{"state":"translated","value":"Politique de confidentialité"}},"ar":{"stringUnit":{"state":"translated","value":"سياسة الخصوصية"}},"es":{"stringUnit":{"state":"translated","value":"Política de privacidad"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"隱私權政策"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"隐私政策"}},"ko":{"stringUnit":{"state":"translated","value":"개인정보 처리방침"}},"ja":{"stringUnit":{"state":"translated","value":"プライバシーポリシー"}}}},
     "mobile.billing.purchasing": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Completing your purchase"}},"de":{"stringUnit":{"state":"translated","value":"Kauf wird abgeschlossen"}},"fr":{"stringUnit":{"state":"translated","value":"Finalisation de votre achat"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ إتمام عملية الشراء"}},"es":{"stringUnit":{"state":"translated","value":"Completando tu compra"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在完成購買"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在完成购买"}},"ko":{"stringUnit":{"state":"translated","value":"구입을 완료하는 중"}},"ja":{"stringUnit":{"state":"translated","value":"購入を完了しています"}}}},
@@ -106291,6 +106440,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "方向にドラッグして矢印キーを送信します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسحب في اتجاه لإرسال مفاتيح الأسهم."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In eine Richtung ziehen, um Pfeiltasten zu senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra en una dirección para enviar teclas de flecha."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites glisser dans une direction pour envoyer les touches fléchées."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방향으로 드래그하여 화살표 키를 보냅니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向某个方向拖动以发送方向键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "朝某個方向拖移以傳送方向鍵。"
           }
         }
       }

@@ -1926,6 +1926,7 @@ class TerminalController {
             return v2RemoteTmuxDetach(id: request.id, params: request.params)
         case "remote.tmux.state":
             return v2RemoteTmuxState(id: request.id, params: request.params)
+        case "remote.tmux.attach_progress": return v2RemoteTmuxAttachProgress(id: request.id, params: request.params)
         case "remote.tmux.mirror": return v2RemoteTmuxMirror(id: request.id, params: request.params)
         case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
@@ -3157,6 +3158,16 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case "debug.cloudtree.rows":
+            // The Cloud sidebar's rows from the same builder the sidebar uses, so
+            // dogfood can assert what is listed (duplicate rows were invisible to
+            // `cloud tree --json`, which reports catalog state, not rows).
+            let rows = CloudTreeNodeBuilder.flattened(SurfaceCatalog.shared.sidebarNodes()).map { node -> [String: Any] in
+                var row: [String: Any] = ["id": node.id, "kind": node.structureTag]
+                if case .display(let resource, _, _) = node.kind { row["resource"] = resource.id.rawValue; row["title"] = resource.title }
+                return row
+            }
+            return v2Ok(id: id, result: ["rows": rows])
         case "debug.cloudtree.spacing":
             // Explicit window presentation needs AppKit; the socket awaits the main-actor lane.
             AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
@@ -3381,6 +3392,15 @@ class TerminalController {
             result["bundle_identifier"] = bundleIdentifier
         }
         result["app_bundle_path"] = Bundle.main.bundleURL.path
+        // Lets a CLI from another build explain an unknown method
+        // (`CLIVersionSkew`): product, version, and build of this process.
+        result["app"] = "cmux"
+        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            result["version"] = version
+        }
+        if let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
+            result["build"] = build
+        }
         if let executablePath = Bundle.main.executableURL?.path {
             result["app_executable_path"] = executablePath
         }
@@ -3897,7 +3917,7 @@ class TerminalController {
     /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
     nonisolated func v2VmCall(
         id: Any?,
-        timeoutSeconds: TimeInterval = 17 * 60,
+        timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
@@ -3911,13 +3931,18 @@ class TerminalController {
             }
             semaphore.signal()
         }
-        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-            task.cancel()
-            return v2Error(
-                id: id,
-                code: "timeout",
-                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
-            )
+        if let timeoutSeconds {
+            if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+                task.cancel()
+                return v2Error(
+                    id: id,
+                    code: "timeout",
+                    message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
+                )
+            }
+        } else {
+            // Opt-in for operations that enforce their own lifecycle deadline.
+            semaphore.wait()
         }
         switch result {
         case .success(let payload):
@@ -3952,6 +3977,17 @@ class TerminalController {
             }
             if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if let linkError = error as? CloudMachineLink.LinkError,
+               String(describing: linkError).lowercased().contains("daemon") {
+                return v2Error(
+                    id: id,
+                    code: "vm_tui_daemon_unavailable",
+                    message: String(
+                        localized: "socket.cloudVM.tuiDaemonUnavailable",
+                        defaultValue: "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
+                    )
+                )
             }
             if let failure = error as? SSHTuiOpenFailure {
                 return v2Error(id: id, code: "ssh_failed", message: failure.reason)
@@ -4086,6 +4122,11 @@ class TerminalController {
         // that blocked the open; the generic Cloud VM line would hide it.
         if let rejection = error as? SurfaceTransferRejection {
             return rejection.message
+        }
+        // Remote tmux requests come through this wrapper too. Their errors are about an ssh
+        // host, and `RemoteTmuxError.message` already flattens and caps any remote text.
+        if let remoteTmuxError = error as? RemoteTmuxError {
+            return remoteTmuxError.message
         }
         guard case let VMClientError.httpStatus(status, body) = error else {
             guard let vmError = error as? VMClientError else { return fallback }
@@ -4231,6 +4272,10 @@ class TerminalController {
         controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
     }
 
+    func v2ExistingHandleRef(kind: ControlHandleKind, uuid: UUID) -> String? {
+        controlCommandCoordinator.existingRef(kind: kind, uuid: uuid)
+    }
+
     func v2ResolveHandleRef(_ handle: String) -> UUID? {
         controlCommandCoordinator.resolveRef(handle)
     }
@@ -4281,6 +4326,12 @@ class TerminalController {
         // ptrauth). A v2 socket command arriving within ~1s of launch can
         // re-enter this on the main actor mid-restore, so degrade gracefully.
         guard app.didCompleteInitialSessionRestore else { return }
+
+        // #5757: Skip the expensive full-tree scan if topology has not changed.
+        // Commands calling `controlResolveOnMain` or reading surfaces otherwise force
+        // O(windows * tabs * panes) handle sweeps on every RPC hop, freezing the MainActor
+        // during heavy multi-agent activity.
+        guard controlCommandCoordinator.needsHandleTopologyRefresh else { return }
 
         let windows = app.listMainWindowSummaries()
         for item in windows {

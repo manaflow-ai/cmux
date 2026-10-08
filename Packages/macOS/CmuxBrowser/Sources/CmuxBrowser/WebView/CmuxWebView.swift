@@ -324,6 +324,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     public var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    /// Called when a link takes keyboard focus, and with `nil` when it loses
+    /// it, so the pane can show the link's URL as it does on hover.
+    public var onKeyboardFocusedLinkChanged: ((URL?) -> Void)?
     /// Called for physical mouse back/forward buttons so BrowserPanel can use
     /// its restored-session history fallback instead of raw WKWebView history.
     public var onMouseBackButton: (() -> Void)?
@@ -347,18 +350,21 @@ public final class CmuxWebView: CmuxUndoableWebView {
     }
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
-    public var allowsFirstResponderAcquisition: Bool = true
-    private var pointerFocusAllowanceDepth: Int = 0
+    // These flags are owned by the AppKit main thread. They are marked unsafe
+    // so the synchronous responder entry point can read them without asking
+    // Swift to hop through an executor that WebKit did not install.
+    public nonisolated(unsafe) var allowsFirstResponderAcquisition: Bool = true
+    private nonisolated(unsafe) var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     private let diffViewerDocumentState = DiffViewerNavigationDocumentState()
     private lazy var diffViewerNavigationKeyRouter: (any CmuxWebViewNavigationKeyRouting)? =
         host?.makeDiffViewerNavigationKeyRouter()
-    public var allowsFirstResponderAcquisitionEffective: Bool {
-        allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
-    }
-    public var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
+    private nonisolated(unsafe) var automationRenderFocusDepth = 0
 
+    public nonisolated var allowsFirstResponderAcquisitionEffective: Bool {
+        allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0 || automationRenderFocusDepth > 0
+    }
     /// Uses the host's keyboard-layout-aware Cmd+Z / Cmd+Shift+Z check.
     public override func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
         host?.isUndoRedoCommandEquivalent(event) == true
@@ -371,6 +377,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
+        installLinkFocusCapture()
         installDiffViewerEditableFocusTracking()
     }
     public required init?(coder: NSCoder) {
@@ -379,6 +386,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
+        installLinkFocusCapture()
         installDiffViewerEditableFocusTracking()
     }
 
@@ -567,7 +575,23 @@ public final class CmuxWebView: CmuxUndoableWebView {
         host?.paneFirstClickFocusEnabled() ?? false
     }
 
-    public override func becomeFirstResponder() -> Bool {
+    /// Makes this web view the first responder of an offscreen automation
+    /// render window, so WebKit treats the driven page as focused. The focus
+    /// policy guards the user's windows and is bypassed only here; no
+    /// first-responder notification is posted, because the user's focus does
+    /// not move. AppKit/WebKit can enter the override while making a responder
+    /// change without Swift's MainActor executor token.
+    @discardableResult
+    public func acquireAutomationRenderFocus(in window: NSWindow) -> Bool {
+        automationRenderFocusDepth += 1
+        defer { automationRenderFocusDepth -= 1 }
+        return window.makeFirstResponder(self)
+    }
+
+    public nonisolated override func becomeFirstResponder() -> Bool {
+        if automationRenderFocusDepth > 0 {
+            return super.becomeFirstResponder()
+        }
         guard allowsFirstResponderAcquisitionEffective else {
 #if DEBUG
             let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
@@ -1000,6 +1024,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     // only ever pair with a link captured by this exact click.
     public override func rightMouseDown(with event: NSEvent) {
         contextMenuCapturedLink = nil
+        // A physical right click always gets its menu, even if an automated
+        // right click earlier left a suppression pending (page prevented it).
+        automationContextMenuSuppressionCount = 0
         super.rightMouseDown(with: event)
     }
 
@@ -1088,7 +1115,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// right-click (`url` is nil when the click was not on a link). The type
     /// and its lifecycle live in `CmuxWebView+ContextMenuLinkCapture.swift`;
     /// only the stored property has to live in the class body.
-    var contextMenuCapturedLink: ContextMenuCapturedLink?
+    // WebKit script delivery and AppKit menu tracking both run on the main
+    // thread; synchronous publication must not require an executor-token check.
+    nonisolated(unsafe) var contextMenuCapturedLink: ContextMenuCapturedLink?
     /// Uptime at which the current context menu opened, used to pair the menu
     /// with the contextmenu capture report from the same right-click.
     var lastContextMenuOpenUptime: TimeInterval?
@@ -2232,6 +2261,12 @@ public final class CmuxWebView: CmuxUndoableWebView {
 
     public override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
+        if consumeAutomationContextMenuSuppression() {
+            // An automated right click fires the page's contextmenu event but
+            // must not open cmux's native menu: with no items AppKit shows nothing.
+            menu.removeAllItems()
+            return
+        }
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
         lastContextMenuOpenUptime = ProcessInfo.processInfo.systemUptime
         lastContextMenuOpenEventTimestamp = event.timestamp

@@ -2,13 +2,56 @@ import Foundation
 
 extension RemoteTmuxControlConnection {
 
+    /// Takes the slots of the commands tmux skipped off the front of ``pendingCommands``.
+    ///
+    /// Results are matched to commands by position, and a line sent with
+    /// ``sendCommandQueueInternal(_:kinds:)`` reserves one slot per command. tmux runs such a
+    /// line up to its first failing command and answers nothing after it. Measured on tmux
+    /// 3.7b: a failure in the first, middle or last of three commands gets one, two and three
+    /// replies, and a line that does not parse gets one. Left in place, the unanswered slots
+    /// take the replies of whatever was sent next, and every reply after that goes to the
+    /// wrong command.
+    ///
+    /// - Parameter position: where the result just dequeued sat, by ``dequeuedCommandCount``.
+    /// - Returns: the skipped commands, in order. Empty unless a queued line failed early.
+    func takeCommandsSkippedByQueueFailure(at position: Int, isError: Bool) -> [CommandKind] {
+        pendingCommandQueues.removeAll { $0.upperBound <= position }
+        guard let queue = pendingCommandQueues.first, queue.contains(position) else { return [] }
+        let isLast = position == queue.upperBound - 1
+        if isLast || isError { pendingCommandQueues.removeFirst() }
+        guard isError, !isLast else { return [] }
+        let count = min(queue.upperBound - position - 1, pendingCommands.count)
+        let skipped = Array(pendingCommands.prefix(count))
+        pendingCommands.removeFirst(count)
+        dequeuedCommandCount += count
+        #if DEBUG
+        cmuxDebugLog("remote.fifo.skipped count=\(count) kinds=\(skipped)")
+        #endif
+        return skipped
+    }
+
+    /// Settles what the skipped commands of a failed queue were going to settle.
+    func failCommandsSkippedByQueueFailure(_ skipped: [CommandKind], errorLines: [String]) {
+        guard !skipped.isEmpty else { return }
+        let targetGone = errorLines.joined(separator: " ")
+            .localizedCaseInsensitiveContains("find pane")
+        for kind in skipped {
+            // A skipped `continue` normally leaves this client's output for the pane paused,
+            // which only a fresh client repairs. A pane that is gone has no output to resume.
+            if case .paneOutputContinue = kind, targetGone { continue }
+            failPaneSeedCommand(kind, errorLines: errorLines)
+        }
+    }
 
     func handleCommandResult(lines: [String], isError: Bool) {
         // The attach block was already consumed upstream (`attachBlockDrained`);
         // an empty FIFO here means an unsolicited block — drop it rather than
         // misalign the positional correlation.
         guard !pendingCommands.isEmpty else { return }
+        let position = dequeuedCommandCount
         let kind = pendingCommands.removeFirst()
+        dequeuedCommandCount += 1
+        let skipped = takeCommandsSkippedByQueueFailure(at: position, isError: isError)
         #if DEBUG
         switch kind {
         case .paneRects, .listWindows, .perWindowSize:
@@ -28,6 +71,7 @@ extension RemoteTmuxControlConnection {
         }
         guard !isError else {
             failPaneSeedCommand(kind, errorLines: lines)
+            failCommandsSkippedByQueueFailure(skipped, errorLines: lines)
             if case let .paneColorReport(paneId, colors) = kind {
                 rejectPaneColorReport(paneId: paneId, colors: colors, lines: lines)
             }
@@ -48,6 +92,10 @@ extension RemoteTmuxControlConnection {
             if case let .tracked(token) = kind,
                let completion = trackedSendCompletions.removeValue(forKey: token) {
                 completion(false)
+            }
+            if case let .rawQuery(token) = kind {
+                rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
+                rawQueryCompletions.removeValue(forKey: token)?(.error(lines))
             }
             // A rejected per-window size normally means the server predates
             // the '@id:WxH' form: degrade to session-wide sizing, visibly.
@@ -336,6 +384,9 @@ extension RemoteTmuxControlConnection {
             // One-shot reflow classification result (see requestPaneReflow). Empty
             // lines → classifyAndEmitReflow defaults to no-reflow (safe).
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
+        case let .rawQuery(token):
+            rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
+            rawQueryCompletions.removeValue(forKey: token)?(.lines(lines))
         case let .activityQuery(token):
             guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
             var states: [Int: PaneForegroundState] = [:]

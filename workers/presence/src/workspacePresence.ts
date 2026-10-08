@@ -17,6 +17,10 @@ export interface ViewerIdentity {
   displayName?: string;
   avatarURL?: string;
 }
+export interface ViewerParticipant extends ViewerIdentity {
+  /** Whether at least one of this account's live connections is focused on the workspace. */
+  active: boolean;
+}
 export interface ViewerLease {
   identity: ViewerIdentity;
   expiresAt: number;
@@ -67,10 +71,16 @@ export function renewViewer(lease: ViewerLease, active: boolean, now: number): V
 }
 
 /** Deduplicate multiple live devices without reordering avatars on lease ticks. */
-export function workspaceViewers(leases: readonly ViewerLease[], now: number): ViewerIdentity[] {
-  const users = new Map<string, ViewerIdentity>();
+export function workspaceViewers(leases: readonly ViewerLease[], now: number): ViewerParticipant[] {
+  const users = new Map<string, ViewerParticipant>();
   for (const lease of leases) {
-    if (lease.expiresAt > now && lease.viewingUntil > now) users.set(lease.identity.id, lease.identity);
+    if (lease.expiresAt <= now) continue;
+    const active = lease.viewingUntil > now;
+    const previous = users.get(lease.identity.id);
+    users.set(lease.identity.id, {
+      ...lease.identity,
+      active: active || previous?.active === true,
+    });
   }
   return [...users.values()].sort((a, b) => a.id.localeCompare(b.id));
 }

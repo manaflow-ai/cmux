@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Nicht genug Cloud-VM-Ressourcen",
+      "memoryMessage": "Ihre VMs nutzen bereits {used} von {pool} GB RAM. Diese VM benötigt {requested} GB.",
+      "vcpuMessage": "Ihre VMs nutzen bereits {used} von {pool} vCPUs. Diese VM benötigt {requested} vCPUs.",
+      "upgradeAction": "Pausieren oder löschen Sie eine VM, oder wechseln Sie zu Max.",
+      "action": "Pausieren oder löschen Sie eine VM."
     }
   },
   "billingRecovery": {
@@ -490,16 +497,17 @@
           ],
           "pro": [
             "Cloud-Agenten auf Cloud VMs",
-            "Bis zu 5 Cloud VMs mit bis zu 4 vCPUs und 8 GB RAM pro VM",
+            "Bis zu 5 Cloud VMs, die sich 20 vCPUs und 40 GB RAM teilen",
             "Die cmux iOS-App"
           ],
           "max": [
-            "Bis zu 5 Cloud VMs mit bis zu 16 vCPUs und 32 GB RAM pro VM",
+            "Bis zu 5 Cloud VMs, die sich 80 vCPUs und 160 GB RAM teilen",
             "Größere Maschinengrößen",
             "Alles aus Pro"
           ],
           "team": [
             "Alles aus Pro für jedes Mitglied",
+            "Bis zu 5 Cloud VMs pro bezahltem Platz, die sich im ganzen Team 20 vCPUs und 40 GB RAM pro bezahltem Platz teilen",
             "Eine Rechnung für das ganze Team",
             "Priorisierter Support"
           ]
@@ -2149,6 +2157,7 @@
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
           "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",
+          "showLinkHoverURL": "Zeigt das Ziel eines Links unten links im Browserbereich an, solange sich der Zeiger über dem Link befindet oder der Link den Tastaturfokus hat.",
           "urlAllowlist": "Host- oder URL-Muster, die die Navigation im eingebetteten Browser einschränken. Die Einstellungen schlagen lokale Entwicklungsursprünge vor; durch Speichern einer Liste wird die optionale Einschränkung aktiviert. Entfernen Sie Einträge, um sie zu blockieren, oder lassen Sie den Benutzerwert ohne verwaltete Richtlinie leer, um die Einschränkung zu deaktivieren."
         },
         "workspaceGroups": {
@@ -2868,7 +2877,7 @@
       "metaTitle": "cmux Cloud",
       "metaDescription": "Betreibe dauerhafte Linux-Cloud-Maschinen aus cmux heraus, damit deine Coding-Agenten weiterarbeiten, auch wenn du deinen Mac zuklappst.",
       "intro": "cmux Cloud gibt dir dauerhafte Linux-Maschinen in der Cloud, die sich als normale cmux-Workspaces öffnen. Terminals laufen weiter, wenn du ein Pane schließt, die Netzwerkverbindung verlierst oder deinen Laptop zuklappst. So arbeiten Coding-Agenten weiter, und du kannst dich von jedem angemeldeten Mac aus wieder verbinden.",
-      "betaNote": "cmux Cloud ist im Early Access und wird schrittweise für Macs aktiviert. Um Cloud zu nutzen, muss dein Mac Teil des Rollouts sein, und du musst Settings › Beta Features › Cloud Machines aktivieren. Ist dein Mac noch nicht Teil des Rollouts, zeigen Cloud-Befehle „Cloud Machines sind vorübergehend nicht verfügbar“ an.",
+      "betaNote": "cmux Cloud ist im Early Access und verfügbar, sofern deine Organisation es nicht deaktiviert. Aktiviere zur Nutzung Settings › Beta Features › Cloud Machines.",
       "whatTitle": "Was eine Maschine ist",
       "whatDesc": "Eine Maschine ist ein dauerhafter Cloud-Computer, der dir oder deinem Team gehört. Sie behält ihre Dateien, installierten Tools und laufenden Terminals. Behandle sie wie ein Haustier, nicht wie Herdenvieh: Du installierst einmal, was du brauchst, und kommst später darauf zurück.",
       "whatDaemon": "Auf jeder Maschine läuft der cmux-TUI-Daemon. Der Daemon hält die Workspaces und Terminals der Maschine. Ein cmux-Pane auf deinem Mac zeigt nur ein Terminal an, das auf der Maschine lebt. Wenn du das Pane schließt, wird der Prozess daher nie beendet.",
@@ -2877,7 +2886,7 @@
       "requirementsTitle": "Was Sie brauchen",
       "reqMac": "Die cmux-App für macOS, gestartet und angemeldet. Die cmux-CLI kommuniziert mit der App, und die App verwaltet deine Anmeldedaten.",
       "reqPlan": "Ein kostenpflichtiger cmux-Plan. Kostenlose Konten können keine Maschinen erstellen. Die aktuellen Pläne findest du auf der Preisseite.",
-      "reqBeta": "Ein Mac, der Teil des Cloud-Early-Access-Rollouts ist, mit aktiviertem Cloud Machines unter Settings › Beta Features.",
+      "reqBeta": "Cloud Machines ist unter Settings › Beta Features aktiviert und Cloud wird nicht durch eine Organisationsrichtlinie deaktiviert.",
       "reqNoVpn": "Keine Einrichtung von VPN, SSH-Schlüsseln oder Portweiterleitung. cmux verbindet sich über ein privates Netzwerk, das automatisch startet, mit deinen Maschinen.",
       "quickstartTitle": "Schnellstart",
       "stepSignIn": "Melde dich an. Nutze den Cloud-Tab in der rechten Seitenleiste oder führe den Login-Befehl in einem Terminal aus.",
@@ -2920,11 +2929,12 @@
       "planMax": "Max",
       "sizesDefault": "Neue Maschinen erhalten 8 GB Arbeitsspeicher, wenn du keine Größe wählst. Führe cmux vm ls --json aus, um die Größen zu sehen, die dein Plan erlaubt.",
       "limitsTitle": "Planlimits",
-      "limitsDesc": "Planlimits zählen Maschinen, keinen gemeinsamen Pool aus CPU oder Arbeitsspeicher. Jede Maschine erhält die Ressourcen ihrer Größe.",
+      "limitsDesc": "Deine aktiven Maschinen teilen sich einen Pool aus vCPUs und Arbeitsspeicher. Betreibe eine große Maschine oder mehrere kleine. Pausierte Maschinen belegen den Pool nicht. Die Festplatte gilt pro Maschine und gehört nicht zum Pool.",
       "limitsFree": "Kostenlose Konten können keine Maschinen erstellen.",
-      "limitsPaid": "Pro- und Max-Konten können bis zu 5 aktive Maschinen haben. Eine Maschine ist aktiv, solange sie läuft oder startet.",
-      "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 5 aktive Maschinen haben.",
-      "limitsMax": "Maschinen mit mehr als 8 GB benötigen cmux Max. Max-Maschinen gehen bis 32 GB und 16 vCPUs.",
+      "limitsPaid": "Pro- und Founder's-Edition-Konten können bis zu 5 aktive Maschinen haben, die sich 20 vCPUs und 40 GB Arbeitsspeicher teilen. Eine Maschine ist aktiv, solange sie läuft oder startet.",
+      "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 5 aktive Maschinen haben. Jeder bezahlte Platz fügt dem Pool des Teams 20 vCPUs und 40 GB Arbeitsspeicher hinzu.",
+      "limitsMax": "Max-Konten können bis zu 5 aktive Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine einzelne Maschine kann bei Pro und Team bis zu 32 GB und 16 vCPUs haben, bei Max bis zu 64 GB und 32 vCPUs.",
+      "limitsPoolFull": "Würde eine neue, fortgesetzte, vergrößerte oder geforkte Maschine den Pool überschreiten, lehnt cmux die Anfrage ab und zeigt, wie viel vom Pool belegt ist. Pausiere oder lösche eine Maschine, um Ressourcen freizugeben, oder führe ein Upgrade auf Max durch.",
       "limitsPricing": "Aktuelle Preise findest du auf der Preisseite. Es gibt keine nutzungsbasierte Abrechnung und keine Überschreitungsgebühren.",
       "agentUpdatesTitle": "Coding-Agents aktuell halten",
       "agentUpdatesDesc": "Ist diese Einstellung aktiv, aktualisiert die Maschine Claude Code, Codex, OpenCode, pi und agent-browser. Sie prüft nach dem Erstellen der Maschine und bei jedem Verbinden, höchstens einmal alle 24 Stunden. Das Update läuft losgelöst im Hintergrund und blockiert das Verbinden nie.",
@@ -2933,7 +2943,7 @@
       "agentUpdatesToggle": "Im Dialog Neue Maschine ist diese Einstellung standardmäßig aktiv. Um sie für eine bestehende Maschine zu ändern, klicke mit der rechten Maustaste auf die Maschine und wähle Agents aktuell halten, oder führe cmux vm agent-updates aus. cmux vm new behält die Versionen des Images, außer du übergibst --agent-updates latest. Wenn du Updates ausschaltest, bleiben die installierten Versionen erhalten.",
       "agentUpdatesNetwork": "Updates nutzen nur github.com, api.github.com, objects.githubusercontent.com und release-assets.githubusercontent.com. cmux erlaubt diese Hosts in jedem Netzwerkmodus, auch bei Zulassungsliste und Kein Internet, daher blockiert eine Netzwerkrichtlinie Updates nie.",
       "resizeTitle": "Größe ändern",
-      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 256 GB, der Arbeitsspeicher bis 32 GB und die CPU bis 16 vCPU. Das tatsächliche Maximum legt dein Plan fest.",
+      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 256 GB. Arbeitsspeicher und CPU wachsen bei Pro und Team bis 32 GB und 16 vCPU, bei Max bis 64 GB und 32 vCPU. Eine größere Maschine belegt mehr von deinem Pool. Das tatsächliche Maximum legt dein Plan fest.",
       "pauseTitle": "Pausieren und fortsetzen",
       "pauseDesc": "cmux vm pause stoppt die Rechenleistung der Maschine. Festplatte, Workspaces und Terminalverlauf bleiben erhalten. Laufende Prozesse werden beendet. cmux vm resume startet die Maschine wieder. Auch das Öffnen einer pausierten Maschine oder das Ausführen eines Befehls darauf startet sie.",
       "pauseIdle": "Maschinen pausieren nicht von selbst, wenn sie im Leerlauf sind. Eine Maschine läuft weiter, bis du sie pausierst oder löschst.",
@@ -3076,17 +3086,19 @@
       "symptomColumn": "Problem",
       "fixColumn": "Lösung",
       "errNotSeen": "Kein Cloud-Tab oder Befehl New Cloud Machine",
-      "fixNotSeen": "Aktiviere Settings › Beta Features › Cloud Machines. Wird Cloud danach immer noch nicht angezeigt, ist dein Mac noch nicht Teil des Rollouts. Steht dort, dass Cloud Machines von deinem Administrator deaktiviert wurden, wende dich an deinen Administrator.",
-      "errUnavailable": "Cloud Machines sind vorübergehend nicht verfügbar",
-      "fixUnavailable": "Dein Mac ist noch nicht Teil des Cloud-Rollouts, oder Cloud ist vorübergehend deaktiviert. Der Schalter in den Settings allein aktiviert Cloud nicht. Versuche es später erneut.",
+      "fixNotSeen": "Aktiviere Settings › Beta Features › Cloud Machines. Wird Cloud danach immer noch nicht angezeigt, prüfe, ob dein Administrator Cloud Machines deaktiviert hat.",
+      "errUnavailable": "Cloud Machines sind deaktiviert oder nicht verfügbar",
+      "fixUnavailable": "Cloud Machines sind deaktiviert, weil der lokale Schalter in den Settings ausgeschaltet ist oder dein Administrator Cloud deaktiviert hat. Aktiviere den Schalter oder bitte deinen Administrator, Cloud zu erlauben.",
       "errSignIn": "Für den Zugriff auf Cloud-VMs ist eine Anmeldung erforderlich",
       "fixSignIn": "Führe cmux auth login aus und versuche es erneut. Wurde deine Sitzung abgelehnt, führe zuerst cmux auth logout aus.",
       "errPlan": "Cloud-VMs erfordern einen kostenpflichtigen Plan",
       "fixPlan": "Kostenlose Konten können keine Maschinen erstellen. Führe auf der Preisseite ein Upgrade durch.",
       "errSize": "Eine Größe erfordert einen höheren Plan",
-      "fixSize": "Maschinen mit mehr als 8 GB benötigen cmux Max. Wähle eine kleinere Größe oder führe ein Upgrade durch.",
+      "fixSize": "Maschinen mit mehr als 32 GB benötigen cmux Max. Wähle eine kleinere Größe oder führe ein Upgrade durch.",
       "errLimit": "Limit für aktive Maschinen erreicht",
       "fixLimit": "Pausiere oder lösche eine Maschine und versuche es erneut.",
+      "errPool": "Nicht genug Cloud-VM-Ressourcen",
+      "fixPool": "Deine aktiven Maschinen belegen bereits die gemeinsamen vCPUs oder den Arbeitsspeicher. Pausiere oder lösche eine Maschine, wähle eine kleinere Größe oder führe ein Upgrade auf Max durch.",
       "errLocked": "Maschine ist gesperrt",
       "fixLocked": "Dein kostenpflichtiger Plan ist abgelaufen, und die Maschine ist älter als 7 Tage. Führe ein Upgrade durch, um dich wieder zu verbinden. Deine Dateien bleiben erhalten.",
       "errAgentMissing": "claude oder codex: command not found",
@@ -5332,7 +5344,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro ist aktiv",
     "title": "Willkommen bei cmux Pro",
-    "body": "Die Pro-Funktionen werden noch entwickelt. Der Cloud-Zugang kommt bald, mit Nutzungsguthaben für jeden Monat Ihres Abonnements. Derzeit umfasst Pro den TestFlight-Zugang zu cmux für iOS.",
+    "body": "Pro umfasst bis zu 5 Cloud-VMs mit gemeinsam genutzten 20 vCPUs und 40 GB RAM sowie Zugang zu cmux iOS über TestFlight.",
     "done": "Zum Dashboard",
     "steps": {
       "iosApp": {

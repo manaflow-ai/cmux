@@ -70,7 +70,7 @@ struct ProUpgradeCard: View {
         }
         return String(
             localized: "settings.account.pro.subtitle",
-            defaultValue: "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, and the iOS app. $50/month."
+            defaultValue: "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the iOS app. $50/month."
         )
     }
 

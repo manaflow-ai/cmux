@@ -136,6 +136,14 @@ extension RemoteTmuxControlConnection {
         initialBatchAwaiting = nil
         prunePaneState(keeping: paneIDsForStatePruning())
         record("initial-batch-published")
+        // Readiness is claimed here and nowhere earlier: this is the first point at which the
+        // connection holds windows a mirror can actually show. `%enter` and `%window-add` do not
+        // qualify — the former only means control mode was reached, the latter only requests a
+        // list. An empty batch is not readiness either, so a stream that reaches this point with
+        // nothing published stays pending until it ends.
+        if !windowsByID.isEmpty {
+            resolveInitialTopology(ready: true)
+        }
         #if DEBUG
         cmuxDebugLog("remote.rects.batchFlush windows=\(windowsByID.keys.sorted())")
         #endif
@@ -329,8 +337,8 @@ extension RemoteTmuxControlConnection {
         prunePaneState(keeping: paneIDsForStatePruning())
         observers.notifyTopologyChanged()
         // Publish first so every mirror surface adopts the verified grid before
-        // capture-pane repaints the cells that grid growth newly exposed.
-        repaintPanesThatGrew(from: previous, to: published)
+        // capture-pane repaints what that grid newly exposed or rewrapped.
+        repaintPanesTmuxRedrew(from: previous, to: published)
         // First-connect coverage for the attach redraw kick: if the grid was
         // computed before `.enter`, no post-connect `setClientSize` may ever
         // fire (layout settled + same-size dedupe upstream), so the

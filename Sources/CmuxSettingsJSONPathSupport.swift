@@ -27,6 +27,13 @@ private enum SettingsJSONPathFallbackCatalog {
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
+enum CmuxJSONFontSettings {
+    static let sidebarPath = "sidebar.fontSize"
+    static let surfaceTabBarPath = "surfaceTabBar.fontSize"
+    static let sidebarUserDefaultsKey = "cmux.settings.sidebarFontSize"
+    static let surfaceTabBarUserDefaultsKey = "cmux.settings.surfaceTabBarFontSize"
+}
+
 enum SidebarWorkspaceDetailDefaults {
     private static let sidebar = SidebarCatalogSection()
 
@@ -202,6 +209,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingTab.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingAgentSession",
+            defaultsKey: app.warnBeforeClosingAgentSession.userDefaultsKey
+        ),
+        .init(
             jsonKey: "warnBeforeClosingTabXButton",
             defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
@@ -292,6 +303,11 @@ enum TerminalSettingsFileMapping {
             jsonKey: "copyOnSelect",
             defaultsKey: TerminalCopyOnSelectSettings.copyOnSelectKey,
             invalidPath: "terminal.copyOnSelect"
+        ),
+        .init(
+            jsonKey: "showCopyConfirmation",
+            defaultsKey: terminal.showCopyConfirmation.userDefaultsKey,
+            invalidPath: terminal.showCopyConfirmation.id
         ),
         .init(
             jsonKey: "reflowHardWrapOnCopy",
@@ -477,6 +493,10 @@ enum BrowserSettingsFileMapping {
         .init(
             jsonKey: "askWhereToSaveDownloads",
             defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "showLinkHoverURL",
+            defaultsKey: SettingCatalog().browser.showLinkHoverURL.userDefaultsKey
         ),
         .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",

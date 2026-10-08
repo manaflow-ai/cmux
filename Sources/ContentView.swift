@@ -1133,9 +1133,9 @@ struct ContentView: View {
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
-    private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
-    private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
-    private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
+    static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
+    static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
+    static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
         CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
@@ -1177,11 +1177,7 @@ struct ContentView: View {
                 captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
-                    let nextWidth = Self.clampedRightSidebarWidth(
-                        startWidth - translation,
-                        availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
-                        configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
-                    )
+                    let nextWidth = normalizedRightSidebarWidth(startWidth - translation, availableWidth: availableWidth)
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
                     }
@@ -1229,28 +1225,6 @@ struct ContentView: View {
             )
         }
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
-    }
-
-    static func clampedRightSidebarWidth(
-        _ candidate: CGFloat,
-        availableWidth: CGFloat,
-        configuredMaximumWidth: CGFloat? = nil
-    ) -> CGFloat {
-        let minimumWidth = Self.minimumRightSidebarWidth
-        let sanitizedCandidate = candidate.isFinite ? candidate : 220
-        let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = max(
-            minimumWidth,
-            sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
-        )
-        let configuredOrDefaultCap: CGFloat
-        if let configuredMaximumWidth, configuredMaximumWidth.isFinite {
-            configuredOrDefaultCap = max(minimumWidth, configuredMaximumWidth)
-        } else {
-            configuredOrDefaultCap = Self.maximumRightSidebarWidth
-        }
-        let maximumWidth = min(configuredOrDefaultCap, availableWidthCap)
-        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
@@ -1317,7 +1291,8 @@ struct ContentView: View {
         Self.clampedRightSidebarWidth(
             candidate,
             availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
-            configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
+            configuredMaximumWidth: rightSidebarConfiguredMaximumWidth,
+            contentMinimumWidth: fileExplorerState.modeBarMinimumWidth
         )
     }
 
@@ -1979,6 +1954,7 @@ struct ContentView: View {
                 }
             }
         }
+        .onChange(of: fileExplorerState.modeBarMinimumWidth) { _ in clampRightSidebarWidthIfNeeded() }
         .onChange(of: fileExplorerState.width) { newValue in
             if fileExplorerDragStartWidth == nil {
                 let sanitized = normalizedRightSidebarWidth(newValue)
@@ -7288,7 +7264,6 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.computerUseUXEnabled, featureFlags.isComputerUseUXEnabled)
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.accountFlow.isAuthenticated)
-            snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
             snapshot.setBool(CommandPaletteContextKeys.authWorking, auth.accountFlow.isWorkingOnAuth)
         }
 
@@ -7326,7 +7301,7 @@ struct ContentView: View {
             // publishes authoritative server capabilities.
             snapshot.setBool(
                 CommandPaletteContextKeys.cloudVMSupportsFork,
-                cloudCapabilities?.fork ?? true
+                cloudCapabilities?.canFork ?? true
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.cloudVMSupportsSnapshot,
@@ -7913,16 +7888,6 @@ struct ContentView: View {
                 keywords: ["update", "upgrade", "release"]
             )
         )
-        if let target = AppChannelSwitchTarget.counterpart(ofBundleIdentifier: Bundle.main.bundleIdentifier) {
-            contributions.append(
-                CommandPaletteCommandContribution(
-                    commandId: "palette.switchAppChannel",
-                    title: constant(AppChannelSwitchPresenter.actionTitle(for: target)),
-                    subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
-                    keywords: ["nightly", "stable", "channel", "switch", "install"]
-                )
-            )
-        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.applyUpdateIfAvailable",
@@ -9189,9 +9154,6 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
-        }
-        registry.register(commandId: "palette.switchAppChannel") {
-            AppDelegate.shared?.switchAppChannel(nil)
         }
         registry.register(commandId: "palette.applyUpdateIfAvailable") {
             AppDelegate.shared?.applyUpdateIfAvailable(nil)
@@ -11087,10 +11049,14 @@ struct ContentView: View {
 
         var openedCount = 0
         if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
+            let externalNavigationHandler = BrowserExternalNavigationHandler()
             for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
-                    openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
+                let destination = externalNavigationHandler.sidebarLinkDestination(
+                    for: pullRequest.url, prefersEmbeddedBrowser: true
+                )
+                let openedEmbedded = destination == .embeddedBrowser
+                    && tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil
+                if openedEmbedded || NSWorkspace.shared.open(pullRequest.url) {
                     openedCount += 1
                 }
             }
@@ -12738,6 +12704,7 @@ struct VerticalTabsSidebar: View, Equatable {
             contextMenuPinState: rowSnapshot.contextMenu.pinState,
             workspaceGroupMenuSnapshot: rowSnapshot.contextMenu.groupMenuSnapshot,
             colorScheme: environment.colorScheme,
+            brightenInDarkMode: input.settings.brightenInDarkMode,
             refreshSnapshot: { [workspaceId = tab.id] in
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             },
@@ -12749,7 +12716,8 @@ struct VerticalTabsSidebar: View, Equatable {
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
         let openInBrowser: @MainActor (URL, Bool) -> Void = { [weak tabManager, workspaceId = tab.id] url, preferBrowser in
-            if preferBrowser,
+            if BrowserExternalNavigationHandler()
+                .sidebarLinkDestination(for: url, prefersEmbeddedBrowser: preferBrowser) == .embeddedBrowser,
                let tabManager,
                tabManager.openBrowser(
                    inWorkspace: workspaceId,
@@ -14992,7 +14960,8 @@ struct VerticalTabsSidebar: View, Equatable {
         opensInCmuxBrowser: Bool
     ) {
         selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
-        if opensInCmuxBrowser,
+        if BrowserExternalNavigationHandler()
+            .sidebarLinkDestination(for: url, prefersEmbeddedBrowser: opensInCmuxBrowser) == .embeddedBrowser,
            tabManager.openBrowser(
                inWorkspace: workspace.id,
                url: url,
@@ -15486,6 +15455,7 @@ private struct SidebarFooter: View {
 
 struct SidebarFooterButtons: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
@@ -15505,6 +15475,16 @@ struct SidebarFooterButtons: View {
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
+    }
+
+    private var billingPlanRefreshID: String? {
+        guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
+        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
+    }
+
+    private var isProStatusKnownForUpgrade: Bool {
+        guard let flow = accountFlow else { return true }
+        return !flow.isWorkingOnAuth && (flow.currentIdentity == nil || flow.hasLoadedBillingPlan)
     }
 
     private func shows(_ control: SidebarFooterControl) -> Bool {
@@ -15532,7 +15512,11 @@ struct SidebarFooterButtons: View {
                (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
                 ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
-            if shows(.upgrade) {
+            if shows(.upgrade),
+               SidebarFooterPresentationPolicy.isUpgradeVisible(
+                   isProActive: accountFlow?.isProActive == true,
+                   isProStatusKnown: isProStatusKnownForUpgrade
+               ) {
                 SidebarProBadge()
             }
             // The puzzle button opens the extensions browser; it only shows
@@ -15559,6 +15543,10 @@ struct SidebarFooterButtons: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: billingPlanRefreshID) {
+            guard let flow = accountFlow, flow.isAuthenticated else { return }
+            await flow.refreshBillingPlan()
+        }
     }
 }
 
@@ -15655,15 +15643,13 @@ private struct SidebarHelpMenuButton: View {
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
             )
-            if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
-                helpOptionButton(
-                    title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                    action: .upgrade,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionUpgrade",
-                    isExternalLink: false,
-                    trailingSystemImage: "sparkles"
-                )
-            }
+            helpOptionButton(
+                title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                action: .upgrade,
+                accessibilityIdentifier: "SidebarHelpMenuOptionUpgrade",
+                isExternalLink: false,
+                trailingSystemImage: "sparkles"
+            )
             helpOptionButton(
                 title: String(localized: "menu.app.settings", defaultValue: "Settings…"),
                 action: .settings,
@@ -16795,6 +16781,7 @@ struct TabItemView: View, Equatable {
             colorScheme: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             subtleSelection: settings.subtleSelection,
+            brightenInDarkMode: settings.brightenInDarkMode,
             isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
             accent: settings.accentColor
@@ -16824,7 +16811,8 @@ struct TabItemView: View, Equatable {
         WorkspaceTabColorSettings.displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle == .leftRail,
+            brightenInDarkMode: settings.brightenInDarkMode
         ) ?? NSColor(hex: hex) ?? .gray
     }
 

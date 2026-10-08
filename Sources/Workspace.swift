@@ -422,6 +422,7 @@ extension Workspace {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        trackRestoredAgentNotifications(from: snapshot, oldToNewPanelIds: oldToNewPanelIds)
         // Record the identity remap for the agent journal: events journaled
         // against the previous run's runtime workspace/panel UUIDs re-attach
         // to the restored panels during replay through these aliases.
@@ -2122,6 +2123,7 @@ extension Workspace {
                         stablePanelID: snapshot.id,
                         restorableAgent: restorableAgent,
                         resumeBinding: resumeBinding,
+                        tmuxStartCommand: localTmuxStartCommand,
                         restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
                         remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
                         workingDirectory: workingDirectory,
@@ -2545,7 +2547,7 @@ extension Workspace {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> Bool? {
-        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+        if restoredAgentLifecycle.hasInFlightRestoreIntent(
             panelId: panelId,
             matching: restorableAgent
         ) {
@@ -2589,7 +2591,6 @@ extension Workspace {
             return matchingObservation.wasRunningForSnapshot(
                 restorableAgent,
                 binding: resumeBinding,
-                fallingBackTo: panelShellActivityStates[panelId],
                 confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                 currentProcessIdentity: currentAgentProcessIdentity,
                 processPresence: agentProcessPresence
@@ -2612,8 +2613,18 @@ extension Workspace {
             panelId: panelId,
             currentProcessIdentity: currentAgentProcessIdentity
         )
+        if restorableAgent.resumeCommand == nil,
+           panelShellActivityStates[panelId] == .commandRunning {
+            // A non-resumable agent snapshot is retired once the restored shell
+            // accepts a new command. Generic shell activity still never proves
+            // that a resumable agent is alive.
+            return false
+        }
         return (matchingObservation?.processLiveness ?? .unknown).wasRunning(
-            fallingBackTo: panelShellActivityStates[panelId],
+            // Shell activity is not proof that the restored agent is alive.
+            // The shell can be executing a stale restore scaffold after the
+            // owner has exited; require agent-specific process evidence.
+            fallingBackTo: panelShellActivityStates[panelId] == .promptIdle ? .promptIdle : nil,
             recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,
@@ -3033,6 +3044,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
+    /// Transient labels an automation session puts in front of a panel's
+    /// title (`<label> · <title>`); never persisted, and a custom title wins.
+    var panelAutomationLabels: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     var pinMutationTokensByPanelId: [UUID: UUID] = [:]
     let panelUnread = WorkspacePanelUnreadModel()
@@ -3317,6 +3331,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Restored notifications of panes whose agent died with the previous app
+    /// process; pruned by `pruneOrphanedRestoredAgentNotifications(store:)`.
+    var restoredAgentNotificationIdsByPanelId: [UUID: Set<UUID>] = [:]
     /// Journals agent sessions ended by closing their terminal. Tests point it
     /// at a private journal.
     var agentSessionCloseJournal = AgentSessionCloseJournal()
@@ -5518,7 +5535,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            !custom.isEmpty {
             return custom
         }
+        if let label = panelAutomationLabels[panelId] {
+            let format = String(localized: "browser.repl.sessionTabTitle", defaultValue: "%1$@ · %2$@")
+            return String(format: format, label, fallbackTitle)
+        }
         return fallbackTitle
+    }
+
+    /// Sets or clears (`nil`/empty) the automation label shown before a
+    /// panel's title, and refreshes its tab.
+    func setPanelAutomationLabel(panelId: UUID, label: String?) {
+        guard let panel = panels[panelId] else { return }
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let next: String? = trimmed.isEmpty ? nil : trimmed
+        guard panelAutomationLabels[panelId] != next else { return }
+        panelAutomationLabels[panelId] = next
+        _ = applyFocusedPanelTitle(panelId: panelId)
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        bonsplitController.updateTab(tabId, title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle))
     }
 
     private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
@@ -6727,6 +6762,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
+        restoredAgentNotificationIdsByPanelId = restoredAgentNotificationIdsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
         surfaceResumeRestoreClaimsByPanelId = surfaceResumeRestoreClaimsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
@@ -6894,8 +6932,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         syncRemoteRelayIDAliasesToController()
     }
+
+    /// Set on the "Sign in to <host>" workspace cmux opens by itself when a remote-tmux
+    /// reconnect cannot authenticate.
+    ///
+    /// It exists to run one `ssh` and is meaningless afterwards: a restored terminal is a
+    /// fresh shell, so a restored copy cannot authenticate anything. Worse, a restored copy
+    /// is invisible to the per-host "one login at a time" rule, which tracks the workspace
+    /// it created — so the next outage adds another, once per relaunch.
+    var isRemoteTmuxAuthLogin: Bool = false
+
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
+        if isRemoteTmuxAuthLogin { return false }
         if panels.values.contains(where: {
             switch $0.panelType {
             case .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
@@ -11472,6 +11521,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
             panelCustomTitleSources.removeValue(forKey: detached.panelId)
+            panelAutomationLabels.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
@@ -13630,6 +13680,7 @@ extension Workspace: BonsplitDelegate {
     private func confirmClosePanel(
         for tabId: TabID,
         nameOverride: String? = nil,
+        agentName: String? = nil,
         dontAskAgain: CloseWarningKinds
     ) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
@@ -13651,7 +13702,13 @@ extension Workspace: BonsplitDelegate {
         }()
 
         let message: String
-        if let panelName {
+        if let agentName {
+            let format = String(
+                localized: "dialog.closeTab.agentWorking",
+                defaultValue: "%@ is still working. This will close the current tab."
+            )
+            message = String(format: format, locale: .current, agentName)
+        } else if let panelName {
             message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
@@ -14173,6 +14230,17 @@ extension Workspace: BonsplitDelegate {
                 return
             }
 
+            // Closing an unselected tab must not move selection to its
+            // neighbor: keep the tab the user was already using so an
+            // automation caller cleaning up another agent cannot steal
+            // keyboard input. Bonsplit itself keeps the selection here.
+            if let selectedTabId = controller.selectedTab(inPane: pane)?.id,
+               selectedTabId != tab.id,
+               tabs.contains(where: { $0.id == selectedTabId }) {
+                postCloseSelectTabId[tab.id] = selectedTabId
+                return
+            }
+
             let target: TabID? = {
                 if idx + 1 < tabs.count { return tabs[idx + 1].id }
                 if idx > 0 { return tabs[idx - 1].id }
@@ -14344,9 +14412,11 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
+        let agentWarning = activeAgentCloseWarningInfo(panelId: panelId)
         let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
-            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-            source: confirmationSource
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId) || agentWarning != nil,
+            source: confirmationSource,
+            isAgentSession: agentWarning != nil
         )
         if !warningKinds.isEmpty {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
@@ -14375,7 +14445,11 @@ extension Workspace: BonsplitDelegate {
                     // If the tab disappeared while we were scheduling, do nothing.
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
 
-                    let confirmed = await self.confirmClosePanel(for: tabId, dontAskAgain: warningKinds)
+                    let confirmed = await self.confirmClosePanel(
+                        for: tabId,
+                        agentName: self.activeAgentCloseWarningInfo(panelId: panelId),
+                        dontAskAgain: warningKinds
+                    )
                     guard confirmed else {
                         self.clearCloseHistoryEligibility(tabId: tabId)
                         return
@@ -14577,6 +14651,7 @@ extension Workspace: BonsplitDelegate {
            bonsplitController.allPaneIds.contains(pane),
            bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
            bonsplitController.focusedPaneId == pane {
+            // selectTab also focuses the pane, so only call it for the focused pane.
             bonsplitController.selectTab(selectTabId)
             applyTabSelection(tabId: selectTabId, inPane: pane)
         } else if let focusedPane = bonsplitController.focusedPaneId,
@@ -14615,6 +14690,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
+        cloudLayoutDidChange()
         // A remote tmux mirror tab reorder propagates to tmux window order.
         // Mirror transactions send their desired order explicitly. Their local
         // mutations, including rollback and remote updates, must not echo it.
@@ -14674,6 +14750,7 @@ extension Workspace: BonsplitDelegate {
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
+        cloudLayoutDidChange()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
@@ -15256,6 +15333,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         let deviceLayoutExternal = remoteTmuxMirrorMutations.suppressesFocusActivation
+        // Before deferral: a graph event queued behind this edit must not re-apply the old tree.
+        if !deviceLayoutExternal { cloudLayoutDidChange() }
         // Capture the user's arrangement before deferred delivery: an incoming
         // remote snapshot must not replace the intent while this event waits.
         let deviceLayoutSnapshot = !deviceLayoutExternal

@@ -19,8 +19,6 @@ struct CloudMachineWorkspaceAdoptionTests {
             let previousManager = controller.activeTabManagerForCallerNotification()
             let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
             let previousBeta = UserDefaults.standard.object(forKey: betaKey)
-            let flag = CmuxFeatureFlags.cloudMachinesFlag
-            let previousFlag = CmuxFeatureFlags.shared.overrideValue(for: flag)
             let other = TabManager(autoWelcomeIfNeeded: false)
             let otherWindow = app.appDelegate.registerMainWindowContextForTesting(tabManager: other)
             defer {
@@ -29,10 +27,8 @@ struct CloudMachineWorkspaceAdoptionTests {
                 app.tearDown()
                 controller.setActiveTabManager(previousManager)
                 UserDefaults.standard.set(previousBeta, forKey: betaKey)
-                CmuxFeatureFlags.shared.setOverride(previousFlag, for: flag)
             }
             UserDefaults.standard.set(true, forKey: betaKey)
-            CmuxFeatureFlags.shared.setOverride(true, for: flag)
             controller.setActiveTabManager(other)
             let ref = try #require(controller.v2Ref(kind: .workspace, uuid: app.workspace.id) as? String)
             for target in [ref, app.workspace.id.uuidString.lowercased()] {
@@ -118,10 +114,16 @@ struct CloudMachineWorkspaceAdoptionTests {
 
             try provider.install(in: catalog)
             catalog.bindCloudWorkspace(localWorkspaceID: pending.id, machine: provider.machine, remoteWorkspaceID: nil)
-            #expect(CloudWorkspaceSidebarPresentation(workspace: pending, orderedPanelIDs: [loading.id], usesLastSegmentPath: false)?
-                .directoryCandidates.first?.hasPrefix("brave-sapphire-lobster") == true)
+            let loadingPresentation = CloudWorkspaceSidebarPresentation(
+                workspace: pending, orderedPanelIDs: [loading.id], usesLastSegmentPath: false, catalog: catalog
+            )
+            #expect(loadingPresentation?.machineLabel.contains("brave-sapphire-lobster") == true)
+            #expect(loadingPresentation?.directoryCandidates.isEmpty == true)
             let first = try await open(pending, provider: provider, catalog: catalog)
             #expect(first.panelID == loading.id)
+            #expect(CloudWorkspaceSidebarPresentation(
+                workspace: pending, orderedPanelIDs: [loading.id], usesLastSegmentPath: false, catalog: catalog
+            )?.directoryCandidates.first?.hasPrefix("brave-sapphire-lobster") == true)
             #expect(pending.surfaceIdFromPanelId(first.panelID) == tab)
             #expect(pending.paneId(forPanelId: first.panelID) == pane)
             #expect(pending.panels.count == 1)

@@ -129,15 +129,14 @@ struct CloudTreeRowToolTipTests {
         #expect(toolTip.contains(":1"))
     }
 
-    @Test("A port row names its process on hover without suggesting a directly reachable private URL")
+    @Test("A titled port row uses its process name for hover text")
     func portRowHasToolTip() throws {
         let node = Self.portNode()
         let cell = Self.cell(presence: [])
         cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
         let toolTip = try #require(cell.toolTip)
         #expect(toolTip == "vite")
-        #expect(!toolTip.contains("://"))
-        #expect(cell.accessibilityLabel() == "Port 3000, vite")
+        #expect(cell.accessibilityLabel()?.contains("Port 3000") == true)
     }
 
     @Test("An untitled browser row is still labelled for assistive technology")
@@ -288,8 +287,8 @@ struct CloudTreeRowToolTipTests {
         #expect(cell.accessibilityLabel()?.isEmpty == false)
     }
 
-    @Test("A port without a process name has no hover text and is labelled by its number")
-    func barePortRowIsLabelledByNumber() {
+    @Test("A port without a process name has no hover text and keeps its port label")
+    func barePortRowExplainsOpenAction() {
         let cell = Self.cell(presence: [])
         cell.configure(
             node: Self.barePortNode(),
@@ -472,7 +471,7 @@ struct CloudTreeRowToolTipTests {
     private static func machineActions() -> MachineRowActions {
         MachineRowActions(
             openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-            confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in },
+            confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in },
             resizeCPU: { _, _ in }, resizeMemory: { _, _ in }, promptUpgrade: {}
         )
     }

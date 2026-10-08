@@ -17,7 +17,7 @@ import {
 } from "../shared/codexClassNames";
 import { insertComposerToken } from "../shared/composerTokens";
 import { isComposingEnter } from "../shared/keyboard";
-import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
+import { renderMarkdownFragment, renderPlainTextHTML } from "../shared/markdown";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   formatRateLimitPercent,
@@ -426,7 +426,7 @@ function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void
           content.textContent = entry.text;
         } else {
           content.className = "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
-          content.innerHTML = renderMarkdownHTML(entry.text);
+          content.replaceChildren(renderMarkdownFragment(entry.text, content.ownerDocument));
         }
       }
       break;

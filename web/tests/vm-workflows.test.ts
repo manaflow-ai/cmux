@@ -767,7 +767,8 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: VM_DISK_MB_MAX });
+    // A legacy source draws from the pool at the plan's default machine size.
+    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
@@ -854,10 +855,11 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: VM_DISK_MB_MAX });
+    // A legacy source draws from the pool at the plan's default machine size.
+    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
-    expect(finalizedReservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: VM_DISK_MB_MAX });
+    expect(finalizedReservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
   });
 
   test("keeps the supported 1-vCPU legacy fork shape", async () => {
@@ -940,7 +942,8 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: VM_DISK_MB_MAX });
+    // A legacy source draws from the pool at the plan's default machine size.
+    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 16384 });
@@ -990,6 +993,53 @@ describe("VM Effect workflows", () => {
 
     const event = usageEvents.find((candidate) => candidate.eventType === "vm.snapshot.created");
     expect(event?.metadata).toMatchObject({
+      vcpus: 16,
+      memoryMb: 32768,
+      diskMb: 65536,
+    });
+  });
+
+  test("a fork's snapshot returns before its stats read and ledger row, which run after the response", async () => {
+    const source = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000160",
+      userId: "user-workflow-snapshot-deferred",
+      billingTeamId: "team-workflow-snapshot-deferred",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-snapshot-deferred",
+      status: "running",
+      providerMetadata: {},
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm: source, usageEvents });
+    let statsReads = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStats: () => Effect.sync(() => {
+        statsReads += 1;
+        return { state: "awake" as const, sampledAt: Date.now(), cpus: 16, memoryTotalMb: 32768, diskTotalMb: 65536 };
+      }),
+      snapshot: () => Effect.succeed({ id: "snapshot-deferred", createdAt: Date.now() }),
+    };
+    const deferred: Effect.Effect<void>[] = [];
+
+    const snapshot = await Effect.runPromise(
+      snapshotVm({
+        userId: source.userId,
+        teamIds: [source.billingTeamId!],
+        providerVmId: source.providerVmId!,
+        deferAfterResponse: (work) => { deferred.push(work); },
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    // The fork's copy needs only the snapshot id; nothing else ran inline.
+    expect(snapshot.id).toBe("snapshot-deferred");
+    expect(statsReads).toBe(0);
+    expect(usageEvents.some((event) => event.eventType === "vm.snapshot.created")).toBe(false);
+    expect(deferred).toHaveLength(1);
+
+    await Effect.runPromise(deferred[0]!.pipe(Effect.provide(workflowLayer(repo, provider))));
+    expect(statsReads).toBe(1);
+    expect(usageEvents.find((event) => event.eventType === "vm.snapshot.created")?.metadata).toMatchObject({
       vcpus: 16,
       memoryMb: 32768,
       diskMb: 65536,
@@ -1118,8 +1168,9 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
+    // The 4 GB provider target is the sm ladder row, which has 2 vCPUs.
     expect(beginInput?.resourceReservation).toEqual({
-      vcpus: 1,
+      vcpus: 2,
       memoryMb: 4096,
       diskMb: 32 * 1024,
     });
@@ -8896,5 +8947,193 @@ describe("team tunnel cron reconciliation", () => {
     await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory, directoryTimeoutMs: 1, teamNetworkPageSize: 1 }).pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider), Layer.succeed(VmBillingGateway, noOpVmBillingGateway())))));
     expect(detached).toEqual(["tun-page-2@vpc-team-page-2"]);
     expect(afters).toEqual([undefined, { teamId: "team-page-1", provider: "freestyle" }, { teamId: "team-page-2", provider: "freestyle" }]);
+  });
+});
+
+describe("Cloud snapshot idempotency", () => {
+  type SnapshotRequest = { name: string | null; status: "pending" | "succeeded"; snapshot?: { id: string; createdAt: number; name?: string } };
+
+  function snapshotSource(id: string) {
+    return testCloudVmRow({
+      id,
+      userId: `user-${id}`,
+      billingTeamId: `team-${id}`,
+      billingPlanId: "pro",
+      providerVmId: `provider-${id}`,
+      status: "running",
+      providerMetadata: {},
+    });
+  }
+
+  /** In-memory request ledger with the repository's semantics. */
+  function snapshotRequestRepo(source: CloudVmRow, usageEvents: RecordedUsageEvent[], requests: Map<string, SnapshotRequest>): VmRepositoryShape {
+    return {
+      ...testWorkflowRepo({ vm: source, usageEvents }),
+      beginSnapshotRequest: ({ vmId, idempotencyKey, name }) => Effect.sync(() => {
+        const key = `${vmId}/${idempotencyKey}`;
+        const existing = requests.get(key);
+        if (!existing) {
+          requests.set(key, { name, status: "pending" });
+          return { kind: "started" as const };
+        }
+        if (existing.name !== name) return { kind: "conflict" as const };
+        if (existing.status === "succeeded" && existing.snapshot) return { kind: "succeeded" as const, snapshot: existing.snapshot };
+        return { kind: "in_progress" as const };
+      }),
+      finishSnapshotRequest: ({ vmId, idempotencyKey, outcome }) => Effect.sync(() => {
+        const key = `${vmId}/${idempotencyKey}`;
+        if (outcome.kind === "failed") {
+          requests.delete(key);
+          return;
+        }
+        const existing = requests.get(key);
+        if (existing) requests.set(key, { ...existing, status: "succeeded", snapshot: outcome.snapshot });
+      }),
+    };
+  }
+
+  test("a retry with the same key returns the first snapshot and takes no second one", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000171");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = snapshotRequestRepo(source, usageEvents, new Map());
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.sync(() => {
+        providerCalls += 1;
+        return { id: `snap-${providerCalls}`, createdAt: 1_000 + providerCalls, name: "nightly" };
+      }),
+    };
+    const run = () => Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      name: "nightly",
+      idempotencyKey: "snap-key-1",
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+    const first = await run();
+    const second = await run();
+    expect(second).toEqual(first);
+    expect(providerCalls).toBe(1);
+    expect(usageEvents.filter((event) => event.eventType === "vm.snapshot.created")).toHaveLength(1);
+  });
+
+  test("a retry while the first snapshot runs is refused as in progress", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000172");
+    const requests = new Map<string, SnapshotRequest>([[`${source.id}/snap-key-2`, { name: null, status: "pending" }]]);
+    const repo = snapshotRequestRepo(source, [], requests);
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.sync(() => {
+        providerCalls += 1;
+        return { id: "never", createdAt: 1 };
+      }),
+    };
+    const error = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      idempotencyKey: "snap-key-2",
+    }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))));
+    expect(error._tag).toBe("VmSnapshotInProgressError");
+    expect(providerCalls).toBe(0);
+  });
+
+  test("the same key with another name is a conflict", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000173");
+    const requests = new Map<string, SnapshotRequest>([[`${source.id}/snap-key-3`, {
+      name: "first", status: "succeeded", snapshot: { id: "snap-first", createdAt: 1, name: "first" },
+    }]]);
+    const repo = snapshotRequestRepo(source, [], requests);
+    const error = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      name: "second",
+      idempotencyKey: "snap-key-3",
+    }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, unusedProviderGateway()))));
+    expect(error._tag).toBe("VmSnapshotIdempotencyConflictError");
+  });
+
+  test("a failed attempt frees the key so a retry takes the snapshot", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000174");
+    const requests = new Map<string, SnapshotRequest>();
+    const repo = snapshotRequestRepo(source, [], requests);
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => {
+        providerCalls += 1;
+        return providerCalls === 1
+          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "snapshot", cause: new Error("boom") }))
+          : Effect.succeed({ id: "snap-after-retry", createdAt: 2 });
+      },
+    };
+    const run = () => Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      idempotencyKey: "snap-key-4",
+    }).pipe(Effect.either, Effect.provide(workflowLayer(repo, provider))));
+    const first = await run();
+    expect(first._tag).toBe("Left");
+    expect(requests.size).toBe(0);
+    const second = await run();
+    expect(second._tag).toBe("Right");
+    expect(providerCalls).toBe(2);
+  });
+
+  test("a snapshot without a key keeps the old behavior and stores no request", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000175");
+    const requests = new Map<string, SnapshotRequest>();
+    const repo = snapshotRequestRepo(source, [], requests);
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.succeed({ id: "snap-no-key", createdAt: 3 }),
+    };
+    const result = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+    expect(result.id).toBe("snap-no-key");
+    expect(requests.size).toBe(0);
+  });
+});
+
+describe("Cloud snapshot request ledger (Postgres)", () => {
+  dbTest("claims a key once, replays success, frees it on failure and takes over a stale attempt", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_snapshot_requests, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, image_id, status, provider_metadata)
+      values ('user-snapshot-ledger', 'team-snapshot-ledger', 'pro', 'freestyle', 'image-snapshot-ledger', 'running', '{}'::jsonb)
+      returning id
+    `;
+    const repo = vmRepositoryLiveShape;
+    const begin = (key: string, name: string | null, staleBefore = new Date(0)) =>
+      Effect.runPromise(repo.beginSnapshotRequest!({ vmId: vm.id, idempotencyKey: key, name, staleBefore }));
+
+    expect(await begin("k1", "nightly")).toEqual({ kind: "started" });
+    expect(await begin("k1", "nightly")).toEqual({ kind: "in_progress" });
+    expect(await begin("k1", "other")).toEqual({ kind: "conflict" });
+    await Effect.runPromise(repo.finishSnapshotRequest!({
+      vmId: vm.id, idempotencyKey: "k1", outcome: { kind: "succeeded", snapshot: { id: "snap-1", createdAt: 1234, name: "nightly" } },
+    }));
+    expect(await begin("k1", "nightly")).toEqual({ kind: "succeeded", snapshot: { id: "snap-1", createdAt: 1234, name: "nightly" } });
+
+    expect(await begin("k2", null)).toEqual({ kind: "started" });
+    await Effect.runPromise(repo.finishSnapshotRequest!({ vmId: vm.id, idempotencyKey: "k2", outcome: { kind: "failed" } }));
+    expect(await begin("k2", null)).toEqual({ kind: "started" });
+
+    // A pending attempt that is older than the stale bound is taken over once.
+    expect(await begin("k2", null, new Date(Date.now() + 60_000))).toEqual({ kind: "started" });
+    expect(await begin("k2", null, new Date(0))).toEqual({ kind: "in_progress" });
+
+    // Deleting the machine row deletes its requests.
+    await sql`delete from cloud_vms where id = ${vm.id}`;
+    const [{ count }] = await sql<{ count: string }[]>`select count(*)::text as count from cloud_vm_snapshot_requests`;
+    expect(count).toBe("0");
   });
 });
