@@ -46,7 +46,7 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
   return (
     <BaseMenu.Root
       open
-      modal={false}
+      modal
       loopFocus
       onOpenChange={(open) => {
         if (!open) onClose();

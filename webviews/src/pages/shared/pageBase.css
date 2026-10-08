@@ -59,12 +59,12 @@ input {
   cursor: default;
 }
 
-.page-menu-item.active:not(:disabled),
-.page-menu-item[data-highlighted]:not(:disabled) {
+.page-menu-item.active:not([data-disabled]):not([aria-disabled="true"]),
+.page-menu-item[data-highlighted]:not([data-disabled]):not([aria-disabled="true"]) {
   background: var(--page-selection);
 }
 
-.page-menu-item:disabled {
+.page-menu-item:is([data-disabled], [aria-disabled="true"]) {
   color: var(--page-text-3);
 }
 
