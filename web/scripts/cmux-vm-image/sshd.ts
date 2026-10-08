@@ -234,3 +234,46 @@ export function sshdCertSmokeCommand(workUser: string): string {
     `if ${ssh} ${id2} ${target} true 2>/dev/null; then echo "FAIL login with stale trust"; exit 1; fi; echo "PASS stale trust refuses"`,
   ].join("\n");
 }
+
+/**
+ * cron and at (cx-q4f3): a job they run is outside every session scope, so a certificate
+ * revocation would never end it. Only root and the work user may schedule; every team account
+ * (the S4 reconciler's `<name>` and `<name>-agents` users) is refused, because with an allow file
+ * present crontab and at refuse every user it does not list (a deny file is then ignored).
+ */
+export const CRON_ALLOW_FILE = "/etc/cron.allow";
+export const AT_ALLOW_FILE = "/etc/at.allow";
+
+/** Bake step: both allow files, then their contents for {@link cronAtAllowProblems}. */
+export function cronAtAllowCommand(workUser: string): string {
+  const list = `printf 'root\\n%s\\n' ${sq(workUser)}`;
+  return [
+    `${list} > ${CRON_ALLOW_FILE}`,
+    `${list} > ${AT_ALLOW_FILE}`,
+    `chown root:root ${CRON_ALLOW_FILE} ${AT_ALLOW_FILE}`,
+    `chmod 0644 ${CRON_ALLOW_FILE} ${AT_ALLOW_FILE}`,
+    `echo '--- ${CRON_ALLOW_FILE}'`,
+    `cat ${CRON_ALLOW_FILE}`,
+    `echo '--- ${AT_ALLOW_FILE}'`,
+    `cat ${AT_ALLOW_FILE}`,
+  ].join(" && ");
+}
+
+/** Problems in the bake output: each file must list exactly root and the work user. */
+export function cronAtAllowProblems(out: string, workUser: string): string[] {
+  const problems: string[] = [];
+  const want = new Set(["root", workUser]);
+  for (const file of [CRON_ALLOW_FILE, AT_ALLOW_FILE]) {
+    const start = out.indexOf(`--- ${file}\n`);
+    if (start < 0) {
+      problems.push(`${file} is missing`);
+      continue;
+    }
+    const rest = out.slice(start + `--- ${file}\n`.length);
+    const end = rest.indexOf("--- ");
+    const users = (end < 0 ? rest : rest.slice(0, end)).split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    for (const u of users) if (!want.has(u)) problems.push(`${file} allows ${u}`);
+    for (const u of want) if (!users.includes(u)) problems.push(`${file} does not allow ${u}`);
+  }
+  return problems;
+}

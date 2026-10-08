@@ -6,15 +6,14 @@ import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState 
 import { fromBase64, isStream, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
 import { TeamVmLedger, type LedgerRow } from "./team-vm-ledger.ts"
 import { RegistryOutbox } from "./team-vm-registry-outbox.ts"
-import { TeamVmRegistry, type RegistryCounts, type RegistryEvent, type RegistryEventKind } from "./team-vm-registry.ts"
+import { prefixReport, TeamVmRegistry, type RegistryCounts, type RegistryEvent, type RegistryEventKind } from "./team-vm-registry.ts"
 import { TEAM_VM_REGISTRY } from "./team-vm-admin.ts"
 import { BindRunner } from "./team-vm-bind-run.ts"
 import { FakeGuest, type FakeGuestMode } from "./team-vm-fake-guest.ts"
+import { adminAction, pauseRetired, taintSummary, type AdminReply, type AdminRequest, type TaintRunDeps, type TaintSummary } from "./team-vm-taint-run.ts"
+import { taintView } from "./domains/team-vm-taint.ts"
+import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
-/** Prefix report bounds: pages of this size, at most this many pages, at most this many names in the answer. */
-const REPORT_PAGE = 100
-const REPORT_MAX_PAGES = 50
-const REPORT_MAX_NAMES = 200
 /** Retry of undelivered registry events when the alarm next runs for this object. */
 const REGISTRY_RETRY_MS = 60_000
 
@@ -94,7 +93,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
       .map(([lease, l]) => ({ lease, holder: l.holder, reason: l.reason, expires_at: l.expires_at }))
     return {
       ok: true,
-      value: { team: state.team ?? principal.team, status: state.status, vm: state.vm, epoch: state.epoch, leases, last_error: state.last_error, updated_at: state.updated_at },
+      value: { team: state.team ?? principal.team, status: state.status, vm: state.vm, epoch: state.epoch, leases, last_error: state.last_error, updated_at: state.updated_at, ...taintView(state) },
       revision: ""
     }
   }
@@ -115,6 +114,31 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (state.pending && state.pending.retry_at <= now) await this.reconcile()
     await this.drainRegistry()
     await this.binder.pass(now)
+    // After any running provider pass: a start that read the state before a rebuild must not resume the old VM after its pause.
+    await this.inflight
+    await pauseRetired(this.taintDeps, now)
+  }
+
+  // Taint after a member removal (cx-q4f3): team-vm-taint-run.ts.
+  private get taintDeps(): TaintRunDeps {
+    const driver = () => (providerRefusal(this.env) ? null : teamVmDriver(this.env, this.sqlStore))
+    return { state: () => this.boundEngine?.currentState, driver, refusal: () => providerRefusal(this.env), submitSystem: (op, p, k) => this.submitSystem(op, p, k), deleteVm: (id, by) => this.deleteVm(this.boundEngine!.stream.slice("team_vm:".length), id, by), reconcile: () => this.reconcile() }
+  }
+
+  /** RPC from TeamDO's certificate issue: the taint of a team that has a VM record (never creates one). */
+  async taintStatus(entity: string): Promise<TaintSummary | null> { return this.isBound(entity) ? taintSummary(this.bind(entity).currentState) : null }
+
+  /** RPC from TeamDO after its owner/admin check; TeamDO audits the outcome. */
+  async adminAction(entity: string, req: AdminRequest): Promise<AdminReply> {
+    if (!this.isBound(entity)) return { ok: false, code: "selector.not_found", message: "this team has no VM" }
+    this.bind(entity)
+    return adminAction(this.taintDeps, req)
+  }
+
+  /** A member-removal notice for a team that never had a VM creates no record here. */
+  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    if (!this.isBound(entity) && items.every((i) => i.op === "team_vm.member_removed")) return { done: items.map((i) => i.id) }
+    return super.systemDeliver(entity, source, items)
   }
 
   /**
@@ -412,28 +436,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     // The same prefix new team VMs get (createSlug); offset paging over a changing list may skip or repeat a row (a report, not a ledger).
     const prefix = (driver instanceof FakeDriver ? driver.slugPrefix() : null) ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
     if (!prefix) throw new Error("team_vm.no_prefix")
-    let listed = 0
-    let matched = 0
-    let known = 0
-    const unknown: string[] = []
-    let truncated = false
-    for (let page = 0; ; page++) {
-      if (page >= REPORT_MAX_PAGES) {
-        truncated = true
-        break
-      }
-      const r = await driver.listPage(REPORT_PAGE, page * REPORT_PAGE)
-      listed += r.size
-      for (const vm of r.vms) {
-        if (!vm.slug?.startsWith(prefix)) continue
-        matched++
-        if (this.registry.knows(vm.id)) known++
-        else if (unknown.length < REPORT_MAX_NAMES) unknown.push(vm.slug)
-        else truncated = true
-      }
-      if (r.size < REPORT_PAGE || (r.total !== null && (page + 1) * REPORT_PAGE >= r.total)) break
-    }
-    const report = { prefix, listed, matched, in_registry: known, not_in_registry: unknown, truncated }
+    const report = await prefixReport(driver, prefix, this.registry)
     console.log(JSON.stringify({ msg: "team vm prefix report", ...report, counts: this.registry.counts() }))
     return report
   }
@@ -450,6 +453,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     drop_registry?: boolean
     reset_registry_seed?: boolean
     guest_mode?: FakeGuestMode
+    fail_pause?: number
   }): Promise<{ creates: number; starts: number }> {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     teamVmDriver(this.env, this.sqlStore)
@@ -466,6 +470,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.pause_all) this.sqlStore.exec(`UPDATE fake_vm SET state = 'paused'`)
     if (cmd.delete_all) this.sqlStore.exec(`DELETE FROM fake_vm`)
+    if (cmd.fail_pause !== undefined) this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS fake_pause_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail INTEGER NOT NULL)`), this.sqlStore.exec(`INSERT OR REPLACE INTO fake_pause_ctl (id, fail) VALUES (1, ?)`, cmd.fail_pause)
     return this.sqlStore.exec<{ creates: number; starts: number }>(`SELECT creates, starts FROM fake_ctl WHERE id = 1`)[0]!
   }
 
