@@ -42,6 +42,7 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
     private var visible = false
     private var foreground = true
     private var scrolling = false
+    private var currentItemCount = 0
     private var pendingAnomaly: MobileFeedScrollAnomaly?
     private var lastAnomalyAt: Double?
 
@@ -133,8 +134,9 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
         reconcileConsent()
         if !visible { endVisibleInterval() }
         self.visible = visible
+        currentItemCount = min(10_000, max(0, itemCount))
         if isSamplingEnabled {
-            window.itemCount = max(window.itemCount, min(10_000, max(0, itemCount)))
+            window.itemCount = max(window.itemCount, currentItemCount)
             startCadenceIfNeeded()
         }
     }
@@ -199,6 +201,7 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
 
     private func startCadenceIfNeeded() {
         guard isSamplingEnabled, cadenceTask == nil else { return }
+        window.itemCount = currentItemCount
         startedAt = now()
         eligibleSince = startedAt
         let cadence = cadence
@@ -227,7 +230,7 @@ public final class MobileFeedPerformanceReporter: MobileFeedPerformanceObserving
         guard enabled, consentGate.snapshot().isEnabled, window.hasActivity else { return }
         let snapshot = window
         window = Window()
-        window.itemCount = snapshot.itemCount
+        window.itemCount = currentItemCount
         let timestamp = now()
         let elapsed = max(0, timestamp - (startedAt ?? timestamp))
         startedAt = timestamp
