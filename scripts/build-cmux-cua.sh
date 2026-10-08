@@ -328,19 +328,33 @@ if [[ "$ACTUAL_SHA" != "$CMUX_CUA_PINNED_SHA" ]]; then
   exit 1
 fi
 
+TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
+
 # The pinned engine already owns the native delivery ladder, but its Codex
 # compatibility adapter predates the public delivery_mode field. Apply the
-# small, reviewed compatibility patch after the SHA gate so the bundled helper
-# exposes the recovery mode documented by its native click/drag tools.
+# small, reviewed compatibility patch after the SHA gate while the source
+# lock still protects the shared checkout.
 "$REPO_ROOT/scripts/apply-cmux-cua-patch.sh" "$SRC_ROOT" "$CMUX_CUA_PATCH_FILE"
 
-CARGO_ROOT="$SRC_ROOT/libs/cmux-cua/rust"
+# Snapshot the verified source while the materialization lock is held. The
+# pinned checkout is shared by tagged builds, so compiling directly from it
+# would let a later checkout reset the compatibility patch mid-build. A
+# per-build copy keeps the lock short and gives Cargo an immutable input tree.
+BUILD_SOURCE="$TMPDIR_BUILD/source"
+mkdir -p "$BUILD_SOURCE"
+rsync -a --delete \
+  --exclude '.git' \
+  --exclude "$CMUX_CUA_SOURCE_OWNER_FILE" \
+  --exclude '.cmux-last-used' \
+  --exclude '.cmux-cargo-target' \
+  "$SRC_ROOT/" "$BUILD_SOURCE/"
+release_src_lock
+
+CARGO_ROOT="$BUILD_SOURCE/libs/cmux-cua/rust"
 if [[ ! -f "$CARGO_ROOT/Cargo.toml" ]]; then
   echo "error: cmux-cua Cargo workspace not found at $CARGO_ROOT" >&2
   exit 1
 fi
-
-TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
 
 mkdir -p "$(dirname "$OUTPUT")"
 
@@ -371,14 +385,11 @@ for arch in "${ARCHS[@]}"; do
   esac
 
   ensure_rust_target "$target"
-  # The Cargo target dir lives INSIDE the per-revision source dir (excluded
-  # from `git clean`), never in a slot shared across revisions or source
-  # paths: `$target/release/cmux-cua` is a single uplift destination, and
-  # with a shared dir a "fresh" build of pin A can leave pin B's (or a dirty
-  # CMUX_CUA_SRC checkout's) binary in place, defeating the SHA gate. Keying
-  # by source dir prevents cross-revision reuse. Concurrent builds of one
-  # revision serialize on Cargo's own lock.
-  target_dir="$SRC_ROOT/.cmux-cargo-target"
+  # Keep Cargo's target dir inside this build's immutable source snapshot. It
+  # cannot be shared across revisions or source paths: a "fresh" build of pin
+  # A must never leave pin B's (or a dirty CMUX_CUA_SRC checkout's) binary in
+  # place, and independent tagged builds must not contend on one target dir.
+  target_dir="$BUILD_SOURCE/.cmux-cargo-target"
   cargo_status=0
   for cargo_attempt in 1 2 3; do
     if CARGO_TARGET_DIR="$target_dir" \
@@ -408,11 +419,6 @@ for arch in "${ARCHS[@]}"; do
   BUILT+=("$arch_output")
 done
 
-# Keep the managed source checkout locked until every Cargo invocation has
-# finished. A concurrent build can force-checkout the pinned tree and remove
-# the compatibility patch while another build is compiling it.
-release_src_lock
-
 if ((${#BUILT[@]} == 1)); then
   cp "${BUILT[0]}" "$OUTPUT"
 else
@@ -431,7 +437,7 @@ chmod 0755 "$OUTPUT"
 # every redistributed copy of the cmux-cua engine. Take it from the pinned checkout so
 # the shipped notice always matches the code it covers, and fail loudly if it
 # ever disappears upstream rather than shipping unattributed.
-CUA_LICENSE_SRC="$SRC_ROOT/LICENSE.md"
+CUA_LICENSE_SRC="$BUILD_SOURCE/LICENSE.md"
 if [[ ! -f "$CUA_LICENSE_SRC" ]]; then
   echo "error: cmux-cua LICENSE.md not found at $CUA_LICENSE_SRC" >&2
   echo "  the bundled cmux-cua cannot ship without its MIT notice" >&2
