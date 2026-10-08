@@ -28,6 +28,18 @@ struct CarrierPlanTests {
         #expect(plan.admits(.direct) && plan.admits(.webrtc))
     }
 
+    @Test("forced direct excludes WebRTC even when the route is unreachable")
+    func forcedDirect() {
+        let plan = MobileCarrierPlan(endpoints: [Self.lan], snapshot: Self.cellular, transport: .direct)
+        #expect(plan.admits(.direct) && !plan.admits(.webrtc) && !plan.admits(.webrtcWireGuard))
+    }
+
+    @Test("forced WebRTC excludes direct even when a LAN route is available")
+    func forcedWebRTC() {
+        let plan = MobileCarrierPlan(endpoints: [Self.lan], snapshot: Self.wifi, transport: .webrtc)
+        #expect(!plan.admits(.direct) && plan.admits(.webrtc) && plan.admits(.webrtcWireGuard))
+    }
+
     @Test("a reachable Mac that does not answer lets the others race until the path changes")
     func directFailed() async {
         let plan = MobileCarrierPlan(endpoints: [Self.lan], snapshot: Self.wifi)

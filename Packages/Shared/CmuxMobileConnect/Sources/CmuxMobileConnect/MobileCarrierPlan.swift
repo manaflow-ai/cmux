@@ -15,10 +15,13 @@ public final class MobileCarrierPlan: DirectRouteProvider, DirectEndpointResolve
     }
 
     private let planner = DirectRoutePlanner()
+    private let transport: MobileTransportPreference
     // carve-out: read synchronously from every carrier's connect.
     private let state: OSAllocatedUnfairLock<State>
 
-    public init(endpoints: [DirectEndpoint], snapshot: DirectPathSnapshot?) {
+    public init(endpoints: [DirectEndpoint], snapshot: DirectPathSnapshot?,
+                transport: MobileTransportPreference = .automatic) {
+        self.transport = transport
         state = OSAllocatedUnfairLock(initialState: State(endpoints: endpoints, snapshot: snapshot))
     }
 
@@ -30,6 +33,14 @@ public final class MobileCarrierPlan: DirectRouteProvider, DirectEndpointResolve
 
     /// Whether a carrier of `kind` takes part in the next race.
     public func admits(_ kind: CarrierKind) -> Bool {
+        switch transport {
+        case .direct:
+            return kind == .direct
+        case .webrtc:
+            return kind == .webrtc || kind == .webrtcWireGuard
+        case .automatic:
+            break
+        }
         let current = state.withLock { $0 }
         let direct = PlanMarker(kind: .direct)
         let other = PlanMarker(kind: .webrtc)

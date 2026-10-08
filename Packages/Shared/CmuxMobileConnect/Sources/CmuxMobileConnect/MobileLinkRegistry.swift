@@ -10,6 +10,7 @@ import Foundation
 /// `MobileLinkClient` per reachable Mac, each over a `PathSelector` of B4's
 /// `DirectCarrier`, B2's `WebRTCCarrier` and (DEV switch) B3's
 /// `WireGuardOverWebRTCCarrier`, gated by the Mac's `MobileCarrierPlan`.
+/// The plan can force one of the V1 carriers for live dogfood.
 ///
 /// Owns the clients it makes: a Mac that leaves the trust store, or whose
 /// pinned keys change, loses its client (closed, so its terminals end).
@@ -112,19 +113,28 @@ public final class MobileLinkRegistry {
     // MARK: Private
 
     private func isReachable(_ route: MobileHostRoute) -> Bool {
-        (route.directHostKey != nil && !route.directEndpoints.isEmpty)
-            || (route.webrtcHostKey != nil && credentials.webrtc != nil)
-            || (options.wireGuardOverWebRTC && route.wireGuardHostKey != nil && credentials.wireGuard != nil)
+        switch options.transport {
+        case .direct:
+            return route.directHostKey != nil && !route.directEndpoints.isEmpty
+        case .webrtc:
+            return (route.webrtcHostKey != nil && credentials.webrtc != nil)
+                || (options.wireGuardOverWebRTC && route.wireGuardHostKey != nil && credentials.wireGuard != nil)
+        case .automatic:
+            return (route.directHostKey != nil && !route.directEndpoints.isEmpty)
+                || (route.webrtcHostKey != nil && credentials.webrtc != nil)
+                || (options.wireGuardOverWebRTC && route.wireGuardHostKey != nil && credentials.wireGuard != nil)
+        }
     }
 
     private func makeEntry(_ route: MobileHostRoute) -> Entry {
-        let plan = MobileCarrierPlan(endpoints: route.directEndpoints, snapshot: snapshot)
+        let plan = MobileCarrierPlan(endpoints: route.directEndpoints, snapshot: snapshot,
+                                     transport: options.transport)
         var carriers: [any LinkCarrier] = []
-        if route.directHostKey != nil {
+        if options.transport != .webrtc, route.directHostKey != nil {
             carriers.append(DirectCarrier(identity: credentials.direct, resolver: plan, routes: plan))
         }
-        let needsSignaling = (route.webrtcHostKey != nil && credentials.webrtc != nil)
-            || (options.wireGuardOverWebRTC && route.wireGuardHostKey != nil && credentials.wireGuard != nil)
+        let needsSignaling = options.transport != .direct && ((route.webrtcHostKey != nil && credentials.webrtc != nil)
+            || (options.wireGuardOverWebRTC && route.wireGuardHostKey != nil && credentials.wireGuard != nil))
         let relay = needsSignaling ? signaling(route) : nil
         var webrtc: WebRTCCarrier?
         if let relay, route.webrtcHostKey != nil, let identity = credentials.webrtc {

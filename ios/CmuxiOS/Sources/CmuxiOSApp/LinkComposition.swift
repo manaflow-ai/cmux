@@ -44,7 +44,8 @@ struct LinkComposition {
         return AccountLinkBootstrap(
             credentials: credentials, mirror: runtime.mirror,
             lookup: TrustStoreKeyLookup(mirror: runtime.mirror, environment: account.environment, user: account.user),
-            options: MobileConnectOptions(wireGuardOverWebRTC: dev.wireGuardOverWebRTC),
+            options: MobileConnectOptions(transport: dev.transport,
+                                           wireGuardOverWebRTC: dev.wireGuardOverWebRTC),
             signaling: { route in
                 // A lease on the Mac's shared host socket (D1b), with `team=` for another account's Mac.
                 let session = pairing.hostSockets.deferredSession(host: route.hostID, team: route.team)

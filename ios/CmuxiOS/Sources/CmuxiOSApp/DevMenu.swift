@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxFeedPushCore
 import CmuxHomeUI
+import CmuxMobileConnect
 import CmuxiOSDesign
 import CmuxiOSFeatureKit
 import CmuxiOSPlatform
@@ -45,6 +46,12 @@ enum DevMenu {
         })
         // DEBUG-only: link layer switches (D1); they apply at the next launch.
         let link = LinkDevOptions()
+        for transport in MobileTransportPreference.allCases {
+            let mark = link.transport == transport ? "✓ " : ""
+            sheet.addAction(UIAlertAction(title: mark + transportTitle(transport), style: .default) { _ in
+                UserDefaults.standard.set(transport.rawValue, forKey: LinkDevOptions.transportKey)
+            })
+        }
         sheet.addAction(UIAlertAction(title: (link.wireGuardOverWebRTC ? "✓ " : "") + "Link: WireGuard over WebRTC (V2)",
                                       style: .default) { _ in
             UserDefaults.standard.set(!link.wireGuardOverWebRTC, forKey: LinkDevOptions.wireGuardKey)
@@ -100,6 +107,14 @@ enum DevMenu {
         sheet.addAction(UIAlertAction(
             title: String(localized: "dev.menu.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
         return sheet
+    }
+
+    private static func transportTitle(_ transport: MobileTransportPreference) -> String {
+        switch transport {
+        case .automatic: return "Link transport: Automatic"
+        case .direct: return "Link transport: Direct only"
+        case .webrtc: return "Link transport: WebRTC only"
+        }
     }
 
     private static func densityTitle(_ density: HomeListDensity) -> String {
