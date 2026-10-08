@@ -5924,13 +5924,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
-        let shouldReportNaturalSize = TerminalViewportReportPolicy(
+        let viewportReportPolicy = TerminalViewportReportPolicy(
             naturalGrid: reportGrid,
             previousNaturalGrid: lastReportedSize,
             shouldReassertNaturalSize: shouldReassertNaturalSize,
             effectiveMatchesNatural: effectiveMatchesNatural,
             viewportReportPending: viewportReportPending
-        ).shouldReport
+        )
+        let shouldReportNaturalSize = viewportReportPolicy.shouldReport
         let canPublishSettledKeyboardViewport =
             publishSettledKeyboardViewportImmediately
             && alternateScreenSizingEnabled
@@ -5944,7 +5945,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             return
         }
-        if naturalGridChanged {
+        if viewportReportPolicy.naturalCapacityChanged {
             // Retry exhaustion belongs to one natural grid. Rotation, zoom
             // settle, composer-height changes, and other real capacity changes
             // get a fresh bounded recovery budget.
