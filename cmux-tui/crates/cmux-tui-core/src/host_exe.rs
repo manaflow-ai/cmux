@@ -42,6 +42,31 @@ pub(crate) fn hold_in_use_lock() {
     imp::hold_in_use_lock();
 }
 
+/// Spawn a terminal host from [`terminal_host_executable`]. Its command line
+/// is `cmux-tui __terminal-host ...` with no path, also when the daemon's own
+/// executable is used. A spawn that fails from the copy is retried once from
+/// the daemon's own executable, and the copy is not used again.
+pub(crate) fn spawn_host(
+    configure: impl Fn(&mut std::process::Command),
+) -> io::Result<std::process::Child> {
+    use std::os::unix::process::CommandExt;
+    let binary = terminal_host_executable()?;
+    let spawn = |binary: &std::path::Path| {
+        let mut command = std::process::Command::new(binary);
+        command.arg0("cmux-tui");
+        configure(&mut command);
+        command.spawn()
+    };
+    match spawn(&binary) {
+        Err(error) if binary != crate::platform::self_exe_for_spawn()? => {
+            imp::copy_failed(&binary);
+            eprintln!("cmux-tui: a terminal host did not start from {}: {error}", binary.display());
+            spawn(&crate::platform::self_exe_for_spawn()?)
+        }
+        result => result,
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 mod imp {
     use std::io;
@@ -52,6 +77,8 @@ mod imp {
     }
 
     pub(super) fn hold_in_use_lock() {}
+
+    pub(super) fn copy_failed(_path: &std::path::Path) {}
 }
 
 #[cfg(target_os = "macos")]

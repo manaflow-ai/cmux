@@ -25,12 +25,7 @@ fn regex_escape(text: &str) -> String {
 
 #[test]
 fn a_terminal_host_command_line_names_no_tag_and_no_bundle() {
-    let mut harness = RecoveryHarness::start_unstarted("host-argv-tag-marker");
-    let copies = std::env::temp_dir().join(format!("hx-argv-{}", std::process::id()));
-    let mut command = harness.daemon_command();
-    command.env("CMUX_TUI_HOST_EXE_DIR", &copies);
-    harness.child = Some(command.spawn().unwrap());
-    wait_for_socket(&harness.socket);
+    let harness = RecoveryHarness::start("host-argv-tag-marker");
     request(
         &harness.socket,
         serde_json::json!({"id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,"name":"argv"}),
@@ -48,5 +43,19 @@ fn a_terminal_host_command_line_names_no_tag_and_no_bundle() {
         !pgrep_full(&regex_escape(bin())).contains(&record.host_pid),
         "`pgrep -f <bundle executable>` matches the terminal host"
     );
-    let _ = fs::remove_dir_all(&copies);
+    // macOS: the host runs from its verified copy, not the build's binary.
+    #[cfg(target_os = "macos")]
+    {
+        let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        // SAFETY: proc_pidpath writes at most `path.len()` bytes.
+        let written = unsafe {
+            libc::proc_pidpath(record.host_pid as i32, path.as_mut_ptr().cast(), path.len() as u32)
+        };
+        let path = String::from_utf8_lossy(&path[..usize::try_from(written).unwrap_or(0)]);
+        let copies = fs::canonicalize(harness.dir.join("host-exe")).unwrap();
+        assert!(
+            path.starts_with(&*copies.to_string_lossy()),
+            "the host does not run from its copy: {path}"
+        );
+    }
 }

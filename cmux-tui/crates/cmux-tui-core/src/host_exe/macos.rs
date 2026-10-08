@@ -17,7 +17,8 @@ const ROOT_ENV: &str = "CMUX_TUI_HOST_EXE_DIR";
 /// The copy's file name: the multi-call binary dispatches on it.
 const EXE_NAME: &str = "cmux-tui";
 const LOCK_NAME: &str = "in-use.lock";
-/// Unused copies kept besides the current one.
+/// The newest copies besides the current one that collection never
+/// deletes, used or not.
 const KEEP_UNUSED: usize = 2;
 /// `clonefile(2)`: clone a symlink itself instead of its target (sys/clonefile.h).
 const CLONE_NOFOLLOW: u32 = 0x0001;
@@ -43,13 +44,22 @@ struct Installed {
 }
 
 static INSTALLED: Mutex<Option<Installed>> = Mutex::new(None);
+/// An install failed: this daemon uses its own executable from then on
+/// instead of hashing and copying again for every host.
+static FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Copy directories this process already holds a shared lock on.
+static LOCKED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
 pub(super) fn terminal_host_executable() -> io::Result<PathBuf> {
     let source = crate::platform::self_exe_for_spawn()?;
     let Some(root) = root() else { return Ok(source) };
+    if FAILED.load(Ordering::Acquire) {
+        return Ok(source);
+    }
     match verified_copy(&root, &source) {
         Ok(path) => Ok(path),
         Err(error) => {
+            FAILED.store(true, Ordering::Release);
             static REPORTED: Once = Once::new();
             REPORTED.call_once(|| {
                 eprintln!(
@@ -60,6 +70,15 @@ pub(super) fn terminal_host_executable() -> io::Result<PathBuf> {
             });
             Ok(source)
         }
+    }
+}
+
+/// A spawn of `path` failed: stop using the copy for this daemon.
+pub(super) fn copy_failed(path: &Path) {
+    let mut installed = INSTALLED.lock().unwrap_or_else(PoisonError::into_inner);
+    if installed.as_ref().is_some_and(|copy| copy.path == path) {
+        *installed = None;
+        FAILED.store(true, Ordering::Release);
     }
 }
 
@@ -119,7 +138,8 @@ fn install(root: &Path, source: &Path) -> io::Result<Installed> {
     let usable = fs::symlink_metadata(&path)
         .is_ok_and(|meta| meta.file_type().is_file() && meta.uid() == effective_uid());
     if !usable || sha256_file(&path)? != sha {
-        let _ = fs::remove_file(&path);
+        // The rename replaces a wrong file; a missing one may be another
+        // daemon's copy landing now, which the rename also tolerates.
         write_copy(&source, &dir, &path, &sha)?;
     }
     let key = file_key(&path)?;
@@ -156,7 +176,9 @@ fn write_copy(source: &Path, dir: &Path, path: &Path, sha: &str) -> io::Result<(
             return Err(io::Error::other("the copied terminal-host executable has another hash"));
         }
         fs::rename(&temporary, path)?;
-        File::open(dir)?.sync_all()
+        // Directory sync is best effort (some network homes reject it).
+        let _ = File::open(dir).and_then(|dir| dir.sync_all());
+        Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -179,8 +201,7 @@ fn clone_file(source: &Path, destination: &Path) -> io::Result<()> {
     let source = CString::new(source.as_os_str().as_bytes())?;
     let destination = CString::new(destination.as_os_str().as_bytes())?;
     // SAFETY: both arguments are NUL-terminated paths that outlive the call.
-    if unsafe { libc::clonefile(source.as_ptr(), destination.as_ptr(), CLONE_NOFOLLOW) } != 0
-    {
+    if unsafe { libc::clonefile(source.as_ptr(), destination.as_ptr(), CLONE_NOFOLLOW) } != 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())
@@ -209,8 +230,13 @@ fn effective_uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-/// Take a shared lock on `dir`'s in-use lock for the rest of this process.
+/// Take a shared lock on `dir`'s in-use lock for the rest of this process
+/// (once per directory).
 fn hold_shared_lock(dir: &Path) -> io::Result<()> {
+    let mut locked = LOCKED.lock().unwrap_or_else(PoisonError::into_inner);
+    if locked.iter().any(|held| held == dir) {
+        return Ok(());
+    }
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -225,6 +251,7 @@ fn hold_shared_lock(dir: &Path) -> io::Result<()> {
     }
     // The descriptor, and the lock, stay open until the process ends.
     std::mem::forget(file);
+    locked.push(dir.to_path_buf());
     Ok(())
 }
 
