@@ -44,6 +44,23 @@ extension PaneHandlers {
             let handle = pane.handle
             ctx.send("close-pane") { try await $0.closePane(handle) }
         })
+        // Every other pane of the right-clicked pane's screen closes with its
+        // tabs, as a user's tab close does: no question, the closed history
+        // keeps them and an undo toast offers them back (cx-k9go).
+        registry.bind("pane.closeOthers", invoke: { invocation in
+            guard let pane = ctx.daemonPane(invocation) else { return }
+            let screens = ctx.services.machines.daemons.lazy.flatMap(\.store.workspaces).flatMap(\.screens)
+            let others = (screens.first { $0.panes.contains { $0 === pane } }?.panes ?? []).filter { $0 !== pane }
+            guard !others.isEmpty else { return ctx.refuse(HandlerStrings.noOtherPanes) }
+            for other in others {
+                if let controller = ctx.services.paneController(for: other) {
+                    CloseUndoToasts.close(in: controller, controller.stripModel.orderedTabs.map(\.id))
+                } else {
+                    let handle = other.handle
+                    ctx.send("close-pane") { try await $0.closePane(handle) }
+                }
+            }
+        })
         registry.bind("renamePane", invoke: { invocation in
             guard let pane = ctx.daemonPane(invocation) else { return }
             let handle = pane.handle

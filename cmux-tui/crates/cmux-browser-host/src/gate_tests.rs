@@ -1465,3 +1465,6 @@ fn a_proxied_session_is_refused_a_name_that_resolves_to_metadata() {
     let opened = driver.calls.lock().unwrap().iter().filter(|(m, _)| m == "tabs.open").count();
     assert_eq!(opened, 4, "the refused calls never reached the engine");
 }
+
+#[path = "gate_isolated_tests.rs"]
+mod isolated;

@@ -162,6 +162,20 @@ import Testing
         #expect(effects == [.run(levelID: level.id, rowID: "cmd.b")])
     }
 
+    /// state-audit P1: a Return that waits for its query's rows belongs to that query. Escape (which
+    /// clears the query) and new typing drop it, so the next results run nothing.
+    @Test func aWaitingReturnDiesWithItsQuery() {
+        var d = driver()
+        d.send(.open(scope: nil, query: ""))
+        d.send(.setQuery("b"), answer: false)
+        #expect(d.send(.activate(nil)).isEmpty)
+        d.send(.escape, answer: false)
+        d.send(.setQuery("c"), answer: false)
+        let level = d.top
+        let effects = d.send(.results(levelID: level.id, generation: level.generation, rows: F.rows(["cmd.c"]), replace: true, isFinal: true))
+        #expect(effects.isEmpty, "no command runs that the user did not confirm")
+    }
+
     /// The live bug (query "settings"): the user typed, arrowed to a row of the rows on screen
     /// (an older query's), and pressed Return. Return must run that highlighted row once the
     /// current query's rows land, never the new top row.
