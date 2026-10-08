@@ -14398,6 +14398,72 @@
             "state": "translated",
             "value": "讓 Feed 請求保持阻塞"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadrži Feed zahtjeve blokiranim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Feed-anmodninger blokeret"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni bloccate le richieste di Feed"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាសំណើ Feed ឲ្យនៅក្នុងស្ថានភាពរារាំង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Feed-forespørsler blokkerte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozostaw żądania Feed zablokowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter solicitações do Feed bloqueadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставлять запросы Feed заблокированными"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้คำขอของ Feed คงอยู่ในสถานะรอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed isteklerini engellemeye devam et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Залишати запити Feed заблокованими"
+          }
         }
       }
     },
@@ -14457,6 +14523,72 @@
             "state": "translated",
             "value": "問題和權限使用預設的 120 秒軟等待。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitanja i dozvole koriste zadano meko čekanje od 120 sekundi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørgsmål og tilladelser bruger standardventetiden på 120 sekunder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domande e autorizzazioni usano l’attesa flessibile predefinita di 120 secondi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណួរ និងការអនុញ្ញាតប្រើការរង់ចាំទន់លំនាំដើមរយៈពេល 120 វិនាទី។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørsmål og tillatelser bruker standard myk ventetid på 120 sekunder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytania i uprawnienia używają domyślnego miękkiego oczekiwania przez 120 sekund."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntas e permissões usam a espera flexível padrão de 120 segundos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для вопросов и разрешений используется стандартное мягкое ожидание в течение 120 секунд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำถามและการอนุญาตใช้การรอแบบนุ่มนวลเริ่มต้น 120 วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sorular ve izinler varsayılan 120 saniyelik yumuşak beklemeyi kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для запитань і дозволів використовується стандартне м’яке очікування 120 секунд."
+          }
         }
       }
     },
@@ -14515,6 +14647,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "問題和權限會保持待處理，直到你回答或關閉它們。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitanja i dozvole ostaju na čekanju dok ne odgovorite ili ih odbacite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørgsmål og tilladelser forbliver afventende, indtil du svarer eller afviser dem."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domande e autorizzazioni restano in sospeso finché non rispondi o le ignori."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណួរ និងការអនុញ្ញាតនៅរង់ចាំ រហូតដល់អ្នកឆ្លើយ ឬបោះបង់វា។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørsmål og tillatelser forblir ventende til du svarer eller avviser dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytania i uprawnienia pozostają oczekujące, dopóki nie odpowiesz lub ich nie odrzucisz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntas e permissões permanecem pendentes até você responder ou dispensá-las."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вопросы и разрешения остаются ожидающими, пока вы не ответите или не отклоните их."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำถามและการอนุญาตจะยังรอดำเนินการจนกว่าคุณจะตอบหรือยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sorular ve izinler siz yanıtlayana veya kapatana kadar beklemede kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запитання й дозволи залишаються в очікуванні, доки ви не відповісте або не відхилите їх."
           }
         }
       }

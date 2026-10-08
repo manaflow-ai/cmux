@@ -10,9 +10,6 @@ import path from "node:path";
 
 const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
 const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
-// Keep the plugin-side promise alive for the opt-in blocking mode. cmux still
-// returns the existing soft-wait response when the setting is off.
-const REPLY_TIMEOUT_MS = 86_400_000;
 const MAX_PLAN_BYTES = 128 * 1024;
 
 const createCMUXFeed = async (ctx) => {
@@ -590,12 +587,6 @@ const createCMUXFeed = async (ctx) => {
   const pushBlocking = (event, requestId) => {
     const reply = new Promise((resolve) => {
       pending.set(requestId, resolve);
-      setTimeout(() => {
-        if (pending.has(requestId)) {
-          pending.delete(requestId);
-          resolve({ status: "timed_out" });
-        }
-      }, REPLY_TIMEOUT_MS);
     });
     const wrote = write({
       id: `opencode-${requestId}`,

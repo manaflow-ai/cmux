@@ -175,7 +175,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             hooks,
             event: "PermissionRequest",
             command: #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude"#,
-            timeout: 125
+            timeout: 86_400
         )
         try expectDirectHook(
             hooks,

@@ -258,6 +258,7 @@ final class FeedCoordinator: @unchecked Sendable {
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in },
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void = { _ in }
     ) -> IngestBlockingOutcome {
+        let effectiveWaitUntilResolved = waitUntilResolved && (event.ppid ?? 0) > 0
         if waitTimeout <= 0 {
             guard enqueueZeroWaitAcceptance(
                 event,
@@ -317,7 +318,7 @@ final class FeedCoordinator: @unchecked Sendable {
         guard let registration = waiterRegistry.register(
             requestID: requestId,
             event: event,
-            waitUntilResolved: waitUntilResolved
+            waitUntilResolved: effectiveWaitUntilResolved
         ) else {
             return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
         }
@@ -325,7 +326,7 @@ final class FeedCoordinator: @unchecked Sendable {
             return awaitRegisteredDecision(
                 registration,
                 until: deliveryDeadline,
-                waitUntilResolved: waitUntilResolved
+                waitUntilResolved: effectiveWaitUntilResolved
             )
         }
         // Duplicate hooks join before any session lookup or UI insertion.
@@ -337,7 +338,7 @@ final class FeedCoordinator: @unchecked Sendable {
             return awaitRegisteredDecision(
                 registration,
                 until: deliveryDeadline,
-                waitUntilResolved: waitUntilResolved
+                waitUntilResolved: effectiveWaitUntilResolved
             )
         }
 
@@ -409,7 +410,7 @@ final class FeedCoordinator: @unchecked Sendable {
             return awaitRegisteredDecision(
                 registration,
                 until: deliveryDeadline,
-                waitUntilResolved: waitUntilResolved
+                waitUntilResolved: effectiveWaitUntilResolved
             )
         }
         switch acceptance {
@@ -423,7 +424,7 @@ final class FeedCoordinator: @unchecked Sendable {
         return awaitRegisteredDecision(
             registration,
             until: deliveryDeadline,
-            waitUntilResolved: waitUntilResolved
+            waitUntilResolved: effectiveWaitUntilResolved
         )
     }
 
@@ -455,7 +456,9 @@ final class FeedCoordinator: @unchecked Sendable {
     private func dismissBlockingWaiters(forPpid ppid: Int) {
         for (reply, itemID) in waiterRegistry.invalidateOptInWaiters(forPpid: ppid) {
             cancelNotification(requestId: reply.requestID)
-            concludeBlockingDecisionAttention(reply.target)
+            if let target = reply.target {
+                concludeBlockingDecisionAttention(target)
+            }
             notificationJournal.observeFeed(AgentFeedSemanticInput(event: reply.event,
                 agentKey: Self.lifecycleStatusKey(forSource: reply.event.source),
                 requestID: reply.requestID, resolvesRequest: true))

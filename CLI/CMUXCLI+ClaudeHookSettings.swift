@@ -85,9 +85,12 @@ extension CMUXCLI {
         hooks["PermissionRequest"] = [
             Self.claudeHookGroup(
                 command: "\(hookCLI) hooks feed --source claude",
-                timeout: Self.feedBlockingQuestionsEnabled
-                    ? Self.feedHookBlockingProcessTimeoutMilliseconds / 1_000
-                    : 125
+                // The Feed server still applies the default 120-second soft
+                // wait when the setting is off. Keep the provider guard long
+                // in every generated session so toggling the preference while
+                // Claude is running cannot leave an old hook with a short
+                // deadline.
+                timeout: Self.feedHookBlockingProcessTimeoutMilliseconds / 1_000
             ),
         ]
 

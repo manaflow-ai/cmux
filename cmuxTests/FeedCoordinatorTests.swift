@@ -907,6 +907,41 @@ struct FeedCoordinatorTests {
         }
     }
 
+    @Test func optedInBlockingWaiterWithoutProcessIdentityKeepsSoftDeadline() async {
+        defer { Self.resetFeedCoordinatorTestHooks() }
+        let requestId = "opt-in-untracked-request"
+        let ingested = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0)
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+                if ingestedRequestId == requestId { ingested.signal() }
+            }
+        }
+        let event = WorkstreamEvent(
+            sessionId: "opt-in-untracked-session",
+            hookEventName: .askUserQuestion,
+            source: "claude",
+            requestId: requestId
+        )
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0.05,
+                waitUntilResolved: true
+            )
+            done.signal()
+        }
+
+        #expect(ingested.wait(timeout: .now() + 1) == .success)
+        #expect(done.wait(timeout: .now() + 1) == .success)
+        guard case .timedOut = resultBox.value else {
+            Issue.record("an opted-in request without a process identity must retain the soft deadline")
+            return
+        }
+    }
+
     /// Claude Code keeps its PermissionRequest hook waiting after the user
     /// answers the prompt in the terminal or the auto-mode classifier decides,
     /// so the Feed request (and the "Needs input" overlay it owns) outlived the

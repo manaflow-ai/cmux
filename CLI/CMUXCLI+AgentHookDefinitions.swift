@@ -16,7 +16,9 @@ extension CMUXCLI {
     static let feedHookBlockingClientDeadlineSeconds = Double(feedHookBlockingProcessTimeoutMilliseconds) / 1_000 - 2
 
     static var feedBlockingQuestionsEnabled: Bool {
-        UserDefaultsSettingsClient(defaults: .standard).value(
+        let defaults = CLISocketPathResolver.currentAppBundleIdentifier()
+            .flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        return UserDefaultsSettingsClient(defaults: defaults).value(
             for: SettingCatalog().feed.blockingQuestions
         )
     }
