@@ -93,6 +93,7 @@ cmux-link-bench serve --address 192.0.2.10 --bind 0.0.0.0 --port 0 \
 
 # Any client process (the iOS DEV screen uses BenchSplitClient directly):
 cmux-link-bench client --descriptor /tmp/cmux-bench/serve.json \
+  --identity-file /tmp/cmux-bench/phone-direct-private-key \
   --out /tmp/cmux-bench/v3-direct-device.json \
   --manifest /tmp/cmux-bench/manifest.json --source-commit "$(git rev-parse HEAD)" --quick
 python3 plans/cmux-next/ios-next/bakeoff/summarize.py /tmp/cmux-bench/manifest.json
@@ -102,7 +103,9 @@ The first split slice supports `connect`, `rtt`, `rtt-bulk`, `flood` and `bulk`,
 bulk record size in the descriptor so the report cannot silently measure a different payload. Raw
 transport and injected reconnect/roam remain process-local until the split control protocol adds
 explicit fault operations. The service accepts `--rig direct`/`--rig v3`; V1/V2 require their B5
-signaling adapters before they can be exposed by `serve`.
+signaling adapters before they can be exposed by `serve`. The CLI identity file contains the 32-byte
+raw X25519 private key corresponding to the public key passed to `serve`; an iOS client keeps this
+material in its device key store and passes `DirectIdentity` directly to `BenchSplitClient`.
 
 ## 3. Results on loopback
 
