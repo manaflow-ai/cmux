@@ -1785,7 +1785,9 @@ jobs:
           # This run executes the tip's nightly.yml against the resolved
           # commit, so the resolved commit must carry the same file: run
           # 37568319518 called a dSYM script its older build commit lacked.
-          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml
+          # Preserve Chief lockfile repairs too: run 37724899486 selected an
+          # older published revision and failed cargo build --locked.
+          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock
         run: |
           set -euo pipefail
           # Prints commit=, key=, source_commit=, tip_key=, behind= and
