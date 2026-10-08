@@ -100,3 +100,33 @@ test("fit controls expose the selected crop mode", async () => {
       ?.getAttribute("aria-pressed"),
   ).toBe("true");
 });
+
+test("global playback and per-card pause expose pressed state and accessible labels", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<VisualMediaBoard />);
+  });
+
+  const playback = () => container.querySelector<HTMLButtonElement>(".cmux-gallery-media-action")!;
+  const pulse = () =>
+    [...container.querySelectorAll<HTMLButtonElement>(".cmux-gallery-media-stage")].find((button) =>
+      button.getAttribute("aria-label")?.startsWith("Pulse loop,"),
+    )!;
+
+  expect(playback().getAttribute("aria-pressed")).toBe("false");
+  await act(async () => playback().click());
+  expect(playback().textContent).toBe("Play previews");
+  expect(playback().getAttribute("aria-pressed")).toBe("true");
+  expect(pulse().getAttribute("aria-label")).toBe("Pulse loop, paused by the global control preview");
+
+  await act(async () => playback().click());
+  expect(playback().getAttribute("aria-pressed")).toBe("false");
+  expect(pulse().getAttribute("aria-label")).toBe("Pulse loop, pause preview");
+  await act(async () => pulse().click());
+  expect(pulse().getAttribute("aria-label")).toBe("Pulse loop, resume preview");
+  expect(pulse().getAttribute("aria-pressed")).toBe("true");
+  await act(async () => pulse().click());
+  expect(pulse().getAttribute("aria-label")).toBe("Pulse loop, pause preview");
+  expect(pulse().getAttribute("aria-pressed")).toBe("false");
+});
