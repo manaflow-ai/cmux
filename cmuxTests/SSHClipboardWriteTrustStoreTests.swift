@@ -165,5 +165,11 @@ struct SSHClipboardWriteTrustStoreTests {
 
         let newPanel = try #require(windowMirror.panel(forPane: 5))
         #expect(newPanel.surface.allowsRemoteClipboardWrites)
+
+        store.setTrusted(false, for: machine)
+        let ownership = SSHClipboardWriteSurfaceOwnershipIndex(projections: [], pendingRestores: [])
+        workspace.applySSHClipboardWritePermission(for: machine, ownership: ownership)
+        #expect(!firstPanel.surface.allowsRemoteClipboardWrites)
+        #expect(!newPanel.surface.allowsRemoteClipboardWrites)
     }
 }
