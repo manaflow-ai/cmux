@@ -113,6 +113,7 @@ impl HostLaunchAdopt {
             extra_env: Vec::new(),
             default_colors,
             kitty_graphics_limits,
+            seed: Vec::new(),
         };
         Ok(Self { launch, child_pid, session_id, incarnation, seed })
     }
@@ -143,8 +144,10 @@ pub(super) fn adopt_pty_fd_from_process_args() -> Option<RawFd> {
         .and_then(|pair| pair[1].to_str().and_then(parse_fd))
 }
 
-pub(super) fn max_payload(adopt_fd: Option<RawFd>) -> usize {
-    if adopt_fd.is_some() { MAX_LAUNCH_ADOPT_PAYLOAD } else { MAX_LAUNCH_PAYLOAD }
+/// Both `Launch` (with its optional respawn seed, cx-6so.49 L2) and
+/// `LaunchAdopt` may carry a seed blob on top of the launch budget.
+pub(super) fn max_payload(_adopt_fd: Option<RawFd>) -> usize {
+    MAX_LAUNCH_ADOPT_PAYLOAD
 }
 
 /// Decode the private-pipe launch frame. An adopting host takes the
@@ -338,6 +341,7 @@ pub fn launch_terminal_host_adopting(
             extra_env: Vec::new(),
             default_colors: adoption.default_colors,
             kitty_graphics_limits: adoption.kitty_graphics_limits,
+            seed: Vec::new(),
         },
         child_pid: adoption.custody.child_pid,
         session_id: adoption.custody.session_id,
@@ -440,6 +444,7 @@ mod tests {
                 extra_env: Vec::new(),
                 default_colors: DefaultColors::default(),
                 kitty_graphics_limits: KittyGraphicsLimits::default(),
+                seed: Vec::new(),
             },
             child_pid: 4242,
             session_id: 4242,
@@ -503,7 +508,7 @@ mod tests {
         ] {
             assert!(adopt_pty_fd(&args(bad)).is_err(), "{bad:?}");
         }
-        assert_eq!(max_payload(None), MAX_LAUNCH_PAYLOAD);
+        assert_eq!(max_payload(None), MAX_LAUNCH_ADOPT_PAYLOAD, "a Launch may carry a seed");
         assert_eq!(max_payload(Some(3)), MAX_LAUNCH_ADOPT_PAYLOAD);
     }
 }

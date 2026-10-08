@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089. */
+/* cmux-tui mux protocol 12, IR 176aa0cece7a9c80c8dd811192b161cf3264a86b77297ab88990744aa457bafc. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089" as const;
+export const SDK_IR_SHA256 = "176aa0cece7a9c80c8dd811192b161cf3264a86b77297ab88990744aa457bafc" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -331,6 +331,16 @@ export const COMMAND_METADATA = {
       "Browser surfaces only; values are CSS pixels.",
       "The frame sequence must be the exact presented token for this connection.",
       "Requires browser-pointer-frame-guard-v1."
+    ]
+  },
+  "chief-inspect": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "chief-inspect-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Read-only: one of seven /api paths, GET, forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. See spec/commands.md."
     ]
   },
   "clear-history": {
@@ -12304,6 +12314,66 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "chief-inspect": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "path": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "query": {
+          "default": {},
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "body": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "error": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "status": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "clear-history": {
