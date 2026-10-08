@@ -50,12 +50,14 @@ extension ChatDockRules {
     /// already measured the room (`roomDecided`); otherwise `measure` does.
     static func dropSplit(roomDecided: Bool, intoChatDock: Bool,
                           measure: () -> SplitRoomDecision) -> SplitRoomDecision {
-        roomDecided ? .split : measure()
+        if intoChatDock { return .refused(RefusalStrings.chatDockCannotSplit) }
+        return roomDecided ? .split : measure()
     }
 
-    /// The pane a drop on a workspace (the sidebar) lands in: its first screen's first pane.
+    /// The pane a drop on a workspace (the sidebar) lands in: its first
+    /// screen's first pane outside the chat dock (which takes only chats).
     static func workspaceDropPane<Pane>(_ panes: [Pane], isChatDock: (Pane) -> Bool) -> Pane? {
-        panes.first
+        panes.first { !isChatDock($0) } ?? panes.first
     }
 
     @MainActor static func workspaceDropPane(_ screen: ScreenModel?, services: AppServices) -> PaneModel? {
