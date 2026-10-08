@@ -63,6 +63,7 @@ pub(crate) trait TuiMuxOps {
     ) -> anyhow::Result<Arc<Surface>>;
     fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>);
     fn close_workspace(&self, target: WorkspaceId) -> bool;
+    fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool;
 }
 
 #[cfg(test)]
@@ -161,5 +162,10 @@ impl TuiMuxOps for Arc<Mux> {
 
     fn close_workspace(&self, target: WorkspaceId) -> bool {
         self.close_workspace_as(me(), target)
+    }
+
+    fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool {
+        self.rename_workspace_at_revision_as(me(), target, name, None)
+            .is_ok_and(|revision| revision.is_some())
     }
 }

@@ -4,6 +4,7 @@
 //! actor with the `*_as` form, or does not compile.
 
 use super::*;
+use crate::model::ColumnDock;
 
 #[allow(dead_code, clippy::too_many_arguments, reason = "test conveniences; each test uses some")]
 impl Mux {
