@@ -172,6 +172,11 @@ def check_workflow(name: str, text: str) -> list[str]:
     return errors
 
 
+def pin_below_floor(version: str, floor: str) -> bool:
+    """Return whether an Xcode pin is below the repository's minimum major."""
+    return floor.isdigit() and int(version.split(".")[0]) < int(floor)
+
+
 def check_repository() -> list[str]:
     errors = []
     texts = {path.name: path.read_text() for path in sorted(WORKFLOWS.glob("*.yml"))}
@@ -204,7 +209,7 @@ def check_repository() -> list[str]:
         if fields[0] in pins:
             errors.append(f"scripts/ci/xcode-pins.txt pins macOS {fields[0]} twice")
         pins[fields[0]] = fields[1]
-        if floor.isdigit() and int(fields[1].split(".")[0]) < int(floor):
+        if pin_below_floor(fields[1], floor):
             errors.append(
                 f"scripts/ci/xcode-pins.txt pins Xcode {fields[1]} for macOS {fields[0]}, "
                 f"below the .xcode-version floor {floor}"
@@ -219,6 +224,10 @@ def check_repository() -> list[str]:
 
 def check_detects_regressions() -> list[str]:
     """The checker must flag each way a job can slip off the selector."""
+    floor = (ROOT / ".xcode-version").read_text().strip().split(".")[0]
+    if pin_below_floor("27.0", floor):
+        return ["self-test newer-major Xcode pin was rejected"]
+
     base = """jobs:
   build:
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}

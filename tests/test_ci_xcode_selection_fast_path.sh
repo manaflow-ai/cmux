@@ -115,6 +115,12 @@ expect_one_error() {
   grep -Fq "$text" "$log" || fail "missing error text: $text" "$log"
 }
 
+pin_meets_floor() {
+  local version="$1" floor="$2" pin_major
+  pin_major="${version%%.*}"
+  [[ "$pin_major" =~ ^[0-9]+$ && "$floor" =~ ^[0-9]+$ && "$pin_major" -ge "$floor" ]]
+}
+
 # 1. An explicit developer dir wins, skips the scan, and points xcode-select at it.
 log="$tmp_dir/pinned.log"
 run_select "$log" CMUX_CI_DEVELOPER_DIR="$current_developer" CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
@@ -301,10 +307,11 @@ expect_env "$current_developer" "$log"
 # 18. The repository's own pins satisfy the repository's own floor.
 floor="$(tr -d '[:space:]' < "$ROOT_DIR/.xcode-version")"
 floor="${floor%%.*}"
+pin_meets_floor 27.0 "$floor" \
+  || fail "a newer-major Xcode 27.0 pin must satisfy the .xcode-version floor $floor"
 while read -r macos version _; do
   case "$macos" in ''|'#'*) continue ;; esac
-  pin_major="${version%%.*}"
-  [[ "$pin_major" =~ ^[0-9]+$ && "$floor" =~ ^[0-9]+$ && "$pin_major" -ge "$floor" ]] \
+  pin_meets_floor "$version" "$floor" \
     || fail "scripts/ci/xcode-pins.txt pins Xcode $version for macOS $macos, below the .xcode-version floor $floor"
 done < "$ROOT_DIR/scripts/ci/xcode-pins.txt"
 
