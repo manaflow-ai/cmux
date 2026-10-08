@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import AppKit
 import Foundation
 
@@ -24,7 +25,7 @@ struct CloudTreeResizeMenu {
             for gib in action.resizeDiskOptionsGiB {
                 let title = String(format: String(localized: "machines.menu.resizeToGiB", defaultValue: "Increase to %d GiB"), gib)
                 let entry = CloudTreeMenuItem(title: title) { action.resizeDisk(id, gib) }
-                let failure = CloudVMResizeAdmission.failure(
+                let failure = CloudVMResizePlanValidator().violation(
                     target: CloudVMResizeShape(diskMb: gib * 1024),
                     current: currentShape,
                     usesResourcePool: machine.usesResourcePool,
@@ -41,7 +42,7 @@ struct CloudTreeResizeMenu {
             for cpu in action.resizeCPUOptions {
                 let title = String(format: String(localized: "machines.menu.resizeToVCPUs", defaultValue: "Increase to %d vCPUs"), cpu)
                 let entry = CloudTreeMenuItem(title: title) { action.resizeCPU(id, cpu) }
-                let failure = CloudVMResizeAdmission.failure(
+                let failure = CloudVMResizePlanValidator().violation(
                     target: CloudVMResizeShape(vcpus: cpu),
                     current: currentShape,
                     usesResourcePool: machine.usesResourcePool,
@@ -58,7 +59,7 @@ struct CloudTreeResizeMenu {
             for gib in action.resizeMemoryOptionsGiB {
                 let title = String(format: String(localized: "machines.menu.resizeToGiB", defaultValue: "Increase to %d GiB"), gib)
                 let entry = CloudTreeMenuItem(title: title) { action.resizeMemory(id, gib) }
-                let failure = CloudVMResizeAdmission.failure(
+                let failure = CloudVMResizePlanValidator().violation(
                     target: CloudVMResizeShape(memoryMb: gib * 1024),
                     current: currentShape,
                     usesResourcePool: machine.usesResourcePool,

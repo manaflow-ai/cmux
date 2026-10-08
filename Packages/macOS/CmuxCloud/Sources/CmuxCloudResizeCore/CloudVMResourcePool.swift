@@ -124,13 +124,16 @@ public struct CloudVMResourcePool: Equatable, Sendable {
     }
 
     /// Whole gigabytes, rounded down so free space is never overstated.
+    /// Converts memory from MB to whole GiB without overstating free capacity.
     static func gigabytes(_ memoryMb: Int) -> Int { max(0, memoryMb) / 1024 }
 
+    /// Parses a strictly positive integer from an untyped response value.
     private static func positiveInt(_ raw: Any?) -> Int? {
         guard let value = nonNegativeInt(raw), value > 0 else { return nil }
         return value
     }
 
+    /// Parses a nonnegative integer from an untyped response value.
     private static func nonNegativeInt(_ raw: Any?) -> Int? {
         let value: Int?
         if let int = raw as? Int { value = int }

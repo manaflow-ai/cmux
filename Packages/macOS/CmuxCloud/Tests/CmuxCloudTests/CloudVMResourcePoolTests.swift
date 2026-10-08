@@ -1,4 +1,5 @@
 @testable import CmuxCloud
+import CmuxCloudResizeCore
 import Foundation
 import Testing
 
@@ -19,6 +20,36 @@ struct CloudVMResourcePoolTests {
         #expect(pool.freeVcpus == 4)
         #expect(pool.freeMemoryMb == 8192)
         #expect(!pool.isExhausted)
+    }
+
+    @Test
+    func validatorUsesPlanSpecificFallbackCeilings() throws {
+        let validator = CloudVMResizePlanValidator()
+        let go = try validator.plan(from: ["planId": "go"])
+        let pro = try validator.plan(from: ["planId": "pro"])
+        let max = try validator.plan(from: ["planId": "max"])
+
+        #expect(go.limits.maxDiskMb == 16 * 1024)
+        #expect(go.limits.maxMemoryMb == 4 * 1024)
+        #expect(go.limits.maxVcpus == 2)
+        #expect(pro.limits.maxDiskMb == 128 * 1024)
+        #expect(pro.limits.maxMemoryMb == 32 * 1024)
+        #expect(pro.limits.maxVcpus == 16)
+        #expect(max.limits.maxDiskMb == 256 * 1024)
+        #expect(max.limits.maxMemoryMb == 64 * 1024)
+        #expect(max.limits.maxVcpus == 32)
+    }
+
+    @Test
+    func validatorRejectsPartiallyPopulatedPool() {
+        #expect(throws: CloudVMResizePlanError.incompleteCapacityData) {
+            try CloudVMResizePlanValidator().plan(from: [
+                "planId": "pro",
+                "poolVcpus": 20,
+                "poolMemoryMb": 40 * 1024,
+                "usedVcpus": 16,
+            ])
+        }
     }
 
     @Test
@@ -46,13 +77,13 @@ struct CloudVMResourcePoolTests {
         let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024, resourcePool: pool)
         let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024, diskMb: 64 * 1024)
 
-        #expect(CloudVMResizeAdmission.failure(
+        #expect(CloudVMResizePlanValidator().violation(
             target: CloudVMResizeShape(vcpus: 16),
             current: current,
             usesResourcePool: true,
             limits: limits
         ) == nil)
-        #expect(CloudVMResizeAdmission.failure(
+        #expect(CloudVMResizePlanValidator().violation(
             target: CloudVMResizeShape(vcpus: 32),
             current: current,
             usesResourcePool: true,
@@ -67,8 +98,8 @@ struct CloudVMResourcePoolTests {
         let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024)
         let target = CloudVMResizeShape(vcpus: 16, memoryMb: 32 * 1024)
 
-        #expect(CloudVMResizeAdmission.failure(target: target, current: current, usesResourcePool: true, limits: limits) == nil)
-        #expect(CloudVMResizeAdmission.failure(target: target, current: current, usesResourcePool: false, limits: limits) == .poolLimit(
+        #expect(CloudVMResizePlanValidator().violation(target: target, current: current, usesResourcePool: true, limits: limits) == nil)
+        #expect(CloudVMResizePlanValidator().violation(target: target, current: current, usesResourcePool: false, limits: limits) == .poolLimit(
             requestedVcpus: 16, requestedMemoryMb: 32 * 1024, freeVcpus: 4, freeMemoryMb: 8 * 1024
         ))
     }
@@ -79,7 +110,7 @@ struct CloudVMResourcePoolTests {
         let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024, resourcePool: pool)
         let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024, diskMb: 64 * 1024)
 
-        #expect(CloudVMResizeAdmission.failure(
+        #expect(CloudVMResizePlanValidator().violation(
             target: CloudVMResizeShape(diskMb: 128 * 1024),
             current: current,
             usesResourcePool: true,
@@ -92,7 +123,7 @@ struct CloudVMResourcePoolTests {
         let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024)
         let current = CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1024, diskMb: 64 * 1024)
 
-        #expect(CloudVMResizeAdmission.failure(
+        #expect(CloudVMResizePlanValidator().violation(
             target: CloudVMResizeShape(memoryMb: 16 * 1024),
             current: current,
             usesResourcePool: false,

@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import CmuxCloudMachines
 import CmuxSurfaceCatalogModel
 import AppKit

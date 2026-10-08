@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import AppKit
 import Foundation
 import CmuxSettings

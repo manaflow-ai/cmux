@@ -522300,6 +522300,31 @@
         "uk": {"stringUnit": {"state": "translated", "value": "vm resize: this target needs %lld vCPUs and %lld GiB RAM, but only %lld vCPUs and %lld GiB are free in your plan pool. Pause or delete a VM, or choose a smaller size."}}
       }
     },
+    "cli.vm.resize.planName.founders": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Gründeredition"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Édition fondateur"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إصدار المؤسسين"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Edición de fundadores"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "創辦人版"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "创始人版"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "창립자 에디션"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "創業者エディション"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "km": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Edição dos fundadores"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "th": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Founder's Edition"}}
+      }
+    },
     "cli.vm.resize.planLimit": {
       "extractionState": "manual",
       "localizations": {

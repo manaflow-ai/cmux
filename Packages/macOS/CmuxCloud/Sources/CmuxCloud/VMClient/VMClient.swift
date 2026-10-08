@@ -1,5 +1,6 @@
 import CMUXDebugLog
 import CmuxAuthRuntime
+import CmuxCloudResizeCore
 import CMUXMobileCore
 import CmuxSurfaceCatalogModel
 import Foundation

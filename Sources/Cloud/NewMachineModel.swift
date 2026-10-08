@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import CmuxSurfaceCatalogModel
 import Foundation
 import Observation

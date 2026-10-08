@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxCloudResizeCore
 import Foundation
 
 extension VMClient {
