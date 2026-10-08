@@ -108,7 +108,7 @@ import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
-import { mergedCommands } from "./cmuxCommands";
+import { continueTargets, mergedCommands, resolveHarnessTarget } from "./cmuxCommands";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
@@ -1886,11 +1886,7 @@ function AcpmuxPane() {
       | undefined) ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
-  const sourceHarness = snapshot.summary?.harness?.split(/[-_]/)[0];
-  const handoffTargets = composerSnapshot.catalog.filter((entry) => {
-    const family = entry.id.split(/[-_]/)[0];
-    return sourceHarness === "claude" ? family === "codex" : sourceHarness === "codex" && family === "claude";
-  });
+  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue =
     !!snapshot.canHandoff &&
     !!snapshot.handoff?.ready &&
@@ -2183,6 +2179,18 @@ function AcpmuxPane() {
         sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
         chips={ComposerChips}
         draft={draft}
+        onCmuxCommand={(command, args) => {
+          if (command.action !== "continue" || !canContinue) return false;
+          if (!args?.trim()) {
+            setContinuing(true);
+            return true;
+          }
+          const target = resolveHarnessTarget(args, handoffTargets);
+          if (!target) return false;
+          setContinuing(false);
+          ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
+          return true;
+        }}
         onSend={(text, chips) => {
           // Until acpmux connects nothing takes a prompt; the composer keeps it.
           if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
