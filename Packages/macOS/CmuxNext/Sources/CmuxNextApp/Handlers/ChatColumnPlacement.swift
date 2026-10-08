@@ -22,7 +22,7 @@ enum ChatColumnPlacement: Equatable {
     /// pane holding one agent chat. Only the role makes a chat dock: chats
     /// in a plain dock or beside other columns are normal panes.
     static func resolve(from pane: LayoutPaneID, columns: [LayoutColumn], recent: [LayoutPaneID] = [],
-                        isLoneChat: (LayoutColumn) -> Bool) -> ChatColumnPlacement {
+                        zoomed: Bool = false, isLoneChat: (LayoutColumn) -> Bool) -> ChatColumnPlacement {
         guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return .here }
         let column = columns[index]
         let strip = columns.filter { $0.dock == nil }
