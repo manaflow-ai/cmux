@@ -430,17 +430,13 @@ mod tests {
     }
 
     fn expected(service: Service) -> Expected<'static> {
-        Expected {
-            host: "host_h0000000000000000001",
-            epoch: 1,
-            service,
-            peer_key: &[5; 32],
-        }
+        Expected { host: "host_h0000000000000000001", epoch: 1, service, peer_key: &[5; 32] }
     }
 
     #[test]
     fn the_default_verifier_refuses_every_token() {
-        let expected = Expected { host: "host_a", epoch: 1, service: Service::Daemon, peer_key: &[1; 32] };
+        let expected =
+            Expected { host: "host_a", epoch: 1, service: Service::Daemon, peer_key: &[1; 32] };
         assert_eq!(DenyAllTokens.verify("anything", &expected), Err(TokenRefused::NoVerifier));
     }
 
