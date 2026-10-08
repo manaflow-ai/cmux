@@ -74,7 +74,9 @@ const prompt: TurnPrompt = {
   note: null,
   view: { text: viewText, bytes: viewText.length, marks: [], grid: [], parts: ["L3.0", "L2.4"] },
   messages: [{ id: 1_230, kind: "user", text: "Show me what the Chief remembers about the dock." }],
-  system_parts: [{ label: "Instructions", explain: "The harness's fixed system text.", text: "You are the Chief.", bytes: 18 }],
+  system_parts: [
+    { label: "Instructions", explain: "The harness's fixed system text.", text: "You are the Chief.", bytes: 18 },
+  ],
 };
 
 const replies: Record<string, unknown> = {
