@@ -18,6 +18,7 @@ struct MobileSSHAttachOwnershipTests {
         private var pending: [Int: CheckedContinuation<any MobileSSHAttachedTerminal, Error>] = [:]
         private var handlers: [Int: EventHandler] = [:]
         private(set) var detached: [Int] = []
+        private(set) var writes: [Int: Data] = [:]
 
         func listWorkspaces() async throws -> [MobileSSHWorkspace] {
             [MobileSSHWorkspace(
@@ -63,7 +64,9 @@ struct MobileSSHAttachOwnershipTests {
                 self.owner = owner
             }
 
-            func write(_ data: Data) async {}
+            func write(_ data: Data) async {
+                owner?.writes[id, default: Data()].append(data)
+            }
             func resize(columns: Int, rows: Int) async {}
             func detach() async { owner?.detached.append(id) }
         }
@@ -93,8 +96,10 @@ struct MobileSSHAttachOwnershipTests {
         var attaches = provider.attaches.makeAsyncIterator()
         let first = try #require(await attaches.next())
 
-        // closeWorkspace uses the real detach path while leaving this test
-        // provider's workspace available for the replacement attach.
+        // Input queued for A must not cross the detach into B. The real
+        // closeWorkspace path leaves this test provider's workspace available
+        // for the replacement attach.
+        computers.input(Data("STALE-INPUT".utf8), surfaceID: surface)
         await computers.closeWorkspace(
             scopedID: MobileSSHIdentifier(host: host.id, local: workspace.id).rawValue
         )
@@ -113,6 +118,7 @@ struct MobileSSHAttachOwnershipTests {
         await Task.yield()
 
         #expect(provider.detached == [1])
+        #expect(provider.writes[2] == nil)
         #expect(!(sink.outputs[surface] ?? "").contains("STALE-A"))
         #expect((sink.outputs[surface] ?? "").contains("LIVE-B"))
     }
