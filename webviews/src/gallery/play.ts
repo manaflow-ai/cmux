@@ -55,6 +55,9 @@ export type PlayChecks = {
   layoutShiftMax?: { value: number; reason: string };
 };
 
+/** The interactions whose action-to-settled latency is useful in a gallery report. */
+export type PlayAction = "click" | "key" | "press-drag" | "hover" | "focus" | "type";
+
 export const DEFAULT_CHECKS = {
   anchorMovePx: 0,
   longFrameReportMs: 16.7,
@@ -66,6 +69,10 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type Shift = { value: number; sources: string[] };
 export type StepReport = {
   step: string;
+  /** The interaction that produced this step. Pointer down, move and up share press-drag. */
+  action: PlayAction;
+  /** Wall time from dispatching the action until the page settles. */
+  settleMs: number;
   anchorMoves: { anchor: string; before: Rect | null; after: Rect | null; delta: number }[];
   layoutShift: number;
   shifts: Shift[];

@@ -6,6 +6,7 @@ import {
   rectDelta,
   resolveTarget,
   type Play,
+  type PlayAction,
   type PlayChecks,
   type PlayContext,
   type PlayReport,
@@ -50,6 +51,8 @@ function pageCenter(element: Element): { x: number; y: number } {
 }
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+
+let actionSequence = 0;
 
 /** Two frames, then every running animation and transition finished: the step has settled. */
 async function settle(): Promise<void> {
@@ -109,6 +112,7 @@ function syntheticKey(key: string): void {
 /** Measures one step: anchors before and after, layout shifts and frame times during it. */
 async function measured(
   step: string,
+  action: PlayAction,
   targeted: Element | null,
   anchors: { label: string; target: PlayTarget }[],
   checks: PlayChecks,
@@ -156,8 +160,18 @@ async function measured(
       }
     })();
   }
+  const mark = `cmux-gallery-action-${++actionSequence}`;
+  const startMark = `${mark}-start`;
+  const endMark = `${mark}-settled`;
+  performance.mark(startMark);
   await run();
   await settle();
+  performance.mark(endMark);
+  const timing = performance.measure(mark, startMark, endMark);
+  const settleMs = Math.round(timing.duration * 10) / 10;
+  performance.clearMarks(startMark);
+  performance.clearMarks(endMark);
+  performance.clearMeasures(mark);
   rafRunning = false;
   for (const observer of observers) {
     observer.takeRecords();
@@ -180,6 +194,8 @@ async function measured(
   const layoutShift = shifts.reduce((sum, shift) => sum + shift.value, 0);
   const result = {
     step,
+    action,
+    settleMs,
     anchorMoves,
     layoutShift,
     shifts,
@@ -203,7 +219,8 @@ export async function runPlay(
   };
   const input = async (kind: "click" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
     const element = find(target);
-    await measured(`${kind} ${describeTarget(target)}`, element, anchors, checks, async () => {
+    const action: PlayAction = kind === "click" ? "click" : kind === "hover" ? "hover" : "press-drag";
+    await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
       else synthetic(element, kind);
     }).then((step) => steps.push(step));
@@ -216,13 +233,15 @@ export async function runPlay(
     focus: async (target) => {
       const element = find(target) as HTMLElement;
       steps.push(
-        await measured(`focus ${describeTarget(target)}`, element, anchors, checks, async () => element.focus()),
+        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () =>
+          element.focus(),
+        ),
       );
     },
     type: async (text, target) => {
       const element = target ? (find(target) as HTMLElement) : (document.activeElement as HTMLElement | null);
       steps.push(
-        await measured(`type ${JSON.stringify(text.slice(0, 20))}`, element, anchors, checks, async () => {
+        await measured(`type ${JSON.stringify(text.slice(0, 20))}`, "type", element, anchors, checks, async () => {
           element?.focus();
           if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "type", text });
           // eslint-disable-next-line @typescript-eslint/no-deprecated -- insertText is the one DOM path that edits inputs, textareas and contenteditable as typing does.
@@ -232,7 +251,7 @@ export async function runPlay(
     },
     press: async (key) => {
       steps.push(
-        await measured(`press ${key}`, document.activeElement, anchors, checks, async () => {
+        await measured(`press ${key}`, "key", document.activeElement, anchors, checks, async () => {
           if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "press", text: key });
           else syntheticKey(key);
         }),

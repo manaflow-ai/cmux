@@ -90,6 +90,11 @@ export type ArmMeasurement = {
   over16: number;
   /** Main-thread time the arm spent planning its motion, in ms per toggle (largest). */
   planMs?: number;
+  /** Action-to-settled samples across clicks, keys and press-drag pointer steps. */
+  settleCount?: number;
+  settleP50?: number;
+  settleP95?: number;
+  settleMax?: number;
   /** The frame strip image, relative to the run's folder. */
   strip?: string;
 };
