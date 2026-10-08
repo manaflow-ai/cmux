@@ -15,6 +15,8 @@ export type PlayStep = {
   layoutShift: number;
   longFrames: number[];
   frameSource?: string;
+  /** Time from the input action until the step settled, when the producer records it. */
+  settleMs?: number;
   problems: string[];
 };
 export type Shot = {
@@ -61,6 +63,7 @@ export type StepMetrics = {
   longFrames: number;
   longFrameMaxMs: number;
   frameSource?: string;
+  settleMs?: number;
   problems: string[];
 };
 export type Frame = {
@@ -77,6 +80,24 @@ export type Frame = {
   play?: StepMetrics;
   basePlay?: StepMetrics;
 };
+
+export type SettleLatency = {
+  count: number;
+  p50: number;
+  p95: number;
+  max: number;
+};
+
+/** Summarizes the head's action-to-settled timings, ignoring older steps without the field. */
+export function settleLatency(frames: readonly Frame[]): SettleLatency | undefined {
+  const values = frames
+    .map((frame) => frame.play?.settleMs)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b);
+  if (!values.length) return undefined;
+  const at = (fraction: number) => values[Math.min(values.length - 1, Math.max(0, Math.round((values.length - 1) * fraction)))]!;
+  return { count: values.length, p50: at(0.5), p95: at(0.95), max: values[values.length - 1]! };
+}
 
 /** Statuses in the order the page and the comment list them. */
 export const STATUS_ORDER: Status[] = ["changed", "new", "removed", "broken", "nondeterministic", "unchanged"];
@@ -340,6 +361,7 @@ const stepMetrics = (step: PlayStep | undefined): StepMetrics | undefined =>
     longFrames: step.longFrames.length,
     longFrameMaxMs: step.longFrames.length ? Math.max(...step.longFrames) : 0,
     frameSource: step.frameSource,
+    ...(typeof step.settleMs === "number" ? { settleMs: step.settleMs } : {}),
     problems: step.problems,
   };
 

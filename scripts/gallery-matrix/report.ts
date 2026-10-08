@@ -297,6 +297,16 @@ function metricsText(m) {
   if (!m) return "";
   return "CLS " + m.layoutShift.toFixed(3) + " · " + m.longFrames + " long frame" + (m.longFrames === 1 ? "" : "s") + (m.longFrames ? " (max " + m.longFrameMaxMs.toFixed(1) + " ms)" : "") + (m.frameSource === "raf" ? " · software-rendered, not a gate" : "");
 }
+function settleLatency(frames) {
+  const values = (frames || []).map((frame) => frame.play && frame.play.settleMs).filter((value) => typeof value === "number" && Number.isFinite(value) && value >= 0).sort((a, b) => a - b);
+  if (!values.length) return null;
+  const at = (fraction) => values[Math.min(values.length - 1, Math.max(0, Math.round((values.length - 1) * fraction)))];
+  return {count: values.length, p50: at(0.5), p95: at(0.95), max: values[values.length - 1]};
+}
+function settleLatencyText(summary) {
+  if (!summary) return "";
+  return "action → settled: p50 " + summary.p50.toFixed(1) + " ms · p95 " + summary.p95.toFixed(1) + " ms · max " + summary.max.toFixed(1) + " ms · count " + summary.count;
+}
 function picture(p, stage, buttons) {
   const views = {highlight: () => highlight(p), slider: () => layered(p, "slider"), onion: () => layered(p, "onion")};
   buttons.replaceChildren();
@@ -315,8 +325,10 @@ function card(o, i) {
   const stage = el("div", {class: "stage"});
   const buttons = el("div", {class: "views"});
   const meta = el("div", {class: "meta"}, el("strong", {}, labels[i]), el("span", {class: "tag " + o.status}, o.status));
+  const latency = settleLatency(o.frames ?? []);
   if (o.play && o.play.status === "fail") meta.append(el("span", {class: "tag broken"}, "play checks failed"));
   if (o.status === "changed" && o.pixels) meta.append(el("span", {class: "sub"}, (o.ratio * 100).toFixed(2) + "% of pixels · " + o.boxes.length + " region" + (o.boxes.length === 1 ? "" : "s")));
+  if (latency) meta.append(el("span", {class: "sub"}, settleLatencyText(latency)));
   meta.append(buttons);
   const parts = [meta, stage];
   if (o.frames && o.frames.length) {

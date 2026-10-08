@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeAfterThumb, changedBoxes, compareRuns, diffMask, type Outcome } from "./compare";
+import { beforeAfterThumb, changedBoxes, compareRuns, diffMask, settleLatency, type Outcome } from "./compare";
 import { COMMENT_MARKER, commentMarkdown, diffPage, feedSummary, filteredCounts, liveBase, summaryLine } from "./report";
 
 const root = mkdtempSync(join(tmpdir(), "gallery-pr-"));
@@ -56,7 +56,7 @@ test("the thumbnail puts before and after side by side around the change", () =>
   expect([thumb.width, thumb.height]).toEqual([72 * 2 + 8, 72]);
 });
 
-type PlayStepFixture = { png: PNG; layoutShift?: number; longFrames?: number[]; problems?: string[] };
+type PlayStepFixture = { png: PNG; layoutShift?: number; longFrames?: number[]; settleMs?: number; problems?: string[] };
 function run(
   name: string,
   shots: {
@@ -87,6 +87,7 @@ function run(
         layoutShift: step.layoutShift ?? 0,
         longFrames: step.longFrames ?? [],
         frameSource: "long-animation-frame",
+        ...(step.settleMs === undefined ? {} : { settleMs: step.settleMs }),
         problems: step.problems ?? [],
       })),
     };
@@ -344,6 +345,27 @@ test("a played state gets a filmstrip; a step that moved changes the state even 
   const html = diffPage([outcome!], meta);
   expect(html).toContain("frame-cell");
   expect(html).toContain("play: undefined");
+});
+
+test("settle latency summarizes available head steps and appears on the ordinary card", () => {
+  const frames = [10, 20, 40].map((settleMs, index) => ({
+    index,
+    step: `click step ${index + 1}`,
+    status: "unchanged" as const,
+    width: 40,
+    height: 30,
+    pixels: 0,
+    ratio: 0,
+    boxes: [],
+    play: { status: "pass", layoutShift: 0, longFrames: 0, longFrameMaxMs: 0, problems: [], settleMs },
+  }));
+  expect(settleLatency(frames)).toEqual({ count: 3, p50: 20, p95: 40, max: 40 });
+  const html = diffPage([outcome({ frames })], meta);
+  expect(html).toContain("action → settled: p50 ");
+  expect(html).toContain("summary.p50.toFixed(1)");
+  expect(html).toContain("summary.count");
+  const legacy = frames.map(({ play, ...frame }) => frame);
+  expect(settleLatency(legacy)).toBeUndefined();
 });
 
 test("a step that differs from itself makes an otherwise unchanged state nondeterministic", () => {
