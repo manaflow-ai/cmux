@@ -92,6 +92,31 @@ enum WorkspaceGroupHandlers {
             let group = try context.group(invocation)
             try context.sidebar().handle(.setGroupPinned(sidebarID(group), !group.pinned))
         })
+        // The group icon: the shared icon string, same rule as workspace and tab icons.
+        registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
+            // An icon argument (CLI, MCP, scripts) sets it; without one (palette, menu)
+            // the shared icon picker opens and its pick takes the same path.
+            let group = try context.group(invocation)
+            let sidebar = try context.sidebar()
+            let id = sidebarID(group)
+            if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
+                guard WorkspaceIconValue.isValid(icon) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon) }
+                return sidebar.handle(.setGroupIcon(id, icon))
+            }
+            guard let anchor = context.services.iconPicker.anchor(group: group.id.rawValue) else {
+                throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
+            }
+            context.services.iconPicker.pick(current: group.icon, target: "workspaceGroup:\(group.id.rawValue)", at: anchor) { [weak sidebar] result in
+                switch result {
+                case .set(let icon) where WorkspaceIconValue.isValid(icon): sidebar?.handle(.setGroupIcon(id, icon))
+                case .clear: sidebar?.handle(.setGroupIcon(id, nil))
+                case .set, .cancel: break
+                }
+            }
+        })
+        registry.bind("workspaceGroup.clearIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
+            try edit(invocation, context) { .setGroupIcon($0, nil) }
+        })
         registry.bind("workspaceGroup.markUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
             WorkspaceUnreadMark.set(true, on: try members(invocation, context), machines: context.services.machines)

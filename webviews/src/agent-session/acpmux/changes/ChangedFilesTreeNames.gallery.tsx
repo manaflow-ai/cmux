@@ -3,9 +3,9 @@
 // extension is not kept), the counts whole, a marquee on hover and on keyboard focus. The
 // experiment compares the fade's length; Reduce Motion shows the full name in the tooltip instead.
 import { componentEntry } from "../../../gallery/format";
-import { LONG_NAMES, VERY_LONG_NAMES } from "../../../gallery/fixtures/changedFiles";
+import { LANGUAGE_FILES, LONG_NAMES, VERY_LONG_NAMES } from "../../../gallery/fixtures/changedFiles";
 import type { TurnFile } from "../diff";
-import { treeNameFade } from "./treeMotion.experiment";
+import { treeMarqueeEasing, treeNameFade, treeNameFadeCurve } from "./treeMotion.experiment";
 
 type Props = { files: TurnFile[] };
 
@@ -21,6 +21,7 @@ export default componentEntry<Props>({
   pane: true,
   widths: { narrow: 200, normal: 250, wide: 320 },
   height: 640,
+  tunables: [treeNameFadeCurve, treeMarqueeEasing],
   experiment: {
     definition: treeNameFade,
     script: [
@@ -39,6 +40,10 @@ export default componentEntry<Props>({
     ],
   },
   variants: {
+    languages: {
+      note: "One file for each common language and file type (about 90), to check the file icons.",
+      props: { files: LANGUAGE_FILES },
+    },
     "very-long-names": {
       note: "Only names far wider than the column (120-190 characters, no separators, Japanese, 26 folders deep).",
       props: { files: VERY_LONG_NAMES },
