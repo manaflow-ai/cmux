@@ -30,14 +30,27 @@ struct ClaudeBackgroundSessionRestoreTests {
 
         var daemonProcessID: Int { Int(daemonProcess.processIdentifier) }
 
-        func registerSession(kind: String, sessionID: String, jobID: String?, processID: Int) throws {
+        func registerSession(
+            kind: String,
+            sessionID: String,
+            jobID: String?,
+            processID: Int,
+            procStart: String? = nil
+        ) throws {
             var record: [String: Any] = [
                 "pid": processID,
                 "sessionId": sessionID,
                 "kind": kind,
                 "name": "Recent cmux sessions recap",
+                "pidDomain": "darwin",
             ]
             if let jobID { record["jobId"] = jobID }
+            // Claude records its process start (UTC, ctime layout) so a reused
+            // PID cannot pass for the daemon's process.
+            if let procStart = procStart ?? ClaudeBackgroundSessionRegistry.processStartSeconds(processID)
+                .map(ClaudeBackgroundSessionRegistry.formatProcStart) {
+                record["procStart"] = procStart
+            }
             try JSONSerialization.data(withJSONObject: record)
                 .write(to: configDirectory
                     .appendingPathComponent("sessions", isDirectory: true)
@@ -198,8 +211,8 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(restored.binding?.autoResume == false)
     }
 
-    @Test("A daemon-owned hook session reattaches even without a recorded viewer")
-    func daemonOwnedHookSessionRestoresAsAttach() throws {
+    @Test("A pane that spawned a background session and went back to shell work is not taken over")
+    func idleSpawningPaneIsNotTakenOver() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
@@ -210,10 +223,72 @@ struct ClaudeBackgroundSessionRestoreTests {
             terminal.wasAgentRunning = false
         }
 
+        #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+        #expect(restored.binding?.checkpointId == sessionID)
+    }
+
+    @Test("A stale registry record on a reused PID does not block the resume fallback")
+    func reusedPIDKeepsResumeFallback() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(
+            kind: "bg",
+            sessionID: sessionID,
+            jobID: jobID,
+            processID: fixture.daemonProcessID,
+            procStart: "Mon Jan  1 00:00:00 2001"
+        )
+
+        let restored = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = true
+        }
+
         let input = try #require(restored.input)
-        #expect(input.contains("'\(executable)' 'attach' '\(jobID)'"), Comment(rawValue: input))
-        #expect(input.contains("'CLAUDE_CONFIG_DIR=\(fixture.configDirectory.path)'"), Comment(rawValue: input))
-        #expect(!input.contains("--resume"), Comment(rawValue: input))
+        #expect(input.contains(" restore "), Comment(rawValue: input))
+        #expect(!input.contains("'attach'"), Comment(rawValue: input))
+    }
+
+    @Test("Two panes on one background session: only the viewer pane attaches, neither resumes")
+    func onePaneAttachesPerSession() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { source.teardownAllPanels() }
+        let spawningPanelID = try #require(source.focusedPanelId)
+        let paneID = try #require(source.bonsplitController.allPaneIds.first)
+        let viewerPanelID = try #require(source.newTerminalSurface(inPane: paneID, focus: false)).id
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        for index in snapshot.panels.indices {
+            guard var terminal = snapshot.panels[index].terminal else { continue }
+            terminal.workingDirectory = fixture.workingDirectory.path
+            terminal.agent = agent(fixture)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = true
+            if snapshot.panels[index].id == viewerPanelID {
+                terminal.claudeBackgroundViewer = viewer(fixture)
+            }
+            snapshot.panels[index].terminal = terminal
+        }
+        // The viewer pane comes second, so a first-come choice would pick the wrong pane.
+        #expect(snapshot.panels.firstIndex { $0.id == spawningPanelID }!
+            < snapshot.panels.firstIndex { $0.id == viewerPanelID }!)
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredIDs = restored.restoreSessionSnapshot(snapshot)
+        let viewerInput = try #require(
+            restored.terminalPanel(for: try #require(restoredIDs[viewerPanelID]))?
+                .surface.debugInitialInputForTesting()
+        )
+        let spawningInput = restored.terminalPanel(for: try #require(restoredIDs[spawningPanelID]))?
+            .surface.debugInitialInputForTesting()
+
+        #expect(viewerInput.contains("'attach' '\(jobID)'"), Comment(rawValue: viewerInput))
+        #expect(spawningInput == nil, Comment(rawValue: spawningInput ?? ""))
     }
 
     @Test("A running background session never resumes as a second writer")
