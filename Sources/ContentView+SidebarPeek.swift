@@ -81,7 +81,9 @@ extension ContentView {
     /// underneath the portal-hosted terminal.
     func sidebarPeekPresentationModifier(width: CGFloat) -> SidebarPeekPresentation {
         SidebarPeekPresentation(
-            isRevealed: sidebarState.occupiesLayout,
+            // The layout flag, not `isVisible`: a toggle moves the pane
+            // before ContentView hears about it.
+            isRevealed: sidebarState.presentationMode == .docked && sidebarLayout.docksSidebar,
             rendersAsCard: false,
             width: width,
             panelMetrics: sidebarPeekPanelMetrics,
@@ -236,6 +238,10 @@ extension ContentView {
                 sidebarToggleAnimator.install(
                     sidebarState: sidebarState,
                     layout: sidebarLayout,
+                    window: { observedWindow },
+                    // The right sidebar would ride along with the content
+                    // root and snap back on landing; toggle instantly there.
+                    canSlide: { retainsDefaultAppKitSidebarWhenHidden && !rightSidebarVisible },
                     isPeekPresenting: { sidebarPeek.presentsPanel }
                 )
                 sidebarPeek.setPolicy(SidebarCustomizationSettings.peekPolicy())

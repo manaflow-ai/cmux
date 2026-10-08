@@ -105,6 +105,12 @@ enum SidebarNavigationTimings {
         appendLine("nav.timing interaction=\(interaction) ms=\(String(format: "%.2f", ms))")
     }
 
+    /// Appends a preformatted line (frame statistics for a sweep).
+    static func record(_ line: String) {
+        guard isEnabled else { return }
+        appendLine(line)
+    }
+
     private static func appendLine(_ line: String) {
         guard let logHandle, let data = (line + "\n").data(using: .utf8) else { return }
         logHandle.write(data)

@@ -1897,7 +1897,7 @@ struct ContentView: View {
         }
     }
 
-    private var rightSidebarVisible: Bool {
+    var rightSidebarVisible: Bool {
         fileExplorerState.isVisible
     }
 
@@ -1957,7 +1957,10 @@ struct ContentView: View {
                 // the tint inside the sidebar column.
                 hidesBackdrop: true
             ) {
-                sidebarView(isPresented: sidebarState.occupiesLayout)
+                // The retained docked list stays live while hidden, so a show
+                // slides in painted rows from its first frame.
+                sidebarView(isPresented: sidebarState.occupiesLayout
+                    || (retainsDefaultAppKitSidebarWhenHidden && sidebarState.presentationMode == .docked))
             }
         }
     }
@@ -2529,7 +2532,7 @@ struct ContentView: View {
         )
     }
 
-    private var retainsDefaultAppKitSidebarWhenHidden: Bool {
+    var retainsDefaultAppKitSidebarWhenHidden: Bool {
         Self.retainsDefaultAppKitSidebar(
             appKitListEnabled: featureFlags.isAppKitSidebarListEnabled,
             effectiveProviderId: effectiveLeftSidebarProviderId
@@ -2554,16 +2557,16 @@ struct ContentView: View {
             && !sidebarMatchTerminalBackground
         if retainsDefaultAppKitSidebarWhenHidden {
             // Native sidebar identity is independent of presentation. Keep its
-            // full-width subtree mounted behind a zero-width clipping shell so
+            // full-width subtree mounted, parked off the leading edge, so
             // hide/show and backdrop changes cannot cold-start the table.
             layout = AnyView(
                 ZStack(alignment: .leading) {
                     terminalContentWithRightSidebarPanel(appearance: appearance)
-                        // `occupiesLayout`, not `isVisible`: a floating sidebar
-                        // is visible but does not push the terminal aside.
+                        // Docked mode only (a floating sidebar does not push
+                        // the terminal aside), gated by the layout flag.
                         .modifier(SidebarWidthLeadingPaddingModifier(
                             layout: sidebarLayout,
-                            enabled: sidebarState.occupiesLayout
+                            enabled: sidebarState.presentationMode == .docked
                         ))
                     SidebarWidthReader(layout: sidebarLayout) { width in
                         sidebarPanelWithBackdrop(appearance: appearance)
@@ -2582,7 +2585,7 @@ struct ContentView: View {
                         terminalContentWithSidebarDropOverlay(appearance: appearance)
                             .modifier(SidebarWidthLeadingPaddingModifier(
                                 layout: sidebarLayout,
-                                enabled: sidebarState.occupiesLayout
+                                enabled: sidebarState.presentationMode == .docked
                             ))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
@@ -2674,6 +2677,7 @@ struct ContentView: View {
         var view = AnyView(
             ZStack(alignment: .topLeading) {
                 WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
+                    .padding(.leading, -SidebarLayoutModel.groundBleed)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
 
@@ -2685,6 +2689,7 @@ struct ContentView: View {
                 // column, the corner reveals, and the pane gaps, which is
                 // exactly where the glass should show.
                 WindowBackdropLayer(role: .leftSidebar, snapshot: appearance)
+                    .padding(.leading, -SidebarLayoutModel.groundBleed)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
 

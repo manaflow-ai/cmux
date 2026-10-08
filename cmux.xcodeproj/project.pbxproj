@@ -3351,6 +3351,7 @@
 		8430A0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8430B0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift */; };
 		A6AC73F10000000000000001 /* SidebarTitleFirstLineCenterAlignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73F10000000000000002 /* SidebarTitleFirstLineCenterAlignment.swift */; };
 		5C01156CFF64659AE01583A0 /* SidebarToggleAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 599E6D613B9CD389A75B0B06 /* SidebarToggleAnimator.swift */; };
+		5B1D66585F4ECB32768ACE69 /* SidebarToggleSlideMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2790AEE13376A9F6117A90FF /* SidebarToggleSlideMachine.swift */; };
 		CA39C0304FE351A21C372429 /* SidebarWidthPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */; };
 		8430A0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8430B0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift */; };
 		EDA24082C65B4E2A2A03F276 /* SidebarWorkspaceChecklistPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC8DE2AF74EC2C272681A75 /* SidebarWorkspaceChecklistPopover.swift */; };
@@ -7790,6 +7791,7 @@
 		8430B0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabItemSettingsSnapshot.swift; sourceTree = "<group>"; };
 		A6AC73F10000000000000002 /* SidebarTitleFirstLineCenterAlignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTitleFirstLineCenterAlignment.swift; sourceTree = "<group>"; };
 		599E6D613B9CD389A75B0B06 /* SidebarToggleAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarToggleAnimator.swift; sourceTree = "<group>"; };
+		2790AEE13376A9F6117A90FF /* SidebarToggleSlideMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarToggleSlideMachine.swift; sourceTree = "<group>"; };
 		EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPolicyTests.swift; sourceTree = "<group>"; };
 		8430B0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceBranchDirectorySettings.swift; sourceTree = "<group>"; };
 		BAC8DE2AF74EC2C272681A75 /* SidebarWorkspaceChecklistPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarWorkspaceChecklistPopover.swift"; sourceTree = "<group>"; };
@@ -10201,6 +10203,7 @@
 				D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */,
 				0AAA0330CB6FD8B7279F8398 /* SidebarNavigationTimings.swift */,
 				599E6D613B9CD389A75B0B06 /* SidebarToggleAnimator.swift */,
+				2790AEE13376A9F6117A90FF /* SidebarToggleSlideMachine.swift */,
 				599E6D613B9CD389A75BCU01 /* SidebarCustomizationSettings.swift */,
 				1102C452474E10C5962941D3 /* SidebarPeekPanelHost.swift */,
 				A46624E7B573873D41B28E5C /* VerticalTabsSidebar+PresentationToggle.swift */,
@@ -16169,6 +16172,7 @@
 				8430A0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift in Sources */,
 				A6AC73F10000000000000001 /* SidebarTitleFirstLineCenterAlignment.swift in Sources */,
 				5C01156CFF64659AE01583A0 /* SidebarToggleAnimator.swift in Sources */,
+				5B1D66585F4ECB32768ACE69 /* SidebarToggleSlideMachine.swift in Sources */,
 				8430A0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift in Sources */,
 				EDA24082C65B4E2A2A03F276 /* SidebarWorkspaceChecklistPopover.swift in Sources */,
 				B290FAD92C810ACB2D9CD9C6 /* SidebarWorkspaceChecklistView.swift in Sources */,

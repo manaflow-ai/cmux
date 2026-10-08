@@ -29,22 +29,24 @@ final class SidebarState: ObservableObject {
     private var visibilityWillChangeOwnerId: UUID?
     private var visibilityWillChange: ((Bool) -> Void)?
     /// When installed, user toggles defer to this orchestrator (the toggle
-    /// animator's width sweep), which applies the final value itself through
-    /// ``setVisible(_:)``. Returning false hands the change back to the
-    /// instant default path. Programmatic `setVisible` calls (narrow-window
+    /// animator's slide), which applies the final value itself once the
+    /// slide lands. Returning false hands the change back to the instant
+    /// default path. Programmatic `setVisible` calls (narrow-window
     /// auto-collapse, session restore) never animate, so their callers can
     /// read `isVisible` right after.
     var animatedVisibilityOrchestrator: ((Bool) -> Bool)?
-    /// A hide sweep is running. `isVisible` stays true until it lands so the
-    /// pane stays mounted, but the hide was already requested. Set by the
-    /// toggle animator; any committed ``setVisible(_:)`` clears it.
-    var isHidePending = false
+    /// Told after every committed ``setVisible(_:)``, so the toggle animator
+    /// can drop a running slide and keep its layout flag in step.
+    var visibilityDidCommit: ((Bool) -> Void)?
+    /// Where a running toggle animation is heading while `isVisible` still
+    /// shows the other value. Owned by the toggle animator; nil otherwise.
+    var pendingVisibility: Bool?
 
-    /// The visibility the sidebar is heading to: false as soon as a hide is
-    /// requested, even while its sweep runs. Toggles read this, so a second
-    /// toggle mid-sweep reverses the hide instead of being dropped.
+    /// The visibility the sidebar is heading to, even while a toggle
+    /// animation runs. Toggles read this, so a second toggle mid-animation
+    /// reverses it instead of being dropped.
     var requestedVisibility: Bool {
-        isVisible && !isHidePending
+        pendingVisibility ?? isVisible
     }
 
     init(
@@ -72,10 +74,12 @@ final class SidebarState: ObservableObject {
     }
 
     func setVisible(_ nextValue: Bool) {
-        isHidePending = false
-        guard nextValue != isVisible else { return }
-        visibilityWillChange?(nextValue)
-        isVisible = nextValue
+        pendingVisibility = nil
+        if nextValue != isVisible {
+            visibilityWillChange?(nextValue)
+            isVisible = nextValue
+        }
+        visibilityDidCommit?(nextValue)
     }
 
     func installVisibilityWillChangeHandler(

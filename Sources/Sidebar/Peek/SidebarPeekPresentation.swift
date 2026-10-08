@@ -85,13 +85,14 @@ struct SidebarPeekPresentation: ViewModifier {
                 value: showsCard
             )
         } else {
-            // The width itself is live during a toggle: the toggle animator
-            // sweeps the real layout width (a synthetic divider drag), so the
-            // pane collapses and the terminal expands through the same
-            // proven live-resize path. No SwiftUI animation here at all.
+            // Hidden, the pane keeps its full width, parked just past the
+            // window's leading edge: its rows never re-lay out, and a toggle
+            // slide (which translates the content root on the render server,
+            // see SidebarToggleAnimator) carries it in and out as it is.
             content
-                .frame(width: isRevealed ? width : 0, alignment: .leading)
+                .frame(width: width, alignment: .leading)
                 .clipped()
+                .offset(x: isRevealed ? 0 : -width)
                 .allowsHitTesting(isRevealed)
                 .accessibilityHidden(!isRevealed)
         }

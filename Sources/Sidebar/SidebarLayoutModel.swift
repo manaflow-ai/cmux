@@ -14,6 +14,18 @@ import SwiftUI
 @MainActor
 final class SidebarLayoutModel: ObservableObject {
     @Published var width: CGFloat
+    /// Whether the docked layout gives the sidebar its width (terminal
+    /// inset, pane in its slot). Mirrors `SidebarState.isVisible`, except
+    /// that the toggle animator flips it first: only the small wrappers
+    /// below read it, so the keypress frame of a toggle never re-evaluates
+    /// ContentView's body. While false, the pane stays laid out at full
+    /// width, parked just past the window's leading edge.
+    @Published var docksSidebar = true
+
+    /// How far the window ground reaches past the leading edge, so a toggle
+    /// slide (which translates the content root by up to the sidebar width)
+    /// never uncovers the window edge. Static: nothing re-lays out per slide.
+    static let groundBleed = CGFloat(SessionPersistencePolicy.maximumSidebarWidth)
 
     init(width: CGFloat) {
         self.width = width
@@ -56,6 +68,6 @@ struct SidebarWidthLeadingPaddingModifier: ViewModifier {
     let enabled: Bool
 
     func body(content: Content) -> some View {
-        content.padding(.leading, enabled ? layout.width : 0)
+        content.padding(.leading, enabled && layout.docksSidebar ? layout.width : 0)
     }
 }
