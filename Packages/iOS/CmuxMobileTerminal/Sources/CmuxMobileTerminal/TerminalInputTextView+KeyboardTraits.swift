@@ -9,11 +9,8 @@ extension TerminalInputTextView {
         reloadInputViews()
     }
 
-    /// Enables autocorrection only when the user opts into corrections.
-    var autocorrectionType: UITextAutocorrectionType {
-        get { keyboardCorrectionPreference.autocorrectionType }
-        set {}
-    }
+    /// Keeps autocorrection disabled because this responder cannot replace sent bytes.
+    var autocorrectionType: UITextAutocorrectionType { get { .no } set {} }
 
     /// Keeps autocapitalization disabled for literal terminal input.
     var autocapitalizationType: UITextAutocapitalizationType { get { .none } set {} }
@@ -29,11 +26,8 @@ extension TerminalInputTextView {
     /// Keeps smart dash substitutions disabled for shell syntax.
     var smartDashesType: UITextSmartDashesType { get { .no } set {} }
 
-    /// Enables smart insertion and deletion only when corrections are enabled.
-    var smartInsertDeleteType: UITextSmartInsertDeleteType {
-        get { keyboardCorrectionPreference.smartInsertDeleteType }
-        set {}
-    }
+    /// Keeps smart insertion/deletion disabled because it mutates terminal bytes.
+    var smartInsertDeleteType: UITextSmartInsertDeleteType { get { .no } set {} }
 
     /// Enables inline predictions only when corrections are enabled.
     var inlinePredictionType: UITextInlinePredictionType {

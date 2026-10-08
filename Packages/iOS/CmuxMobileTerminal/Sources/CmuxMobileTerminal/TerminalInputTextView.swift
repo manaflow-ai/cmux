@@ -1713,21 +1713,17 @@ extension TerminalInputTextView {
         return document.substring(with: clamped)
     }
 
-    /// Commit text delivered through a range replacement.
+    /// Handles replacement requests without duplicating already-sent terminal text.
     ///
     /// Most committed input arrives via ``insertText(_:)``, but some system paths
     /// (text replacement, certain dictation/suggestion commits) deliver it by
-    /// replacing ``selectedTextRange`` or ``markedTextRange`` instead. The view
-    /// holds no addressable document, so the range itself is ignored, but the
-    /// *text* must still reach the terminal — route it through the same commit
-    /// path as ``insertText(_:)``. A replacement of the marked region supersedes
-    /// the in-progress IME composition, so clear it first. An empty replacement is
-    /// a pure deletion of the marked composition (no committed text to send).
+    /// replacing ``selectedTextRange`` or ``markedTextRange`` instead. Only an
+    /// active marked composition has replacement semantics here; committed raw
+    /// terminal bytes cannot be addressed safely, so those requests are ignored.
     func replace(_ range: UITextRange, withText text: String) {
         TerminalInputDebugLog.log("proxy.replace text=\(TerminalInputDebugLog.textSummary(text))")
-        if markedText != nil {
-            withMarkedTextChange { markedText = nil }
-        }
+        guard markedText != nil else { return }
+        withMarkedTextChange { markedText = nil }
         guard !text.isEmpty else { return }
         emitCommittedText(text, source: "replace")
     }

@@ -50,9 +50,9 @@ struct MobileTerminalKeyboardCorrectionPreferenceTests {
         #expect(view.inlinePredictionType == .no)
 
         preference.isEnabled = true
-        #expect(view.autocorrectionType == .yes)
+        #expect(view.autocorrectionType == .no)
         #expect(view.spellCheckingType == .yes)
-        #expect(view.smartInsertDeleteType == .yes)
+        #expect(view.smartInsertDeleteType == .no)
         #expect(view.inlinePredictionType == .yes)
     }
 
@@ -66,6 +66,21 @@ struct MobileTerminalKeyboardCorrectionPreferenceTests {
 
         preference.isEnabled = true
         view.insertText("git stauts")
+
+        #expect(committed == ["git stauts"])
+    }
+
+    @Test("raw replacement cannot duplicate committed terminal input")
+    func replacementDoesNotDuplicateCommittedInput() throws {
+        let defaults = try freshDefaults("replacement")
+        let preference = MobileTerminalKeyboardCorrectionPreference(defaults: defaults)
+        let view = TerminalInputTextView(keyboardCorrectionPreference: preference)
+        var committed: [String] = []
+        view.onText = { committed.append($0) }
+
+        view.insertText("git stauts")
+        let range = try #require(view.textRange(from: view.beginningOfDocument, to: view.endOfDocument))
+        view.replace(range, withText: "git status")
 
         #expect(committed == ["git stauts"])
     }
