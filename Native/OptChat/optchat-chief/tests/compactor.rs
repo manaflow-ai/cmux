@@ -136,7 +136,7 @@ fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
     let blocks = texts(&inner.prompts[0]);
     assert_eq!(blocks[0], system);
     assert_eq!(blocks[1], "<chat>\n</chat>");
-    assert!(blocks[2].contains("Compress this message into one line"));
+    assert!(blocks[2].starts_with("Compaction: compress message 0 into one line"));
     assert_eq!(blocks.len(), 3);
     assert_eq!(inner.ended, vec!["s1"], "the node's session is killed");
 }
@@ -161,7 +161,7 @@ fn the_size_loop_continues_in_the_same_session() {
     assert_eq!(inner.prompts.len(), 2);
     let retry = texts(&inner.prompts[1]);
     assert_eq!(retry.len(), 1, "a retry sends only the size message");
-    assert!(retry[0].starts_with("That line is 700 bytes"), "{retry:?}");
+    assert!(retry[0].starts_with("Too long: your line is 700 bytes"), "{retry:?}");
     assert_eq!(inner.ended, vec!["s1"]);
     assert_ne!(inner.prompt_ids[0], inner.prompt_ids[1]);
 }
@@ -689,50 +689,41 @@ fn markers(blocks: &[Value]) -> Vec<usize> {
         .collect()
 }
 
-// Solution 1 of the cache research: the system text plus the view up to the
-// first mark (50k) is the session's system prompt (the slot preset's
-// `systemPrompt`, which acpmux writes into its own preset directory and
-// checks by sha256), the rest of the view follows as blocks with ONE marker
-// at the last mark (100k), then the step.
+// Spec 3.3 and 4 (gist 3c190e0): a compaction is a call like a turn: the
+// slot preset's system prompt is the system text alone (the turns' own), the
+// view follows in blocks of 4 lines with ONE marker on the last whole block,
+// then the task.
 #[test]
-fn with_system_prompt_support_the_view_head_is_the_slot_presets_system_prompt_and_one_marker_sits_at_100k()
+fn with_system_prompt_support_the_system_text_is_the_slot_presets_prompt_and_one_marker_sits_on_the_last_whole_block()
  {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
     agents.inner.lock().unwrap().system_prompts = true;
     let compactor = compactor(&agents, dir.path());
-    let context = chat_of(1_100);
-    let marks = optchat_core::cache_marks(&context);
-    assert_eq!(marks.len(), 3, "50k, 80k and 100k");
+    let context = chat_of(150);
+    let pieces = optchat_core::block_pieces(&context);
     let r = CompactRequest {
         context: context.clone(),
         ..request(0)
     };
     assert_eq!(run_node(&compactor, &r).unwrap(), "user: a line");
     let inner = agents.inner.lock().unwrap();
-    // The session's system prompt file: system text, then view[..50k].
     let system = inner.systems[0]
         .clone()
         .expect("the slot preset's system prompt is set before the session");
-    assert_eq!(system, format!("SYS\n\n{}", &context[..marks[0]]));
+    assert_eq!(system, "SYS");
     assert_eq!(
         inner.specs[0].preset.as_deref(),
         Some("optchat-compact-test-preset-slot-0")
     );
     let blocks = &inner.prompts[0];
     let t = texts(blocks);
-    assert_eq!(t.len(), 4, "50k-80k, 80k-100k, 100k-end, step: {t:?}");
-    assert_eq!(t[..3].concat(), context[marks[0]..]);
-    assert_eq!(t[1].len() + t[0].len(), marks[2] - marks[0]);
-    assert_eq!(t[3], "STEP 0");
-    assert_eq!(
-        markers(blocks),
-        vec![1],
-        "one marker, on the piece that ends at 100k"
-    );
-    assert_eq!(blocks[1]["cache_control"], json!({"type": "ephemeral"}));
-    // The prompt holds the chat's text: emptied when the node ends, and
-    // nothing is written into the slot directory (the agent's cwd).
+    assert_eq!(t.len(), pieces.len() + 1);
+    assert_eq!(t[..pieces.len()].concat(), context);
+    assert_eq!(t.last().unwrap(), "STEP 0");
+    let last_whole = pieces.len() - 2;
+    assert_eq!(markers(blocks), vec![last_whole]);
+    assert_eq!(t[last_whole].lines().count(), optchat_core::BLOCK_LINES);
     assert_eq!(
         inner.prompt_sets.last(),
         Some(&(
@@ -744,29 +735,19 @@ fn with_system_prompt_support_the_view_head_is_the_slot_presets_system_prompt_an
 }
 
 #[test]
-fn the_marker_sits_at_the_last_mark_that_exists() {
-    // 50k and 80k only: the marker goes on the piece that ends at 80k.
-    let context = chat_of(900);
-    assert_eq!(optchat_core::cache_marks(&context).len(), 2);
+fn the_marker_sits_on_the_last_whole_four_line_block() {
+    // 9 lines: two whole blocks, the marker on the second.
     let r = CompactRequest {
-        context: context.clone(),
+        context: chat_of(9),
         ..request(0)
     };
     let p = cached_prompt(&r, true);
-    assert_eq!(markers(&p.blocks), vec![0]);
-    assert_eq!(texts(&p.blocks).len(), 3);
-    // Only 50k: everything after it follows unmarked (the system prompt is
-    // Claude Code's own breakpoint).
-    let r = CompactRequest {
-        context: chat_of(600),
-        ..request(0)
-    };
-    let p = cached_prompt(&r, true);
-    assert!(markers(&p.blocks).is_empty());
-    assert_eq!(texts(&p.blocks).len(), 2);
-    // No mark: the system prompt is the system text alone.
+    assert_eq!(markers(&p.blocks), vec![1]);
+    assert_eq!(texts(&p.blocks).len(), 4);
+    // Fewer than 4 lines: no whole block, no marker.
     let p = cached_prompt(&request(0), true);
     assert_eq!(p.system, "SYS");
+    assert!(markers(&p.blocks).is_empty());
     assert_eq!(
         texts(&p.blocks),
         vec!["<chat>\nuser: hi\n</chat>", "STEP 0"]
@@ -807,7 +788,8 @@ fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
     {
         let inner = agents.inner.lock().unwrap();
         assert_eq!(inner.prompts.len(), 2);
-        assert_eq!(markers(&inner.prompts[0]), vec![1]);
+        let last_whole = optchat_core::block_pieces(&chat_of(1_100)).len() - 2;
+        assert_eq!(markers(&inner.prompts[0]), vec![last_whole]);
         assert!(markers(&inner.prompts[1]).is_empty());
         assert_eq!(texts(&inner.prompts[0]), texts(&inner.prompts[1]));
         assert_eq!(inner.ended, vec!["s1"], "the refused session is gone");
