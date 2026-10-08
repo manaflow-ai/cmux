@@ -74,3 +74,33 @@ fn a_replay_keeps_the_first_actor() {
     assert_eq!(replay["ok"], true, "{replay}");
     assert_eq!(stored_actor(&mux, "replayed").as_deref(), Some("frontend:signed_app"));
 }
+
+/// A WebSocket connection (another machine: token or pairing auth).
+fn connect_websocket(mux: &Arc<Mux>) -> Conn {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    Conn { client, writer, outbound, scheduler }
+}
+
+#[test]
+fn a_websocket_connection_is_a_peer_never_the_local_user() {
+    let mux = mux("actor-websocket");
+    let websocket = connect_websocket(&mux);
+    let reply = send(&mux, &websocket, &create("actor-websocket"));
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(stored_actor(&mux, "actor-websocket").as_deref(), Some("peer:websocket"));
+    let actor = crate::server::origin_gate::connection_actor(&mux, websocket.client);
+    assert_eq!(actor.wire(), "peer:websocket");
+}
+
+#[test]
+fn a_connection_with_no_record_is_never_the_local_user() {
+    let mux = mux("actor-unregistered");
+    let gone = connect(&mux);
+    assert!(mux.control_clients.remove(gone.client).is_some());
+    let actor = crate::server::origin_gate::connection_actor(&mux, gone.client);
+    assert_eq!(actor.wire(), "peer:unregistered");
+}
