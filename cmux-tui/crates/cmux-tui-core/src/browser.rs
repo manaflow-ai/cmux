@@ -5397,6 +5397,9 @@ mod tests {
     use tungstenite::{Message, accept};
 
     const BROWSER_TEST_EVENT_TIMEOUT: Duration = Duration::from_secs(5);
+    /// Real time that only ends a failing run: a passing run never waits
+    /// for it, so a slow thread under full-suite load is not a failure.
+    const BROWSER_TEST_SAFETY_BOUND: Duration = Duration::from_secs(30);
 
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
@@ -5575,11 +5578,14 @@ mod tests {
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
             let mut ws = accept(stream).unwrap();
             let discover = read_ws_json(&mut ws);
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
             write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            // The short timeout only paces the stop check below. Set before
+            // the handshake, it failed the handshake whenever the client
+            // took longer than 50 ms to connect under load.
+            ws.get_mut().set_read_timeout(Some(Duration::from_millis(50))).unwrap();
 
             loop {
                 if stop_rx.try_recv().is_ok() {
@@ -6044,7 +6050,6 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let (flood_tx, flood_rx) = mpsc::channel();
         let (sent_tx, sent_rx) = mpsc::channel();
-        let (reply_tx, reply_rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::Builder::new()
             .name("browser-surface-backpressure-fake-cdp".into())
@@ -6072,11 +6077,15 @@ mod tests {
                     );
                 }
                 sent_tx.send(()).unwrap();
-                reply_rx.recv().unwrap();
+                // The reply follows the whole flood on the socket, so the
+                // client reads it only if the stalled route did not block
+                // the shared reader.
+                let version = read_ws_json(&mut ws);
+                assert_eq!(version["method"], "Browser.getVersion");
                 write_ws_json(
                     &mut ws,
                     json!({
-                        "id": 2,
+                        "id": version["id"],
                         "result": {"userAgent": "Mozilla/5.0 Chrome/136.0 Safari/537.36"}
                     }),
                 );
@@ -6091,17 +6100,16 @@ mod tests {
         .unwrap();
         let _stalled_route = runtime.register("target-stalled", "session-stalled");
         flood_tx.send(()).unwrap();
-        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        thread::sleep(Duration::from_millis(50));
+        sent_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
 
         let client = runtime.client.clone();
         let (version_tx, version_rx) = mpsc::channel();
         let version_call = thread::spawn(move || {
             version_tx.send(client.browser_version()).unwrap();
         });
-        thread::sleep(Duration::from_millis(20));
-        reply_tx.send(()).unwrap();
-        let version = version_rx.recv_timeout(Duration::from_millis(200));
+        // A blocked reader never delivers the reply, so this bound only ends
+        // a failing run; a passing one does not depend on timing.
+        let version = version_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND);
         stop_tx.send(()).unwrap();
         runtime.shutdown();
         server.join().unwrap();
@@ -8682,8 +8690,10 @@ mod tests {
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
             let mut ws = accept(stream).unwrap();
+            // Paces the stop check only; set after the handshake, which may
+            // take longer than 20 ms under load.
+            ws.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
             let mut capture_attempts = 0;
             loop {
                 if stop_rx.try_recv().is_ok() {
@@ -8837,8 +8847,10 @@ mod tests {
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
             let mut ws = accept(stream).unwrap();
+            // Paces the stop check only; set after the handshake, which may
+            // take longer than 20 ms under load.
+            ws.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
             let mut capture_attempts = 0;
             loop {
                 if stop_rx.try_recv().is_ok() {
@@ -10972,7 +10984,7 @@ mod tests {
         let (entered, started) = mpsc::channel();
         let (release, held) = mpsc::channel();
         assert!(browser.enqueue_test_command(BrowserCommand::Hold { entered, release: held }));
-        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        started.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
         for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
             assert!(browser.enqueue_test_command(BrowserCommand::Activate));
         }
@@ -11011,7 +11023,7 @@ mod tests {
         let (entered, started) = mpsc::channel();
         let (release_worker, held) = mpsc::channel();
         assert!(browser.enqueue_test_command(BrowserCommand::Hold { entered, release: held }));
-        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        started.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
         for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
             assert!(browser.enqueue_test_command(BrowserCommand::Activate));
         }
@@ -11028,7 +11040,9 @@ mod tests {
             );
             settled_tx.send(result).unwrap();
         });
-        let settled_while_full = settled_rx.recv_timeout(Duration::from_millis(20)).is_ok();
+        // The worker is still held, so the queue stays full: a producer that
+        // blocked on it would never settle, and the bound only ends that run.
+        let settled_while_full = settled_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND);
         assert_eq!(
             browser.command_order.lock().unwrap().retained_releases.len(),
             1,
@@ -11036,18 +11050,18 @@ mod tests {
         );
 
         release_worker.send(()).unwrap();
-        if !settled_while_full {
+        if settled_while_full.is_err() {
             settled_rx
-                .recv_timeout(Duration::from_secs(1))
+                .recv_timeout(BROWSER_TEST_SAFETY_BOUND)
                 .expect("release enqueue should settle after the worker drains")
                 .unwrap();
         }
         enqueue.join().unwrap();
         browser.kill();
-        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
+        done.recv_timeout(BROWSER_TEST_SAFETY_BOUND).expect("browser worker exited after release");
 
         assert!(
-            settled_while_full,
+            settled_while_full.is_ok(),
             "retaining a release must not block the shared browser input producer"
         );
     }
