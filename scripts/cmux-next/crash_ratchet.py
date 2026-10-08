@@ -142,30 +142,30 @@ def scan_env_writes(repo):
 
 def scan_rust(repo, counts):
     crates = os.path.join(repo, "cmux-tui/crates")
-    for dirpath, dirs, files in os.walk(crates):
-        dirs[:] = [d for d in dirs if d not in ("target", "tests", "benches", "examples", "node_modules", "fixtures")]
-        if os.sep + "src" not in dirpath:
+    skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
+    for path in tracked_files(repo, crates):
+        dirpath, name = os.path.split(path)
+        parts = os.path.relpath(dirpath, crates).split(os.sep)
+        if skipped_dirs.intersection(parts) or os.sep + "src" not in dirpath or not os.path.isfile(path):
             continue
-        for name in sorted(files):
-            if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
+        if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
+            continue
+        rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
+        text = open(path, encoding="utf-8", errors="replace").read()
+        # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
+        # `#[cfg(test)] mod x;` declaration is not code.
+        inline = INLINE_TESTS.search(text)
+        lines = (text if not inline else text[:inline.start()]).split("\n")
+        for index, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("//") or allowed(lines, index):
                 continue
-            path = os.path.join(dirpath, name)
-            rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
-            text = open(path, encoding="utf-8", errors="replace").read()
-            # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
-            # `#[cfg(test)] mod x;` declaration is not code.
-            inline = INLINE_TESTS.search(text)
-            lines = (text if not inline else text[:inline.start()]).split("\n")
-            for index, line in enumerate(lines):
-                stripped = line.lstrip()
-                if stripped.startswith("//") or allowed(lines, index):
-                    continue
-                code = line.split("//", 1)[0] if '"' not in line else line
-                for kind, pattern in RUST.items():
-                    hits = len(pattern.findall(code))
-                    if hits:
-                        counts.setdefault(kind, {}).setdefault(rel, 0)
-                        counts[kind][rel] += hits
+            code = line.split("//", 1)[0] if '"' not in line else line
+            for kind, pattern in RUST.items():
+                hits = len(pattern.findall(code))
+                if hits:
+                    counts.setdefault(kind, {}).setdefault(rel, 0)
+                    counts[kind][rel] += hits
 
 
 def main():

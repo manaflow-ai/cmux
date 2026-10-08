@@ -785,6 +785,10 @@ path = "tests/test_vm_scp.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_webviews_tests_per_file.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_validation.py"
 lane = "linux-guard"
 
@@ -1013,6 +1017,14 @@ path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_arm64_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_web_bundles_order.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_r2_presign.py"
 lane = "linux-guard"
 
@@ -1065,10 +1077,6 @@ path = "tests/test_browser_host_release_smoke.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_backend_migrations_plan.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_next_tree_notify.py"
 lane = "linux-guard"
 
@@ -1080,6 +1088,7 @@ lane = "linux-guard"
 path = "tests/test_cmux_next_ios_route.py"
 lane = "linux-guard"
 
+[[test]]
 path = "tests/test_cmux_next_route_replay.py"
 lane = "linux-guard"
 
