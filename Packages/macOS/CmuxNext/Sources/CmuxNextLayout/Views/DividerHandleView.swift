@@ -36,7 +36,7 @@ final class DividerHandleView: NSView {
     var onDrag: ((DragEvent) -> Void)?
 
     private let line = CALayer()
-    private var isHovered = false { didSet { applyColors() } }
+    private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
     private var trackingArea: NSTrackingArea?
 

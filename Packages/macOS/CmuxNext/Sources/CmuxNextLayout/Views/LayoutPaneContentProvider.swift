@@ -44,6 +44,11 @@ final class LayoutViewContext {
     var overlayNeedsSync: () -> Void = {}
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
+    /// Where the pointer is now, in `window`'s coordinates, when it may hover
+    /// that window's dividers; nil when it may not (another window or panel
+    /// is on top there, the window is not key). Read with no event at hand,
+    /// because the layout can move under a still pointer.
+    var hoverPointer: (NSWindow) -> NSPoint? = { _ in nil }
 
     init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
