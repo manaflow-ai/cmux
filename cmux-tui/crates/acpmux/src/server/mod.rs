@@ -253,7 +253,9 @@ pub async fn serve_ws_with(
         (origins, hosts)
     };
     let policy = Arc::new(listener_policy(listener.local_addr()?, &extra_origins, &extra_hosts));
-    let token = Arc::new(token);
+    // Each handshake checks the token current at that moment: a rotation
+    // (`hub/web_token.rs`) applies from the next one on.
+    hub.web_token.set(token);
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(s) => s,
@@ -264,7 +266,10 @@ pub async fn serve_ws_with(
         };
         tune_ws_socket(&stream);
         let hub = hub.clone();
-        let token = token.clone();
+        let token = hub.web_token.current();
+        // Subscribed before the handshake, so a rotation during it still
+        // closes a connection that presented the old token.
+        let rotated = hub.web_token.changed();
         let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
@@ -373,7 +378,7 @@ pub async fn serve_ws_with(
             {
                 return;
             }
-            tokio::spawn(async move {
+            let reader = tokio::spawn(async move {
                 while let Some(Ok(frame)) = source.next().await {
                     if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
                         && in_tx.send(t.to_string()).await.is_err()
@@ -393,8 +398,22 @@ pub async fn serve_ws_with(
                         break;
                     }
                 }
+                // The server ended this connection: say so with a Close frame.
+                let _ = sink.close().await;
             });
-            serve_connection_with(hub, in_rx, out_tx, origin).await;
+            if matches!(origin, Origin::Web | Origin::Peer) {
+                // The dashboard token is this connection's only credential:
+                // a rotation ends it. LocalApp also proved this launch's
+                // LocalApp token, so it stays.
+                tokio::select! {
+                    () = serve_connection_with(hub, in_rx, out_tx, origin) => {}
+                    () = rotated => tracing::info!("closed a {origin:?} connection: the web token rotated"),
+                }
+            } else {
+                serve_connection_with(hub, in_rx, out_tx, origin).await;
+            }
+            // Its read half may wait on a silent client; the close is ours.
+            reader.abort();
         });
     }
 }

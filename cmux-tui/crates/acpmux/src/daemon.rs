@@ -52,6 +52,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         .map(|origin| crate::server::dev_origin(origin))
         .collect::<Result<Vec<_>>>()?;
     let mut config = Config::load()?;
+    // config.json holds the dashboard token: owner-only, also when another
+    // tool wrote it with the umask's mode and the daemon never saves it.
+    narrow_to_owner(&Config::path());
     config.dev_origins = dev_origins;
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
@@ -339,6 +342,19 @@ fn write_ready(fd: i32, ready: &Value) {
 /// refuses it, so a dev page origin never becomes a LocalApp origin there.
 pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
     debug_build || dev_flag
+}
+
+/// Clears the group and other bits of `path`, if it exists.
+fn narrow_to_owner(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::metadata(path) else { return };
+    let mode = meta.permissions().mode();
+    if mode & 0o077 != 0
+        && let Err(e) =
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
+    {
+        tracing::warn!("could not make {} owner-only: {e}", path.display());
+    }
 }
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
