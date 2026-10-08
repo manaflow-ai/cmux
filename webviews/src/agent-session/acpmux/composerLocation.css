@@ -147,3 +147,15 @@
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
 .acpmux-send { width: 32px; height: 32px; }
 .acpmux-context-ring { width: 32px; height: 32px; }
+
+/* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
+   opaque base at 72% instead of into the clear page, so the prompt, the chips and the footer stay
+   legible over a busy painting while the backdrop still shows through. On an opaque page the base is
+   the page color, so the card looks as before. Reduce Transparency makes the card opaque. */
+.acpmux-composer-box {
+  --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-composer-glass));
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-composer-box { --acpmux-composer-glass: var(--acpmux-base); }
+}
