@@ -72,11 +72,16 @@ final class ExternalOpenController {
 
     func perform(_ route: ExternalOpenRoute) {
         guard let windows = services.windows else { return pending.append(route) }
-        guard let controller = windows.active, let pane = controller.focusedPane else {
+        guard let controller = windows.active else {
             pending.append(route)
             if windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
             return
         }
+        // The user opened it from another app: a window on a top page (Home)
+        // leaves it for its workspace so the tab shows, as a shown internal
+        // page does. Without this the open waited until the user left Home.
+        controller.leaveTopPage()
+        guard let pane = controller.focusedPane else { return pending.append(route) }
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
             // cmux forward. link.open refuses what it cannot open with a reason.
