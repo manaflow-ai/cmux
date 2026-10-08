@@ -73,6 +73,7 @@ test("a matrix reuses its browser while isolating and closing every case context
     { id: "second", path_or_url: "https://example.test/" },
   ]));
   let launches = 0; let contexts = 0; let closedContexts = 0; let closedBrowsers = 0;
+  const navigationWaits: unknown[] = [];
   const browserTypes = { chromium: { launch: async () => {
     launches++;
     return {
@@ -80,7 +81,7 @@ test("a matrix reuses its browser while isolating and closing every case context
         contexts++;
         return {
           newPage: async () => ({
-            exposeFunction: async () => {}, goto: async () => {}, waitForFunction: async () => {},
+            exposeFunction: async () => {}, goto: async (_url: string, options: unknown) => { navigationWaits.push(options); }, waitForFunction: async () => {},
             evaluate: async () => null,
             screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
           }),
@@ -97,6 +98,7 @@ test("a matrix reuses its browser while isolating and closing every case context
     expect(contexts).toBe(2);
     expect(closedContexts).toBe(2);
     expect(closedBrowsers).toBe(1);
+    expect(navigationWaits).toEqual([{ waitUntil: "domcontentloaded" }, { waitUntil: "domcontentloaded" }]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
