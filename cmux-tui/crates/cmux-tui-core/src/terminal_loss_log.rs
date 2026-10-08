@@ -38,6 +38,23 @@ pub(crate) fn remove_signals(record_path: &Path) {
     let _ = fs::remove_file(crash_path(record_path));
 }
 
+fn read_signals(record_path: &Path, incarnation: Option<&str>) -> Vec<serde_json::Value> {
+    let Ok(text) = fs::read_to_string(signals_path(record_path)) else { return Vec::new() };
+    let mut signals = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|line| {
+            incarnation.is_none_or(|incarnation| {
+                line.get("incarnation").and_then(serde_json::Value::as_str) == Some(incarnation)
+            })
+        })
+        .collect::<Vec<_>>();
+    if signals.len() > MAX_SIGNAL_LINES {
+        signals.drain(..signals.len() - MAX_SIGNAL_LINES);
+    }
+    signals
+}
+
 /// The loss line for a host-lost terminal; `None` for any other end.
 pub(crate) fn loss_line(
     record_path: &Path,

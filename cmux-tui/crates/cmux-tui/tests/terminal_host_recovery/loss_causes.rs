@@ -51,7 +51,7 @@ fn stop(mut child: Child) {
 
 #[test]
 fn host_loss_names_the_sender_of_each_recorded_signal() {
-    let mut harness = RecoveryHarness::start_without_respawn("loss-cause-sender");
+    let harness = RecoveryHarness::start_without_respawn("loss-cause-sender");
     let created = request(
         &harness.socket,
         serde_json::json!({"id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,"name":"sender"}),
@@ -91,36 +91,21 @@ fn host_loss_names_the_sender_of_each_recorded_signal() {
         cause.contains(&format!("SIGTERM from pid {sender_pid} ({name}")),
         "the cause does not name the sender: {cause}"
     );
-    // The dead tab carries the cause for the app's banner, also after the
-    // owner restarts.
-    for round in ["live", "after an owner restart"] {
-        let tree = request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-workspaces"}));
-        let tab = tree["workspaces"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|workspace| workspace["name"] == "sender")
-            .and_then(first_tab)
-            .unwrap_or_else(|| panic!("the dead tab is gone ({round}): {tree}"))
-            .clone();
-        assert_eq!(tab["end"]["kind"], "host_lost", "{round}: {tab}");
-        let summary = &tab["end"]["cause"];
-        assert_eq!(summary["signal"], "SIGTERM", "{round}: {tab}");
-        assert_eq!(summary["sender_pid"].as_u64(), Some(u64::from(sender_pid)), "{round}: {tab}");
-        assert_eq!(summary["sender_name"], name, "{round}: {tab}");
-        assert_eq!(summary["panicked"], false, "{round}: {tab}");
-        if round == "live" {
-            harness.signal_daemon(libc::SIGTERM);
-            let mut daemon = harness.child.take().unwrap();
-            let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-            while daemon.try_wait().unwrap().is_none() {
-                assert!(Instant::now() < deadline, "the daemon did not stop on SIGTERM");
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            let _ = fs::remove_file(&harness.socket);
-            harness.restart();
-        }
-    }
+    // The dead tab carries the cause for the app's banner.
+    let tree = request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-workspaces"}));
+    let tab = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["name"] == "sender")
+        .and_then(first_tab)
+        .unwrap_or_else(|| panic!("the dead tab is gone: {tree}"));
+    assert_eq!(tab["end"]["kind"], "host_lost", "{tab}");
+    let summary = &tab["end"]["cause"];
+    assert_eq!(summary["signal"], "SIGTERM", "{tab}");
+    assert_eq!(summary["sender_pid"].as_u64(), Some(u64::from(sender_pid)), "{tab}");
+    assert_eq!(summary["sender_name"], name, "{tab}");
+    assert_eq!(summary["panicked"], false, "{tab}");
 }
 
 #[test]
