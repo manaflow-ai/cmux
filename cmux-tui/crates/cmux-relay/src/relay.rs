@@ -1894,7 +1894,7 @@ mod tests {
         let config = RelayConfig {
             ticket_secret: Some(vec![9; 32]),
             ticket_issuer: "relay.test".into(),
-            ..open_config()
+            ..RelayConfig::default()
         };
         let server = TestServer::start(config.clone()).await;
         let connect_ticket = provider_ticket(
@@ -2021,7 +2021,7 @@ mod tests {
             ticket_secret: Some(vec![17; 32]),
             ticket_issuer: "relay-expiry.test".into(),
             join_ticket_ttl: Duration::from_secs(120),
-            ..open_config()
+            ..RelayConfig::default()
         };
         let relay = Relay::new(config.clone()).unwrap();
         let now = unix_timestamp(SystemTime::now()).unwrap();

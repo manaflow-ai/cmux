@@ -18,9 +18,14 @@ type HmacSha256 = Hmac<Sha256>;
 
 /// Ticket equality without an early exit on the first differing byte (the
 /// length is not secret). Register and join tickets are compared with it.
+/// `black_box` keeps the compiler from turning the fold into an early exit.
 pub(crate) fn tickets_equal(left: &str, right: &str) -> bool {
     left.len() == right.len()
-        && left.bytes().zip(right.bytes()).fold(0_u8, |acc, (a, b)| acc | (a ^ b)) == 0
+        && std::hint::black_box(
+            left.bytes()
+                .zip(right.bytes())
+                .fold(0_u8, |acc, (a, b)| std::hint::black_box(acc | (a ^ b))),
+        ) == 0
 }
 
 #[derive(Clone)]
