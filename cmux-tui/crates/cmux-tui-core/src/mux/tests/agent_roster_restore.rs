@@ -33,25 +33,26 @@ fn sealed_roster_store(session: &'static str) -> SealedRosterStore {
         if step == 3 {
             break;
         }
-        let checkpoint = mux
-            .create_journal_checkpoint(
-                "client_test",
-                &format!("roster_bad_segment_checkpoint_{step}"),
-            )
-            .unwrap();
-        let sealed = mux
-            .seal_journal_segments(
-                checkpoint.checkpoint.source_sequence,
-                "client_test",
-                &format!("roster_bad_segment_seal_{step}"),
-            )
-            .unwrap();
-        assert!(!sealed.segments.is_empty());
-        seals.push(sealed.segments.into_iter().map(|segment| segment.segment_id).collect());
+        seals.push(seal_journal(&mux, &format!("roster_bad_segment_{step}")));
     }
     mux.shutdown();
     drop(mux);
     SealedRosterStore { root, session, terminals, seals }
+}
+
+/// Checkpoint and seal the whole journal; returns the new segment ids.
+fn seal_journal(mux: &Mux, key: &str) -> Vec<String> {
+    let checkpoint =
+        mux.create_journal_checkpoint("client_test", &format!("{key}_checkpoint")).unwrap();
+    let sealed = mux
+        .seal_journal_segments(
+            checkpoint.checkpoint.source_sequence,
+            "client_test",
+            &format!("{key}_seal"),
+        )
+        .unwrap();
+    assert!(!sealed.segments.is_empty());
+    sealed.segments.into_iter().map(|segment| segment.segment_id).collect()
 }
 
 /// Overwrite the content of every segment of one seal with bytes that are
@@ -148,4 +149,47 @@ fn a_corrupt_segment_end_cannot_hide_the_records_after_it() {
     let store = sealed_roster_store("roster-bad-segment-end");
     reopen_and_check_roster(&store, 1, true);
     std::fs::remove_dir_all(&store.root).unwrap();
+}
+
+/// An agent whose later events sit in a skipped range keeps its last decoded
+/// state only when that state is not a live claim: "working" from before the
+/// range could be stale (the range may hold its stop), so it becomes
+/// "unknown" until the agent reports again.
+#[test]
+fn an_agent_with_events_in_a_skipped_range_is_not_reported_working() {
+    let session = "roster-stale-live";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-stale-live-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    let quiet = mux.new_workspace(None, None).unwrap().terminal_public_id().cloned().unwrap();
+    let live = mux.new_workspace(None, None).unwrap().terminal_public_id().cloned().unwrap();
+    append_journal_hook(&mux, &quiet, "SessionStart", Some("quiet"));
+    append_journal_hook(&mux, &quiet, "UserPromptSubmit", Some("quiet"));
+    append_journal_hook(&mux, &live, "SessionStart", Some("live"));
+    append_journal_hook(&mux, &live, "UserPromptSubmit", Some("live"));
+    assert_eq!(roster_agent_state(&mux, &live).as_deref(), Some("working"));
+    let first = seal_journal(&mux, "roster_stale_live_0");
+    append_journal_hook(&mux, &live, "Stop", Some("live"));
+    assert_eq!(roster_agent_state(&mux, &live).as_deref(), Some("idle"));
+    let second = seal_journal(&mux, "roster_stale_live_1");
+    mux.shutdown();
+    drop(mux);
+
+    let store = SealedRosterStore {
+        root: root.clone(),
+        session,
+        terminals: vec![quiet.clone(), live.clone()],
+        seals: vec![first, second],
+    };
+    corrupt_seal_and_drop_roster_snapshot(&store, 1, false);
+    let reopened = open_persistent_test_mux(session, &root);
+    // No event of `quiet` is in the skipped range: its decoded state stands.
+    assert_eq!(roster_agent_state(&reopened, &quiet).as_deref(), Some("working"));
+    assert_eq!(roster_agent_state(&reopened, &live).as_deref(), Some("unknown"));
+    // The next real report corrects it.
+    append_journal_hook(&reopened, &live, "UserPromptSubmit", Some("live"));
+    assert_eq!(roster_agent_state(&reopened, &live).as_deref(), Some("working"));
+    reopened.shutdown();
+    drop(reopened);
+    std::fs::remove_dir_all(root).unwrap();
 }
