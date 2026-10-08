@@ -7,17 +7,15 @@ SCRIPT="$ROOT_DIR/scripts/ci/recover-nightly-notarization.sh"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-if ! grep -Fq 'Nightly macOS build' "$WORKFLOW_FILE" \
-  || ! grep -Fq 'types: [completed]' "$WORKFLOW_FILE"; then
-  echo "FAIL: recovery workflow must follow completed Nightly macOS build runs" >&2
+if ! grep -Fq 'workflow_dispatch:' "$WORKFLOW_FILE" \
+  || grep -Fq 'workflow_run:' "$WORKFLOW_FILE"; then
+  echo "FAIL: recovery workflow must be manual-only so automatic continuation cannot duplicate waits" >&2
   exit 1
 fi
 for required in \
-  'github.event.workflow_run.conclusion == '\''failure'\''' \
-  'github.event.workflow_run.head_repository.full_name == github.repository' \
   'SOURCE_WORKFLOW_PATHS: .github/workflows/nightly.yml' \
   'run-id: ${{ env.SOURCE_RUN_ID }}' \
-  'pattern: cmux-nightly-notarization-recovery-*' \
+  'pattern: cmux-*-notarization-recovery-*' \
   'merge-multiple: false' \
   'actions: read' \
   'contents: read' \

@@ -522,6 +522,8 @@ assert "--replace-feeds" in auto
 assert "resolve-notarization-recovery.py" in auto
 assert "Reject stale continuation before publication" in auto
 assert "cmux-published-build" in auto
+assert "final_dmg_sha256" in auto
+assert "cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-" in workflow
 PY
 then
   echo "FAIL: fast dogfood must skip notarization and distribution policy only after retaining signing and smoke"

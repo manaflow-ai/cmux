@@ -7,9 +7,7 @@ on:
     types: [completed]
 
 permissions:
-  actions: read
-  contents: write
-  issues: write
+  {}
 
 jobs:
   preflight:
@@ -17,6 +15,9 @@ jobs:
       (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
     outputs:
       ready: ${{ steps.check.outputs.ready }}
       channel: ${{ steps.check.outputs.channel }}
@@ -106,6 +107,9 @@ jobs:
       matrix:
         variant: [arm64, x86_64, universal]
     environment: release
+    permissions:
+      actions: read
+      contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     env:
@@ -188,6 +192,17 @@ jobs:
             echo "recovery feeds must contain full archives only" >&2
             exit 1
           fi
+          final_sha256="$(shasum -a 256 "verified/$IMMUTABLE_NAME" | awk '{print $1}')"
+          python3 - "recovery/cmux-nightly-notarization-recovery.json" "$final_sha256" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          manifest = json.loads(path.read_text(encoding="utf-8"))
+          manifest["final_dmg_sha256"] = sys.argv[2]
+          path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          PY
           cp "verified/$IMMUTABLE_NAME" "verified/$ALIAS_NAME"
           cp "$feed" verified/
           cp recovery/cmux-nightly-notarization-recovery.json verified/
@@ -204,6 +219,10 @@ jobs:
     needs: [preflight, wait-and-staple]
     if: needs.preflight.outputs.ready == 'true' && needs.wait-and-staple.result == 'success'
     environment: release
+    permissions:
+      actions: read
+      contents: write
+      issues: write
     runs-on: ubuntu-24.04
     concurrency:
       group: release-publish-${{ needs.preflight.outputs.release_tag }}
@@ -248,9 +267,9 @@ jobs:
             [ -n "$manifest" ] || { echo "missing accepted $variant artifact" >&2; exit 1; }
             dir="$(dirname "$manifest")"
             immutable="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["immutable_path"].split("/")[-1])' "$manifest")"
-            expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dmg_sha256"])' "$manifest")"
+            expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["final_dmg_sha256"])' "$manifest")"
             actual="$(shasum -a 256 "$dir/$immutable" | awk '{print $1}')"
-            [ "${actual,,}" = "${expected,,}" ] || { echo "$variant accepted DMG SHA-256 mismatch" >&2; exit 1; }
+            [ "${actual,,}" = "${expected,,}" ] || { echo "$variant stapled DMG SHA-256 mismatch" >&2; exit 1; }
             cp "$dir/$immutable" "nightly-out/$immutable"
             cp "$dir/${DMG_PREFIX}-${variant}.dmg" "nightly-out/${DMG_PREFIX}-${variant}.dmg"
             feed="appcast-${variant}.xml"

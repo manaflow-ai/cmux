@@ -1,10 +1,6 @@
 name: Nightly notarization recovery
 
 on:
-  workflow_run:
-    workflows:
-      - Nightly macOS build
-    types: [completed]
   workflow_dispatch:
     inputs:
       run_id:
@@ -20,10 +16,7 @@ env:
 
 jobs:
   recover:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'failure' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+    if: github.event_name == 'workflow_dispatch'
     environment: release
     permissions:
       actions: read
@@ -31,8 +24,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     env:
-      SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
-      SOURCE_RUN_SHA: ${{ github.event_name == 'workflow_dispatch' && 'manual-dispatch' || github.event.workflow_run.head_sha }}
+      SOURCE_RUN_ID: ${{ inputs.run_id }}
+      SOURCE_RUN_SHA: manual-dispatch
     steps:
       - name: Checkout recovery tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -51,7 +44,7 @@ jobs:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ env.SOURCE_RUN_ID }}
-          pattern: cmux-nightly-notarization-recovery-*
+          pattern: cmux-*-notarization-recovery-*
           path: recovery-inputs
           merge-multiple: false
 

@@ -2149,7 +2149,7 @@ jobs:
         if: always() && steps.prepare-notarization-recovery.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-nightly-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
+          name: cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
           path: |
             ${{ env.NIGHTLY_DMG_RELEASE }}
             ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.state
