@@ -202,6 +202,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(cleanupPayload["stale_names"] as? [String], [sessionName])
 
         let operations = [
+            ["local-tmux", "start", sessionName, "--detached"],
             ["local-tmux", "status", "--id", logicalID.uuidString],
             ["local-tmux", "detach", "--id", logicalID.uuidString, "--all"],
             ["local-tmux", "attach", "--id", logicalID.uuidString, "--headless"],
