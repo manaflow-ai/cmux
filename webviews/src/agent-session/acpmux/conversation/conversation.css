@@ -1277,6 +1277,43 @@ pre.cv-math-source {
   outline-offset: 1px;
 }
 
+/* A render card (RenderCard.tsx): a quiet head over the live frame, which takes its page's height. */
+.acpmux-render-card {
+  position: relative;
+  margin-bottom: 6px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--agent-page-bg);
+  box-shadow: inset 0 0 0 0.5px var(--agent-border-strong, var(--agent-border));
+}
+.acpmux-render-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 4px 6px 4px 12px;
+  box-shadow: inset 0 -1px 0 var(--agent-border);
+}
+.acpmux-render-card-head .acpmux-review-changes {
+  height: 24px;
+}
+.acpmux-render-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-render-card-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
 /* A message that could not be drawn (MessageBoundary.tsx): a note over its plain source text. */
 .cv-unrendered__note {
   margin: 0 0 6px;

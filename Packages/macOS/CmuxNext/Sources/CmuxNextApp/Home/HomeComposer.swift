@@ -55,7 +55,7 @@ struct HomeComposer {
 
     /// The owner's refusal as the sheet says it.
     static func outcome(for error: any Error, naming: String) -> HomeComposeOutcome {
-        guard let rejection = error as? HomeRejection else { return .refused(String(describing: error)) }
+        guard let rejection = error as? HomeRejection else { return .refused(RefusalStrings.describe(error)) }
         switch rejection {
         case .rateLimited: return .rateLimited
         case .ownerUnreachable: return .offline

@@ -1,6 +1,15 @@
 // Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and
 // submenus. Base UI owns roles, focus, arrows (direction-aware), typeahead and Escape per level.
-import { createContext, use, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
+import {
+  createContext,
+  use,
+  useRef,
+  useState,
+  type ComponentProps,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
@@ -167,6 +176,8 @@ export interface MenuPopupProps {
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   align?: "start" | "center" | "end";
+  /** What the menu is placed against (default: the menu button). */
+  anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
   /**
    * Where focus goes when the menu closes (default: its trigger). A page whose keys live in one
    * field (a picker's search) returns focus there.
@@ -175,11 +186,24 @@ export interface MenuPopupProps {
   children: ReactNode;
 }
 
-export function MenuPopup({ className, side = "bottom", align = "start", finalFocus, children }: MenuPopupProps) {
+export function MenuPopup({
+  className,
+  side = "bottom",
+  align = "start",
+  anchor,
+  finalFocus,
+  children,
+}: MenuPopupProps) {
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>
-      <BaseMenu.Positioner className="ui-positioner" side={side} align={align} sideOffset={UI_ANCHOR_GAP}>
+      <BaseMenu.Positioner
+        className="ui-positioner"
+        anchor={anchor}
+        side={side}
+        align={align}
+        sideOffset={UI_ANCHOR_GAP}
+      >
         <BaseMenu.Popup className={cx("ui-popup ui-menu", className)} finalFocus={finalFocus}>
           {children}
         </BaseMenu.Popup>

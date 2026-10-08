@@ -16,6 +16,7 @@
 //! a replay record and a `session.events` upsert of the tab. A bind that
 //! changes nothing commits nothing.
 
+use crate::Actor;
 use serde_json::Map;
 
 use crate::Surface;
@@ -51,8 +52,9 @@ pub(crate) struct ConversationTabOutcome {
 }
 
 impl Mux {
-    pub(crate) fn new_conversation_tab(
+    pub(crate) fn new_conversation_tab_as(
         self: &Arc<Self>,
+        actor: &Actor,
         target: ConversationTabTarget,
         record: ConversationTabRecord,
         mutation: Option<&WorkspaceMutation>,
@@ -124,14 +126,15 @@ impl Mux {
             Value::String(browser_id.as_str().to_string()),
         )]);
         let created = match target {
-            ConversationTabTarget::Pane(pane) => self.new_browser_tab_with_fields(
+            ConversationTabTarget::Pane(pane) => self.new_browser_tab_with_fields_as(
+                actor,
                 CONVERSATION_TAB_URL.to_string(),
                 pane,
                 size,
                 fields,
             ),
             ConversationTabTarget::Workspace(workspace) => {
-                self.new_conversation_tab_in(workspace, fields)
+                self.new_conversation_tab_in(actor, workspace, fields)
             }
         };
         match created {
@@ -156,6 +159,7 @@ impl Mux {
     /// pane of an empty workspace.
     fn new_conversation_tab_in(
         self: &Arc<Self>,
+        actor: &Actor,
         workspace: WorkspaceId,
         mut fields: Map<String, Value>,
     ) -> anyhow::Result<Arc<Surface>> {
@@ -164,7 +168,8 @@ impl Mux {
             .with_context(|| format!("unknown workspace {workspace}"))?;
         fields.insert("url".into(), Value::String(CONVERSATION_TAB_URL.to_string()));
         let operation = crate::resource::ResourceOperation::TabCreateBrowser;
-        let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
+        let commit =
+            self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?;
         self.emit_resource_topology_legacy_events(operation, &commit);
         self.ordinary_created_surface(&commit)
     }
@@ -194,8 +199,9 @@ impl Mux {
     /// to `session` when its current session is `expected` (None: unbound).
     /// Returns the record and whether the call was a replay (the tab already
     /// had `session`).
-    pub(crate) fn bind_conversation_tab_session(
+    pub(crate) fn bind_conversation_tab_session_as(
         &self,
+        actor: &Actor,
         surface: SurfaceId,
         session: &str,
         expected: Option<&str>,
@@ -214,7 +220,7 @@ impl Mux {
             "operation": operation, "browser": browser_id, "session": session, "expected": expected,
         });
         let committed = self.commit_state(
-            &WorkspaceMutation::local("cmux-tui-conversation-tab"),
+            &WorkspaceMutation::local("cmux-tui-conversation-tab", actor.clone()),
             operation,
             &fingerprint,
             None,
@@ -293,5 +299,20 @@ impl Mux {
             "bad request: a conversation tab is not a browser page"
         );
         Ok(())
+    }
+}
+
+/// Key-less test form: acts as the daemon (P8 landing 3a).
+#[cfg(test)]
+#[allow(dead_code, reason = "test convenience")]
+impl Mux {
+    pub(crate) fn new_conversation_tab(
+        self: &Arc<Self>,
+        target: ConversationTabTarget,
+        record: ConversationTabRecord,
+        mutation: Option<&WorkspaceMutation>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<ConversationTabOutcome> {
+        self.new_conversation_tab_as(&Actor::Daemon, target, record, mutation, size)
     }
 }

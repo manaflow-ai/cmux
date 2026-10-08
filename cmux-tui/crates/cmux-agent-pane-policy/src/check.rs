@@ -214,6 +214,11 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
         let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
         return Checked::Refuse { refused, spend: carried };
     }
+    // Answers go only to a pending question, keyed by its items and bounded.
+    if crate::answers::breaks_answers_rule(&object, state.options) {
+        let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
+        return Checked::Refuse { refused, spend: carried };
+    }
     let mut frame = stripping_prompt_meta(&object).unwrap_or_else(|| object.clone());
     let mut facts =
         Facts { is_first: state.is_first, method: method.clone(), page_id, ..Facts::default() };

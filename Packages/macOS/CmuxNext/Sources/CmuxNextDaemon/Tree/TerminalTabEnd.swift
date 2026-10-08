@@ -54,19 +54,55 @@ public struct TerminalTabEnd: Sendable, Hashable, Decodable {
     public var coreDumped: Bool?
     public var reason: HostLostReason?
     public var detail: String?
+    /// For a host loss, the evidence its host left (cx-0tgl): the first
+    /// signal it recorded and who sent it, and whether it had panicked.
+    public var cause: Cause?
+
+    /// Wire `end.cause`. Every field is optional; older daemons omit it.
+    public struct Cause: Sendable, Hashable, Decodable {
+        /// Conventional signal name (`SIGTERM`).
+        public var signal: String?
+        public var senderPid: Int64?
+        /// The sender's process name, when it still ran when recorded.
+        public var senderName: String?
+        public var panicked: Bool
+
+        public init(signal: String? = nil, senderPid: Int64? = nil, senderName: String? = nil,
+                    panicked: Bool = false) {
+            self.signal = signal
+            self.senderPid = senderPid
+            self.senderName = senderName
+            self.panicked = panicked
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case signal, panicked
+            case senderPid = "sender_pid"
+            case senderName = "sender_name"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            signal = try container.decodeIfPresent(String.self, forKey: .signal)
+            senderPid = try container.decodeIfPresent(Int64.self, forKey: .senderPid)
+            senderName = try container.decodeIfPresent(String.self, forKey: .senderName)
+            panicked = try container.decodeIfPresent(Bool.self, forKey: .panicked) ?? false
+        }
+    }
 
     public init(kind: Kind, code: Int32? = nil, signal: Int32? = nil, coreDumped: Bool? = nil,
-                reason: HostLostReason? = nil, detail: String? = nil) {
+                reason: HostLostReason? = nil, detail: String? = nil, cause: Cause? = nil) {
         self.kind = kind
         self.code = code
         self.signal = signal
         self.coreDumped = coreDumped
         self.reason = reason
         self.detail = detail
+        self.cause = cause
     }
 
     enum CodingKeys: String, CodingKey {
-        case kind, code, signal, reason, detail
+        case kind, code, signal, reason, detail, cause
         case coreDumped = "core_dumped"
     }
 }
