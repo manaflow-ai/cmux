@@ -124,7 +124,10 @@ struct BrowserControlServiceStorageScriptsTests {
           return {
             get length() { return entries.size; },
             key: (i) => Array.from(entries.keys())[i] ?? null,
-            getItem: (k) => entries.has(k) ? entries.get(k) : null
+            getItem: (k) => entries.has(k) ? entries.get(k) : null,
+            setItem: (k, v) => { entries.set(k, v); },
+            clear: () => { entries.clear(); },
+            dump: () => Array.from(entries)
           };
         };
         var window = {
@@ -148,6 +151,31 @@ struct BrowserControlServiceStorageScriptsTests {
     func storageGetSingleProtoKey(storageType: String) {
         let script = service.storageGetScript(storageType: storageType, key: "__proto__")
         #expect(runStorageScript(script) == #"{"ok":true,"value":"\#(storageType)-kept"}"#)
+    }
+
+    @Test("storageSnapshotScript keeps a __proto__ key in both storage areas")
+    func storageSnapshotKeepsProtoKey() {
+        #expect(
+            runStorageScript(service.storageSnapshotScript())
+                == #"{"local":{"regular":"local-control","__proto__":"local-kept"},"session":{"regular":"session-control","__proto__":"session-kept"}}"#
+        )
+    }
+
+    @Test("storageRestoreScript writes a saved __proto__ key back to both storage areas")
+    func storageRestoreWritesProtoKey() {
+        let restore = service.storageRestoreScript(
+            storageLiteral: #"{"local":{"regular":"saved-local","__proto__":"saved-local-proto"},"session":{"regular":"saved-session","__proto__":"saved-session-proto"}}"#
+        )
+        let script = """
+        (() => {
+          \(restore);
+          return { local: window.localStorage.dump(), session: window.sessionStorage.dump() };
+        })()
+        """
+        #expect(
+            runStorageScript(script)
+                == #"{"local":[["regular","saved-local"],["__proto__","saved-local-proto"]],"session":[["regular","saved-session"],["__proto__","saved-session-proto"]]}"#
+        )
     }
 
     @Test("storageSetScript writes the value literal verbatim")

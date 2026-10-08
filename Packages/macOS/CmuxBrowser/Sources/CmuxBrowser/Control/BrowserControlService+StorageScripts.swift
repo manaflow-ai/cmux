@@ -122,4 +122,54 @@ extension BrowserControlService {
         })()
         """
     }
+
+    /// Builds the `browser.state.save` page-world script.
+    ///
+    /// Returns `{ local, session }`, each an object holding every entry of that
+    /// storage area, or an empty object when the area is absent.
+    /// - Returns: a self-invoking JavaScript expression.
+    public func storageSnapshotScript() -> String {
+        """
+        (() => {
+          const readStorage = (st) => {
+            const out = {};
+            if (!st) return out;
+            for (let i = 0; i < st.length; i++) {
+              const k = st.key(i);
+              out[k] = st.getItem(k);
+            }
+            return out;
+          };
+          return {
+            local: readStorage(window.localStorage),
+            session: readStorage(window.sessionStorage)
+          };
+        })()
+        """
+    }
+
+    /// Builds the `browser.state.load` page-world script.
+    ///
+    /// Clears each storage area named in the payload and writes its entries,
+    /// coercing values to strings and writing `null` as the empty string.
+    /// - Parameter storageLiteral: the saved `{ local, session }` storage object,
+    ///     already encoded as a JSON literal by the caller.
+    /// - Returns: a self-invoking JavaScript expression.
+    public func storageRestoreScript(storageLiteral: String) -> String {
+        """
+        (() => {
+          const payload = \(storageLiteral);
+          const apply = (st, data) => {
+            if (!st || !data || typeof data !== 'object') return;
+            st.clear();
+            for (const [k, v] of Object.entries(data)) {
+              st.setItem(String(k), v == null ? '' : String(v));
+            }
+          };
+          apply(window.localStorage, payload.local);
+          apply(window.sessionStorage, payload.session);
+          return true;
+        })()
+        """
+    }
 }
