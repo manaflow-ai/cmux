@@ -44,10 +44,10 @@ struct CloudWelcomeView: View {
         let hasMedia = showsMedia && CloudWelcomeSlide.all.contains { mediaURL($0) != nil }
         return VStack(spacing: 0) {
             CloudWelcomeHeader()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 28)
-                .padding(.top, 40)
-                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 24)
+                .padding(.top, 28)
+                .padding(.bottom, 22)
             if hasMedia {
                 CloudWelcomeMediaCarousel(slides: CloudWelcomeSlide.all, mediaURL: mediaURL, autoplays: sliderAutoplays, showsFeatureList: sliderShowsFeatureList, listUsesDots: sliderListUsesDots)
                     .padding(.bottom, 24)
@@ -183,24 +183,32 @@ struct CloudWelcomeView: View {
 
 private struct CloudWelcomeHeader: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud"))
-                .cmuxFont(size: 12, weight: .medium)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 4)
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "cloud.fill")
+                    .cmuxFont(size: 11, weight: .semibold)
+                Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud"))
+                    .cmuxFont(size: 12, weight: .semibold)
+            }
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.accentColor.opacity(0.12))
+            )
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.18), lineWidth: 0.5)
+            }
             Text(String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go"))
-                .cmuxFont(size: 24, weight: .semibold)
+                .cmuxFont(size: 30, weight: .bold)
+                .tracking(-0.35)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-            Text(String(
-                localized: "cloud.enable.subtitle",
-                defaultValue: "Persistent cloud computers that open as regular cmux workspaces."
-            ))
-            .cmuxFont(size: 13)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
         }
-        .multilineTextAlignment(.leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
