@@ -7,6 +7,45 @@ import Testing
 /// produces numbers, recovery sees the reconnect, nothing errors.
 @Suite("bench harness", .serialized)
 struct BenchHarnessTests {
+    @Test("time limits propagate cancellation to the caller")
+    func timeLimitCancellation() async {
+        let task = Task {
+            do {
+                _ = try await TimeLimit(.seconds(30)).run {
+                    try await Task.sleep(for: .seconds(30))
+                    return true
+                }
+                return "returned"
+            } catch is CancellationError {
+                return "cancelled"
+            } catch {
+                return "error: \(error)"
+            }
+        }
+
+        task.cancel()
+        #expect(await task.value == "cancelled")
+    }
+
+    @Test("runner stops scheduling workloads after cancellation")
+    func runnerCancellationStopsLaterWorkloads() async {
+        let calls = CallCounter()
+        let runner = BenchRunner(spec: BenchSpec(rig: .v3, quick: true)) {
+            await calls.increment()
+            try await Task.sleep(for: .seconds(30))
+            throw CancellationError()
+        }
+
+        let task = Task { await runner.run() }
+        while await calls.value == 0 {
+            await Task.yield()
+        }
+        task.cancel()
+        _ = await task.value
+
+        #expect(await calls.value == 1)
+    }
+
     @Test("percentiles use nearest rank")
     func distribution() {
         let distribution = Distribution(milliseconds: (1...100).map(Double.init))
@@ -77,5 +116,13 @@ struct BenchHarnessTests {
         let report = try await client.run(spec: spec)
         #expect(report.errors.isEmpty, "\(report.errors)")
         #expect(report.coldConnect?.firstByte.count == spec.connectSamples)
+    }
+}
+
+private actor CallCounter {
+    private(set) var value = 0
+
+    func increment() {
+        value += 1
     }
 }
