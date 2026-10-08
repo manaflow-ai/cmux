@@ -17,6 +17,7 @@ import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
+import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "./popoverTrigger";
 import {
   PickerButton,
@@ -253,6 +254,7 @@ export function ModelPicker(props: ModelPickerProps) {
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
   const press = usePopoverTrigger(open, toggle, show);
+  useEscapeCloses(open, close);
 
   useLayoutEffect(() => {
     if (open) search.current?.focus();
