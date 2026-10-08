@@ -18,6 +18,32 @@ private final class SettingsChromeNotificationFlag: @unchecked Sendable {
     func set() { isSet = true }
 }
 
+@MainActor
+/// Waits for the Settings host root to report that its content is mounted.
+private final class SettingsChromeReadiness {
+    private var isReady = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Resolves all tests waiting for the first content appearance.
+    func signal() {
+        guard !isReady else { return }
+        isReady = true
+        let pendingWaiters = waiters
+        waiters.removeAll()
+        for waiter in pendingWaiters {
+            waiter.resume()
+        }
+    }
+
+    /// Suspends until the hosted Settings content has appeared.
+    func wait() async {
+        guard !isReady else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
 extension SettingsWindowSharedStateSuites {
     /// Window-construction coverage for the native Settings chrome contract:
     /// the structure the SwiftUI-owned `WindowGroup` scene produced (full-
@@ -30,9 +56,12 @@ extension SettingsWindowSharedStateSuites {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
 
-            let presenter = SettingsWindowPresenter()
+            let readiness = SettingsChromeReadiness()
+            let presenter = SettingsWindowPresenter { _ in
+                SettingsWindowFactory.makeSettingsWindow(onContentAppear: readiness.signal)
+            }
             #expect(presenter.show() == .presented)
-            await drainMainQueue()
+            await readiness.wait()
             let window = try #require(
                 NSApp.windows.first {
                     $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
@@ -119,9 +148,6 @@ extension SettingsWindowSharedStateSuites {
             UserDefaults.standard.removeObject(forKey: "NSWindow Frame cmux.settings")
         }
 
-        private func drainMainQueue() async {
-            for _ in 0..<20 { await Task.yield() }
-        }
     }
 }
 #endif
