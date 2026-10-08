@@ -53,6 +53,14 @@ struct BenchHarnessTests {
                 results: [.init(path: "../outside.json")]
             )
         }
+        let base = URL(fileURLWithPath: "/tmp/cmux-bench")
+        #expect(throws: BenchSplitError.self) {
+            try BenchResultManifest.singleResult(
+                name: "collision", sourceCommit: "abc", recordedAt: "now", description: "collision",
+                resultURL: base.appendingPathComponent("same.json"),
+                manifestURL: base.appendingPathComponent("same.json")
+            )
+        }
     }
 
     @Test("split direct server serves the shared echo workload")

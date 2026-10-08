@@ -94,6 +94,9 @@ public extension BenchResultManifest {
     ) throws -> BenchResultManifest {
         let base = manifestURL.deletingLastPathComponent().standardizedFileURL.path
         let result = resultURL.standardizedFileURL.path
+        guard result != manifestURL.standardizedFileURL.path else {
+            throw BenchSplitError.invalidDescriptor("result and manifest paths must differ")
+        }
         guard result.hasPrefix(base + "/") else {
             throw BenchSplitError.invalidDescriptor("result is outside manifest directory")
         }
