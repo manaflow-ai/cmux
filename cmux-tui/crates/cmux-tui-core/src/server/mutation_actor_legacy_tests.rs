@@ -4,20 +4,25 @@
 
 use super::*;
 
-/// The newest `resource_mutations` rowid: a command's rows come after it.
-fn mark(mux: &Arc<Mux>) -> i64 {
+/// The newest rowids of the two ledgers a command writes: a mutation goes to
+/// `resource_mutations`, an effectful one (a layout undo, a close) to
+/// `resource_effect_receipts`. A command's rows come after them.
+fn mark(mux: &Arc<Mux>) -> (i64, i64) {
     let registry = mux.workspace_registry.lock().unwrap();
-    let sql = "SELECT COALESCE(MAX(rowid), 0) FROM resource_mutations";
-    registry.connection.query_row(sql, [], |row| row.get(0)).unwrap()
+    let sql = "SELECT (SELECT COALESCE(MAX(rowid), 0) FROM resource_mutations),
+                      (SELECT COALESCE(MAX(rowid), 0) FROM resource_effect_receipts)";
+    registry.connection.query_row(sql, [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap()
 }
 
-/// The actors of the `operation` rows written after `mark`.
-fn actors_since(mux: &Arc<Mux>, mark: i64, operation: &str) -> Vec<String> {
+/// The actors of the `operation` rows of either ledger written after `mark`.
+fn actors_since(mux: &Arc<Mux>, mark: (i64, i64), operation: &str) -> Vec<String> {
     let registry = mux.workspace_registry.lock().unwrap();
-    let sql = "SELECT actor FROM resource_mutations WHERE rowid > ?1 AND operation = ?2";
+    let sql = "SELECT actor FROM resource_mutations WHERE rowid > ?1 AND operation = ?3
+               UNION ALL
+               SELECT actor FROM resource_effect_receipts WHERE rowid > ?2 AND operation = ?3";
     let mut statement = registry.connection.prepare(sql).unwrap();
     statement
-        .query_map(rusqlite::params![mark, operation], |row| row.get::<_, String>(0))
+        .query_map(rusqlite::params![mark.0, mark.1, operation], |row| row.get::<_, String>(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap()
