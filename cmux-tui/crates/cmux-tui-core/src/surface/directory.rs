@@ -46,9 +46,9 @@ impl Surface {
         };
         let (status_revision, status_change) = {
             let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            records.pending_change().map_or((None, None), |(revision, change)| {
-                (Some(revision), Some(change))
-            })
+            records
+                .pending_change()
+                .map_or((None, None), |(revision, change)| (Some(revision), Some(change)))
         };
         let status_changed = status_change.is_some();
         if !progress_changed && !status_changed {
