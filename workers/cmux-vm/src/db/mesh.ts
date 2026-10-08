@@ -87,6 +87,11 @@ export interface MeshStoreService {
   readonly updateDeviceKey: (tenantId: TenantId, deviceId: string, wgPublicKey: string, at: Date) => Effect.Effect<boolean, StoreError>;
   /** Sets (or with null clears) a live device's published public IPv6 address (migration 0009); false when the device is not live in this tenant. */
   readonly setDeviceAddress: (tenantId: TenantId, deviceId: string, publicIpv6: string | null, at: Date) => Effect.Effect<boolean, StoreError>;
+  /** A live device's published address and when it was last set; none when the device is not live in this tenant. */
+  readonly getDeviceAddress: (
+    tenantId: TenantId,
+    deviceId: string,
+  ) => Effect.Effect<Option.Option<{ readonly publicIpv6: string | null; readonly at: Date | null }>, StoreError>;
   /** The published public IPv6 address of every live device of the mesh that has one, by device id. */
   readonly deviceAddresses: (tenantId: TenantId, meshId: string) => Effect.Effect<ReadonlyMap<string, string>, StoreError>;
 
@@ -181,6 +186,10 @@ const TenantRow = Schema.Struct({ tenant_id: Schema.String });
 const WhenRow = Schema.Struct({ created_at: When });
 const ClaimedRow = Schema.Struct({ claimed: Count });
 const DeviceAddressRow = Schema.Struct({ device_cmux_id: Schema.String, public_ipv6: Schema.String });
+const DeviceAddressAtRow = Schema.Struct({
+  public_ipv6: Schema.NullOr(Schema.String),
+  public_ipv6_at: Schema.NullOr(When),
+});
 
 const decode = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
   Schema.decodeUnknown(Schema.Array(schema))(rows).pipe(Effect.mapError((cause) => new StoreError({ operation, cause })));
@@ -346,6 +355,22 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [deviceId, tenantId, publicIpv6, at.toISOString()],
           )
           .pipe(Effect.flatMap(decode(ClaimedRow, "mesh.setDeviceAddress")), Effect.map((rows) => (rows[0]?.claimed ?? 0) > 0)),
+      getDeviceAddress: (tenantId, deviceId) =>
+        sql
+          .query(
+            "mesh.getDeviceAddress",
+            `SELECT public_ipv6, public_ipv6_at FROM cmux_vm.mesh_devices WHERE device_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1`,
+            [deviceId, tenantId],
+          )
+          .pipe(
+            Effect.flatMap(decode(DeviceAddressAtRow, "mesh.getDeviceAddress")),
+            Effect.map((rows) =>
+              Option.map(Option.fromNullable(rows[0]), (row) => ({
+                publicIpv6: row.public_ipv6,
+                at: row.public_ipv6_at,
+              })),
+            ),
+          ),
       deviceAddresses: (tenantId, meshId) =>
         sql
           .query(

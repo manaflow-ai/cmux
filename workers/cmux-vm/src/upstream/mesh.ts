@@ -141,6 +141,8 @@ export interface UpstreamMeshService {
     matcher: { readonly protocol: MeshProtocol | null; readonly port: number | null; readonly sourceCidr: string | null },
   ) => Effect.Effect<CreatedRule, UpstreamError>;
   readonly deleteRule: <C, M>(rule: OwnedMeshRule<C, M>) => Effect.Effect<void, UpstreamError>;
+  /** Deletes a rule whose row could not be recorded. Accepts only a value `createRule` returned. */
+  readonly discardCreatedRule: (created: CreatedRule) => Effect.Effect<void, UpstreamError>;
 }
 
 export class UpstreamMesh extends Context.Tag("cmux-vm/UpstreamMesh")<UpstreamMesh, UpstreamMeshService>() {}

@@ -6,6 +6,7 @@
  * cover mesh calls too.
  */
 import { Effect, Layer, Redacted } from "effect";
+import { MeshStore } from "../../src/db/mesh.ts";
 import { makeMemoryMeshStore } from "../../src/db/mesh-memory.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { meshConfigLayer, type MeshBudgets } from "../../src/mesh/config.ts";
@@ -45,16 +46,20 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const base = makeMemoryMeshStore();
   /** The next N rule records fail (the provider rule exists, its row does not). */
   let recordFailures = 0;
-  const store: typeof base = {
-    ...base,
-    recordRule: (tenantId, rule) => {
-      if (recordFailures > 0) {
-        recordFailures -= 1;
-        return Effect.fail(new StoreError({ operation: "mesh.recordRule", cause: "injected" }));
-      }
-      return base.recordRule(tenantId, rule);
-    },
-  };
+  const failingLayer = Layer.effect(
+    MeshStore,
+    Effect.map(MeshStore, (inner) => ({
+      ...inner,
+      recordRule: (tenantId: Parameters<typeof inner.recordRule>[0], rule: Parameters<typeof inner.recordRule>[1]) => {
+        if (recordFailures > 0) {
+          recordFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "mesh.recordRule", cause: "injected" }));
+        }
+        return inner.recordRule(tenantId, rule);
+      },
+    })),
+  ).pipe(Layer.provide(base.layer));
+  const store = { ...base, layer: failingLayer };
   const vpcs = new Map<string, { readonly id: string; readonly cidr: string }>();
   const tunnels = new Map<string, FakeTunnel>();
   const rules = new Map<string, FakeRule>();
