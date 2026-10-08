@@ -56,7 +56,11 @@ required_job="cmux-next Release compile (Xcode 26)"
 # A commit whose nightly.yml lacks the NIGHTLY_NEXT_NOTARY_PAUSED gate would
 # notarize even while the pause is on (cx-f58x), so it is never promoted.
 has_notary_gate() { # <sha>
-  git show "$1:.github/workflows/nightly.yml" 2>/dev/null | grep -q NIGHTLY_NEXT_NOTARY_PAUSED
+  # Read the whole file first: `git show | grep -q` fails under pipefail when
+  # grep stops at an early match and git show gets SIGPIPE.
+  local workflow
+  workflow="$(git show "$1:.github/workflows/nightly.yml" 2>/dev/null)" || return 1
+  [[ "$workflow" == *NIGHTLY_NEXT_NOTARY_PAUSED* ]]
 }
 
 request() { # <sha>
