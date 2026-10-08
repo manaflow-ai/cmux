@@ -743,33 +743,33 @@ export function Composer({
             ) : null}
           </span>
         </div>
-      <ComposerContext
-        projectChoices={projectChoices}
-        onBrowseProject={onBrowseProject}
-        onConnect={onConnect}
-        summary={snapshot.summary}
-        sessions={snapshot.sessions}
-        peers={snapshot.peers}
-        started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
-        onProject={
-          onProject &&
-          ((cwd, peer) => {
-            onProject(cwd, peer);
-            field.current?.focus();
-          })
-        }
-        localName={localName}
-        movedTo={movedTo}
-        busy={snapshot.isWorking}
-        onMove={
-          onMove &&
-          ((cwd) => {
-            const move = onMove(cwd);
-            setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
-            field.current?.focus();
-          })
-        }
-      />
+        <ComposerContext
+          projectChoices={projectChoices}
+          onBrowseProject={onBrowseProject}
+          onConnect={onConnect}
+          summary={snapshot.summary}
+          sessions={snapshot.sessions}
+          peers={snapshot.peers}
+          started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
+          onProject={
+            onProject &&
+            ((cwd, peer) => {
+              onProject(cwd, peer);
+              field.current?.focus();
+            })
+          }
+          localName={localName}
+          movedTo={movedTo}
+          busy={snapshot.isWorking}
+          onMove={
+            onMove &&
+            ((cwd) => {
+              const move = onMove(cwd);
+              setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
+              field.current?.focus();
+            })
+          }
+        />
       </div>
     </form>
   );
