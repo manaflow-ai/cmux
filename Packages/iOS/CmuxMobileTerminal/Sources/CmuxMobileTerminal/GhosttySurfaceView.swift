@@ -5924,9 +5924,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
-        let naturalGridChanged = reportGrid != lastReportedSize
         let shouldReportNaturalSize = TerminalViewportReportPolicy(
-            naturalGridChanged: naturalGridChanged,
+            naturalGrid: reportGrid,
+            previousNaturalGrid: lastReportedSize,
             shouldReassertNaturalSize: shouldReassertNaturalSize,
             effectiveMatchesNatural: effectiveMatchesNatural,
             viewportReportPending: viewportReportPending
