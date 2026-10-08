@@ -43,6 +43,7 @@ struct RemoteSessionReverseRelayStartupTests {
         relayPort: Int? = nil,
         sshOptions: [String]? = nil,
         persistentDaemonSlot: String? = nil,
+        agentSocketPath: String? = nil,
         identity: ResolvedControlPathFixture.Identity? = nil,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
         providesResolvedControlPath: Bool = true,
@@ -79,6 +80,7 @@ struct RemoteSessionReverseRelayStartupTests {
             localSocketPath: scratchDirectory.appendingPathComponent("relay.sock").path,
             ownerWorkspaceID: UUID(),
             terminalStartupCommand: nil,
+            agentSocketPath: agentSocketPath,
             preserveAfterTerminalExit: persistentDaemonSlot != nil,
             persistentDaemonSlot: persistentDaemonSlot
         )

@@ -158,6 +158,37 @@ struct RemoteSessionReverseRelayTransportTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test("A standalone SSH launch inherits caller identity and agent environment")
+    func standaloneFallbackPropagatesCallerEnvironment() async throws {
+        let runner = RecordingProcessRunner()
+        let launcher = RecordingReverseRelayLauncher()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            runner: runner,
+            reverseRelayLauncher: launcher,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+                "ControlMaster=no",
+            ],
+            agentSocketPath: "/tmp/caller-agent.sock"
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        var launches = launcher.launches.makeAsyncIterator()
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+        }
+
+        let launch = try #require(await launches.next())
+        let environment = try #require(launch.environment)
+        #expect(environment["SSH_AUTH_SOCK"] == "/tmp/caller-agent.sock")
+        #expect(environment["HOME"] == ProcessInfo.processInfo.environment["HOME"])
+        #expect(environment["USER"] == ProcessInfo.processInfo.environment["USER"])
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("An explicitly disabled ControlMaster uses the standalone fallback")
     func disabledControlMasterUsesStandaloneFallback() async throws {
         let runner = RecordingProcessRunner()
@@ -358,6 +389,44 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(status.state == .bootstrapping)
         #expect(status.detail == nil)
         #expect(await clock.nextRequestedDelay() == 2_000)
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("A standalone SSH authentication failure is surfaced immediately")
+    func standaloneAuthenticationFailureDoesNotBecomeRelayTimeout() async throws {
+        let host = ReverseRelayRecoveryHost()
+        let runner = RecordingProcessRunner { request in
+            if Self.isControlCommand("forward", in: request.arguments) {
+                return RemoteCommandResult(
+                    status: 255,
+                    stdout: "",
+                    stderr: "Control socket connect: No such file or directory"
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let launcher = RecordingReverseRelayLauncher()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            host: host,
+            runner: runner,
+            reverseRelayLauncher: launcher
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        var launches = launcher.launches.makeAsyncIterator()
+        var statuses = host.daemonStatuses.makeAsyncIterator()
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+        }
+        _ = try #require(await launches.next())
+        launcher.emitTermination(detail: "user@example.test: Permission denied (publickey).")
+
+        let status = try #require(await statuses.next())
+        #expect(status.state == .error)
+        #expect(status.detail?.contains("Permission denied (publickey)") == true)
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
