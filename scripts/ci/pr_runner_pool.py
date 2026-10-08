@@ -867,6 +867,13 @@ def root_peak(plan: RunJobs, gui: bool = True, gui_runners: bool = False) -> int
     return root_held(plan, place(plan, plan.peak, gui)[0], gui_runners)
 
 
+def root_demand(root_jobs: int | Mapping[str, int], label: str) -> int:
+    """The root-runner demand for ``label`` from a scalar or per-pool map."""
+    if isinstance(root_jobs, Mapping):
+        return max(0, int(root_jobs.get(label) or 0))
+    return max(0, int(root_jobs))
+
+
 def place(plan: RunJobs, budget: int, gui: bool = True,
           root_budget: int | None = None, gui_runners: bool = False) -> tuple[tuple[str, ...], int]:
     """The jobs that take the owned pool with `budget` machines free, and the machines they hold at peak.
@@ -1485,7 +1492,8 @@ class Pick:
 
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
          max_queued: int, jobs: int = MAX_RUN_JOBS, split: bool = False,
-         roots: Mapping[str, Mapping[str, int]] | None = None, root_jobs: int = 0,
+         roots: Mapping[str, Mapping[str, int]] | None = None,
+         root_jobs: int | Mapping[str, int] = 0,
          queue_rounds: int = 0, taken: Mapping[str, int] | None = None,
          taken_now: Mapping[str, int] | None = None,
          compared_jobs: int | None = None, root_taken: Mapping[str, int] | None = None,
@@ -1550,7 +1558,8 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
         rooms[label] = Pick(label, "owned", room, root_room, limit, whole if best and queue_rounds else None)
     # A run with no owned job left (its side lanes on the light side runners) needs no room.
     fits = [label for label, room in rooms.items() if room.room >= jobs
-            and (room.root_room is None or root_jobs <= 0 or room.root_room >= root_jobs)]
+            and (room.root_room is None or root_demand(root_jobs, label) <= 0
+                 or room.root_room >= root_demand(root_jobs, label))]
     if queue_rounds:
         # An owned pool the run starts on now beats an earlier one it would
         # queue on: with the rounds, std always fits by its queue places, so
@@ -1560,16 +1569,19 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
 
         now = [label for label in fits
                if idle(load[label], added[label] * REPLAYED_RUN_JOBS, taken_now.get(label, 0)) >= jobs
-               and (label not in roots or root_jobs <= 0
-                    or idle(roots[label], added[label], root_taken_now.get(label, 0)) >= root_jobs)]
+               and (label not in roots or root_demand(root_jobs, label) <= 0
+                    or idle(roots[label], added[label], root_taken_now.get(label, 0))
+                    >= root_demand(root_jobs, label))]
         fits = now or fits
     if split and not fits and rooms and max(room.room for room in rooms.values()) >= 1:
         # A pool with a root runner free first, when the run needs one.
-        fits = [max(rooms, key=lambda label: (not root_jobs or rooms[label].root_room is None
+        fits = [max(rooms, key=lambda label: (not root_demand(root_jobs, label)
+                                              or rooms[label].root_room is None
                                               or rooms[label].root_room >= 1, rooms[label].room))]
         label = fits[0]
         room = rooms[label]
-        if queue_rounds and best and root_jobs > 0 and room.root_room is not None and room.root_room < 1:
+        if (queue_rounds and best and root_demand(root_jobs, label) > 0 and room.root_room is not None
+                and room.root_room < 1):
             # No root runner within the queue bound: admission, and so every job after it, would take
             # the retry runner however long Blacksmith's queue is. On 2026-09-28 from 07:00 to 10:30Z
             # 79 first-attempt admissions took Blacksmith (one at an expected 58 minutes); they waited
@@ -1618,7 +1630,7 @@ def decide(
     jobs: int = MAX_RUN_JOBS,
     split: bool = False,
     shards: int = 0,
-    root_jobs: int = 0,
+    root_jobs: int | Mapping[str, int] = 0,
     owned_now: Mapping[str, int] | None = None,
     root_since: Mapping[str, int] | None = None,
     root_now: Mapping[str, int] | None = None,
@@ -1737,13 +1749,15 @@ def decide(
             root = f"; {root_now} of {roots[label]['capacity']} root runners free"
             if chosen.root_room > root_now:
                 root += f" and {chosen.root_room - root_now} queue places"
-            root += f", it needs {root_jobs}"
+            needed_roots = root_demand(root_jobs, label)
+            root += f", it needs {needed_roots}"
             if chosen.root_wait is not None:
                 root += (f"; admission queues for a root runner, about {chosen.root_wait:.0f} min against "
                          f"{chosen.admission_blacksmith_wait:.0f} min on Blacksmith")
-        whole = chosen.room >= jobs and (chosen.root_room is None or chosen.root_room >= root_jobs)
+        needed_roots = root_demand(root_jobs, label)
+        whole = chosen.room >= jobs and (chosen.root_room is None or chosen.root_room >= needed_roots)
         earlier = [other for other in candidates[:candidates.index(label)] if persistent(other)]
-        starts_now = free_now >= jobs and (root_now is None or root_jobs <= 0 or root_now >= root_jobs)
+        starts_now = free_now >= jobs and (root_now is None or needed_roots <= 0 or root_now >= needed_roots)
         if whole and earlier and queue_rounds and starts_now:
             why = (f"first owned pool free for this run now ({machines}, this run needs {jobs}{root}; "
                    f"{', '.join(earlier)} not free now){replay}")
@@ -1831,7 +1845,7 @@ def choose(
     owned_slots: str | None = None,
     jobs: int = MAX_RUN_JOBS,
     split: str | None = None,
-    root_jobs: int = 0,
+    root_jobs: int | Mapping[str, int] = 0,
     triggering_actor: str | None = None,
     fetch: Callable[[], Mapping[str, Any] | None],
     count_routed: Callable[[str], "int | Routed"] = lambda since: 0,
@@ -2398,9 +2412,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     routing = routing_slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE), live_runners,
                             env.get("POOL_ORDER"))
     routing_raw = env.get("OWNED_SLOTS") if live_runners is None else json.dumps(routing)
-    # Gui runners route (gui_runner()): the GUI jobs then hold no root runner. The pool is not
-    # picked yet, so any gui label counts here; place() below checks the picked pool's own.
-    gui_runners = any(_role_name(label) == "gui" for label in routing)
+    # GUI capacity is pool-specific. An office GUI runner must not reduce the
+    # root demand of a headless AWS candidate; place() independently checks
+    # the selected pool's own GUI label after the pick.
+    root_jobs_by_pool = {
+        label: root_peak(plan, gui, routing.get(gui_label(label), 0) > 0)
+        for label in owned_pools(env.get(PR_XCODE_VARIABLE), env.get("POOL_ORDER"))
+    }
     # As many side lanes as the light minis' side runners idle now (light_side_lanes()) take them: the pool
     # picked below then holds admission, what follows it and the other side lanes.
     light_side, side_lanes = "", ()
@@ -2427,7 +2445,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         owned_slots=routing_raw,
         jobs=jobs,
         split=env.get("POOL_OWNED_SPLIT"),
-        root_jobs=root_peak(plan, gui, gui_runners),
+        root_jobs=root_jobs_by_pool,
         triggering_actor=env.get("GITHUB_TRIGGERING_ACTOR"),
         xcode_pins={variable: env.get(variable) or ""
                     for variable in {*POOLS.values(), PR_XCODE_VARIABLE} if variable},
