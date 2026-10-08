@@ -159,6 +159,25 @@ struct CloudWireGuardHubTests {
         var pendingCount: Int { waiters.count }
     }
 
+    actor ReadinessGate {
+        private var waiter: CheckedContinuation<Void, Never>?
+
+        func wait() async {
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    waiter = continuation
+                }
+            } onCancel: {
+                Task { await self.open() }
+            }
+        }
+
+        func open() {
+            waiter?.resume()
+            waiter = nil
+        }
+    }
+
     private struct Harness {
         let hub: CloudWireGuardHub
         let spawner: FakeSpawner
@@ -313,6 +332,86 @@ struct CloudWireGuardHubTests {
         #expect(ready.socketPath == h.socketPath)
         #expect(await attempts.value == 2)
         #expect(await h.hub.status().leases == 1)
+    }
+
+    @Test("Scoped background preparation starts on a fresh hub")
+    func scopedBackgroundPreparationStartsOnFreshHub() async throws {
+        let scope = AuthenticatedTeamScope(
+            session: AuthenticatedSessionIdentity(generation: 1, accountID: "account"),
+            teamID: "team",
+            generation: 1
+        )
+        let h = makeHarness(
+            enrollWhenCloudDisabled: { receivedScope in
+                #expect(receivedScope == scope)
+                return CloudWireGuardHub.Enrollment(configPath: "/tmp/scoped.conf", routes: ["10.0.0.0/8"])
+            }
+        )
+
+        // A fresh hub has no active scope. The activation-scoped reset must
+        // not cancel the preparation task that is performing this first start.
+        await h.hub.prepareForCloudUse(
+            allowWhenCloudDisabled: true,
+            expectedTeamScope: scope
+        )
+        try await waitForSpawnCount(h.spawner, count: 1)
+        try await waitUntilRunning(h.hub)
+        #expect(h.spawner.last?.arguments.contains("/tmp/scoped.conf") == true)
+        #expect(await h.hub.status().leases == 1)
+
+        await h.hub.cancelPreparation()
+        await h.hub.stop()
+    }
+
+    @Test("Scoped background preparation does not wait for hub readiness")
+    func scopedBackgroundPreparationDoesNotWaitForReadiness() async throws {
+        let scope = AuthenticatedTeamScope(
+            session: AuthenticatedSessionIdentity(generation: 1, accountID: "account"),
+            teamID: "team",
+            generation: 1
+        )
+        let readiness = ReadinessGate()
+        let h = makeHarness(
+            readiness: { _ in await readiness.wait() }
+        )
+
+        await h.hub.prepareForCloudUse(
+            allowWhenCloudDisabled: true,
+            expectedTeamScope: scope
+        )
+        try await waitForSpawnCount(h.spawner, count: 1)
+        #expect(!(await h.hub.status().running))
+
+        // Releasing readiness completes the same shared preparation task; the
+        // caller above already returned while the carrier was still gated.
+        await readiness.open()
+        try await waitUntilRunning(h.hub)
+        await h.hub.cancelPreparation()
+        await h.hub.stop()
+    }
+
+    @Test("Cancelling preparation does not wait for a missing listener")
+    func cancellingPreparationDoesNotWaitForReadiness() async throws {
+        let scope = AuthenticatedTeamScope(
+            session: AuthenticatedSessionIdentity(generation: 1, accountID: "account"),
+            teamID: "team",
+            generation: 1
+        )
+        let readiness = ReadinessGate()
+        let h = makeHarness(
+            readiness: { _ in await readiness.wait() }
+        )
+
+        await h.hub.prepareForCloudUse(
+            allowWhenCloudDisabled: true,
+            expectedTeamScope: scope
+        )
+        try await waitForSpawnCount(h.spawner, count: 1)
+        await h.hub.cancelPreparation()
+
+        let status = await h.hub.status()
+        #expect(!status.running)
+        #expect(status.leases == 0)
     }
 
     @Test("A failed automatic preparation leaves restored-link demand retryable")
