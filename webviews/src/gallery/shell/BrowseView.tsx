@@ -86,13 +86,12 @@ function BrowseCard({
         </div>
         <span className="gallery-browse-kind">{fixture?.play ? "Motion" : "Static"}</span>
       </header>
-      <div className="gallery-browse-variants" role="tablist" aria-label={`${entry.title} variants`}>
+      <div className="gallery-browse-variants" role="group" aria-label={`${entry.title} variants`}>
         {variants.map((name) => (
           <button
             key={name}
             type="button"
-            role="tab"
-            aria-selected={name === variant}
+            aria-pressed={name === variant}
             className={name === variant ? "active" : undefined}
             onClick={() => setVariant(name)}
           >
