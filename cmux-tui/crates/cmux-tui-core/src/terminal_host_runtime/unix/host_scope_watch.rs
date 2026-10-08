@@ -3,13 +3,16 @@
 //! `StartTransientUnit` only queues the job; the host may get `Launch` (and
 //! fork its shell) only after the kernel moved it. Instead of polling, the
 //! daemon watches the cgroup v2 tree with inotify: `IN_CREATE` on the
-//! cgroup root (for the slice), on the slice directory (for the scope), and
-//! `IN_MODIFY` on the scope's `cgroup.events`, which the kernel rewrites
-//! when the scope becomes populated. The watches are added BEFORE the
-//! `StartTransientUnit` call, so no event can be missed; after every wake
-//! the state is read again (event order is not trusted). The wait is one
-//! `poll()` deadline; on timeout, on a cgroup v1 host, or when inotify
-//! cannot be set up, the caller fails open.
+//! cgroup root (for the slice), on the slice directory (for the scope), on
+//! the scope directory (for its `cgroup.events`), and `IN_MODIFY` on the
+//! scope's `cgroup.events`, which the kernel rewrites when the scope
+//! becomes populated. A watch is armed on a path only after the path
+//! exists, and each level is watched before the next level is checked, so
+//! a child that appears between two checks still wakes the wait. The
+//! watches are added BEFORE the `StartTransientUnit` call, so no event can
+//! be missed; after every wake the state is read again (event order is not
+//! trusted). The wait is one `poll()` deadline; on timeout, on a cgroup v1
+//! host, or when inotify cannot be set up, the caller fails open.
 
 use std::ffi::CString;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -35,6 +38,7 @@ pub(crate) struct PlacementWatch {
     slice: PathBuf,
     scope: PathBuf,
     watching_slice: bool,
+    watching_scope: bool,
     watching_events: bool,
 }
 
@@ -65,6 +69,7 @@ impl PlacementWatch {
             root: root.to_path_buf(),
             inotify,
             watching_slice: false,
+            watching_scope: false,
             watching_events: false,
         };
         if !add_watch(&watch.inotify, &watch.root, libc::IN_CREATE) {
@@ -79,9 +84,14 @@ impl PlacementWatch {
         if !self.watching_slice && self.slice.is_dir() {
             self.watching_slice = add_watch(&self.inotify, &self.slice, libc::IN_CREATE);
         }
-        if !self.watching_events && self.scope.is_dir() {
-            self.watching_events =
-                add_watch(&self.inotify, &self.scope.join("cgroup.events"), libc::IN_MODIFY);
+        if !self.watching_scope && self.scope.is_dir() {
+            // Do not assume `cgroup.events` exists with its directory: watch
+            // the directory, so a file that appears later still wakes us.
+            self.watching_scope = add_watch(&self.inotify, &self.scope, libc::IN_CREATE);
+        }
+        let events = self.scope.join("cgroup.events");
+        if !self.watching_events && events.is_file() {
+            self.watching_events = add_watch(&self.inotify, &events, libc::IN_MODIFY);
         }
     }
 
