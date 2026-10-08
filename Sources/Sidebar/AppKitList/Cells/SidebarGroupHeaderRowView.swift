@@ -377,7 +377,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
         if model.isAnchorActive {
             let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
-            if SidebarGlassSelection.usesStockLightLook(colorScheme) { return .white }
+            if SidebarGlassSelection.usesStockLightLook(colorScheme) { return SidebarGlassSelection.fill(for: colorScheme) }
             return SidebarAppearanceColorResolver().resolvedColor(
                 .labelColor,
                 for: colorScheme,

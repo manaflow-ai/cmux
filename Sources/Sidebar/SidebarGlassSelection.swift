@@ -8,7 +8,7 @@ import SwiftUI
 /// unselected row is the same patch, softer and without the edge
 /// (`sidebarRowHoverFillOpacity`, `sidebarRowHoverFillOpacityLight`).
 enum SidebarGlassSelection {
-    /// Light mode on the stock tint takes Aside's light look: a solid white
+    /// Light mode on the stock tint takes Aside's light look: a near-white
     /// pill with a dark hairline, a faint white hover wash, and dark gray row
     /// titles (black at 69%, ~#414141 on the ground) instead of near-black.
     /// It owns its values: the opacity tuning keys below shape the
@@ -22,7 +22,8 @@ enum SidebarGlassSelection {
     }
 
     static func fill(for colorScheme: ColorScheme, defaults: UserDefaults = .standard) -> NSColor {
-        if usesStockLightLook(colorScheme, defaults: defaults) { return .white }
+        // White at 90% over the gray ground (~250): a pill, not a glare.
+        if usesStockLightLook(colorScheme, defaults: defaults) { return NSColor.white.withAlphaComponent(0.9) }
         return SidebarAppearanceColorResolver().resolvedColor(
             .labelColor,
             for: colorScheme,
