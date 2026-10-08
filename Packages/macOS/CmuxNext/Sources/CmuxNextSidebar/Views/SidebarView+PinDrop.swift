@@ -27,6 +27,30 @@ import AppKit
         return drop
     }
 
+    /// Where a row dropped as `drop` lands (window coordinates): the slot of
+    /// the item it goes before, or past the section's last item.
+    static func slot(_ sidebar: SidebarView, for drop: SidebarRegionDrop) -> NSRect? {
+        let region = sidebar.aboveRegion
+        let rows = region.layoutResult.rows.filter { SidebarRegionReorder.item(of: $0)?.1 == drop.section }
+        let frame: CGRect
+        if drop.index < rows.count {
+            frame = rows[drop.index].frame
+        } else if let last = rows.last {
+            switch last.kind {
+            case .tile, .chip:
+                let gap = rows.count > 1 ? max(0, rows[1].frame.minX - rows[0].frame.maxX) : 0
+                let beside = last.frame.offsetBy(dx: last.frame.width + gap, dy: 0)
+                frame = beside.maxX <= region.bounds.maxX ? beside : CGRect(origin: CGPoint(x: rows[0].frame.minX, y: last.frame.maxY + gap),
+                                                                           size: last.frame.size)
+            default:
+                frame = last.frame.offsetBy(dx: 0, dy: last.frame.height)
+            }
+        } else {
+            frame = drop.frame
+        }
+        return region.convert(frame, to: nil)
+    }
+
     /// Whether `windowPoint` is over the workspace list (outlined); false
     /// (and no outline) elsewhere or when the drag ended.
     static func isOverList(_ sidebar: SidebarView, _ windowPoint: NSPoint?) -> Bool {

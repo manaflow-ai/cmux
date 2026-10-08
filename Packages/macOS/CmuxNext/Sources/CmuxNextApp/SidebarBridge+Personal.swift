@@ -18,17 +18,21 @@ extension SidebarBridge {
     func handlePersonal(_ intent: SidebarIntent) -> Bool {
         guard let state else { return false }
         switch intent {
+        // A drag's edit shows as a pending edit until the store holds its
+        // result, so no recompute in between shows the old order (cx-odqn).
         case .reorder(let ids, let position):
             let before = model.sections
-            model.apply(intent)
-            placePersonal(ids, at: position, in: before)
+            let edit = pendingEdits.add(intent)
+            showRows()
+            placePersonal(ids, at: position, in: before, edit: edit)
         case .move(let ids, let group):
-            model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            for workspace in placements(ids) {
-                personal("set-personal-workspace") {
-                    try await $0.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
-                                                        group: .set(id))
+            let edit = pendingEdits.add(intent)
+            showRows()
+            let id = WorkspaceGroupID(rawValue: group.rawValue), members = placements(ids)
+            personal("set-personal-workspace", edit: edit) { connection in
+                for workspace in members {
+                    try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
+                                                                      group: .set(id))
                 }
             }
         case .createGroup(let group, let name, let color, let ids, _, let collapsed):
@@ -80,12 +84,13 @@ extension SidebarBridge {
                 try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
             }
         case .reorderGroup(let group, _):
-            model.apply(intent)
+            let edit = pendingEdits.add(intent)
+            showRows()
             // The intent's index counts section nodes; the daemon wants a
             // group-order index (and, mixed, the group's place among the rows).
             let place = PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
             let v2 = statePersonal, move = place.move, top = place.topIndex
-            personal("move-personal-group") { connection in
+            personal("move-personal-group", edit: edit) { connection in
                 if let move {
                     if v2 {
                         try await connection.state.moveWorkspaceGroup(group.rawValue, to: move)
@@ -104,11 +109,15 @@ extension SidebarBridge {
     /// Personal order and group for `ids` at `position` in this window's
     /// `sections` (taken before the move): one `set-personal-workspace`
     /// each in the home session; the workspace's own daemon is not written.
-    func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
+    func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection],
+                       edit: SidebarPendingEdits.Token? = nil) {
         let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
-        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return resync() }
+        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else {
+            if let edit { pendingEdits.settle(edit) }
+            return resync()
+        }
         let regroup = statePersonal ? plan.regroup : []
-        personal("set-personal-workspace") { connection in
+        personal("set-personal-workspace", edit: edit) { connection in
             for step in plan.steps {
                 try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                   resource: step.workspace.resource,
@@ -129,11 +138,22 @@ extension SidebarBridge {
     }
 
     /// Sends one personal-state command to the home daemon; a failure
-    /// re-syncs the sidebar.
-    private func personal(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+    /// re-syncs the sidebar. A pending `edit` settles once the store holds
+    /// the command's result (read-your-writes), or on the failure.
+    private func personal(_ label: String, edit: SidebarPendingEdits.Token? = nil,
+                          _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         let home = services.machines.local
-        Task {
-            if await home.request(label, body) == nil { resync() }
+        let transaction = ClientTransactionID.generate()
+        // task-owner: one personal command; settles its edit
+        Task { [weak self] in
+            let ok = await home.request(label, transaction: transaction) { connection, _ in try await body(connection) } != nil
+            guard let self else { return }
+            guard ok else {
+                if let edit { self.pendingEdits.settle(edit) }
+                return self.resync()
+            }
+            guard let edit else { return }
+            home.whenApplied(transaction) { [weak self] in self?.settle(edit) }
         }
     }
 }
