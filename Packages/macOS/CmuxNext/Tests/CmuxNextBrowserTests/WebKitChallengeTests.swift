@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextBrowser
 
@@ -60,10 +61,86 @@ struct WebKitChallengeTests {
         view.show(BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted, message: "untrusted",
                                    failingURL: URL(string: "https://self-signed.test/")))
         #expect(view.isCertificateInterstitial)
+        view.detailsButton.performClick(nil)
         view.proceedButton.performClick(nil)
         view.backButton.performClick(nil)
         #expect(proceeded && wentBack)
         view.show(BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost, message: "no host"))
         #expect(!view.isCertificateInterstitial)
+    }
+}
+
+/// cx-d0d.21: the sign-in sheet remembers nothing unless "Remember password"
+/// is checked; the certificate interstitial makes Back to Safety the default
+/// and keeps Proceed behind Show Details.
+@MainActor
+@Suite(.serialized)
+struct BrowserChallengeUITests {
+    static func answer(remember: Bool?) -> CmuxDialogAnswer {
+        var values: [String: CmuxDialogValue] = ["user": .text("ada"), "password": .text("s3cret")]
+        if let remember { values["remember"] = .bool(remember) }
+        return CmuxDialogAnswer(button: "sign-in", role: .default, values: values)
+    }
+
+    @Test func theSignInSheetOffersRememberUncheckedAndRemembersNothingByDefault() throws {
+        let spec = BrowserHTTPAuth.spec(host: "intranet.test", realm: "Staff", isSecure: true, failedBefore: false, user: nil)
+        let remember = spec.fields.first { $0.id == "remember" }
+        guard case .check(_, let title, let on)? = remember else {
+            Issue.record("no Remember check box")
+            return
+        }
+        #expect(!on, "unchecked by default")
+        #expect(!title.isEmpty)
+        let once = try #require(BrowserHTTPAuth.credential(for: Self.answer(remember: false)))
+        #expect(once.persistence == .forSession)
+        let kept = try #require(BrowserHTTPAuth.credential(for: Self.answer(remember: true)))
+        #expect(kept.persistence == .permanent)
+        #expect(kept.user == "ada")
+    }
+
+    @Test func theRememberChoiceReachesTheWebKitCredential() throws {
+        let response = BrowserPromptDialogs.response(to: Self.answer(remember: true), for: .credentials(host: "h", realm: nil))
+        #expect(response == .credentials(user: "ada", password: "s3cret", remember: true))
+        #expect(try #require(BrowserHTTPAuth.urlCredential(for: response)).persistence == .permanent)
+        let plain = BrowserPromptDialogs.response(to: Self.answer(remember: nil), for: .credentials(host: "h", realm: nil))
+        #expect(try #require(BrowserHTTPAuth.urlCredential(for: plain)).persistence == .forSession)
+        #expect(BrowserHTTPAuth.urlCredential(for: .cancel) == nil)
+    }
+
+    @Test func theInterstitialMakesBackToSafetyTheDefaultAndHidesProceedBehindDetails() throws {
+        let view = LoadErrorView()
+        var proceeded = false, wentBack = 0
+        view.onProceed = { proceeded = true }
+        view.onBack = { wentBack += 1 }
+        let error = BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted,
+                                     message: "The certificate for this server is invalid.",
+                                     failingURL: URL(string: "https://self-signed.test/"))
+        view.show(error)
+        #expect(view.backButton.title == Strings.certificateBackToSafety)
+        #expect(!view.backButton.isHidden)
+        #expect(view.proceedButton.isHidden, "Proceed waits behind Show Details")
+        #expect(view.detailsLabel.isHidden)
+        #expect(!view.detailsButton.isHidden)
+        #expect(view.detailsButton.title == Strings.certificateShowDetails)
+        // Return on the interstitial goes back to safety; it never proceeds.
+        let returnKey = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                      windowNumber: 0, context: nil, characters: "\r",
+                                                      charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        #expect(view.acceptsFirstResponder)
+        view.keyDown(with: returnKey)
+        #expect(wentBack == 1 && !proceeded)
+        view.detailsButton.performClick(nil)
+        #expect(!view.proceedButton.isHidden)
+        #expect(!view.detailsLabel.isHidden)
+        #expect(view.detailsLabel.stringValue.contains("self-signed.test"))
+        #expect(view.detailsButton.title == Strings.certificateHideDetails)
+        view.proceedButton.performClick(nil)
+        #expect(proceeded)
+        // A new warning starts with the details closed again.
+        view.show(error)
+        #expect(view.proceedButton.isHidden && view.detailsLabel.isHidden)
+        // Another load error shows neither.
+        view.show(BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost, message: "no host"))
+        #expect(view.detailsButton.isHidden && view.proceedButton.isHidden)
     }
 }

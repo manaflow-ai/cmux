@@ -13,6 +13,8 @@ final class LoadErrorView: NSView {
     private(set) var retryButton: ChromeTextButton!
     private(set) var backButton: ChromeTextButton!
     private(set) var proceedButton: ChromeTextButton!
+    private(set) var detailsButton: ChromeTextButton!
+    let detailsLabel = NSTextField(wrappingLabelWithString: "")
     private(set) var isCertificateInterstitial = false
     private let density = DensityBinding()
 
@@ -26,6 +28,9 @@ final class LoadErrorView: NSView {
         retryButton = retry
         backButton = back
         proceedButton = proceed
+        detailsButton = ChromeTextButton(title: "", prominent: false, action: nil, target: nil)
+        detailsButton.isHidden = true
+        detailsLabel.isHidden = true
         let stack = NSStackView(views: [titleLabel, messageLabel, retry, back, proceed])
         stack.orientation = .vertical
         stack.translatesAutoresizingMaskIntoConstraints = false

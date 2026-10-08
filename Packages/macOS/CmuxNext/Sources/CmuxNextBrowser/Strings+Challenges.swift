@@ -28,6 +28,9 @@ extension Strings {
     static var certificateWarningChromium: String {
         String(localized: "browser.certificate.chromium", defaultValue: "Chromium shows its own certificate warning page. Use its buttons, or Back.", bundle: .module)
     }
+    static var certificateBackToSafety: String { certificateBack }
+    static var certificateShowDetails: String { "" }
+    static var certificateHideDetails: String { "" }
     static var certificateBack: String { String(localized: "browser.certificate.back", defaultValue: "Go Back", bundle: .module) }
     static func certificateProceed(host: String) -> String {
         String(localized: "browser.certificate.proceed", defaultValue: "Proceed to \(host) (Unsafe)", bundle: .module)

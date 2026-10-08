@@ -28,10 +28,10 @@ extension WebKitTab: BrowserCertificateBypassing {
         case .askCredentials:
             let kind = BrowserPromptKind.credentials(host: space.host, realm: space.realm.flatMap { $0.isEmpty ? nil : $0 })
             enqueuePrompt(kind, origin: space.host) { response in
-                guard case .credentials(let user, let password) = response else {
+                guard let credential = BrowserHTTPAuth.urlCredential(for: response) else {
                     return completionHandler(.cancelAuthenticationChallenge, nil)
                 }
-                completionHandler(.useCredential, URLCredential(user: user, password: password, persistence: .forSession))
+                completionHandler(.useCredential, credential)
             }
         }
     }

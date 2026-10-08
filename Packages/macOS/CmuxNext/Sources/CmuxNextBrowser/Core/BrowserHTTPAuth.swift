@@ -37,6 +37,12 @@ enum BrowserHTTPAuth {
             identifier: "browser.dialog.httpAuth")
     }
 
+    /// The URL credential for a prompt response; nil unless it carries one.
+    static func urlCredential(for response: BrowserPromptResponse) -> URLCredential? {
+        guard case .credentials(let user, let password, _) = response else { return nil }
+        return URLCredential(user: user, password: password, persistence: .forSession)
+    }
+
     /// The credential for an answer; nil when the user cancelled.
     static func credential(for answer: CmuxDialogAnswer) -> URLCredential? {
         guard answer.button == "sign-in" else { return nil }
