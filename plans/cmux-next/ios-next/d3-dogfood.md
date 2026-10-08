@@ -1,10 +1,10 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-08 on `feat-cmux-next-ios` implementation baseline `b060e3e9b4` (B1 session/epoch hardening,
+Status: parity refresh 2026-10-08 on `feat-cmux-next-ios` implementation baseline `dd344fa661ac766511d5da0f02f70dfa7e10a42a` (B1 session/epoch hardening,
 B2, C3, C12, C14, C16 remote config, D1b, E1 SSH ingress, E3, E4, E5 and F1 are in this ancestry).
 Plan: [PLAN.md](PLAN.md) D3. A tagged fleet archive is available, but no simulator or device run is
-recorded: job `58bffde107091f30ece9f383` produced tag `nxd3-166e-ios-v2` for this exact head and
-artifact digest `5e168f236e1f22003109730037daf7bc1ed8b1337f0465ede765f5a717d67233`. The matrix below
+recorded: job `22d44de4793805270a52cbff` produced tag `nxd3-dd344-ios-v4` for this exact head and
+artifact digest `b4225a08b805c05b7c8896fd79382a5f0070379e1f79eea416ed659fa0a91e00`. The matrix below
 separates implementation and compile evidence from the still-pending live-pair gate.
 
 The first-pass matrix was recorded at `afbc8c69b3b` and is retained in

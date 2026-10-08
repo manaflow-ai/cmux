@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at implementation baseline `b060e3e9b4` reports 85 of 98 parity rows done, with one
+The refreshed D3 matrix at implementation baseline `dd344fa661` reports 85 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), four seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
@@ -103,13 +103,14 @@ The active wave is intentionally independent:
 
 The dedicated build host remains unavailable for interactive package tests (`cmux-lawrence-2` does not
 resolve), so native test execution, tagged pair installs, visual evidence, and live SSH/browser paths
-remain explicitly unverified. A fleet archive now proves the exact current iOS device and simulator
-targets compile: job `58bffde107091f30ece9f383`, tag `nxd3-166e-ios-v2`, exact head
-`166e9c49fa7073c53a8c688ff9bdd9623153f7c7`, artifact digest
-`5e168f236e1f22003109730037daf7bc1ed8b1337f0465ede765f5a717d67233`. Current static checks pass;
-the post-build C8/C12/C16 slices add static and focused contract evidence; the backend slice has 35
-focused Vitest tests and a clean TypeScript typecheck. The next gate is tagged Mac/iPhone pairing
-and D3 runtime evidence; no simulator, real-phone, or live SSH/browser result is claimed.
+remain explicitly unverified. Exact fleet archives prove the iOS device and simulator targets compile:
+the latest job `22d44de4793805270a52cbff`, tag `nxd3-dd344-ios-v4`, exact head
+`dd344fa661ac766511d5da0f02f70dfa7e10a42a`, artifact digest
+`b4225a08b805c05b7c8896fd79382a5f0070379e1f79eea416ed659fa0a91e00` (the prior `f23162542f` archive
+was superseded by the final timing-safety commits). Current static checks pass; the post-build
+C8/C12/C16 slices add static and focused contract evidence; the backend slice has 37 focused Vitest
+tests and a clean TypeScript typecheck. The next gate is tagged Mac/iPhone pairing and D3 runtime
+evidence; no simulator, real-phone, or live SSH/browser result is claimed.
 
 ### D2 carrier audit
 
