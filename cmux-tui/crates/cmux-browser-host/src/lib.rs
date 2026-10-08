@@ -14,6 +14,8 @@ pub mod automation_input;
 pub mod cdp;
 pub mod cookie_backups;
 pub mod driver;
+pub mod egress_proxy;
+pub mod egress_scope;
 pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
