@@ -39,7 +39,12 @@ impl StandbyTerminalHost {
         // leader, so failure is an actual launch error and must be surfaced.
         unsafe {
             command.pre_exec(|| {
-                if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                // The host and the shell it owns get the limit cmux started
+                // with (setrlimit(2) is async-signal-safe).
+                cmux_pty::restore_open_file_limit_in_child()
             });
         }
         let child = command.spawn().context("spawn terminal-host process")?;

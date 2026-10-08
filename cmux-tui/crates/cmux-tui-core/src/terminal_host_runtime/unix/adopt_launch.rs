@@ -257,7 +257,7 @@ fn spawn_adopting_host(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    // SAFETY: setsid, dup2 and fcntl are async-signal-safe and touch no Rust
+    // SAFETY: setsid, setrlimit, dup2 and fcntl are async-signal-safe and touch no Rust
     // state in the post-fork child. The master stays open in the child until
     // exec; dup2 clears close-on-exec on the copy at the fixed descriptor.
     unsafe {
@@ -265,6 +265,8 @@ fn spawn_adopting_host(
             if libc::setsid() < 0 {
                 return Err(std_io::Error::last_os_error());
             }
+            // The host and the shell it owns get the limit cmux started with.
+            cmux_pty::restore_open_file_limit_in_child()?;
             let placed = if master == ADOPTED_PTY_FD {
                 libc::fcntl(master, libc::F_SETFD, 0)
             } else {

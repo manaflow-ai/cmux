@@ -59,11 +59,33 @@ extension NotificationCenterService {
     /// Each workspace adds its unread tab count, or 1 when that count is 0
     /// and the workspace is marked unread by hand: a mark adds nothing to a
     /// workspace that already has unread tabs (roughly the old app's count).
-    static func unreadCount(_ store: DaemonStore?) -> Int {
-        store?.workspaces.reduce(0) { total, workspace in
+    /// Home's unread conversations (`homeUnread`, conversation ids) add one
+    /// each, as Messages' Dock badge counts its unread; a conversation that a
+    /// workspace tab shows with its own unread marker is already counted.
+    static func unreadCount(_ store: DaemonStore?, homeUnread: [String] = []) -> Int {
+        let workspaces = store?.workspaces ?? []
+        let tabs = workspaces.reduce(0) { total, workspace in
             let count = workspace.unreadCount
             return total + (count == 0 && workspace.markedUnread ? 1 : count)
-        } ?? 0
+        }
+        guard !homeUnread.isEmpty else { return tabs }
+        var counted = Set<String>()
+        for workspace in workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    for tab in pane.tabs where tab.hasUnread {
+                        if let id = tab.snapshot.conversation?.conversation, tab.kind == .conversation { counted.insert(id) }
+                    }
+                }
+            }
+        }
+        return tabs + Set(homeUnread).subtracting(counted).count
+    }
+
+    /// The badge count now: the store's unread tabs and Home's unread conversations.
+    func currentUnreadCount() -> Int {
+        let rows = services?.home.homeStore.rows ?? []
+        return Self.unreadCount(services?.daemon.store, homeUnread: rows.filter { $0.unread > 0 }.map(\.id.rawValue))
     }
 
     /// Sets the Dock tile's unread count. Compares with the label it set

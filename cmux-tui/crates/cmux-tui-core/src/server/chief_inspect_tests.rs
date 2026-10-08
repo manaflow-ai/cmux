@@ -141,3 +141,21 @@ fn a_stamped_unix_connection_is_refused() {
     assert_eq!(response_error_code(&error).as_deref(), Some("origin.forbidden"));
     assert_eq!(seen.load(Ordering::SeqCst), 0);
 }
+
+/// A capability says the daemon speaks the command, not that it is
+/// configured: a daemon with no tools socket still advertises
+/// `chief-inspect-v1` (the app requires it of its bundled daemon) and answers
+/// the owner with the typed `chief.not_configured`, forwarding nothing.
+#[test]
+fn an_unconfigured_daemon_advertises_it_and_answers_not_configured() {
+    assert!(!super::configured(), "the test environment sets no tools socket");
+    let mux = Mux::new_for_test("chief-inspect", crate::SurfaceOptions::default());
+    assert!(identify_capabilities(&mux).contains(&CAPABILITY));
+    let owner = mux.control_clients.register(ClientTransport::Unix, writer());
+    let error = inspect_with(&mux, owner, params("/api/status"), None).unwrap_err();
+    assert_eq!(response_error_code(&error).as_deref(), Some("chief.not_configured"), "{error}");
+    // The owner gate still comes first: a non-owner learns nothing more.
+    let remote = mux.control_clients.register(ClientTransport::Remote, writer());
+    let error = inspect_with(&mux, remote, params("/api/status"), None).unwrap_err();
+    assert_eq!(response_error_code(&error).as_deref(), Some("origin.forbidden"));
+}

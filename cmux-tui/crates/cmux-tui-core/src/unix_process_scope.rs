@@ -387,7 +387,7 @@ impl UnixProcessScope {
                 if kernel_group_fence {
                     install_linux_process_group_fence()?;
                 }
-                Ok(())
+                cmux_pty::restore_open_file_limit_in_child()
             });
         }
     }

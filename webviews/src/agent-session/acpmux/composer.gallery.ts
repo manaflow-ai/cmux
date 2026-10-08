@@ -26,11 +26,11 @@ export default agentPaneEntry({
   checks: {
     anchorMovePx: {
       value: 0,
-      reason: "Footer menus and the capped draft must preserve the transcript and shelf geometry.",
+      reason: "Footer menus and the capped draft must preserve the transcript and footer geometry.",
     },
     layoutShiftMax: {
       value: 0,
-      reason: "The location tray is attached to the composer and must not reflow the transcript.",
+      reason: "The location row is the composer card's footer and must not reflow the transcript.",
     },
     longFrameFailMs: {
       value: 33,
@@ -48,7 +48,7 @@ export default agentPaneEntry({
   ],
   variants: {
     "new-chat": {
-      note: "A new chat: empty prompt, location row with computer and folder.",
+      note: "A new chat: empty prompt; the card's footer row holds the folder and computer, under a hairline.",
       ready: { newSession: true, cwd: CWD },
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
@@ -104,16 +104,27 @@ export default agentPaneEntry({
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
     },
     "tray-long-branch": {
-      note: "The attached tray keeps a long branch readable without moving the composer.",
+      note: "The footer row keeps a long branch readable without moving the composer.",
       snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
     },
     "docked-400": {
-      note: "The recessed location shelf at a 400px dock width.",
+      note: "The card's footer row at a 400px dock width.",
       snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
     },
     "wide-760": {
-      note: "The composer and shelf at the 760px wide proof width.",
+      note: "The composer card and its footer row at the 760px wide proof width.",
       snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+    },
+    "folder-menu": {
+      note: "Play: open the footer's folder menu; it draws above the whole card, opaque, rows legible.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-context .acpmux-location-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
+      },
     },
     "slash-menu": {
       note: "Play: type / in the prompt; the agent's command menu opens.",
