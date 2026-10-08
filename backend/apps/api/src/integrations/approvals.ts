@@ -155,6 +155,10 @@ export const nextApprovalAt = (sql: Sql): number | null => {
   return times.length ? Math.min(...times) : null
 }
 
+/** A member left the team (cx-44j.47): their pending requests end denied and lose their params; returns how many. */
+export const endForMember = (sql: Sql, user: string, now: number): number =>
+  sql.exec(`UPDATE integration_approvals SET state = 'denied', ended_at = ?, params = '{}' WHERE user = ? AND state = 'pending'`, now, user).rowsWritten
+
 /** Expires every pending request whose time passed (the alarm calls this). */
 export const expireDue = (sql: Sql, now: number) =>
   sql.exec(`UPDATE integration_approvals SET state = 'expired', ended_at = ?, params = '{}' WHERE state = 'pending' AND expires_at <= ?`, now, now)

@@ -86,6 +86,17 @@ const page = <T>(legacy: ReadonlyArray<readonly [string, T]>, fromRows: Readonly
 }
 
 /** The E4 item that keeps the member's UserDO team index in step (newest per team wins). */
+/**
+ * What a member's removal tells the other owners (cx-44j.47): the user's team index entry goes,
+ * UserDO revokes the installs bound to the team, and the team's ConnectionDO ends the user's
+ * pending integration approvals. Each carries the removal's tx so a later re-join is not coalesced away.
+ */
+export const memberLeftItems = (team: { readonly id: string; readonly kind: string }, user: string, tx: string) => [
+  teamIndexItem(team, user, null, tx),
+  { kind: "user.team_left", entity: `team-left:${team.id}:${user}:${tx}`, payload: { team: team.id }, target: { class: "UserDO", name: user } },
+  { kind: "connections.member_left", entity: `member-left:${team.id}:${user}:${tx}`, payload: { team: team.id, user }, target: { class: "ConnectionDO", name: team.id } }
+]
+
 export const teamIndexItem = (team: { readonly id: string; readonly kind: string }, user: string, role: string | null, tx: string) => ({
   kind: "user.team_index",
   entity: `team-index:${team.id}:${user}:${tx}`,
