@@ -803,3 +803,7 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
     let identify = query_identify(&socket, timeout).map_err(|e| format!("identify: {e}"))?;
     Ok(daemon_info_from_identify(&identify, false).to_json())
 }
+
+#[cfg(test)]
+#[path = "role_tests.rs"]
+mod role_tests;
