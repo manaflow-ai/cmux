@@ -304,9 +304,12 @@ struct LinkSessionTests {
         _ = try await pair.dialer.openChannel(
             ChannelDescriptor(stream: "first", reliability: .reliableOrdered, priority: .control)
         )
-        _ = try await pair.dialer.openChannel(
+        let second = try await pair.dialer.openChannel(
             ChannelDescriptor(stream: "second", reliability: .reliableOrdered, priority: .control)
         )
+        // Opening only queues the declaration. Wait for the peer to reject
+        // the excess handle before subscribing and draining its pending queue.
+        #expect(try await SessionTestPair.next(second) == .closed(.remote))
         let channels = await hostSession.incomingChannels()
         let first = try await SessionTestPair.within(.seconds(5)) { () -> LinkChannel in
             for await channel in channels { return channel }
@@ -323,9 +326,16 @@ struct LinkSessionTests {
         _ = try await hostSession.publishMediaTrack(
             MediaTrackDescriptor(id: "track-1", kind: .video, label: "one")
         )
-        _ = try await hostSession.publishMediaTrack(
+        let secondTrack = try await hostSession.publishMediaTrack(
             MediaTrackDescriptor(id: "track-2", kind: .video, label: "two")
         )
+        // Media publication also returns before the receiving session handles
+        // it. Rejection ends the loopback track on both sides.
+        let rejectedTrackEnded = try await SessionTestPair.within(.seconds(5)) { () -> Bool in
+            for await state in await secondTrack.states() where state == .ended { return true }
+            return false
+        }
+        #expect(rejectedTrackEnded)
         let tracks = await pair.dialer.incomingMediaTracks()
         let firstTrack = try await SessionTestPair.within(.seconds(5)) { () -> MediaTrackHandle in
             for await track in tracks { return track }
