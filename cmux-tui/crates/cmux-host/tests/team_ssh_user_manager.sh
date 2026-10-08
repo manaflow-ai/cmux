@@ -115,7 +115,9 @@ systemd-run --quiet --unit="$SSHD_UNIT" "$SSHD" -D -f "$d/sshd_config"
 sshd_unit=1
 for i in $(seq 50); do [[ -s "$d/sshd.pid" ]] && break; sleep 0.1; done
 
-SSH=(ssh -F /dev/null -p "$PORT" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR)
+# ssh keeps the first -p it sees, so the port goes last.
+SSH_BASE=(ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR)
+SSH=("${SSH_BASE[@]}" -p "$PORT")
 as() { local n="$1"; shift; "${SSH[@]}" -i "$d/u$n" -o CertificateFile="$d/u$n-cert.pub" "$USER_NAME@127.0.0.1" "$@"; }
 
 # hold <n> <tag>: a session on certificate n that moves work out of its scope,
@@ -195,7 +197,7 @@ systemctl reset-failed cmuxt9cnf-sshd-d.service 2>/dev/null || true
 systemd-run --quiet --unit=cmuxt9cnf-sshd-d.service "$SSHD_D" -D -f "$d/sshd_config_d"
 for i in $(seq 50); do [[ -s "$d/sshd-d.pid" ]] && break; sleep 0.1; done
 ssh-keygen -q -s "$d/ca" -I cmuxt-5 -n "$USER_NAME" -z 5 -V +20m "$d/u2.pub"
-out="$("${SSH[@]}" -p "$((PORT + 1))" -i "$d/u2" -o CertificateFile="$d/u2-cert.pub" "$USER_NAME@127.0.0.1" 'echo in; echo sid=$XDG_SESSION_ID' 2>&1 < /dev/null || true)"
+out="$("${SSH_BASE[@]}" -p "$((PORT + 1))" -i "$d/u2" -o CertificateFile="$d/u2-cert.pub" "$USER_NAME@127.0.0.1" 'echo in; echo sid=$XDG_SESSION_ID' 2>&1 < /dev/null || true)"
 systemctl stop cmuxt9cnf-sshd-d.service
 rm -f "$SSHD_D" /etc/pam.d/sshd-cmuxt9d
 [[ "$out" != *in* ]] && pass "D session with no logind session refused" || fail "D session with no logind session opened: $(tr '\n' ' ' <<< "$out")"
