@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { b64u, beginPairing, call, inDO, op, read, sessionToken, testEnv, waitFor, worker } from "./pairing-harness.ts"
+import { b64u, beginPairing, call, holdTeamUserRevoke, op, read, returnNextRPC, sessionToken, testEnv, waitFor, worker } from "./pairing-harness.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -70,11 +70,7 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     const sock = await chiefSocket(t.chief.main_conversation, t.token)
     await t.ask("ask-1")
     expect((await sock.send("before")).t).toBe("result")
-    await inDO(t.userDO, async (instance) => {
-      instance.revokeByTeam = async () => {
-        throw new Error("push held back")
-      }
-    })
+    await holdTeamUserRevoke(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(t.team)), "push held back")
     expect((await op(t.owner, "server.revoke", { host: t.server.host })).json.ok).toBe(true)
     await t.ask("ask-2")
     await new Promise((r) => setTimeout(r, AGENT_GAP_MS))
@@ -100,11 +96,7 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     const t = await placedChief("socket-recheck-teamdo-down")
     await t.ask("ask-1")
     const teamDO = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(t.team))
-    await inDO(teamDO, async (instance) => {
-      instance.serverPlacementActive = async () => {
-        throw new Error("TeamDO down")
-      }
-    })
+    await returnNextRPC(teamDO, "serverPlacementActive", false)
     const sent = (await op(t.token, "message.send", { conversation: t.chief.main_conversation, client_msg_id: "teamdo-down", parts: [{ type: "text", text: "x" }] }, "teamdo-down")).json
     expect(sent.ok, JSON.stringify(sent)).not.toBe(true)
     expect(await chiefSaid(t.owner, t.chief.main_conversation, "teamdo-down")).toBe(false)

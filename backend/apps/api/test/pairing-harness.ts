@@ -10,6 +10,34 @@ export const inDO = runInDurableObject as unknown as (stub: unknown, cb: (instan
 export const runAlarm = fireAlarm as unknown as (stub: unknown) => Promise<boolean>
 export const worker = (exports as unknown as { default: Fetcher }).default
 
+/**
+ * Make one RPC call return a value without shadowing the Durable Object method
+ * on the instance. workerd only exposes prototype methods over RPC, so tests
+ * that assign a replacement directly to `instance[method]` are rejected before
+ * the hook runs. Restoring the prototype before returning keeps this one-shot.
+ */
+export const returnNextRPC = async <T>(stub: unknown, method: string, value: T) => {
+  await inDO(stub, async (instance) => {
+    const prototype = Object.getPrototypeOf(instance) as Record<string, unknown>
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, method)
+    if (!descriptor || typeof descriptor.value !== "function") throw new Error(`missing RPC method ${method}`)
+    Object.defineProperty(prototype, method, {
+      ...descriptor,
+      value: async function (..._args: unknown[]) {
+        Object.defineProperty(prototype, method, descriptor)
+        return value
+      }
+    })
+  })
+}
+
+/** Hold TeamDO's local push to UserDO without creating a rejected RPC promise. */
+export const holdTeamUserRevoke = async (stub: unknown, message: string) => {
+  await inDO(stub, async (instance) => {
+    instance.userOwner = () => ({ revokeByTeam: async () => ({ ok: false, code: `rpc:${message}` }) })
+  })
+}
+
 export const sessionToken = async (stackUser: string) => {
   const key = await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256")
   return new SignJWT({ email: `${stackUser}@example.com`, email_verified: true, name: stackUser })

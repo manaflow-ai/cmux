@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { b64u, beginPairing, call, inDO, op, read, sessionToken, testEnv, waitFor } from "./pairing-harness.ts"
+import { b64u, beginPairing, call, holdTeamUserRevoke, op, read, sessionToken, testEnv, waitFor } from "./pairing-harness.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -34,11 +34,7 @@ describe("placed chief and a server revoked in TeamDO only", { timeout: 60_000 }
     expect((await ask("ask-2")).json.ok).toBe(true)
 
     // TeamDO's push to UserDO fails (delayed): the revoke commits in TeamDO only.
-    await inDO(userDO, async (instance) => {
-      instance.revokeByTeam = async () => {
-        throw new Error("push delayed")
-      }
-    })
+    await holdTeamUserRevoke(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), "push delayed")
     expect((await op(owner, "server.revoke", { host: server.host })).json.ok).toBe(true)
     const installs = (await read(owner, "install.list", {})).json.value.installs as Array<{ id: string; revoked_at: number | null }>
     expect(installs.find((i) => i.id === server.install)?.revoked_at, "UserDO has not applied the revoke yet").toBeNull()
