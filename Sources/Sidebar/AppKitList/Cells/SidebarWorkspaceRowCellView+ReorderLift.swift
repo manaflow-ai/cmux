@@ -16,6 +16,14 @@ extension SidebarWorkspaceRowTableCellView {
         fill.cornerCurve = source.cornerCurve
         fill.borderWidth = source.borderWidth
         fill.borderColor = source.borderColor
+        // The stock light pill's glass lives on the wash layer; carry it.
+        if SidebarGlassSelection.wearsLightPill(source, for: model?.colorSchemeIsDark == true ? .dark : .light) {
+            let glass = CAGradientLayer()
+            fill.addSublayer(glass)
+            SidebarGlassSelection.paintSelectionGlass(glass)
+            SidebarGlassSelection.fitOverlay(glass)
+            glass.cornerCurve = source.cornerCurve
+        }
         return fill
     }
 

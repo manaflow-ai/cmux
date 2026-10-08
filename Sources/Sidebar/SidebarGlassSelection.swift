@@ -8,9 +8,10 @@ import SwiftUI
 /// unselected row is the same patch, softer and without the edge
 /// (`sidebarRowHoverFillOpacity`, `sidebarRowHoverFillOpacityLight`).
 enum SidebarGlassSelection {
-    /// Light mode on the stock tint takes Aside's light look: a near-white
-    /// pill with a dark hairline, a faint white hover wash, and dark gray row
-    /// titles (black at 69%, ~#414141 on the ground) instead of near-black.
+    /// Light mode on the stock tint takes Aside's light look: a white glass
+    /// pill (see `paintSelectionGlass`), a fainter glass hover wash, and dark
+    /// gray row titles (black at 69%, ~#414141 on the ground) instead of
+    /// near-black.
     /// It owns its values: the opacity tuning keys below shape the
     /// translucent patch, which it does not use.
     /// A chosen tint, a light-mode tint or matching the terminal opts out.
@@ -22,8 +23,9 @@ enum SidebarGlassSelection {
     }
 
     static func fill(for colorScheme: ColorScheme, defaults: UserDefaults = .standard) -> NSColor {
-        // White at 90% over the gray ground (~250): a pill, not a glare.
-        if usesStockLightLook(colorScheme, defaults: defaults) { return NSColor.white.withAlphaComponent(0.9) }
+        // The pill's base, white at its gradient's bottom (66%); the glass
+        // overlay brightens the top.
+        if usesStockLightLook(colorScheme, defaults: defaults) { return NSColor.white.withAlphaComponent(lightPill(defaults).bottom) }
         return SidebarAppearanceColorResolver().resolvedColor(
             .labelColor,
             for: colorScheme,
@@ -32,8 +34,19 @@ enum SidebarGlassSelection {
         )
     }
 
+    /// The stock light pill's white at its top and bottom: a mid strength
+    /// (`sidebarSelectionFillOpacityLight`, default 74%) spread by the
+    /// top-to-bottom gradient (`sidebarSelectionGradientLight`, default 16%).
+    static func lightPill(_ defaults: UserDefaults = .standard) -> (top: CGFloat, bottom: CGFloat) {
+        let mid = defaults.object(forKey: "sidebarSelectionFillOpacityLight") as? Double ?? 0.74
+        let spread = defaults.object(forKey: "sidebarSelectionGradientLight") as? Double ?? 0.16
+        return (CGFloat(min(1, mid + spread / 2)), CGFloat(max(0, mid - spread / 2)))
+    }
+
     static func edge(for colorScheme: ColorScheme, defaults: UserDefaults = .standard) -> NSColor {
-        if usesStockLightLook(colorScheme, defaults: defaults) { return NSColor.black.withAlphaComponent(0.25) }
+        if usesStockLightLook(colorScheme, defaults: defaults) {
+            return NSColor.black.withAlphaComponent(defaults.object(forKey: "sidebarSelectionEdgeOpacityLight") as? Double ?? 0.08)
+        }
         return SidebarAppearanceColorResolver().resolvedColor(
             .labelColor,
             for: colorScheme,
@@ -61,11 +74,11 @@ enum SidebarGlassSelection {
     }
 
     /// The light look's pill sits on a barely-there 1 pt drop shadow
-    /// (`sidebarSelectionShadowOpacityLight`, default 7%). Set through the
+    /// (`sidebarSelectionShadowOpacityLight`, default 5%). Set through the
     /// view: AppKit owns a layer-backed view's layer shadow.
     @MainActor
     static func applySelectionShadow(to view: NSView, _ on: Bool, defaults: UserDefaults = .standard) {
-        let opacity = on ? (defaults.object(forKey: "sidebarSelectionShadowOpacityLight") as? Double ?? 0.07) : 0
+        let opacity = on ? (defaults.object(forKey: "sidebarSelectionShadowOpacityLight") as? Double ?? 0.05) : 0
         guard abs((view.shadow?.shadowColor?.alphaComponent ?? 0) - opacity) > 0.001 else { return }
         guard opacity > 0 else { view.shadow = nil; return }
         let shadow = NSShadow()

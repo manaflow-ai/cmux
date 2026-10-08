@@ -32,9 +32,10 @@ struct SidebarGlassSelectionTests {
         #expect(color.alphaComponent < 0.5, "Glass selection is translucent")
     }
 
-    /// Light mode on the stock tint is Aside's light look: a near-white pill
-    /// (white at 90%) with a dark hairline. A chosen tint keeps the neutral
-    /// translucent patch (black, under half opacity).
+    /// Light mode on the stock tint is Aside's light look: a white glass pill
+    /// whose base is white at 66% (the gradient's bottom) with a faint dark
+    /// edge. A chosen tint keeps the neutral translucent patch (black, under
+    /// half opacity).
     @Test
     func lightSelectionIsAsidePillOnTheStockTintAndGlassOtherwise() throws {
         let suite = "SidebarGlassSelectionTests.\(UUID().uuidString)"
@@ -43,9 +44,9 @@ struct SidebarGlassSelectionTests {
 
         let pill = try #require(SidebarGlassSelection.fill(for: .light, defaults: defaults).usingColorSpace(.sRGB))
         #expect(pill.redComponent > 0.999 && pill.greenComponent > 0.999 && pill.blueComponent > 0.999)
-        #expect(abs(pill.alphaComponent - 0.9) < 0.001)
+        #expect(abs(pill.alphaComponent - 0.66) < 0.001)
         let hairline = try #require(SidebarGlassSelection.edge(for: .light, defaults: defaults).usingColorSpace(.sRGB))
-        #expect(hairline.redComponent < 0.001 && abs(hairline.alphaComponent - 0.25) < 0.001)
+        #expect(hairline.redComponent < 0.001 && abs(hairline.alphaComponent - 0.08) < 0.001)
 
         defaults.set("#FF0000", forKey: "sidebarTintHex")
         let glass = try #require(SidebarGlassSelection.fill(for: .light, defaults: defaults).usingColorSpace(.sRGB))

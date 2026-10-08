@@ -245,7 +245,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         } else {
             backgroundView.layer?.borderWidth = 0
         }
-        SidebarGlassSelection.applySelectionShadow(to: backgroundView, model.isActive && settings.selectionColorHex == nil && SidebarGlassSelection.usesStockLightLook(palette.colorScheme))
         updateHoverFill(colorScheme: palette.colorScheme)
     }
 
@@ -1523,8 +1522,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // nesting ("can't tell when a workspace is in a group").
             let bgX = outerPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
-            hoverLayer.frame = backgroundView.bounds
-            hoverLayer.cornerRadius = backgroundView.layer?.cornerRadius ?? 6
+            SidebarGlassSelection.fitOverlay(hoverLayer)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5
             let indicatorBounds = NSRect(x: 0, y: 0, width: width, height: y)

@@ -446,7 +446,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
         backgroundView.frame = bgFrame
-        rowHoverLayer.frame = backgroundView.bounds
+        SidebarGlassSelection.fitOverlay(rowHoverLayer)
         let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
         let midY = bounds.height / 2
         var x = bgFrame.minX
