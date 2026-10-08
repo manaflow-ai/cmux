@@ -53,7 +53,17 @@ head="$(git rev-parse HEAD)"
 
 required_job="cmux-next Release compile (Xcode 26)"
 
+# A commit whose nightly.yml lacks the NIGHTLY_NEXT_NOTARY_PAUSED gate would
+# notarize even while the pause is on (cx-f58x), so it is never promoted.
+has_notary_gate() { # <sha>
+  git show "$1:.github/workflows/nightly.yml" 2>/dev/null | grep -q NIGHTLY_NEXT_NOTARY_PAUSED
+}
+
 request() { # <sha>
+  if ! has_notary_gate "$1"; then
+    echo "not promoting ${1:0:12}: its nightly.yml has no NIGHTLY_NEXT_NOTARY_PAUSED gate"
+    return 1
+  fi
   gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1"
   echo "requested nightly-next promotion of $1 (published cmux-tui tree, green Release compile)"
 }
@@ -70,7 +80,7 @@ key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { printf '%s\n' "$resolved" >&2; echo "error: the resolver printed no tree key" >&2; exit 1; }
 
 if [[ "$mode" == release-compile-green ]]; then
-  request "$sha"
+  request "$sha" || true
   exit 0
 fi
 
@@ -88,6 +98,7 @@ while read -r run_id run_sha; do
     [[ "$run_key" == "$key" ]] || continue
   fi
   jobs="$(gh api --paginate --slurp "repos/$repo/actions/runs/$run_id/jobs?filter=latest&per_page=100")"
+  has_notary_gate "$run_sha" || continue
   if python3 -c '
 import json, sys
 name = sys.argv[1]
