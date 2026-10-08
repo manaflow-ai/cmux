@@ -104,6 +104,7 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
+import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -1745,6 +1746,10 @@ function AcpmuxPane() {
               String(query ?? ""),
               typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
             ),
+          "chat.adoptLive": async ({ choice }) => {
+            await client.adoptLive(choice === "fork" ? "fork" : "open");
+            return persistSession(client.adopted);
+          },
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
@@ -2354,6 +2359,12 @@ function AcpmuxPane() {
                   <p className="acpmux-link-missing" role="alert">
                     {t("link.sessionMissing")}
                   </p>
+                )}
+                {snapshot.liveChat && (
+                  <LiveChatChoice
+                    {...snapshot.liveChat}
+                    onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
+                  />
                 )}
                 {!reviewing && snapshot.handoff?.error && (
                   <p className="acpmux-handoff-error" role="alert">
