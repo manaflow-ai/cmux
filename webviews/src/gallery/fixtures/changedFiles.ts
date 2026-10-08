@@ -46,7 +46,10 @@ export const LONG_NAMES: TurnFile[] = [
   changedFile("docs/architecture/2026-10-07-decision-record-for-the-agent-pane-changes-tree.md", 210, 0),
   changedFile("README.md", 4, 2),
   changedFile("src/very_long_snake_case_module_name_that_keeps_going_and_going.py", 77, 41),
-  // Names far wider than any pane, to test the fade and the marquee at their limits.
+];
+
+/** Only names far wider than any pane: the fade and the marquee at their limits. */
+export const VERY_LONG_NAMES: TurnFile[] = [
   changedFile(
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneReplyLinkChipOutsideRootsConfirmationSheetPresentationController+AccessibilityAndKeyboardNavigation.swift",
     1204,
