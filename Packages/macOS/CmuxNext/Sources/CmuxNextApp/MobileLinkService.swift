@@ -36,9 +36,9 @@ final class MobileLinkService {
         let previous = runner
         runner = nil
         let priorTeardown = teardown
-        let replacementTeardown = Task { [previous] in
-            await priorTeardown?.value
-            await previous?.stop()
+        let replacementTeardown: Task<Void, Never> = Task { [previous] in
+            if let priorTeardown { await priorTeardown.value }
+            if let previous { await previous.stop() }
         }
         teardown = replacementTeardown
         let current = generation
@@ -95,8 +95,8 @@ final class MobileLinkService {
         // task-owner: teardown hop; MobileLinkHostRunner.stop() is idempotent
         let priorTeardown = teardown
         teardown = Task {
-            await priorTeardown?.value
-            await runner?.stop()
+            if let priorTeardown { await priorTeardown.value }
+            if let runner { await runner.stop() }
         }
     }
 }
