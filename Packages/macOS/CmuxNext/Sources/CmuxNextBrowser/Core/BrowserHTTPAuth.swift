@@ -5,7 +5,9 @@ import Foundation
 /// that blocks only the asking tab and names the server. Engine-neutral: the
 /// WebKit tab uses it (before, WebKit's default handling had no UI and
 /// sign-in failed silently), and the CEF auth handler is to use it too.
-/// Cancel lets the server's 401 page load.
+/// Cancel lets the server's 401 page load. Nothing is remembered past this
+/// app session unless the user checks "Remember password"; then the
+/// credential is permanent (WebKit keeps it in the login Keychain).
 enum BrowserHTTPAuth {
     static let methods: Set<String> = [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest,
                                        NSURLAuthenticationMethodNTLM, NSURLAuthenticationMethodDefault]
@@ -31,6 +33,7 @@ enum BrowserHTTPAuth {
                 .text("user", initial: user ?? "", label: String(localized: "browser.auth.user", defaultValue: "User Name", bundle: .module)),
                 .text(id: "password", label: String(localized: "browser.auth.password", defaultValue: "Password", bundle: .module),
                       initial: "", placeholder: nil, secure: true),
+                .check(id: "remember", title: Strings.authRemember, on: false),
             ],
             buttons: [.cancel(Strings.cancel),
                       CmuxDialogButton(id: "sign-in", title: String(localized: "browser.auth.signIn", defaultValue: "Sign In", bundle: .module), role: .default)],
@@ -39,13 +42,14 @@ enum BrowserHTTPAuth {
 
     /// The URL credential for a prompt response; nil unless it carries one.
     static func urlCredential(for response: BrowserPromptResponse) -> URLCredential? {
-        guard case .credentials(let user, let password, _) = response else { return nil }
-        return URLCredential(user: user, password: password, persistence: .forSession)
+        guard case .credentials(let user, let password, let remember) = response else { return nil }
+        return URLCredential(user: user, password: password, persistence: remember ? .permanent : .forSession)
     }
 
     /// The credential for an answer; nil when the user cancelled.
     static func credential(for answer: CmuxDialogAnswer) -> URLCredential? {
         guard answer.button == "sign-in" else { return nil }
-        return URLCredential(user: answer.text("user") ?? "", password: answer.text("password") ?? "", persistence: .forSession)
+        return URLCredential(user: answer.text("user") ?? "", password: answer.text("password") ?? "",
+                             persistence: answer.isOn("remember") ? .permanent : .forSession)
     }
 }

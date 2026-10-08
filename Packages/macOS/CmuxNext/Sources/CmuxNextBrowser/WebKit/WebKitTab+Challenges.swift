@@ -3,8 +3,8 @@ import WebKit
 
 /// HTTP authentication and untrusted certificates (Chrome, Safari). A 401
 /// with Basic, Digest or NTLM asks for a user name and password in the
-/// prompt bar; the credential is used for this request only (WebKit keeps
-/// it for the session). An untrusted certificate fails the load, which shows
+/// sign-in sheet; the credential lasts for the session, or stays in the
+/// Keychain when the user checked "Remember password". An untrusted certificate fails the load, which shows
 /// the interstitial; after Proceed the host is trusted for this browser
 /// profile until the app quits.
 extension WebKitTab: BrowserCertificateBypassing {
