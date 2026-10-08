@@ -132,7 +132,8 @@ struct LocalRemoteBrowserHostTests {
     }
 
     /// A hung host (never listens) is stopped at the start deadline and the
-    /// caller gets a timeout naming its log; the tab never waits forever.
+    /// caller gets a timeout naming its log; the tab never waits forever. The
+    /// deadline is the injected clock's, so host load cannot change the result.
     @Test func aHostThatNeverListensTimesOutAndIsStopped() async throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -141,16 +142,20 @@ struct LocalRemoteBrowserHostTests {
         echo 'serve: hung in CEF init' >&2
         exec sleep 600
         """)
+        let clock = SignalClock()
+        clock.fire()
         do {
-            _ = try await LocalRemoteBrowserHost.start(executable: host, pageURL: nil, workRoot: root, timeout: .milliseconds(300))
+            _ = try await LocalRemoteBrowserHost.start(executable: host, pageURL: nil, workRoot: root, timeout: .seconds(60), clock: clock)
             Issue.record("start returned for a host that never listened")
-        } catch let LocalRemoteBrowserHost.Failure.timedOut(_, log) {
-            let text = try String(contentsOf: log, encoding: .utf8)
-            #expect(text.contains("hung in CEF init"))
+        } catch let LocalRemoteBrowserHost.Failure.timedOut(seconds, log) {
+            #expect(seconds == 60)
+            // The deadline may stop the host before it writes a line; the log exists.
+            #expect(FileManager.default.fileExists(atPath: log.path))
         }
     }
 
-    /// A host that listens before the deadline keeps running after it.
+    /// A host that listens before the deadline keeps running when the
+    /// deadline's clock fires afterwards.
     @Test func aHostThatListensInTimeOutlivesTheDeadline() async throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -161,10 +166,10 @@ struct LocalRemoteBrowserHostTests {
         cat > /dev/null
         exit 5
         """)
-        // A loaded test host can take a second to spawn the shell; the deadline
-        // is far above that, and the wait outlasts it.
-        let started = try await LocalRemoteBrowserHost.start(executable: host, pageURL: nil, workRoot: root, timeout: .seconds(4))
-        try await Task.sleep(for: .seconds(5))
+        let clock = SignalClock()
+        let started = try await LocalRemoteBrowserHost.start(executable: host, pageURL: nil, workRoot: root, timeout: .seconds(60), clock: clock)
+        clock.fire()
+        for _ in 0..<20 { await Task.yield() }
         #expect(kill(started.processIdentifier, 0) == 0, "the deadline stopped a listening host")
         started.stop()
         #expect(await started.exitStatus() == 5)
@@ -188,6 +193,28 @@ struct LocalRemoteBrowserHostTests {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("#!/bin/sh\n\(script)\n".utf8).write(to: url)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+}
+
+/// A clock whose sleeps end only when the test calls `fire()` (or the
+/// sleeping task is cancelled): the start deadline without wall time.
+nonisolated final class SignalClock: Clock, Sendable {
+    typealias Instant = ContinuousClock.Instant
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+    }
+
+    var now: Instant { ContinuousClock.now }
+    var minimumResolution: Duration { .zero }
+
+    func fire() { continuation.yield() }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        for await _ in stream { return }
+        try Task.checkCancellation()
     }
 }
 #endif
