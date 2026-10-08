@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import CmuxCore
 import CmuxFoundation
+import CmuxRemoteWorkspace
 @testable import CmuxRemoteSession
 
 @Suite("Reverse relay SSH transport selection")
@@ -392,8 +393,11 @@ struct RemoteSessionReverseRelayTransportTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
-    @Test("A standalone SSH authentication failure is surfaced immediately")
-    func standaloneAuthenticationFailureDoesNotBecomeRelayTimeout() async throws {
+    @Test("A standalone SSH authentication failure is surfaced immediately", arguments: [
+        "private-user@example.test: Permission denied (publickey).",
+        "Received disconnect from 192.0.2.1 port 22:2: Too many authentication failures",
+    ])
+    func standaloneAuthenticationFailureDoesNotBecomeRelayTimeout(diagnostic: String) async throws {
         let host = ReverseRelayRecoveryHost()
         let runner = RecordingProcessRunner { request in
             if Self.isControlCommand("forward", in: request.arguments) {
@@ -409,28 +413,47 @@ struct RemoteSessionReverseRelayTransportTests {
         let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             host: host,
             runner: runner,
-            reverseRelayLauncher: launcher
+            reverseRelayLauncher: launcher,
+            clock: ManualBrokerClock()
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
 
         var launches = launcher.launches.makeAsyncIterator()
         var statuses = host.daemonStatuses.makeAsyncIterator()
+        let waitingAttach = LockedResult<RemotePTYBridgeServer.Endpoint>()
         coordinator.queue.sync {
+            coordinator.pendingPTYBridgeStarts[UUID()] = PendingPTYBridgeStart(
+                sessionID: "waiting-session",
+                lifecycleID: "lifecycle",
+                attachmentID: "surface",
+                command: nil,
+                requireExisting: false,
+                isCancelled: { waitingAttach.hasValue },
+                completion: { _ = waitingAttach.setIfEmpty($0) }
+            )
+            coordinator.proxyConnectionDesired = true
+            coordinator.armReadinessDeadlineLocked()
             coordinator.daemonReady = true
             coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
             coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
         }
         _ = try #require(await launches.next())
-        launcher.emitTermination(detail: "user@example.test: Permission denied (publickey).")
+        launcher.emitTermination(detail: diagnostic)
 
         let status = try #require(await statuses.next())
         #expect(status.state == .error)
         #expect(status.detail?.contains("SSH authentication") == true)
-        #expect(status.detail?.contains("publickey") == true)
+        #expect(status.detail?.contains("private-user") == false)
+        coordinator.queue.sync {}
+        let released = try #require(waitingAttach.current)
+        #expect(RemoteSessionReadinessParkingTests.failureDescription(of: released) == status.detail)
         #expect(coordinator.queue.sync {
             coordinator.parkedState?.cause == .sshAuthenticationFailed &&
                 coordinator.reverseRelayRestartToken == nil &&
+                coordinator.readinessDeadlineToken == nil &&
+                coordinator.pendingPTYBridgeStarts.isEmpty &&
+                coordinator.cliRelayServer == nil &&
                 !coordinator.daemonReady
         })
         _ = await coordinator.stopAndWait(cleanupScope: .transport)

@@ -44,7 +44,7 @@ struct RemoteSessionReverseRelayStartupTests {
         )
         #expect(
             RemoteRelayAuthenticationFailure.detect(
-                in: "Too many authentication failures for user"
+                in: "Received disconnect from 192.0.2.1 port 22:2: Too many authentication failures"
             ) == .tooManyAuthenticationFailures
         )
         #expect(
@@ -52,6 +52,18 @@ struct RemoteSessionReverseRelayStartupTests {
                 in: "Permission denied: caller-controlled diagnostic"
             ) == nil
         )
+        for diagnostic in [
+            "debug1: ProxyCommand echo Permission denied (publickey).",
+            "debug1: echo Too many authentication failures",
+            "Permission denied (secret-canary).",
+            "user@example.test: Permission denied (publickey). secret-canary",
+            "Load key /tmp/key: Permission denied",
+            "Error: remote port forwarding failed for listen port 64044",
+            "ssh: connect to host example.test port 22: Connection refused",
+        ] {
+            let classified = RemoteRelayAuthenticationFailure.detect(in: diagnostic) != nil
+            #expect(!classified)
+        }
     }
 
     @MainActor
