@@ -14,7 +14,7 @@ const firstString = (...values) => values.find((value) => typeof value === "stri
 const properties = (event) => event?.data || event?.properties || {};
 const sessionID = (event) => {
   const data = properties(event);
-  return firstString(data.sessionID, data.sessionId, data.session_id, data.info?.id, data.info?.sessionID, event?.sessionID);
+  return firstString(data.sessionID, data.sessionId, data.session_id, data.info?.id, data.info?.sessionID, data.permission?.sessionID, data.permission?.sessionId, event?.sessionID);
 };
 const cwd = (ctx, event) => firstString(properties(event).info?.directory, properties(event).directory, ctx?.location?.directory, ctx?.directory, process.cwd());
 const compact = (value) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, MAX_EVENT_TEXT) : null;
@@ -24,7 +24,9 @@ function visibleSessionIDs(ctx) {
   const current = ctx?.ui?.router?.current?.();
   if (current?.type === "session") ids.push(current.sessionID || current.sessionId || current.id);
   if (ctx?.ui?.tabs?.enabled?.() !== false) {
-    for (const tab of ctx?.ui?.tabs?.list?.() || []) ids.push(tab?.sessionID || tab?.sessionId || tab?.id);
+    for (const tab of ctx?.ui?.tabs?.list?.() || []) {
+      ids.push(typeof tab === "string" ? tab : tab?.sessionID || tab?.sessionId || tab?.id);
+    }
   }
   return ids.filter(Boolean);
 }

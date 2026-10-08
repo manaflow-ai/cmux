@@ -34961,6 +34961,15 @@ export default {
         print("OpenCode hooks installed at \(pluginURL.path)")
     }
 
+    private func removeOpenCodeTUIPlugin(in configDir: URL) throws {
+        let directory = openCodeTUIPluginDirectory(in: configDir)
+        let indexURL = directory.appendingPathComponent("index.js", isDirectory: false)
+        guard let index = try? String(contentsOf: indexURL, encoding: .utf8),
+              index.contains("cmux-opencode-tui-plugin-server-marker")
+        else { return }
+        try FileManager.default.removeItem(at: directory)
+    }
+
     private func uninstallOpenCodePluginHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
         let pluginURL = openCodeSessionPluginURL(for: def)
@@ -34974,8 +34983,10 @@ export default {
             return
         }
         try fm.removeItem(at: pluginURL)
+        let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        try removeOpenCodeTUIPlugin(in: configDir)
         _ = try updateOpenCodePluginRegistration(
-            configDir: URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true),
+            configDir: configDir,
             shouldInstall: false
         )
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
@@ -41563,6 +41574,10 @@ export default {
             try fm.removeItem(atPath: path)
             print("OpenCode plugin removed from \(path)")
         }
+        let configDir = projectLocal
+            ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".opencode", isDirectory: true)
+            : URL(fileURLWithPath: openCodeConfigDirPath(), isDirectory: true)
+        try removeOpenCodeTUIPlugin(in: configDir)
     }
 
     // MARK: - Feed (workstream) hook bridge
