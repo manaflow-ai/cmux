@@ -37,7 +37,10 @@ jobs:
   render:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 30
+    # Broad gallery infrastructure changes can touch every entry. The matrix renders each case
+    # three times across Chromium and WebKit; keep the evidence run alive long enough to finish
+    # that full scan instead of cancelling at the old 30-minute ceiling.
+    timeout-minutes: 60
     outputs:
       touched: ${{ steps.touched.outputs.count }}
       base_sha: ${{ steps.base.outputs.sha }}
