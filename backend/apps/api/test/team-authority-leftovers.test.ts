@@ -135,3 +135,14 @@ describe("a removal's leftovers (cx-44j.51)", { timeout: 60_000 }, () => {
     expect(await x.stub.bindMachine(x.team, body)).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 })
+
+describe("team.ensure_personal names only the caller's own personal team (cx-er4p review)", () => {
+  it("refuses any other team id, so no principal can make itself owner of a shared team through it", async () => {
+    const x = person()
+    const ns = testEnv.TEAM_DO as DurableObjectNamespace
+    const submit = (team: string, p: Principal) => (ns.get(ns.idFromName(team)) as unknown as { submit(e: string, p: Principal, f: unknown): Promise<any> }).submit(team, p, { t: "op", op: "team.ensure_personal", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
+    const foreign = "team_shared00000000000077"
+    expect(reply(await submit(foreign, { ...x.p, team: foreign }))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(reply(await submit(x.team, x.p)).t).toBe("result")
+  })
+})

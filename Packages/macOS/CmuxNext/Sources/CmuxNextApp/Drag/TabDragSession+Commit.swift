@@ -35,7 +35,7 @@ extension TabDragSession {
             let end: @MainActor () -> Void = { [weak self] in
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
-                self?.services.inputMonitor.noteChange()
+                self?.services.input.monitor.noteChange()
                 // The view change of a landed user drop, after the echo.
                 if ok { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
             }
