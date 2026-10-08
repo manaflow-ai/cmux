@@ -4,14 +4,14 @@ import { dirname, resolve } from "node:path"
 /**
  * A small JSON Schema validator for the keywords schemas/mobile-rpc uses: type, const, enum,
  * required, properties, additionalProperties, items, min/maxItems, min/maxLength, pattern,
- * minimum, maximum, oneOf and file-relative $ref. Any other keyword fails loudly, so a schema
+ * minimum, maximum, oneOf, allOf and file-relative $ref. Any other keyword fails loudly, so a schema
  * can never silently accept what this validator does not check.
  */
 
 type Schema = Record<string, unknown>
 const SUPPORTED = new Set([
   "$schema", "$id", "title", "description", "$defs", "type", "const", "enum", "required", "properties",
-  "additionalProperties", "items", "minItems", "maxItems", "minLength", "maxLength", "pattern", "minimum", "maximum", "oneOf", "$ref"
+  "additionalProperties", "items", "minItems", "maxItems", "minLength", "maxLength", "pattern", "minimum", "maximum", "oneOf", "allOf", "$ref"
 ])
 
 export class SchemaSet {
@@ -68,6 +68,9 @@ export class SchemaSet {
       }).length
       if (passing !== 1) errors.push(`${where}: matches ${passing} of oneOf`)
       return
+    }
+    if (Array.isArray(schema.allOf)) {
+      for (const part of schema.allOf) this.check(file, part as Schema, value, where, errors)
     }
     if (schema.type !== undefined) {
       const types = Array.isArray(schema.type) ? (schema.type as Array<string>) : [schema.type as string]

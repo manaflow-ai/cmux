@@ -5,10 +5,12 @@ import { HostForwards } from "./host-forward.ts"
 import { HostStreams, MAX_SNAPSHOT_BYTES } from "./host-mirror.ts"
 import { deviceRemove, deviceSet, initialHostState, macCaps, macConnected, macPresence, type HostChange, type HostStreamState } from "./host-presence.ts"
 import { parseSignal, SignalBudget } from "./host-signal.ts"
-import { answerHello, errorFrame, MAX_CONTROL_FRAME, readFields, readReply, sendJson, type ErrorBody, type MobileSession } from "./mobile-session.ts"
+import { answerHello, errorFrame, MAX_CONTROL_FRAME, readFields, readReply, sendJson, type ErrorBody } from "./mobile-session.ts"
 import { mintTurnCredentials, turnAsRead } from "./realtime-turn.ts"
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
 import { MOBILE_RATE_LIMITED, MOBILE_RATE_RETRY_SECONDS, mobileRateKey, takeMobileRate } from "./mobile-rate.ts"
+import { ACCESS_CHECK_MS, HOST_CAPS, MAX_DEVICES, type ControlAttachment } from "./host-control-types.ts"
+export { ACCESS_CHECK_MS, HOST_CAPS, MAX_DEVICES, type ControlAttachment } from "./host-control-types.ts"
 
 /**
  * HostDO's control sockets (b1-control-do.md): the Mac (`host`) and the phones and other clients
@@ -18,24 +20,6 @@ import { MOBILE_RATE_LIMITED, MOBILE_RATE_RETRY_SECONDS, mobileRateKey, takeMobi
  * and resolved its role (TeamDO.hostAccess); frames never choose identity.
  */
 
-export interface ControlAttachment {
-  readonly ctl: true
-  readonly role: "host" | "device"
-  readonly principal: Principal
-  /** The base gate's field; control sockets subscribe per stream (`streams`). */
-  readonly subscribed: false
-  streams: Array<string>
-  mobile?: MobileSession
-  /** The team whose directory admitted the socket, and when TeamDO last confirmed it. */
-  readonly team: string
-  checkedAt: number
-}
-
-/** How long a socket's admission (team membership, host still enrolled) is trusted before a frame re-asks TeamDO. */
-export const ACCESS_CHECK_MS = 60_000
-
-export const HOST_CAPS = ["read", "signal", "presence", "resume"]
-export const MAX_DEVICES = 32
 const KEY = /^[A-Za-z0-9._:-]{8,128}$/
 const HOST_TAG = "ctl:host"
 const devTag = (identity: string) => `ctl:dev:${identity}`

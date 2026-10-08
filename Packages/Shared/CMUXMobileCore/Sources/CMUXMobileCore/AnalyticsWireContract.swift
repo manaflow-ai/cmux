@@ -6,7 +6,8 @@ import Foundation
 /// work; a future emitter can validate a batch here before handing it to an
 /// uploader. Keeping the limits in the shared core prevents a transport from
 /// accidentally accepting arbitrary event names or unbounded property bags.
-public enum AnalyticsWireContract {
+public struct AnalyticsWireContract {
+    public init() {}
     /// The proxy's maximum body size for a batch.
     public static let maxRequestBytes = 64 * 1024
     /// The proxy's maximum number of events in one request.

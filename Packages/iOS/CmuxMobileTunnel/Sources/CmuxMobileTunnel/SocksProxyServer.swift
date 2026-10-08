@@ -87,6 +87,7 @@ public final class SocksProxyServer: Sendable {
 /// connection. This is deliberately lock-based: child-channel initialization
 /// happens on an NIO event loop while `stop()` runs from an async caller.
 final class SocksProxyLifecycle: @unchecked Sendable {
+    // lint:allow: the NIO event loop and async stop caller share this small lifecycle gate.
     private let lock = NSLock()
     private var stopped = false
     private var channels: [ObjectIdentifier: any Channel] = [:]

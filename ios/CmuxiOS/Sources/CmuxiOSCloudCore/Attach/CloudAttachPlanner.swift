@@ -4,7 +4,8 @@ import Foundation
 /// Validates the state and identity invariants shared by all VM carriers.
 /// This is deliberately pure so the phase-2 VM host can be integrated without
 /// making the Cloud tab or a carrier responsible for lifecycle policy.
-public enum CloudAttachPlanner {
+public struct CloudAttachPlanner {
+    public init() {}
     public static func plan(
         info: CloudConnectInfo,
         service: CloudConnectInfo.Service,
