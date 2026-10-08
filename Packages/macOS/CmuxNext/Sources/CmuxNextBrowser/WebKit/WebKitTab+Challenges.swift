@@ -29,36 +29,11 @@ extension WebKitTab: BrowserCertificateBypassing {
         case .cancel:
             completionHandler(.cancelAuthenticationChallenge, nil)
         case .askCredentials:
-            let memory = engine?.httpSignInMemory(for: profileID)
-            let key = BrowserHTTPCredentialKey(profile: profileID, space: space)
-            let failures = challenge.previousFailureCount
-            // task-owner: one Keychain read off the main actor, then the answer; ends with it
-            Task { [weak self] in
-                let remembered = await Task.detached { memory?.remembered(key, failures: failures) }.value
-                if let remembered {
-                    return completionHandler(.useCredential,
-                                             URLCredential(user: remembered.user, password: remembered.password, persistence: .forSession))
-                }
-                guard let self else { return completionHandler(.cancelAuthenticationChallenge, nil) }
-                self.askCredentials(space, key: key, failures: failures, memory: memory, completionHandler: completionHandler)
-            }
-        }
-    }
-
-    /// Shows the sign-in sheet; a checked Remember saves the login, an
-    /// unchecked one forgets the saved one (off the main actor).
-    private func askCredentials(_ space: URLProtectionSpace, key: BrowserHTTPCredentialKey, failures: Int, memory: BrowserHTTPSignInMemory?,
-                                completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        let kind = BrowserPromptKind.credentials(host: space.host, realm: space.realm.flatMap { $0.isEmpty ? nil : $0 })
-        enqueuePrompt(kind, origin: space.host) { response in
-            if let memory {
-                // task-owner: one Keychain write off the main actor; nothing waits on it
-                Task.detached { memory.record(response, for: key, failures: failures) }
-            }
-            guard let credential = BrowserHTTPAuth.urlCredential(for: response) else {
-                return completionHandler(.cancelAuthenticationChallenge, nil)
-            }
-            completionHandler(.useCredential, credential)
+            WebKitHTTPSignIn(memory: engine?.httpSignInMemory(for: profileID), key: BrowserHTTPCredentialKey(profile: profileID, space: space),
+                             failures: challenge.previousFailureCount, space: space) { [weak self] kind, origin, done in
+                guard let self else { return done(.cancel) }
+                self.enqueuePrompt(kind, origin: origin, completion: done)
+            }.run(completionHandler)
         }
     }
 
