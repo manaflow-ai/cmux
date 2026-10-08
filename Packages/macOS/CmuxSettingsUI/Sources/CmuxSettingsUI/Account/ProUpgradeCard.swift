@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Observation
 import SwiftUI
 
 /// Upgrade row rendered below the identity card in the Account section.
@@ -10,6 +11,9 @@ import SwiftUI
 @MainActor
 struct ProUpgradeCard: View {
     let flow: AccountFlow?
+    @State private var plan = AccountPlanModel()
+    @State private var refreshGeneration = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     init(flow: AccountFlow?) {
         self.flow = flow
@@ -26,7 +30,12 @@ struct ProUpgradeCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            if shouldShowAction {
+            if presentation == .unavailable {
+                Button(String(localized: "settings.account.pro.retry", defaultValue: "Retry", bundle: .module)) {
+                    refreshGeneration &+= 1
+                }
+                .controlSize(.small)
+            } else if shouldShowAction {
                 Button {
                     if flow?.canManageBilling == true {
                         flow?.openBillingPortal()
@@ -46,32 +55,46 @@ struct ProUpgradeCard: View {
             // so clicking "Upgrade…" opens an already-loaded page. Managed
             // subscribers get the Stripe portal instead, which the host does
             // not prewarm.
-            if hovering, flow?.isProStatusKnown != false, flow?.canManageBilling != true {
+            if hovering, presentation == .free {
                 flow?.prefetchProUpgrade()
             }
         }
-        .task(id: AccountPlanRefreshKey(
-            accountID: flow?.currentIdentity?.id,
-            isAuthenticated: flow?.isAuthenticated == true,
-            isWorkingOnAuth: flow?.isWorkingOnAuth == true,
-            selectedTeamID: flow?.selectedTeamID
-        )) {
-            await flow?.refreshBillingPlan()
+        .task(id: refreshKey) {
+            await plan.refresh(flow: flow, key: refreshKey)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refreshGeneration &+= 1 }
         }
     }
 
+    private var refreshKey: AccountPlanRefreshKey {
+        AccountPlanRefreshKey(flow: flow, generation: refreshGeneration)
+    }
+
+    private var presentation: AccountPlanModel.Presentation {
+        plan.presentation(flow: flow, key: refreshKey)
+    }
+
     private var subtitleText: String {
-        if flow?.isProStatusKnown == false {
+        if presentation == .checking {
             return String(
                 localized: "settings.account.pro.checkingSubtitle",
-                defaultValue: "Checking your cmux plan…"
+                defaultValue: "Checking your cmux plan…",
+                bundle: .module
             )
         }
-        if flow?.isProActive == true {
+        if presentation == .unavailable {
+            return String(
+                localized: "settings.account.pro.unavailableSubtitle",
+                defaultValue: "Could not check your cmux plan. Try again.",
+                bundle: .module
+            )
+        }
+        if presentation == .pro || presentation == .managedPro {
             if flow?.canManageBilling == true {
                 return String(
                     localized: "settings.account.pro.activeSubtitle",
-                    defaultValue: "Your Pro subscription is active. Manage billing or cancel in Stripe."
+                    defaultValue: "Your Pro subscription is active. Manage billing or cancel anytime."
                 )
             }
             return String(
@@ -93,8 +116,7 @@ struct ProUpgradeCard: View {
     }
 
     private var shouldShowAction: Bool {
-        guard flow?.isProStatusKnown != false else { return false }
-        return flow?.isProActive != true || flow?.canManageBilling == true
+        presentation == .free || presentation == .managedPro
     }
 }
 
@@ -106,4 +128,53 @@ struct AccountPlanRefreshKey: Equatable {
     let isAuthenticated: Bool
     let isWorkingOnAuth: Bool
     let selectedTeamID: String?
+    var generation = 0
+
+    @MainActor
+    init(flow: AccountFlow?, generation: Int = 0) {
+        accountID = flow?.currentIdentity?.id
+        isAuthenticated = flow?.isAuthenticated == true
+        isWorkingOnAuth = flow?.isWorkingOnAuth == true
+        selectedTeamID = flow?.selectedTeamID
+        self.generation = generation
+    }
+
+    var canRefresh: Bool {
+        accountID != nil && isAuthenticated && !isWorkingOnAuth
+    }
+}
+
+/// Owns only the card's request/error lifecycle. The host remains the source
+/// of truth for entitlement, independent of this Mac's Cloud activation.
+@MainActor
+@Observable
+final class AccountPlanModel {
+    enum Presentation: Equatable {
+        case checking, unavailable, free, pro, managedPro
+    }
+
+    private var failedRefreshKey: AccountPlanRefreshKey?
+    @ObservationIgnored private var requestID: UUID?
+
+    func presentation(flow: AccountFlow?, key: AccountPlanRefreshKey) -> Presentation {
+        guard !key.isWorkingOnAuth else { return .checking }
+        guard flow?.isProStatusKnown != false else {
+            return failedRefreshKey == key ? .unavailable : .checking
+        }
+        if flow?.isProActive == true {
+            return flow?.canManageBilling == true ? .managedPro : .pro
+        }
+        return .free
+    }
+
+    func refresh(flow: AccountFlow?, key: AccountPlanRefreshKey) async {
+        let id = UUID()
+        requestID = id
+        failedRefreshKey = nil
+        guard let flow, key.canRefresh else { return }
+        await flow.refreshBillingPlan()
+        guard !Task.isCancelled, requestID == id,
+              AccountPlanRefreshKey(flow: flow, generation: key.generation) == key else { return }
+        failedRefreshKey = flow.isProStatusKnown ? nil : key
+    }
 }

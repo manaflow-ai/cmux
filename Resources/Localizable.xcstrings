@@ -294569,55 +294569,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Pro subscription is active. Manage billing or cancel in Stripe."
+            "value": "Your Pro subscription is active. Manage billing or cancel anytime."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro サブスクリプションは有効です。Stripe で請求管理やキャンセルができます。"
+            "value": "Pro サブスクリプションは有効です。請求の管理や解約はいつでもできます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 订阅已生效。可在 Stripe 中管理结算或取消订阅。"
+            "value": "你的 Pro 订阅已启用。你可以管理账单或随时取消。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ihr Pro-Abonnement ist aktiv. Verwalten Sie die Abrechnung oder kündigen Sie in Stripe."
+            "value": "Dein Pro-Abonnement ist aktiv. Du kannst die Abrechnung verwalten oder jederzeit kündigen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre abonnement Pro est actif. Gérez la facturation ou résiliez dans Stripe."
+            "value": "Votre abonnement Pro est actif. Gérez la facturation ou résiliez à tout moment."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اشتراكك في باقة Pro نشط. يمكنك إدارة الفوترة أو الإلغاء في Stripe."
+            "value": "اشتراك Pro الخاص بك نشط. يمكنك إدارة الفوترة أو الإلغاء في أي وقت."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu suscripción Pro está activa. Gestiona la facturación o cancélala en Stripe."
+            "value": "Tu suscripción Pro está activa. Gestiona la facturación o cancela cuando quieras."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "您的 Pro 訂閱已啟用。可在 Stripe 中管理帳單或取消。"
+            "value": "你的 Pro 訂閱已啟用。你可以管理帳單或隨時取消。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 구독이 활성화되어 있습니다. Stripe에서 결제를 관리하거나 취소할 수 있습니다."
+            "value": "Pro 구독이 활성화되어 있습니다. 결제를 관리하거나 언제든지 취소할 수 있습니다."
           }
         }
       }

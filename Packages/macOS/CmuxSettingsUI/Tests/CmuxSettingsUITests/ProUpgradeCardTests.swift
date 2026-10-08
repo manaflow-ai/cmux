@@ -1,23 +1,134 @@
+import Foundation
+import Observation
 import Testing
 @testable import CmuxSettingsUI
 
+@MainActor
 @Suite("Pro upgrade card")
 struct ProUpgradeCardTests {
-    @Test("plan refresh reruns when session restoration finishes")
-    func planRefreshKeyTracksAuthReadiness() {
-        let restoring = AccountPlanRefreshKey(
-            accountID: "account-1",
-            isAuthenticated: false,
-            isWorkingOnAuth: true,
-            selectedTeamID: nil
-        )
-        let ready = AccountPlanRefreshKey(
-            accountID: "account-1",
-            isAuthenticated: true,
-            isWorkingOnAuth: false,
-            selectedTeamID: nil
-        )
+    @Test("a restored Pro account loads without activating Cloud")
+    func restoredAccountLoadsPlan() async {
+        let flow = PlanTestAccountFlow()
+        let model = AccountPlanModel()
+        let restoring = AccountPlanRefreshKey(flow: flow)
 
-        #expect(restoring != ready)
+        #expect(model.presentation(flow: flow, key: restoring) == .checking)
+        await model.refresh(flow: flow, key: restoring)
+        #expect(flow.refreshCount == 0)
+
+        // The identity is already cached on the other Mac. Only auth readiness
+        // changes; no Cloud activation or machines client participates.
+        flow.isWorkingOnAuth = false
+        flow.isAuthenticated = true
+        let ready = AccountPlanRefreshKey(flow: flow)
+        #expect(ready != restoring)
+        await model.refresh(flow: flow, key: ready)
+
+        #expect(flow.refreshCount == 1)
+        #expect(model.presentation(flow: flow, key: ready) == .managedPro)
     }
+
+    @Test("a failed lookup offers retry instead of an upgrade")
+    func failedLookupCanRetry() async {
+        let flow = PlanTestAccountFlow()
+        flow.isWorkingOnAuth = false
+        flow.isAuthenticated = true
+        flow.result = nil
+        let model = AccountPlanModel()
+        let first = AccountPlanRefreshKey(flow: flow)
+        await model.refresh(flow: flow, key: first)
+        #expect(model.presentation(flow: flow, key: first) == .unavailable)
+
+        flow.result = (isPro: true, canManage: true)
+        let retry = AccountPlanRefreshKey(flow: flow, generation: 1)
+        #expect(model.presentation(flow: flow, key: retry) == .checking)
+        await model.refresh(flow: flow, key: retry)
+        #expect(flow.refreshCount == 2)
+        #expect(model.presentation(flow: flow, key: retry) == .managedPro)
+    }
+
+    @Test("verified plans choose the corresponding account action", arguments: [false, true])
+    func verifiedPlans(isPro: Bool) async {
+        let flow = PlanTestAccountFlow()
+        flow.isWorkingOnAuth = false
+        flow.isAuthenticated = true
+        flow.result = (isPro: isPro, canManage: false)
+        let model = AccountPlanModel()
+        let key = AccountPlanRefreshKey(flow: flow)
+        await model.refresh(flow: flow, key: key)
+        #expect(model.presentation(flow: flow, key: key) == (isPro ? .pro : .free))
+    }
+
+    @Test("restoring auth hides upgrade even before an identity is available")
+    func restorationWithoutIdentity() async {
+        let flow = PlanTestAccountFlow()
+        flow.currentIdentity = nil
+        flow.isProStatusKnown = true
+        let model = AccountPlanModel()
+        let restoring = AccountPlanRefreshKey(flow: flow)
+        #expect(model.presentation(flow: flow, key: restoring) == .checking)
+        await model.refresh(flow: flow, key: restoring)
+        #expect(flow.refreshCount == 0)
+
+        flow.isWorkingOnAuth = false
+        let signedOut = AccountPlanRefreshKey(flow: flow)
+        #expect(model.presentation(flow: flow, key: signedOut) == .free)
+        await model.refresh(flow: flow, key: signedOut)
+        #expect(flow.refreshCount == 0)
+    }
+
+    @Test("a team switch clears the previous lookup's error presentation")
+    func errorBelongsToRequestedScope() async {
+        let flow = PlanTestAccountFlow()
+        flow.isWorkingOnAuth = false
+        flow.isAuthenticated = true
+        flow.result = nil
+        let model = AccountPlanModel()
+        let personal = AccountPlanRefreshKey(flow: flow)
+        await model.refresh(flow: flow, key: personal)
+        #expect(model.presentation(flow: flow, key: personal) == .unavailable)
+
+        flow.selectedTeamID = "team-2"
+        let team = AccountPlanRefreshKey(flow: flow)
+        #expect(model.presentation(flow: flow, key: team) == .checking)
+        flow.result = (isPro: true, canManage: false)
+        await model.refresh(flow: flow, key: team)
+        #expect(model.presentation(flow: flow, key: team) == .pro)
+    }
+}
+
+@MainActor
+@Observable
+private final class PlanTestAccountFlow: AccountFlow {
+    var currentIdentity: AccountIdentity? = AccountIdentity(
+        id: "account-1", displayName: "Test", email: "test@example.com"
+    )
+    var availableTeams: [AccountTeamSummary] = []
+    var selectedTeamID: String?
+    var isWorkingOnAuth = true
+    var isAuthenticated = false
+    var signInIsSlow = false
+    var isProUpgradeAvailable = true
+    var isProStatusKnown = false
+    var isProActive = false
+    var canManageBilling = false
+    var refreshCount = 0
+    var result: (isPro: Bool, canManage: Bool)? = (true, true)
+
+    func refreshBillingPlan() async {
+        refreshCount += 1
+        if let result {
+            isProActive = result.isPro
+            canManageBilling = result.canManage
+            isProStatusKnown = true
+        }
+    }
+
+    func selectTeam(id: String?) async throws { selectedTeamID = id }
+    func startSignIn() {}
+    func openSignInInDefaultBrowser() {}
+    func signOut() async {}
+    func refreshCurrentUser() async {}
+    func openProUpgrade() {}
+    func openBillingPortal() {}
 }

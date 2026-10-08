@@ -23,7 +23,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     var isProActive: Bool { billingPlanState.isPro }
     var canManageBilling: Bool { billingPlanState.canManageBilling }
     var isProStatusKnown: Bool {
-        currentIdentity == nil || hasLoadedBillingPlan
+        !isWorkingOnAuth && (currentIdentity == nil || hasLoadedBillingPlan)
     }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
