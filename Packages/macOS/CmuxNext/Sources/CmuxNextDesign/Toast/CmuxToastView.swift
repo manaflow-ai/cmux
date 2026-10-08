@@ -6,8 +6,8 @@ public import AppKit
 @MainActor
 public final class CmuxToastView: NSView {
     public let toast: CmuxToast
-    public private(set) var actionButton: CmuxDialogButtonView?
-    public let closeButton = NSButton()
+    public private(set) var actionButton: CmuxToastButton?
+    public let closeButton = CmuxToastButton(style: .close, title: CmuxToastStrings.dismiss, target: nil, action: nil)
     var onAction: (() -> Void)?
     var onClose: (() -> Void)?
     var onHover: ((Bool) -> Void)?
@@ -40,22 +40,20 @@ public final class CmuxToastView: NSView {
         let row = NSStackView(views: [label])
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = Metrics.space3
-        let padding = Metrics.space4
-        row.edgeInsets = NSEdgeInsets(top: Metrics.space2, left: padding, bottom: Metrics.space2, right: Metrics.space2)
+        row.spacing = Metrics.space2
+        // The message sits at the pane text inset; the buttons' hover fills stop one small step
+        // short of the edge, so the toast reads as one material with text in it.
+        row.edgeInsets = NSEdgeInsets(top: Metrics.space2, left: Metrics.space4,
+                                      bottom: Metrics.space2, right: Metrics.space2)
         row.translatesAutoresizingMaskIntoConstraints = false
         if let action = toast.action {
-            let button = CmuxDialogButtonView(CmuxDialogButton(id: "action", title: action.title, role: .default),
-                                              target: self, action: #selector(runAction))
+            let button = CmuxToastButton(style: .action, title: action.title, target: self, action: #selector(runAction))
             actionButton = button
             row.addArrangedSubview(button)
+            row.setCustomSpacing(Metrics.space3, after: label)
         }
-        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: CmuxToastStrings.dismiss)
-        closeButton.isBordered = false
         closeButton.target = self
         closeButton.action = #selector(close)
-        closeButton.setAccessibilityLabel(CmuxToastStrings.dismiss)
-        performWithTheme { closeButton.contentTintColor = Palette.textSecondary }
         row.addArrangedSubview(closeButton)
 
         let content = NSView()

@@ -4,8 +4,16 @@
 It answers every control_request with success, reports system/init after
 initialize, and replies to every user message with its own arguments as
 JSON (spawn-time checks of the Claude command line).
+
+With FAKE_CLAUDE_STORE set it keeps Claude Code's own session store there:
+the init reports the `--session-id`/`--resume` id, a conversation exists
+once a user message reached it, and `--resume` of one that does not exist
+fails the first prompt with Claude's own "No conversation found" line.
+FAKE_CLAUDE_DIE=1 dies on the first prompt before anything is stored (a
+launcher whose proxy is down).
 """
 import json
+import os
 import sys
 
 
@@ -19,6 +27,16 @@ MODE = "default"
 if "--permission-mode" in sys.argv[:-1]:
     MODE = sys.argv[sys.argv.index("--permission-mode") + 1]
 
+STORE = os.environ.get("FAKE_CLAUDE_STORE")
+SESSION = "fake-claude-session"
+RESUME = None
+if STORE:
+    for flag in ("--session-id", "--resume"):
+        if flag in sys.argv[:-1]:
+            SESSION = sys.argv[sys.argv.index(flag) + 1]
+            if flag == "--resume":
+                RESUME = SESSION
+
 for line in sys.stdin:
     try:
         msg = json.loads(line)
@@ -29,9 +47,19 @@ for line in sys.stdin:
         request = msg.get("request") or {}
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
         if request.get("subtype") == "initialize":
-            send({"type": "system", "subtype": "init", "session_id": "fake-claude-session", "model": "fake",
+            send({"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
                   "permissionMode": MODE, "tools": [], "mcp_servers": []})
     elif kind == "user":
+        if os.environ.get("FAKE_CLAUDE_DIE") == "1":
+            sys.stderr.write("proxy down\n")
+            sys.stderr.flush()
+            sys.exit(1)
+        if STORE and RESUME and not os.path.exists(os.path.join(STORE, RESUME)):
+            sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
+            sys.stderr.flush()
+            sys.exit(1)
+        if STORE:
+            open(os.path.join(STORE, SESSION), "w").close()
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
         text = json.dumps(sys.argv[1:])

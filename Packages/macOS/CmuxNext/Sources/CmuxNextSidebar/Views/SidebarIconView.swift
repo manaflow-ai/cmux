@@ -11,7 +11,7 @@ import QuartzCore
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
     private let swatch = CALayer()
-    private let emoji = NSTextField(labelWithString: "")
+    private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
     /// A symbol without a color draws in the primary text color (a group's
     /// icon inside its colored label, next to the name) instead of the
@@ -30,7 +30,6 @@ final class SidebarIconView: NSView {
         layer?.addSublayer(swatch)
         imageView.imageScaling = .scaleProportionallyDown
         addSubview(imageView)
-        emoji.alignment = .center
         addSubview(emoji)
     }
 
@@ -43,7 +42,7 @@ final class SidebarIconView: NSView {
     static let chipAlpha: CGFloat = 0.35
 
     /// The emoji drawn now, or nil (tests).
-    var emojiText: String? { emoji.isHidden ? nil : emoji.stringValue }
+    var emojiText: String? { emoji.isHidden ? nil : emoji.text }
 
     /// Whether the emoji sits on a color chip (tests).
     var showsChip: Bool {
@@ -55,8 +54,9 @@ final class SidebarIconView: NSView {
         isHidden = !Self.showsIcon(icon, fallback: fallback)
         emoji.isHidden = true
         switch icon {
-        case let .emoji(text, _)?:
-            emoji.stringValue = text
+        case let .emoji(text, chip)?:
+            emoji.text = text
+            emoji.fill = chip == nil ? 0.86 : 0.7
             emoji.isHidden = false
             imageView.isHidden = true
         case let .symbol(name, tint)?:
@@ -105,9 +105,7 @@ final class SidebarIconView: NSView {
     override func layout() {
         super.layout()
         imageView.frame = bounds
-        emoji.font = .systemFont(ofSize: max(8, bounds.height * 0.72))
-        let height = ceil(emoji.intrinsicContentSize.height)
-        emoji.frame = NSRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
+        emoji.frame = bounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if case .emoji(_, _?)? = icon {

@@ -57,7 +57,11 @@ impl Brain {
         self.state.spawns.insert(spawn.clone(), record);
         self.save();
         (self.log)(&format!("spawn {spawn}: {}", ids.join(", ")));
-        Ok(SpawnPlan { spawn, ids })
+        Ok(SpawnPlan {
+            spawn,
+            ids,
+            engine: self.spawn_engine(),
+        })
     }
 
     pub(super) fn sub_started(&mut self, id: &str, session_id: String, policy: Option<String>) {

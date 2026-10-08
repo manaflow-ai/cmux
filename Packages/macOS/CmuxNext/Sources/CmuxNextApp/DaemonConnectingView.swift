@@ -114,8 +114,8 @@ final class DaemonConnectingView: NSView {
             if !mark.isRevealed { mark.reveal() }
             titleLabel.stringValue = Strings.daemonUnavailable
             detailLabel.stringValue = DaemonStartup.shared.isPermanent(error)
-                ? error.description
-                : "\(error.description)\n\(Strings.daemonRetrying)"
+                ? RefusalStrings.describe(error)
+                : "\(RefusalStrings.describe(error))\n\(Strings.daemonRetrying)"
             detailLabel.isHidden = false
         }
         setAccessibilityLabel([titleLabel.stringValue, detailLabel.stringValue].filter { !$0.isEmpty }.joined(separator: ". "))
