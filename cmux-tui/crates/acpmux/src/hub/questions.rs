@@ -135,16 +135,48 @@ fn item(q: &Value, index: usize, codex: bool) -> Option<Value> {
     Some(item)
 }
 
+/// The most items one answer may hold.
+pub(super) const MAX_ANSWER_ITEMS: usize = 64;
+/// The most strings one item's list may hold.
+pub(super) const MAX_ANSWER_LIST_STRINGS: usize = 64;
+/// The most UTF-8 bytes of one item key, and of each string of an item's value.
+pub(super) const MAX_ANSWER_BYTES: usize = 4096;
+
 /// Checks a client's `answers` for `request`. Answers are accepted only for
 /// a question, in the asking harness's shape: Claude Code (and the Chief) by
 /// question text with one non-empty string each; Codex by item id with
 /// `{answers: [string, ...]}`. Every item must be answered, nothing else.
+/// The daemon bounds them itself (it does not trust a client's relay): at
+/// most [`MAX_ANSWER_ITEMS`] items, [`MAX_ANSWER_LIST_STRINGS`] strings per
+/// list and [`MAX_ANSWER_BYTES`] bytes per key or string, the limits of the
+/// Swift pane relay (`AcpmuxPaneMethods+Answers`).
 pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcError> {
     let invalid = |why: &str| Err(RpcError::invalid_params(format!("answers {why}")));
     let Some(question) = question(request) else {
         return invalid("are accepted only for a question");
     };
     let Some(answers) = answers.as_object() else { return invalid("must be an object") };
+    if answers.len() > MAX_ANSWER_ITEMS {
+        return invalid(&format!("may hold at most {MAX_ANSWER_ITEMS} items"));
+    }
+    let too_long = |text: &str| text.len() > MAX_ANSWER_BYTES;
+    if answers.iter().any(|(key, value)| {
+        too_long(key)
+            || match value {
+                Value::String(text) => too_long(text),
+                Value::Object(codex) => {
+                    codex.get("answers").and_then(Value::as_array).is_some_and(|list| {
+                        list.len() > MAX_ANSWER_LIST_STRINGS
+                            || list.iter().any(|s| s.as_str().is_some_and(too_long))
+                    })
+                }
+                _ => false,
+            }
+    }) {
+        return invalid(&format!(
+            "may hold at most {MAX_ANSWER_LIST_STRINGS} strings per item and {MAX_ANSWER_BYTES} bytes per key or string"
+        ));
+    }
     let items = question["items"].as_array().cloned().unwrap_or_default();
     let codex = question["harness"] == "codex";
     let keys: Vec<String> = items
