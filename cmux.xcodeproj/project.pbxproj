@@ -4254,6 +4254,7 @@
 		8777E0018777E0018777E001 /* Workspace+AttentionFlashRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */; };
 		078F2E4F32DC4B2AA5A84A4A /* Workspace+BrowserDuplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05CFF7107D1F48BC805549F3 /* Workspace+BrowserDuplication.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
+		4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */; };
 		D86840000000000000000007 /* Workspace+ClosedPanelLayoutRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000008 /* Workspace+ClosedPanelLayoutRestore.swift */; };
 		E6F61F31711B4439A8C4C4A8 /* Workspace+CloudDisplayOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F78AF3938A4C58A82EA25C /* Workspace+CloudDisplayOwnership.swift */; };
 		C13304000000000000000003 /* Workspace+CloudDragSplitRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13304000000000000000004 /* Workspace+CloudDragSplitRouting.swift */; };
@@ -8677,6 +8678,7 @@
 		8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AttentionFlashRouting.swift"; sourceTree = "<group>"; };
 		05CFF7107D1F48BC805549F3 /* Workspace+BrowserDuplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+BrowserDuplication.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
+		B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeBackgroundSessionRestore.swift"; sourceTree = "<group>"; };
 		D86840000000000000000008 /* Workspace+ClosedPanelLayoutRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClosedPanelLayoutRestore.swift"; sourceTree = "<group>"; };
 		14F78AF3938A4C58A82EA25C /* Workspace+CloudDisplayOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudDisplayOwnership.swift"; sourceTree = "<group>"; };
 		C13304000000000000000004 /* Workspace+CloudDragSplitRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudDragSplitRouting.swift"; sourceTree = "<group>"; };
@@ -12007,6 +12009,7 @@
 				4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */,
 				11E0CF443B31591C215D6955 /* TextViewUndoRegistrationLifetime.swift */,
 				4252144220782379B2B347BE /* SettingsHostingView.swift */,
+				B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16814,6 +16817,7 @@
 				8777E0018777E0018777E001 /* Workspace+AttentionFlashRouting.swift in Sources */,
 				078F2E4F32DC4B2AA5A84A4A /* Workspace+BrowserDuplication.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
+				4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */,
 				D86840000000000000000007 /* Workspace+ClosedPanelLayoutRestore.swift in Sources */,
 				E6F61F31711B4439A8C4C4A8 /* Workspace+CloudDisplayOwnership.swift in Sources */,
 				C13304000000000000000003 /* Workspace+CloudDragSplitRouting.swift in Sources */,
