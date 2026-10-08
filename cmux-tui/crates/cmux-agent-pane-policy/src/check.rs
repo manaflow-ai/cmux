@@ -1,10 +1,9 @@
 //! The full check of one page frame, in the order of CmuxNextAgentPane
 //! `AgentPaneTransport.checkOne` (AgentPaneTransport+Check.swift): the
 //! allowlist step ([`allowlist_check`]), the session scope, the params rule
-//! (P1) and the question answers rule (crate only so far), the prompt block
-//! `_meta` strip, the gesture ticket strip, the facts the host decides on
-//! (gesture, path check, attach, scope credit, setting), and last the
-//! LocalApp token into the first frame. It returns the checked
+//! (P1), the prompt block `_meta` strip, the gesture ticket strip, the facts
+//! the host decides on (gesture, path check, attach, scope credit, setting),
+//! and last the LocalApp token into the first frame. It returns the checked
 //! object: the host sends a fresh serialization of it ([`encode`]), never the
 //! page's bytes.
 //!
@@ -17,8 +16,8 @@ use crate::error::Refusal;
 use crate::frame::{Refused, allowlist_check, contains, raw_id, with_local_app_token};
 use crate::gesture::{PermissionOptions, needs_gesture};
 use crate::params::{
-    breaks_answers_rule, breaks_params_rule, requested_setting, session_refusal,
-    stripping_prompt_meta, take_gesture_ticket,
+    breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
+    take_gesture_ticket,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -211,9 +210,12 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
     {
         return Checked::Refuse { refused, spend: carried };
     }
-    if breaks_params_rule(&object, state.mode_fields)
-        || breaks_answers_rule(&object, |p| state.options.is_question(p))
-    {
+    if breaks_params_rule(&object, state.mode_fields) {
+        let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
+        return Checked::Refuse { refused, spend: carried };
+    }
+    // Answers go only to a pending question, keyed by its items and bounded.
+    if crate::answers::breaks_answers_rule(&object, state.options) {
         let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
         return Checked::Refuse { refused, spend: carried };
     }

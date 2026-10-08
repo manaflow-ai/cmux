@@ -313,6 +313,29 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         if (cur.bound_team !== v.team) return reject("auth.forbidden", "install is not bound to this team")
         return revokeInstall(state, cur, ctx.now)
       }
+      case "user.team_left": {
+        // Only the team's own TeamDO (system:team:<id>) after it removed this user (cx-44j.47).
+        const { team, at } = (params ?? {}) as { team?: unknown; at?: unknown }
+        if (typeof team !== "string" || p.kind !== "system" || p.identity !== `system:team:${team}`) return reject("auth.forbidden", "internal op of the team's TeamDO")
+        // Only installs that existed at the removal: a late delivery after a re-join keeps the new ones.
+        const before = typeof at === "number" ? at : ctx.now
+        let next = state
+        const outbox: Array<OutboxItem> = []
+        const revoked: Array<string> = []
+        for (const cur of Object.values(state.installs)) {
+          // Bound to the team, or authorized by the team's SSO: no authority derived from the team survives the removal.
+          // (an install bound to another team, such as that team's VM, keeps the other team's authority).
+          const fromTeam = cur.bound_team === team || (cur.bound_team === undefined && cur.sso_team === team)
+          if (!fromTeam || cur.revoked_at !== null || cur.created_at > before) continue
+          const r = revokeInstall(next, next.installs[cur.id]!, ctx.now)
+          if (!r.ok) return r
+          next = r.state
+          outbox.push(...(r.outbox ?? []))
+          revoked.push(cur.id)
+        }
+        if (revoked.length === 0) return { ok: true, state, value: { revoked }, changed: false }
+        return { ok: true, state: next, value: { revoked }, outbox }
+      }
       case "user.team_index": {
         // Only the team's own TeamDO (its outbox delivers as system:team:<id>) indexes that team.
         const v = params as { team?: unknown; role?: unknown; kind?: unknown }

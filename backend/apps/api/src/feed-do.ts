@@ -102,6 +102,13 @@ export class FeedDO extends OwnerDO<FeedState> {
     return { ok: false, message: rej && rej.t === "reject" ? rej.message : "the feed did not take the request" }
   }
 
+  /** The team of the integration approve item `item` (same poster-scope check), or null (cx-3bi.16.12). */
+  async integrationItemTeam(entity: string, item: string): Promise<string | null> {
+    if (!this.isBound(entity)) return null
+    const found = this.bind(entity).currentState.items[item]
+    return found ? (approvalOf(found)?.team ?? null) : null
+  }
+
   /**
    * G8: the team whose ConnectionDO posted this user's approve request for `request` (the item's
    * poster scope must name it, feed-approvals.ts), or null. The Worker routes
