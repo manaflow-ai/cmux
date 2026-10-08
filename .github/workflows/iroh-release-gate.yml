@@ -350,18 +350,20 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "${STACK_PROJECT_ID:-}" ]] || { echo "::error::missing production Stack project id"; exit 1; }
-          [[ -n "${STACK_PUBLISHABLE_CLIENT_KEY:-}" ]] || { echo "::error::missing production Stack publishable key"; exit 1; }
           [[ -n "${STACK_SECRET_SERVER_KEY:-}" ]] || { echo "::error::missing production Stack server key"; exit 1; }
           umask 077
           production_dir="$RUNNER_TEMP/cmux-production-stack"
           mkdir -p "$production_dir"
           chmod 700 "$production_dir"
           production_env="$production_dir/stack.env"
+          # The publishable key is optional: the production project requires none.
           cat > "$production_env" <<EOF
           NEXT_PUBLIC_STACK_PROJECT_ID=$STACK_PROJECT_ID
-          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=$STACK_PUBLISHABLE_CLIENT_KEY
           STACK_SECRET_SERVER_KEY=$STACK_SECRET_SERVER_KEY
           EOF
+          if [[ -n "${STACK_PUBLISHABLE_CLIENT_KEY:-}" ]]; then
+            printf 'NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=%s\n' "$STACK_PUBLISHABLE_CLIENT_KEY" >> "$production_env"
+          fi
           chmod 600 "$production_env"
 
       - name: Run Iroh gate

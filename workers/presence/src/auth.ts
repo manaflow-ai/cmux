@@ -142,10 +142,14 @@ async function sha256Hex(value: string): Promise<string> {
 }
 
 function stackHeaders(env: AuthEnv, accessToken: string): Record<string, string> {
+  // No key header when none is configured: Stack accepts a request without
+  // one for a project that does not require keys, but rejects an empty or
+  // revoked key.
+  const publishableKey = env.STACK_PUBLISHABLE_CLIENT_KEY?.trim();
   return {
     "x-stack-access-type": "client",
     "x-stack-project-id": env.STACK_PROJECT_ID ?? "",
-    "x-stack-publishable-client-key": env.STACK_PUBLISHABLE_CLIENT_KEY ?? "",
+    ...(publishableKey ? { "x-stack-publishable-client-key": publishableKey } : {}),
     "x-stack-access-token": accessToken,
   };
 }
