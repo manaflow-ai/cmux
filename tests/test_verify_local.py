@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import select
 import signal
 import shutil
 import subprocess
@@ -181,7 +182,20 @@ class PreflightTests(unittest.TestCase):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
             try:
-                time.sleep(0.2)
+                ready = bytearray()
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    readable, _, _ = select.select(
+                        [child.stdout], [], [], max(0, deadline - time.monotonic())
+                    )
+                    if not readable:
+                        break
+                    line = child.stdout.readline()
+                    if not line:
+                        break
+                    ready.extend(line.encode())
+                    if b"RUN xcstrings" in ready and b"RUN localization" in ready:
+                        break
                 os.killpg(child.pid, signal.SIGINT)
                 output, errors = child.communicate(timeout=5)
             finally:
@@ -189,8 +203,9 @@ class PreflightTests(unittest.TestCase):
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait()
             self.assertNotEqual(child.returncode, 0)
-            self.assertIn("INTERRUPTED xcstrings", output + errors)
-            self.assertIn("INTERRUPTED localization", output + errors)
+            combined = ready.decode() + output + errors
+            self.assertIn("INTERRUPTED xcstrings", combined)
+            self.assertIn("INTERRUPTED localization", combined)
 
     def test_ctrl_c_skips_remaining_checks(self):
         with repo_fixture() as repo:

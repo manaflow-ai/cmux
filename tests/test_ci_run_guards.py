@@ -109,7 +109,10 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
     def test_groups_that_pass_state_between_steps_run_in_order(self) -> None:
         by_group = {unit.group or unit.job: unit for unit in self.units}
         # agent-chat's bun install feeds its bun test (working-directory).
-        self.assertTrue(run_ci_guards.is_stateful(by_group["preflight"]))
+        self.assertTrue(run_ci_guards.is_stateful(by_group["preflight-agent-chat"]))
+        # The remaining static preflight checks are independent and can be
+        # scheduled by verify-local without carrying Bun state between steps.
+        self.assertFalse(run_ci_guards.is_stateful(by_group["preflight"]))
         # The fast group's steps are independent, which is what makes it fast.
         self.assertFalse(run_ci_guards.is_stateful(by_group["ci"]))
 
