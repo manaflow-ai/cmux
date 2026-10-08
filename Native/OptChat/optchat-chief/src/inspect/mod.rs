@@ -223,3 +223,60 @@ pub(crate) fn parse_or<T: std::str::FromStr>(
         Some(v) => v.parse().map_err(|_| bad(format!("not a number: {v:?}"))),
     }
 }
+
+/// The paths the tools socket's `inspect` tool answers: every read-only API
+/// path, and nothing else (no page, no ticket).
+pub const INSPECT_PATHS: [&str; 7] = [
+    "/api/status",
+    "/api/turns",
+    "/api/turn",
+    "/api/node",
+    "/api/level",
+    "/api/date",
+    "/api/search",
+];
+
+/// Largest answer the `inspect` tool returns; a larger one is refused (413),
+/// never cut.
+pub const INSPECT_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// The tools socket's `inspect` tool: `{"tool": "inspect", "method"?: "GET",
+/// "path": "/api/..", "query"?: {key: value}}` answers `{"status": 200,
+/// "body": ..}` or `{"status": 4xx|5xx, "error": ".."}`. Read-only by
+/// construction: GET only, the `INSPECT_PATHS` allowlist, `cap` bytes at most.
+pub fn tool_answer(inspector: &Inspector, req: &Value, cap: usize) -> Value {
+    let fail = |status: u16, why: &str| json!({"status": status, "error": why});
+    let method = req.get("method").and_then(Value::as_str).unwrap_or("GET");
+    if method != "GET" {
+        return fail(405, "the inspector is read-only: GET only");
+    }
+    let path = req.get("path").and_then(Value::as_str).unwrap_or("");
+    if !INSPECT_PATHS.contains(&path) {
+        return fail(404, "not an inspector path");
+    }
+    let query: Vec<(String, String)> = req
+        .get("query")
+        .and_then(Value::as_object)
+        .map(|q| {
+            q.iter()
+                .filter_map(|(k, v)| {
+                    let v = match v {
+                        Value::String(s) => s.clone(),
+                        Value::Number(n) => n.to_string(),
+                        _ => return None,
+                    };
+                    Some((k.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    match inspector.answer(path, &query) {
+        Ok(body) => {
+            if body.to_string().len() > cap {
+                return fail(413, "the answer is larger than the inspector's cap");
+            }
+            json!({"status": 200, "body": body})
+        }
+        Err((status, why)) => fail(status, &why),
+    }
+}
