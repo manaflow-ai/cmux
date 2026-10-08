@@ -15,6 +15,10 @@ enum ProUpgradePresenter {
 
     @MainActor
     private static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
+    @MainActor
+    private static var pricingPresentationTask: Task<Void, Never>?
+    @MainActor
+    private static var pricingPresentationGeneration = 0
 
     @MainActor
     static func present(source: ProUpgradeSource) {
@@ -49,6 +53,49 @@ enum ProUpgradePresenter {
             NSWorkspace.shared.open(url)
             return
         }
+        // Exchange the native auth session for an isolated WebKit data store
+        // before opening pricing. Falling straight through to the system
+        // browser loses the cmux session and sends signed-in users to sign-in.
+        pricingPresentationTask?.cancel()
+        pricingPresentationGeneration &+= 1
+        let generation = pricingPresentationGeneration
+        pricingPresentationTask = Task { @MainActor in
+            defer {
+                guard pricingPresentationGeneration == generation else { return }
+                pricingPresentationTask = nil
+            }
+            await presentAuthenticatedPricing(url: url)
+        }
+    }
+
+    @MainActor
+    private static func presentAuthenticatedPricing(url: URL) async {
+        guard !Task.isCancelled else { return }
+        guard let auth = AppDelegate.shared?.auth else {
+            guard !Task.isCancelled else { return }
+            presentAppPricingWebWithoutSession(url: url)
+            return
+        }
+
+        var outcome = await auth.browserAppSession.request(destinationURL: url)
+        if outcome.shouldRetry {
+            guard !Task.isCancelled else { return }
+            outcome = await auth.browserAppSession.request(destinationURL: url)
+        }
+        if case .cancelled = outcome { return }
+        guard !Task.isCancelled else { return }
+        if case let .navigation(navigation) = outcome {
+            // Do not discard an authenticated WebKit store and reopen the
+            // page anonymously if the selected workspace cannot accept it.
+            _ = presentBrowserSplit(navigation: navigation)
+            return
+        }
+        guard !Task.isCancelled else { return }
+        presentAppPricingWebWithoutSession(url: url)
+    }
+
+    @MainActor
+    private static func presentAppPricingWebWithoutSession(url: URL) {
         if presentDedicatedPricingWorkspace(url: url) {
             return
         }
@@ -128,6 +175,25 @@ enum ProUpgradePresenter {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    @MainActor
+    private static func presentBrowserSplit(navigation: BrowserAppSessionNavigation) -> Bool {
+        guard let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            return false
+        }
+        return workspace.newBrowserSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            initialRequest: navigation.request,
+            focus: true,
+            allowsExternalBrowserFallback: false,
+            chromeVisibility: .hidden,
+            transparentBackground: true,
+            initialDividerPosition: 0.58,
+            websiteDataStore: navigation.websiteDataStore
+        ) != nil
     }
 
     @MainActor

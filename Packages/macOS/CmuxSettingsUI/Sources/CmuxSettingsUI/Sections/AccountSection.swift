@@ -48,7 +48,7 @@ public struct AccountSection: View {
                 }
                 .settingsSearchAnchors([AccountTeamCard.searchAnchorID])
             }
-            if accountFlow?.isProUpgradeAvailable ?? false {
+            if let accountFlow {
                 SettingsCard {
                     ProUpgradeCard(flow: accountFlow)
                 }

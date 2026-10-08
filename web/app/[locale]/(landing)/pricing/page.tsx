@@ -244,12 +244,10 @@ function PricingContent({
     attribution,
   );
   // Max is monthly only: one checkout link, no interval parameter.
-  const maxCheckoutHref = withCheckoutAttribution(
-    snapshot.authenticated && snapshot.isPro && !isMax
-      ? "/api/billing/portal?flow=switch_plan&plan=max"
-      : MAX_CHECKOUT_URL,
-    attribution,
-  );
+  // The checkout endpoint decides whether this is a new purchase or an
+  // existing-subscription plan switch. Pro entitlement alone does not imply
+  // that a Stripe customer exists (for example, manually granted Pro access).
+  const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
   const proAnnualLabelSet = {
     billingPeriod: t("billingPeriod"),
@@ -375,11 +373,23 @@ function PricingContent({
         }
         action={appStoreAction ? appStoreAction() : isProCurrent ? (
           <div className="space-y-2">
+            {canManageBilling ? (
+              <SecondaryLink href="/api/billing/portal">
+                {t("manageBilling")}
+              </SecondaryLink>
+            ) : (
+              <DisabledButton>{t("currentPlan")}</DisabledButton>
+            )}
+          </div>
+        ) : isMax ? (
+          canManageBilling ? (
             <SecondaryLink href="/api/billing/portal">
               {t("manageBilling")}
             </SecondaryLink>
-          </div>
-        ) : (canManageBilling && !isGo) || isMax ? (
+          ) : (
+            <DisabledButton>{t("currentPlan")}</DisabledButton>
+          )
+        ) : canManageBilling && !isGo ? (
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
           </SecondaryLink>
@@ -402,9 +412,13 @@ function PricingContent({
       >
         {appStoreAction ? appStoreAction() : isMax ? (
           <div className="space-y-2">
-            <SecondaryLink href="/api/billing/portal">
-              {t("manageBilling")}
-            </SecondaryLink>
+            {canManageBilling ? (
+              <SecondaryLink href="/api/billing/portal">
+                {t("manageBilling")}
+              </SecondaryLink>
+            ) : (
+              <DisabledButton>{t("currentPlan")}</DisabledButton>
+            )}
           </div>
         ) : canManageBilling && !snapshot.isPro ? (
           <SecondaryLink href="/api/billing/portal">
@@ -453,7 +467,15 @@ function PricingContent({
         ),
         pro: appStoreAction ? appStoreAction("compact") : isProCurrent ? (
           <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
-        ) : (canManageBilling && !isGo) || isMax ? (
+        ) : isMax ? (
+          canManageBilling ? (
+            <SecondaryLink href="/api/billing/portal" size="compact">
+              {t("manageBilling")}
+            </SecondaryLink>
+          ) : (
+            <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+          )
+        ) : canManageBilling && !isGo ? (
           <SecondaryLink href="/api/billing/portal" size="compact">
             {t("manageBilling")}
           </SecondaryLink>

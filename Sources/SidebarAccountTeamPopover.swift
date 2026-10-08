@@ -152,20 +152,18 @@ private struct SidebarAccountPopover: View {
                 }
                 .accessibilityIdentifier("SidebarAccountSignInButton")
             }
-            if accountFlow?.isProUpgradeAvailable == true {
-                if accountFlow?.currentIdentity == nil {
-                    Divider()
-                        .padding(.vertical, 4)
-                }
-                accountMenuRow(
-                    title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                    systemImage: "sparkles"
-                ) {
-                    dismiss()
-                    accountFlow?.openProUpgrade(source: .sidebarAccountMenu)
-                }
-                .accessibilityIdentifier("SidebarAccountUpgradeButton")
+            if accountFlow?.currentIdentity == nil {
+                Divider()
+                    .padding(.vertical, 4)
             }
+            accountMenuRow(
+                title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                systemImage: "sparkles"
+            ) {
+                dismiss()
+                accountFlow?.openProUpgrade(source: .sidebarAccountMenu)
+            }
+            .accessibilityIdentifier("SidebarAccountUpgradeButton")
             if accountFlow?.currentIdentity != nil {
                 // Same as the Cloud team menu: the browser opens on the sign-in
                 // page's account chooser, and the app follows whichever is picked.

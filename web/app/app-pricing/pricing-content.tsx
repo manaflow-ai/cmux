@@ -6,7 +6,6 @@ import {
   FREE_PLAN_ID,
   MAX_PLAN_ID,
   GO_PLAN_ID,
-  PRO_PLAN_ID,
   type BillingManagementKind,
   type PersonalBillingSource,
 } from "../../services/billing/pro";
@@ -99,8 +98,9 @@ export function AppPricingContent({
     appStoreManaged,
     manageBilling: (canManageBilling && !isGo) || isMax,
   });
-  // A Pro subscriber keeps the Max checkout link; the server routes an active
-  // Pro subscription to the Stripe portal upgrade flow.
+  // The checkout endpoint decides whether this is a new purchase or an
+  // existing-subscription plan switch. Pro entitlement alone does not imply
+  // that a Stripe customer exists (for example, manually granted Pro access).
   const maxAction = personalPlanActionState({
     isCurrent: isMax,
     appStorePaymentGated,
@@ -134,18 +134,13 @@ export function AppPricingContent({
     attribution,
   );
   // Max is monthly only: one checkout link, no interval parameter.
-  const maxCheckoutHref =
-    snapshot.isPro && !isMax
-      ? withExternalBrowserIntent(
-          `/api/billing/portal?flow=switch_plan&plan=max&cmux_source=${encodeURIComponent(CHECKOUT_SOURCE_APP_PRICING)}&cmux_client=${encodeURIComponent(appStorePaymentGated ? "ios" : "mac")}`,
-        )
-      : appPricingCheckoutURL(
-          "max",
-          requestOrigin,
-          cmuxScheme,
-          undefined,
-          attribution,
-        );
+  const maxCheckoutHref = appPricingCheckoutURL(
+    "max",
+    requestOrigin,
+    cmuxScheme,
+    undefined,
+    attribution,
+  );
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = pending
