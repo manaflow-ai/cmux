@@ -588,7 +588,7 @@ describe("acpmux composer pickers", () => {
 
   test("the mode chip shows the current mode, with descriptions in its menu and the warning color for full access", async () => {
     await render(snapshot({ modes }));
-    expect(button("Mode")!.textContent).not.toContain("Ask for approval");
+    expect(button("Mode")!.textContent).toContain("Ask for approval");
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).toBeNull();
     await act(async () => button("Mode")!.click());
     expect([...doc.querySelectorAll(".acpmux-menu-description")].map((node) => node.textContent)).toEqual([
