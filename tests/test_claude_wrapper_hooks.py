@@ -2467,6 +2467,27 @@ def test_hooks_disabled_is_fully_inert_for_computer_use(failures: list[str]) -> 
     )
 
 
+def test_hooks_disabled_clears_stale_computer_use_auth(failures: list[str]) -> None:
+    def setup(tmp: Path, env: dict) -> None:
+        computer_use_sandbox()(tmp, env)
+        env["CMUX_CUA_SOCKET_AUTH_TOKEN"] = "stale-token"
+
+    code, real_argv, _, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["-p", "hello"],
+        hooks_disabled=True,
+        setup_sandbox=setup,
+        capture_cua_auth=True,
+    )
+    expect(code == 0, f"hooks-disabled stale Computer Use auth: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["-p", "hello"], f"hooks-disabled stale Computer Use auth: unexpected argv {real_argv}", failures)
+    expect(
+        "cmux-cua-parent-auth=absent" in stderr,
+        f"hooks-disabled stale Computer Use auth: stale credential reached Claude: {stderr!r}",
+        failures,
+    )
+
+
 def test_stale_socket_fails_closed_for_computer_use(failures: list[str]) -> None:
     # CMUX_SURFACE_ID can be stale (a shell that outlived cmux). Without a
     # live socket ping there is no authoritative evidence cmux owns this
@@ -3814,6 +3835,7 @@ def main() -> int:
     test_computer_use_driver_skipped_when_disabled(failures)
     test_computer_use_driver_skipped_when_no_driver_available(failures)
     test_hooks_disabled_is_fully_inert_for_computer_use(failures)
+    test_hooks_disabled_clears_stale_computer_use_auth(failures)
     test_stale_socket_fails_closed_for_computer_use(failures)
     test_computer_use_skipped_under_managed_sideload_policy(failures)
     test_computer_use_rejects_group_writable_ancestor(failures)
