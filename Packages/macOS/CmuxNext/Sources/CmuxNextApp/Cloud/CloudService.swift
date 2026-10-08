@@ -46,9 +46,9 @@ final class CloudService {
         )
         installIdentity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
-                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.apiBaseURL.host ?? "unknown")",
-                           team: CodeSigningTeam.current()),
-            transport: InstallHTTPTransport(baseURL: configuration.apiBaseURL),
+                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+            transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
@@ -105,12 +105,13 @@ final class CloudService {
             await auth.awaitRestored()
             for await signedIn in Observations({ self.auth.isSignedIn }) {
                 if signedIn {
-                    await self.installSignedIn()
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
                     await self.refresh()
+                    await self.installSignedIn()
                 } else {
                     self.dropAllMachines()
+                    await self.installIdentity.unbind()
                 }
             }
         })

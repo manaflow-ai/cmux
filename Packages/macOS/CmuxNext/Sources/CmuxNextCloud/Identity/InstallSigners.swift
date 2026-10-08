@@ -11,7 +11,9 @@ struct FileInstallSigner: InstallSigner {
 
     func sign(_ message: Data) async throws -> Data { try key().signature(for: message).rawRepresentation }
 
-    func rotate() async throws { try? FileManager.default.removeItem(at: file) }
+    func rotate() async throws {
+        guard unlink(file.path) == 0 || errno == ENOENT else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    }
 
     private func key() throws -> P256.Signing.PrivateKey {
         if let raw = try? Data(contentsOf: file), let key = try? P256.Signing.PrivateKey(rawRepresentation: raw) { return key }
@@ -28,12 +30,16 @@ struct EnclaveInstallSigner: InstallSigner {
     enum Failure: Error { case secureEnclaveUnavailable, keychain(OSStatus) }
 
     let service: String
+    let account: String
 
     func publicKeyX963() async throws -> Data { try key().publicKey.x963Representation }
 
     func sign(_ message: Data) async throws -> Data { try key().signature(for: message).rawRepresentation }
 
-    func rotate() async throws { _ = SecItemDelete(query() as CFDictionary) }
+    func rotate() async throws {
+        let status = SecItemDelete(query() as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.keychain(status) }
+    }
 
     private func key() throws -> SecureEnclave.P256.Signing.PrivateKey {
         guard SecureEnclave.isAvailable else { throw Failure.secureEnclaveUnavailable }
@@ -50,7 +56,7 @@ struct EnclaveInstallSigner: InstallSigner {
 
     private func query() -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: "install-key"]
+         kSecAttrAccount as String: account]
     }
 
     private func read() throws -> Data? {
