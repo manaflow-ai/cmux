@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Quit-persistence acceptance test (plans/cmux-next/quit-persistence.md 5.2).
 #
-# Runs ON a fleet Mac with a GUI session (cmux-lawrence-2) against a tagged
+# Runs ON the reserved fleet Mac with a GUI session (cmux-mac-mini-cua) against a tagged
 # DEBUG cmux-next build, for example:
 #   cmux-ci build cmux --ref <sha> --tag hq48qp-v2 ...; cmux-ci artifact <id> app.zip
-#   scp app.zip scripts/fleet-quit-persistence.sh cmux-lawrence-2:qp/
-#   ssh cmux-lawrence-2 'bash qp/fleet-quit-persistence.sh --zip qp/app.zip --tag hq48qp-v2'
+#   scp app.zip scripts/fleet-quit-persistence.sh cmux-mac-mini-cua:qp/
+#   ssh cmux-mac-mini-cua 'bash qp/fleet-quit-persistence.sh --zip qp/app.zip --tag hq48qp-v2'
 #
 # It drives the app only through its own sockets (debug.quit, action.run,
 # debug.window_snapshot, the bundled cmux and acpmux CLIs), records the PID
@@ -18,7 +18,7 @@
 #   dock-quit-inactive         dialogs lead + app lifecycle (G7, plan Q3): no inactive-app quit hook (debug.quit inactive)
 # The End Everything checks (end-everything-*) are NOT on this list: they
 # must pass (the home_not_closable fix). second-quit-keeps left the list
-# after it passed on cmux-lawrence-2 (a second Cmd-Q quits and keeps the daemon).
+# after it passed on cmux-mac-mini-cua (a second Cmd-Q quits and keeps the daemon).
 # The agent tab fixture (setup-agent-tab-*) must pass: when New Agent Chat
 # opens no agent tab, the run says SETUP FAILED and exits 1.
 set -euo pipefail

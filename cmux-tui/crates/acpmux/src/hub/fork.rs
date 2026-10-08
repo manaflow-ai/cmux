@@ -95,6 +95,7 @@ impl Hub {
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
             harness_roots: vec![],
+            composer_draft: None,
         };
         let new = self.make_session(meta);
         if is_claude {

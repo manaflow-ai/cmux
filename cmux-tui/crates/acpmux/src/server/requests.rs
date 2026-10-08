@@ -92,6 +92,7 @@ async fn dispatch_request(
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate"], "trustGate": true}}
@@ -712,6 +713,17 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
             Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
+        }
+        method::MUX_DRAFT_GET => {
+            let s = hub.resolve(session_key(&params)?)?;
+            Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}))
+        }
+        method::MUX_DRAFT_SET => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let text = str_param(&params, "text")
+                .ok_or_else(|| RpcError::invalid_params("text is required"))?;
+            let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
+            Ok(json!({"sessionId": s.id, "draft": draft}))
         }
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;

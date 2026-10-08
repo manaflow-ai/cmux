@@ -671,6 +671,33 @@ impl Hub {
         self.append(session, "mux", "rules", json!({"rules": rules}));
     }
 
+    /// The largest composer draft the daemon will persist for one session.
+    pub const MAX_COMPOSER_DRAFT_CHARS: usize = 1_000_000;
+
+    /// Store the unsent composer text without adding it to the transcript.
+    /// Whitespace-only input clears the draft while preserving whitespace in a
+    /// non-empty draft exactly as typed.
+    pub fn set_composer_draft(
+        &self,
+        session: &Session,
+        text: &str,
+    ) -> Result<Option<String>, String> {
+        if text.chars().count() > Self::MAX_COMPOSER_DRAFT_CHARS {
+            return Err(format!(
+                "composer draft exceeds {} characters",
+                Self::MAX_COMPOSER_DRAFT_CHARS
+            ));
+        }
+        let draft = (!text.trim().is_empty()).then(|| text.to_owned());
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.composer_draft = draft.clone();
+            meta.updated_at = now_ms();
+        }
+        self.save_meta(session);
+        Ok(draft)
+    }
+
     /// Turn-by-turn summary from the event log.
     pub fn history(&self, session: &Session, limit: usize) -> Vec<Value> {
         let events = self.store.events(&session.id, 0, 500_000).unwrap_or_default();

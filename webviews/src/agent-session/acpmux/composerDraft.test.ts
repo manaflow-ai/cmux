@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { composerDraft, seededText } from "./composerDraft";
+import { composerDraft, readDurableDraft, seededText, writePersistedDraft } from "./composerDraft";
 import { newSessionParams } from "./direct";
 
 describe("a chat opened from another tab", () => {
@@ -23,5 +23,33 @@ describe("a chat opened from another tab", () => {
       _meta: { acpmux: { harness: "claude" } },
     });
     expect(newSessionParams({})).toEqual({ mcpServers: [], _meta: { acpmux: { harness: undefined } } });
+  });
+
+  test("uses the connected daemon action for durable drafts", async () => {
+    const previous = (globalThis as { window?: unknown }).window;
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    (globalThis as { window?: unknown }).window = {
+      cmuxAcpmuxActions: {
+        "chat.readDraft": async (params: Record<string, unknown>) => {
+          calls.push({ method: "read", params });
+          return { draft: "daemon draft" };
+        },
+        "chat.writeDraft": async (params: Record<string, unknown>) => {
+          calls.push({ method: "write", params });
+          return { draft: params.text };
+        },
+      },
+    };
+    try {
+      expect(await readDurableDraft("session-1")).toBe("daemon draft");
+      writePersistedDraft("session-1", "saved by daemon");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(calls).toEqual([
+        { method: "read", params: { sessionId: "session-1" } },
+        { method: "write", params: { sessionId: "session-1", text: "saved by daemon" } },
+      ]);
+    } finally {
+      (globalThis as { window?: unknown }).window = previous;
+    }
   });
 });

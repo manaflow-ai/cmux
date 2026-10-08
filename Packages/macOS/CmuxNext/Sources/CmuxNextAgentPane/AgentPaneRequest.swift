@@ -13,10 +13,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
-    /// Reads the unsent composer text for a durable session.
-    case readDraft(String)
-    /// Stores or clears the unsent composer text for a durable session.
-    case writeDraft(String, text: String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -149,9 +145,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
     public static let maximumOpenTabText = 8192
-    /// Longest composer draft persisted by the native bridge.
-    public static let maximumDraftText = 1_000_000
-
     public static let handlerName = "agentSession"
 
     /// A shell run's id as ``AgentPaneShell`` mints them.
@@ -173,19 +166,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "chat.persistSession":
             if let id = params?["sessionId"] as? String, !id.isEmpty {
                 self = .persistSession(id)
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.readDraft":
-            if let id = params?["sessionId"] as? String, !id.isEmpty {
-                self = .readDraft(id)
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.writeDraft":
-            if let id = params?["sessionId"] as? String, !id.isEmpty,
-               let text = params?["text"] as? String {
-                self = .writeDraft(id, text: String(text.prefix(Self.maximumDraftText)))
             } else {
                 self = .unsupported(method)
             }

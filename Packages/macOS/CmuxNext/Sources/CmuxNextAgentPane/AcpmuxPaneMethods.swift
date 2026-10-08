@@ -24,7 +24,9 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/warm",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
-        "_acpmux/status",
+        "_acpmux/status", "_acpmux/draft_get",
+        // Session-scoped draft writes are kept separate from the filtered replies above.
+        "_acpmux/draft_set",
         // Hand-off (handoff/protocol.ts HANDOFF_OPS).
         "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
         "_acpmux/handoff_discard",
@@ -162,7 +164,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     ]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):

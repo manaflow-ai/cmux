@@ -6,13 +6,31 @@ export function composerDraft(draft: unknown): string | undefined {
   return typeof draft === "string" && draft.trim() ? draft : undefined;
 }
 
+function daemonDraft(result: unknown): string | undefined {
+  if (result && typeof result === "object" && "draft" in result) {
+    return composerDraft((result as { draft?: unknown }).draft);
+  }
+  return composerDraft(result);
+}
+
 /** The composer text once a draft arrives: the draft, unless the user already typed something. */
 export function seededText(current: string, draft: string | undefined): string {
   return draft && !current ? draft : current;
 }
 
 const PERSISTED_DRAFT_PREFIX = "cmux.acpmux.composer-draft.";
-let nativeWrite: Promise<void> = Promise.resolve();
+let daemonWrite: Promise<void> = Promise.resolve();
+
+type DraftAction = (params: Record<string, unknown>) => Promise<unknown>;
+
+function pageDraftAction(name: "chat.readDraft" | "chat.writeDraft"): DraftAction | undefined {
+  const page = (
+    globalThis as typeof globalThis & {
+      window?: { cmuxAcpmuxActions?: Record<string, DraftAction> };
+    }
+  ).window;
+  return page?.cmuxAcpmuxActions?.[name];
+}
 
 function persistedDraftKey(sessionId: string | undefined): string | undefined {
   if (!sessionId?.trim()) return undefined;
@@ -31,7 +49,7 @@ export function readPersistedDraft(sessionId: string | undefined): string | unde
   }
 }
 
-/// Stores or clears an unsent prompt in the remount cache and app-owned native store.
+/// Stores or clears an unsent prompt in the remount cache and daemon session state.
 export function writePersistedDraft(sessionId: string | undefined, text: string): void {
   const key = persistedDraftKey(sessionId);
   if (!key) return;
@@ -41,24 +59,23 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
   } catch {
     // A storage failure must never interrupt typing or sending.
   }
-  // The app-owned bridge is the durable store. Keep writes ordered because each keystroke queues
-  // an async page-host call, while localStorage remains the synchronous remount cache.
-  void import("./native")
-    .then(({ postNative }) => {
-      nativeWrite = nativeWrite
-        .catch(() => undefined)
-        .then(() => postNative("chat.writeDraft", { sessionId, text }).then(() => undefined));
-      return nativeWrite;
-    })
-    .catch(() => undefined);
+  // Keep writes ordered because each keystroke queues an async daemon call, while localStorage
+  // remains the synchronous remount cache.
+  daemonWrite = daemonWrite
+    .catch(() => undefined)
+    .then(() => {
+      const action = pageDraftAction("chat.writeDraft");
+      return action?.({ sessionId, text }).then(() => undefined);
+    });
+  void daemonWrite.catch(() => undefined);
 }
 
-/// Reads the app-owned draft; a missing bridge is expected in browser-only and test hosts.
-export async function readNativePersistedDraft(sessionId: string | undefined): Promise<string | undefined> {
+/// Reads the daemon draft; a missing page action is expected in browser-only and test hosts.
+export async function readDurableDraft(sessionId: string | undefined): Promise<string | undefined> {
   if (!sessionId?.trim()) return undefined;
   try {
-    const { postNative } = await import("./native");
-    return composerDraft(await postNative("chat.readDraft", { sessionId }));
+    const action = pageDraftAction("chat.readDraft");
+    return action ? daemonDraft(await action({ sessionId })) : undefined;
   } catch {
     return undefined;
   }

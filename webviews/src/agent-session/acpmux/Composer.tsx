@@ -23,7 +23,7 @@ import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs } from "./cmuxCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
-import { readNativePersistedDraft, readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
+import { readDurableDraft, readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -307,7 +307,7 @@ export function Composer({
   }, [sessionId, text]);
   useEffect(() => {
     let current = true;
-    void readNativePersistedDraft(sessionId).then((restored) => {
+    void readDurableDraft(sessionId).then((restored) => {
       if (!current || !restored || field.current?.value() || textRef.current) return;
       setText(restored);
       setCaret(restored.length);

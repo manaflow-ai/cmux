@@ -55,8 +55,6 @@ describe("agent page host", () => {
   test("each old bridge method has its cmux.agent op", () => {
     expect(agentPageOp("ready")).toBe("cmux.agent.handshake");
     expect(agentPageOp("chat.persistSession")).toBe("cmux.agent.session.persist");
-    expect(agentPageOp("chat.readDraft")).toBe("cmux.agent.chat.readDraft");
-    expect(agentPageOp("chat.writeDraft")).toBe("cmux.agent.chat.writeDraft");
     expect(agentPageOp("git.status")).toBe("cmux.agent.git.status");
     expect(agentPageOp("quick.openInWindow")).toBe("cmux.agent.quick.openInWindow");
   });

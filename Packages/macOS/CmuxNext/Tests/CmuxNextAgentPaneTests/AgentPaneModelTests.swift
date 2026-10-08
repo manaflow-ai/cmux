@@ -77,31 +77,6 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(model.sessionId == "s-9")
     }
 
-    /// Composer text is kept by the app-owned store, so a private WebKit page can
-    /// drop its local storage while the session's unsent prompt survives.
-    @Test func composerDraftsRoundTripThroughTheNativeStore() async throws {
-        let suite = "cmux.agent-pane-draft-tests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let store = UserDefaultsAgentPaneDraftStore(defaults: defaults, keyPrefix: "draft.")
-        let model = AgentPaneModel(host: MockAgentPaneHost(), draftStore: store)
-        #expect(
-            AgentPaneRequest(body: ["method": "chat.readDraft", "params": ["sessionId": "session-1"]] as [String: Any])
-                == .readDraft("session-1")
-        )
-        #expect(
-            AgentPaneRequest(body: ["method": "chat.writeDraft", "params": ["sessionId": "session-1", "text": "keep this"]] as [String: Any])
-                == .writeDraft("session-1", text: "keep this")
-        )
-        let write = await model.respond(to: .writeDraft("session-1", text: "keep this"))
-        #expect(write["ok"] as? Bool == true)
-        let read = await model.respond(to: .readDraft("session-1"))
-        #expect(read["value"] as? String == "keep this")
-        _ = await model.respond(to: .writeDraft("session-1", text: "   "))
-        let cleared = await model.respond(to: .readDraft("session-1"))
-        #expect(cleared["value"] is NSNull)
-    }
-
     /// `ready` with `reconnect: true` comes from a page that lost its daemon.
     @Test func aReconnectingPageGetsAHandshakeThatDoesNotStartTheDaemon() async throws {
         #expect(AgentPaneRequest(body: ["method": "ready", "params": ["reconnect": true]] as [String: Any]) == .reconnect)
