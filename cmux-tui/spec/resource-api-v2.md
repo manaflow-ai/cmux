@@ -117,7 +117,11 @@ or `error`; `title` and `msg` are untrusted display text without control or
 invisible formatting characters, at most 256 and 1024 characters; a primary
 prompt start removes `working`, `blocked` and `idle` records, an exited
 terminal shows only `done` and `error`, at most 256 records; absent when
-there are none; `cmux terminal <selector> status` prints it). Other state resources travel as `state_upsert` and
+there are none; `cmux terminal <selector> status` prints it). Every status
+change also emits the normal terminal upsert on `session.events`, so a socket
+client can update this field without polling. Journal hooks filter the
+corresponding `terminal.program_status` event; its explicit change envelope is
+documented in [`session-journal.md`](session-journal.md). Other state resources travel as `state_upsert` and
 `state_delete` changes whose `resource` is a `StateResourceKind`, and the
 session snapshot lists them under `extra.state`. Clients that predate them
 decode these changes as `Unknown`.

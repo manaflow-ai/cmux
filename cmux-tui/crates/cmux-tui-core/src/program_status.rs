@@ -43,6 +43,13 @@ pub(crate) struct ProgramStatusRecord {
     pub(crate) updated_at_ms: u64,
 }
 
+#[derive(Clone, Debug)]
+enum ProgramStatusChange {
+    Report { id: String, record: ProgramStatusRecord },
+    Clear { id: String },
+    PromptStart,
+}
+
 impl ProgramStatusRecord {
     /// Whether the record ends at a new prompt or when the process exits.
     fn is_transient(&self) -> bool {
@@ -76,6 +83,7 @@ pub(crate) struct ProgramStatusRecords {
     /// to the public graph.
     revision: u64,
     published: u64,
+    last_change: Option<ProgramStatusChange>,
 }
 
 impl ProgramStatusRecords {
@@ -98,6 +106,7 @@ impl ProgramStatusRecords {
                 self.records.retain(|key, _| key != &id && !key.starts_with(&prefix));
             }
             if self.records.len() != before {
+                self.last_change = Some(ProgramStatusChange::Clear { id });
                 self.revision += 1;
             }
             return;
@@ -125,7 +134,8 @@ impl ProgramStatusRecords {
             updated_seq: self.next_seq,
             updated_at_ms: now_ms,
         };
-        self.records.insert(id, record);
+        self.records.insert(id.clone(), record.clone());
+        self.last_change = Some(ProgramStatusChange::Report { id, record });
         self.revision += 1;
     }
 
@@ -135,6 +145,7 @@ impl ProgramStatusRecords {
         let before = self.records.len();
         self.records.retain(|_, record| !record.is_transient());
         if self.records.len() != before {
+            self.last_change = Some(ProgramStatusChange::PromptStart);
             self.revision += 1;
         }
     }
@@ -172,6 +183,29 @@ impl ProgramStatusRecords {
         let changed = self.revision != self.published;
         self.published = self.revision;
         changed
+    }
+
+    /// The additive journal-hook payload for the last visible change. The
+    /// socket resource keeps its existing terminal snapshot shape; hooks need
+    /// an explicit record identity so a clear is not confused with a generic
+    /// empty snapshot.
+    pub(crate) fn last_change_json(&self) -> Option<Value> {
+        let change = self.last_change.as_ref()?;
+        let (event, id, record) = match change {
+            ProgramStatusChange::Report { id, record } => {
+                ("report", Value::String(id.clone()), record.to_json(id))
+            }
+            ProgramStatusChange::Clear { id } => {
+                ("clear", Value::String(id.clone()), Value::Null)
+            }
+            ProgramStatusChange::PromptStart => ("prompt_start", Value::Null, Value::Null),
+        };
+        Some(json!({
+            "event": event,
+            "id": id,
+            "record": record,
+            "records": self.to_json(true).unwrap_or_else(|| Value::Array(Vec::new())),
+        }))
     }
 }
 

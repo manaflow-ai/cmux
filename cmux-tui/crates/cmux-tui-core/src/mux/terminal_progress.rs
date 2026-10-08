@@ -13,6 +13,7 @@ impl Mux {
         &self,
         source: &Surface,
         mutation: &'static str,
+        program_status_change: Option<serde_json::Value>,
     ) -> anyhow::Result<()> {
         let Some(id) = source.terminal_public_id() else { return Ok(()) };
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -37,6 +38,10 @@ impl Mux {
             .remove(id)
             .unwrap_or_default();
         let value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
+        let mut result = value.clone();
+        if let Some(change) = program_status_change {
+            result["program_status_change"] = change;
+        }
         let deltas = serde_json::json!([{
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);
@@ -47,7 +52,7 @@ impl Mux {
             None,
             None,
             &ResourcePatch { changes: Vec::new() },
-            &value,
+            &result,
             &deltas,
         )?;
         state.resource_revision = commit.revision;
