@@ -738,6 +738,7 @@ jobs:
           bash scripts/cmux-next/tests/cef-license.test.sh
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
           bash scripts/cmux-next/tests/cef-build-flags.test.sh
+          bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
           bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
           bash scripts/cef/tests/test-embedder-step.test.sh
 
