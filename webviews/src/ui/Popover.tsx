@@ -14,11 +14,17 @@ export interface UiAnchorRect {
   bottom: number;
 }
 
-export type UiAnchor = Element | UiAnchorRect | null;
+/** A box read each time the popover is placed, so it follows layout changes (a Floating UI virtual element). */
+export interface UiVirtualAnchor {
+  getBoundingClientRect(): DOMRect;
+  contextElement?: Element;
+}
+
+export type UiAnchor = Element | UiAnchorRect | UiVirtualAnchor | null;
 
 /** The Floating UI virtual element of a rect anchor. */
 export function virtualAnchor(anchor: UiAnchor) {
-  if (!anchor || anchor instanceof Element) return anchor;
+  if (!anchor || anchor instanceof Element || "getBoundingClientRect" in anchor) return anchor;
   const rect = anchor;
   return {
     getBoundingClientRect: () => {

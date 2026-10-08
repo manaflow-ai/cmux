@@ -39,7 +39,7 @@ enum WorkspaceGroupHandlers {
             try context.sidebar().handle(.move([SidebarWorkspaceID(workspace.id)], toGroup: sidebarID(group)))
         })
         registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            guard context.usesPersonalGroups else { throw ActionFailure(message: home.missingCapabilityMessage(DaemonCapabilities.shared.profiles)) }
+            guard context.usesPersonalGroups else { throw ActionFailure(message: home.personalStateUnavailableReason) }
             context.ungroupPersonal(try context.workspace(invocation).model)
         })
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
@@ -132,6 +132,8 @@ enum WorkspaceGroupHandlers {
         Task {
             var spawn = WorkspaceSpawn()
             spawn.opensNewTabPage = newTabPage
+            // Placed into the group below, not at the new-workspace slot.
+            spawn.placesBySetting = false
             guard let key = try? await windows.createWorkspace(spawn, into: target), let session = local.store.registryID else { return }
             let workspace = WorkspaceKey(rawValue: key), resource = local.store.personalStateID(session: session, key: workspace)
             local.send("set-personal-workspace") {

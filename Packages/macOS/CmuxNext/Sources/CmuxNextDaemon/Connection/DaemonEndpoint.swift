@@ -258,6 +258,12 @@ public struct DaemonCapabilities: Sendable {
     /// daemon serves an entry, so it moves to `optional`.
     public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals] }
 
+    /// Whether the bundled daemon (this tree's cmux-tui) serves `capability`:
+    /// a daemon without it is an older build, and restarting cmux updates it.
+    public func isServedByBundledDaemon(_ capability: String) -> Bool {
+        required.contains(capability) || optional.contains(capability)
+    }
+
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).

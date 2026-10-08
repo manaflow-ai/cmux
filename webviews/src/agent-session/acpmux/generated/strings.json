@@ -1,5 +1,8 @@
 {
   "en": {
+    "adopt.live.fork": "Fork It",
+    "adopt.live.notice": "This chat is still open in another process. Resuming it here too would run two agents on one conversation.",
+    "adopt.live.open": "Open Anyway",
     "age.days": "{n}d",
     "age.hours": "{n}h",
     "age.minutes": "{n}m",
@@ -343,6 +346,8 @@
     "link.sessionMissing": "This chat isn't available. It was deleted, or it's on a machine that isn't connected.",
     "markdown.imageTooLarge": "Image too large to show",
     "media.expand": "Expand",
+    "media.loadAudio": "Load audio",
+    "media.loadVideo": "Load video",
     "media.player": "Media player",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Coordinator",
@@ -648,6 +653,9 @@
     "turn.worked": "Worked for {time}"
   },
   "ar": {
+    "adopt.live.fork": "تفريعها",
+    "adopt.live.notice": "لا تزال هذه الدردشة مفتوحة في عملية أخرى. استئنافها هنا أيضًا سيشغّل وكيلين على محادثة واحدة.",
+    "adopt.live.open": "فتح على أي حال",
     "age.days": "{n}ي",
     "age.hours": "{n}س",
     "age.minutes": "{n}د",
@@ -991,6 +999,8 @@
     "link.sessionMissing": "هذه الدردشة غير متاحة. حُذفت أو أنها على جهاز غير متصل.",
     "markdown.imageTooLarge": "الصورة كبيرة جدًا بحيث لا يمكن عرضها",
     "media.expand": "توسيع",
+    "media.loadAudio": "تحميل الصوت",
+    "media.loadVideo": "تحميل الفيديو",
     "media.player": "مشغل الوسائط",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "المنسّق",
@@ -1296,6 +1306,9 @@
     "turn.worked": "عمل لمدة {time}"
   },
   "bs": {
+    "adopt.live.fork": "Račvaj",
+    "adopt.live.notice": "Ovaj chat je i dalje otvoren u drugom procesu. Ako ga nastaviš i ovdje, dva agenta će raditi na jednom razgovoru.",
+    "adopt.live.open": "Ipak otvori",
     "age.days": "{n} d",
     "age.hours": "{n} h",
     "age.minutes": "{n} min",
@@ -1639,6 +1652,8 @@
     "link.sessionMissing": "Ovaj chat nije dostupan. Izbrisan je ili se nalazi na mašini koja nije povezana.",
     "markdown.imageTooLarge": "Slika je prevelika za prikaz",
     "media.expand": "Proširi",
+    "media.loadAudio": "Učitaj zvuk",
+    "media.loadVideo": "Učitaj video",
     "media.player": "Medijski plejer",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Koordinator",
@@ -1944,6 +1959,9 @@
     "turn.worked": "Radio {time}"
   },
   "da": {
+    "adopt.live.fork": "Forgren den",
+    "adopt.live.notice": "Denne chat er stadig åben i en anden proces. Hvis du også genoptager den her, kører to agenter på én samtale.",
+    "adopt.live.open": "Åbn alligevel",
     "age.days": "{n} d",
     "age.hours": "{n} t",
     "age.minutes": "{n} min.",
@@ -2287,6 +2305,8 @@
     "link.sessionMissing": "Denne chat er ikke tilgængelig. Den blev slettet, eller den ligger på en maskine, der ikke har forbindelse.",
     "markdown.imageTooLarge": "Billedet er for stort til at blive vist",
     "media.expand": "Udvid",
+    "media.loadAudio": "Indlæs lyd",
+    "media.loadVideo": "Indlæs video",
     "media.player": "Medieafspiller",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Koordinator",
@@ -2592,6 +2612,9 @@
     "turn.worked": "Arbejdede i {time}"
   },
   "de": {
+    "adopt.live.fork": "Abzweigen",
+    "adopt.live.notice": "Dieser Chat ist noch in einem anderen Prozess geöffnet. Setzt du ihn auch hier fort, laufen zwei Agenten auf einer Unterhaltung.",
+    "adopt.live.open": "Trotzdem öffnen",
     "age.days": "{n} T.",
     "age.hours": "{n} Std.",
     "age.minutes": "{n} Min.",
@@ -2935,6 +2958,8 @@
     "link.sessionMissing": "Dieser Chat ist nicht verfügbar. Er wurde gelöscht oder liegt auf einem Computer, der nicht verbunden ist.",
     "markdown.imageTooLarge": "Bild zu groß für die Anzeige",
     "media.expand": "Vergrößern",
+    "media.loadAudio": "Audio laden",
+    "media.loadVideo": "Video laden",
     "media.player": "Medienplayer",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Koordinator",
@@ -3240,6 +3265,9 @@
     "turn.worked": "Gearbeitet für {time}"
   },
   "es": {
+    "adopt.live.fork": "Bifurcar",
+    "adopt.live.notice": "Este chat sigue abierto en otro proceso. Si también lo reanudas aquí, dos agentes trabajarán en una misma conversación.",
+    "adopt.live.open": "Abrir de todos modos",
     "age.days": "{n} d",
     "age.hours": "{n} h",
     "age.minutes": "{n} min",
@@ -3583,6 +3611,8 @@
     "link.sessionMissing": "Este chat no está disponible. Se eliminó o está en una máquina que no está conectada.",
     "markdown.imageTooLarge": "Imagen demasiado grande para mostrarla",
     "media.expand": "Ampliar",
+    "media.loadAudio": "Cargar audio",
+    "media.loadVideo": "Cargar video",
     "media.player": "Reproductor multimedia",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Coordinador",
@@ -3888,6 +3918,9 @@
     "turn.worked": "Trabajó durante {time}"
   },
   "fr": {
+    "adopt.live.fork": "La dupliquer",
+    "adopt.live.notice": "Ce chat est encore ouvert dans un autre processus. Le reprendre ici aussi ferait tourner deux agents sur une même conversation.",
+    "adopt.live.open": "Ouvrir quand même",
     "age.days": "{n} j",
     "age.hours": "{n} h",
     "age.minutes": "{n} min",
@@ -4231,6 +4264,8 @@
     "link.sessionMissing": "Ce chat n'est pas disponible. Il a été supprimé ou il se trouve sur une machine non connectée.",
     "markdown.imageTooLarge": "Image trop grande pour être affichée",
     "media.expand": "Agrandir",
+    "media.loadAudio": "Charger l’audio",
+    "media.loadVideo": "Charger la vidéo",
     "media.player": "Lecteur multimédia",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Coordinateur",
@@ -4536,6 +4571,9 @@
     "turn.worked": "A travaillé pendant {time}"
   },
   "it": {
+    "adopt.live.fork": "Biforcala",
+    "adopt.live.notice": "Questa chat è ancora aperta in un altro processo. Riprenderla anche qui farebbe lavorare due agenti sulla stessa conversazione.",
+    "adopt.live.open": "Apri comunque",
     "age.days": "{n} g",
     "age.hours": "{n} h",
     "age.minutes": "{n} min",
@@ -4879,6 +4917,8 @@
     "link.sessionMissing": "Questa chat non è disponibile. È stata eliminata o si trova su una macchina non connessa.",
     "markdown.imageTooLarge": "Immagine troppo grande da mostrare",
     "media.expand": "Espandi",
+    "media.loadAudio": "Carica audio",
+    "media.loadVideo": "Carica video",
     "media.player": "Lettore multimediale",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Coordinatore",
@@ -5184,6 +5224,9 @@
     "turn.worked": "Ha lavorato per {time}"
   },
   "ja": {
+    "adopt.live.fork": "フォーク",
+    "adopt.live.notice": "このチャットは別のプロセスでまだ開いています。ここでも再開すると、1つの会話で2つのエージェントが動きます。",
+    "adopt.live.open": "このまま開く",
     "age.days": "{n}日",
     "age.hours": "{n}時間",
     "age.minutes": "{n}分",
@@ -5527,6 +5570,8 @@
     "link.sessionMissing": "このチャットは利用できません。削除されたか、接続されていないマシン上にあります。",
     "markdown.imageTooLarge": "画像が大きすぎて表示できません",
     "media.expand": "拡大",
+    "media.loadAudio": "音声を読み込む",
+    "media.loadVideo": "動画を読み込む",
     "media.player": "メディアプレーヤー",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "コーディネーター",
@@ -5832,6 +5877,9 @@
     "turn.worked": "{time} 作業しました"
   },
   "km": {
+    "adopt.live.fork": "បំបែកវា",
+    "adopt.live.notice": "ការជជែកនេះនៅតែបើកក្នុងដំណើរការផ្សេងទៀត។ ការបន្តវានៅទីនេះផងដែរ នឹងធ្វើឱ្យភ្នាក់ងារពីរដំណើរការលើការសន្ទនាតែមួយ។",
+    "adopt.live.open": "បើកទោះយ៉ាងណាក៏ដោយ",
     "age.days": "{n}ថ",
     "age.hours": "{n}ម",
     "age.minutes": "{n}ន",
@@ -6175,6 +6223,8 @@
     "link.sessionMissing": "ការជជែកនេះមិនអាចប្រើបានទេ។ វាត្រូវបានលុប ឬស្ថិតនៅលើម៉ាស៊ីនដែលមិនបានតភ្ជាប់។",
     "markdown.imageTooLarge": "រូបភាពធំពេកមិនអាចបង្ហាញបាន",
     "media.expand": "ពង្រីក",
+    "media.loadAudio": "ផ្ទុកសំឡេង",
+    "media.loadVideo": "ផ្ទុកវីដេអូ",
     "media.player": "កម្មវិធីចាក់មេឌៀ",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "អ្នកសម្របសម្រួល",
@@ -6480,6 +6530,9 @@
     "turn.worked": "បានធ្វើការរយៈពេល {time}"
   },
   "ko": {
+    "adopt.live.fork": "포크",
+    "adopt.live.notice": "이 채팅은 아직 다른 프로세스에서 열려 있습니다. 여기서도 다시 시작하면 한 대화에서 에이전트 두 개가 실행됩니다.",
+    "adopt.live.open": "그래도 열기",
     "age.days": "{n}일",
     "age.hours": "{n}시간",
     "age.minutes": "{n}분",
@@ -6823,6 +6876,8 @@
     "link.sessionMissing": "이 채팅을 사용할 수 없습니다. 삭제되었거나 연결되지 않은 기기에 있습니다.",
     "markdown.imageTooLarge": "이미지가 너무 커서 표시할 수 없습니다",
     "media.expand": "확대",
+    "media.loadAudio": "오디오 불러오기",
+    "media.loadVideo": "동영상 불러오기",
     "media.player": "미디어 플레이어",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "조정자",
@@ -7128,6 +7183,9 @@
     "turn.worked": "{time} 동안 작업함"
   },
   "nb": {
+    "adopt.live.fork": "Forgren den",
+    "adopt.live.notice": "Denne chatten er fortsatt åpen i en annen prosess. Hvis du også gjenopptar den her, kjører to agenter på én samtale.",
+    "adopt.live.open": "Åpne likevel",
     "age.days": "{n} d",
     "age.hours": "{n} t",
     "age.minutes": "{n} min",
@@ -7471,6 +7529,8 @@
     "link.sessionMissing": "Denne chatten er ikke tilgjengelig. Den ble slettet, eller den er på en maskin som ikke er tilkoblet.",
     "markdown.imageTooLarge": "Bildet er for stort til å vises",
     "media.expand": "Utvid",
+    "media.loadAudio": "Last inn lyd",
+    "media.loadVideo": "Last inn video",
     "media.player": "Mediespiller",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Koordinator",
@@ -7776,6 +7836,9 @@
     "turn.worked": "Jobbet i {time}"
   },
   "pl": {
+    "adopt.live.fork": "Rozgałęź",
+    "adopt.live.notice": "Ten czat jest nadal otwarty w innym procesie. Wznowienie go także tutaj uruchomi dwóch agentów w jednej rozmowie.",
+    "adopt.live.open": "Otwórz mimo to",
     "age.days": "{n} d",
     "age.hours": "{n} godz.",
     "age.minutes": "{n} min",
@@ -8119,6 +8182,8 @@
     "link.sessionMissing": "Ten czat jest niedostępny. Został usunięty albo znajduje się na komputerze, który nie jest połączony.",
     "markdown.imageTooLarge": "Obraz jest zbyt duży, aby go wyświetlić",
     "media.expand": "Powiększ",
+    "media.loadAudio": "Wczytaj dźwięk",
+    "media.loadVideo": "Wczytaj wideo",
     "media.player": "Odtwarzacz multimediów",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Koordynator",
@@ -8424,6 +8489,9 @@
     "turn.worked": "Pracował przez {time}"
   },
   "pt-BR": {
+    "adopt.live.fork": "Bifurcar",
+    "adopt.live.notice": "Este chat ainda está aberto em outro processo. Retomá-lo aqui também colocaria dois agentes na mesma conversa.",
+    "adopt.live.open": "Abrir mesmo assim",
     "age.days": "{n}d",
     "age.hours": "{n}h",
     "age.minutes": "{n}min",
@@ -8767,6 +8835,8 @@
     "link.sessionMissing": "Este chat não está disponível. Ele foi excluído ou está em uma máquina que não está conectada.",
     "markdown.imageTooLarge": "Imagem grande demais para exibir",
     "media.expand": "Expandir",
+    "media.loadAudio": "Carregar áudio",
+    "media.loadVideo": "Carregar vídeo",
     "media.player": "Player de mídia",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Coordenador",
@@ -9072,6 +9142,9 @@
     "turn.worked": "Trabalhou por {time}"
   },
   "ru": {
+    "adopt.live.fork": "Ответвить",
+    "adopt.live.notice": "Этот чат ещё открыт в другом процессе. Если продолжить его и здесь, в одном разговоре будут работать два агента.",
+    "adopt.live.open": "Всё равно открыть",
     "age.days": "{n} д",
     "age.hours": "{n} ч",
     "age.minutes": "{n} мин",
@@ -9415,6 +9488,8 @@
     "link.sessionMissing": "Этот чат недоступен. Он удалён или находится на компьютере, который не подключён.",
     "markdown.imageTooLarge": "Изображение слишком большое для показа",
     "media.expand": "Развернуть",
+    "media.loadAudio": "Загрузить аудио",
+    "media.loadVideo": "Загрузить видео",
     "media.player": "Медиаплеер",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Координатор",
@@ -9720,6 +9795,9 @@
     "turn.worked": "Работал {time}"
   },
   "th": {
+    "adopt.live.fork": "แยกออกมา",
+    "adopt.live.notice": "แชทนี้ยังเปิดอยู่ในโปรเซสอื่น หากกลับมาทำต่อที่นี่ด้วย จะมีเอเจนต์สองตัวทำงานในบทสนทนาเดียว",
+    "adopt.live.open": "เปิดต่อไป",
     "age.days": "{n}ว.",
     "age.hours": "{n}ชม.",
     "age.minutes": "{n}น.",
@@ -10063,6 +10141,8 @@
     "link.sessionMissing": "แชตนี้ไม่พร้อมใช้งาน อาจถูกลบแล้ว หรืออยู่บนเครื่องที่ไม่ได้เชื่อมต่อ",
     "markdown.imageTooLarge": "รูปภาพใหญ่เกินกว่าจะแสดงได้",
     "media.expand": "ขยาย",
+    "media.loadAudio": "โหลดเสียง",
+    "media.loadVideo": "โหลดวิดีโอ",
     "media.player": "เครื่องเล่นสื่อ",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "ผู้ประสานงาน",
@@ -10368,6 +10448,9 @@
     "turn.worked": "ทำงานเป็นเวลา {time}"
   },
   "tr": {
+    "adopt.live.fork": "Çatalla",
+    "adopt.live.notice": "Bu sohbet hâlâ başka bir işlemde açık. Burada da sürdürmek tek bir konuşmada iki ajan çalıştırır.",
+    "adopt.live.open": "Yine de aç",
     "age.days": "{n}g",
     "age.hours": "{n}sa",
     "age.minutes": "{n}dk",
@@ -10711,6 +10794,8 @@
     "link.sessionMissing": "Bu sohbet kullanılamıyor. Silinmiş ya da bağlı olmayan bir makinede.",
     "markdown.imageTooLarge": "Görüntü gösterilemeyecek kadar büyük",
     "media.expand": "Genişlet",
+    "media.loadAudio": "Sesi yükle",
+    "media.loadVideo": "Videoyu yükle",
     "media.player": "Medya oynatıcı",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Koordinatör",
@@ -11016,6 +11101,9 @@
     "turn.worked": "Şu kadar çalıştı: {time}"
   },
   "uk": {
+    "adopt.live.fork": "Відгалузити",
+    "adopt.live.notice": "Цей чат ще відкритий в іншому процесі. Якщо продовжити його й тут, в одній розмові працюватимуть два агенти.",
+    "adopt.live.open": "Усе одно відкрити",
     "age.days": "{n} д",
     "age.hours": "{n} год",
     "age.minutes": "{n} хв",
@@ -11359,6 +11447,8 @@
     "link.sessionMissing": "Цей чат недоступний. Його видалено, або він на машині без підключення.",
     "markdown.imageTooLarge": "Зображення завелике для показу",
     "media.expand": "Розгорнути",
+    "media.loadAudio": "Завантажити аудіо",
+    "media.loadVideo": "Завантажити відео",
     "media.player": "Медіаплеєр",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Координатор",
@@ -11664,6 +11754,9 @@
     "turn.worked": "Працював {time}"
   },
   "vi": {
+    "adopt.live.fork": "Tách nhánh",
+    "adopt.live.notice": "Cuộc trò chuyện này vẫn đang mở trong một tiến trình khác. Tiếp tục nó ở đây nữa sẽ chạy hai tác nhân trên cùng một cuộc trò chuyện.",
+    "adopt.live.open": "Vẫn mở",
     "age.days": "{n}ng",
     "age.hours": "{n}g",
     "age.minutes": "{n}p",
@@ -12007,6 +12100,8 @@
     "link.sessionMissing": "Cuộc trò chuyện này không khả dụng. Nó đã bị xóa, hoặc nằm trên máy chưa kết nối.",
     "markdown.imageTooLarge": "Hình ảnh quá lớn để hiển thị",
     "media.expand": "Mở rộng",
+    "media.loadAudio": "Tải âm thanh",
+    "media.loadVideo": "Tải video",
     "media.player": "Trình phát media",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "Điều phối viên",
@@ -12312,6 +12407,9 @@
     "turn.worked": "Đã làm việc trong {time}"
   },
   "zh-Hans": {
+    "adopt.live.fork": "分叉",
+    "adopt.live.notice": "此聊天仍在另一个进程中打开。在这里也继续它，会让两个代理同时处理同一段对话。",
+    "adopt.live.open": "仍然打开",
     "age.days": "{n}天",
     "age.hours": "{n}时",
     "age.minutes": "{n}分",
@@ -12655,6 +12753,8 @@
     "link.sessionMissing": "此对话不可用。它已被删除，或位于未连接的设备上。",
     "markdown.imageTooLarge": "图像过大，无法显示",
     "media.expand": "放大",
+    "media.loadAudio": "加载音频",
+    "media.loadVideo": "加载视频",
     "media.player": "媒体播放器",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "协调器",
@@ -12960,6 +13060,9 @@
     "turn.worked": "已工作 {time}"
   },
   "zh-Hant": {
+    "adopt.live.fork": "分叉",
+    "adopt.live.notice": "此聊天仍在另一個程序中開啟。在這裡也繼續它，會讓兩個代理同時處理同一段對話。",
+    "adopt.live.open": "仍要開啟",
     "age.days": "{n}天",
     "age.hours": "{n}時",
     "age.minutes": "{n}分",
@@ -13303,6 +13406,8 @@
     "link.sessionMissing": "此對話無法使用。它已被刪除，或位於未連線的裝置上。",
     "markdown.imageTooLarge": "影像過大，無法顯示",
     "media.expand": "放大",
+    "media.loadAudio": "載入音訊",
+    "media.loadVideo": "載入影片",
     "media.player": "媒體播放器",
     "message.channel.agent": "SendMessage",
     "message.channel.coordinator": "協調器",

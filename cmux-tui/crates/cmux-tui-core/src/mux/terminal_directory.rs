@@ -65,7 +65,7 @@ impl Mux {
         let deltas = serde_json::json!([{
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);
-        let mutation = WorkspaceMutation::local("terminal.cwd");
+        let mutation = WorkspaceMutation::daemon_local("terminal.cwd");
         let commit = registry.commit_resource_patch(
             &mutation,
             "terminal.cwd",

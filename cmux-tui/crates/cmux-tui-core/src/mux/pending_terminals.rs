@@ -64,6 +64,21 @@ impl Mux {
     /// Forget the recorded end of a terminal that is gone (closed).
     pub(crate) fn forget_terminal_end(&self, public_id: &str) {
         self.terminal_ends.lock().unwrap().remove(public_id);
+        self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).forget(public_id);
+    }
+
+    /// Remember why a terminal's host was lost, for its tab's `end.cause`.
+    #[cfg(unix)]
+    pub(super) fn record_terminal_loss_cause(&self, public_id: &str, cause: Value) {
+        self.terminal_loss_causes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .record(public_id, cause);
+    }
+
+    /// Causes of host losses, keyed by public terminal id.
+    pub(crate) fn terminal_loss_causes_snapshot(&self) -> HashMap<String, Value> {
+        self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).snapshot()
     }
 
     /// Mark a terminal pending. Takes the registry lock briefly to resolve
@@ -112,6 +127,15 @@ impl Mux {
             return;
         }
         let end = TerminalEnd::from_receipt(terminal.exit.as_ref()).wire_json();
+        if end["kind"] == "host_lost" {
+            let root = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
+            let root = root.terminal_host_root.clone();
+            self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).restore(
+                root.as_deref(),
+                terminal_id,
+                public_id.as_str(),
+            );
+        }
         self.terminal_ends.lock().unwrap().insert(public_id.as_str().to_string(), end);
     }
 

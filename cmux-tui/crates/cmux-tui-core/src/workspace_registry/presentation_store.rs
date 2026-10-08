@@ -682,6 +682,7 @@ pub(crate) fn append_presentation_record(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: None,
         },
     )?;
     Ok(())

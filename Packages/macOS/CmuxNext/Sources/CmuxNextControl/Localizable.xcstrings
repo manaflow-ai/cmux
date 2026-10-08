@@ -15721,6 +15721,137 @@
         }
       }
     },
+    "control.error.unknownMethodOlderCLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown method %1$@. A cmux CLI that is older than this app (or from another cmux app) sends methods this app does not have; this app's CLI is %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طريقة غير معروفة %1$@. ترسل واجهة cmux CLI الأقدم من هذا التطبيق (أو التابعة لتطبيق cmux آخر) طرقًا لا يملكها هذا التطبيق؛ CLI الخاص بهذا التطبيق هو %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nepoznata metoda %1$@. cmux CLI stariji od ove aplikacije (ili iz druge cmux aplikacije) šalje metode koje ova aplikacija nema; CLI ove aplikacije je %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukendt metode %1$@. En cmux-CLI, der er ældre end denne app (eller fra en anden cmux-app), sender metoder, som denne app ikke har; denne apps CLI er %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unbekannte Methode %1$@. Eine cmux-CLI, die älter als diese App ist (oder zu einer anderen cmux-App gehört), sendet Methoden, die diese App nicht hat; die CLI dieser App ist %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Método desconocido %1$@. Una CLI de cmux más antigua que esta app (o de otra app de cmux) envía métodos que esta app no tiene; la CLI de esta app es %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Méthode inconnue %1$@. Une CLI cmux plus ancienne que cette app (ou d'une autre app cmux) envoie des méthodes que cette app n'a pas ; la CLI de cette app est %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metodo sconosciuto %1$@. Una CLI di cmux più vecchia di questa app (o di un'altra app cmux) invia metodi che questa app non ha; la CLI di questa app è %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なメソッド %1$@。このアプリより古い cmux CLI（または別の cmux アプリの CLI）は、このアプリにないメソッドを送信します。このアプリの CLI は %2$@ です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វិធីសាស្ត្រមិនស្គាល់ %1$@។ cmux CLI ដែលចាស់ជាងកម្មវិធីនេះ (ឬមកពីកម្មវិធី cmux ផ្សេង) ផ្ញើវិធីសាស្ត្រដែលកម្មវិធីនេះមិនមាន; CLI របស់កម្មវិធីនេះគឺ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알 수 없는 메서드 %1$@. 이 앱보다 오래된 cmux CLI(또는 다른 cmux 앱의 CLI)는 이 앱에 없는 메서드를 보냅니다. 이 앱의 CLI는 %2$@입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukjent metode %1$@. En cmux-CLI som er eldre enn denne appen (eller fra en annen cmux-app), sender metoder denne appen ikke har; denne appens CLI er %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieznana metoda %1$@. cmux CLI starszy niż ta aplikacja (lub z innej aplikacji cmux) wysyła metody, których ta aplikacja nie ma; CLI tej aplikacji to %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Método desconhecido %1$@. Uma CLI do cmux mais antiga que este app (ou de outro app cmux) envia métodos que este app não tem; a CLI deste app é %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неизвестный метод %1$@. cmux CLI старше этого приложения (или из другого приложения cmux) отправляет методы, которых нет в этом приложении; CLI этого приложения: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่รู้จักเมธอด %1$@ cmux CLI ที่เก่ากว่าแอปนี้ (หรือมาจากแอป cmux อื่น) จะส่งเมธอดที่แอปนี้ไม่มี CLI ของแอปนี้คือ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bilinmeyen yöntem %1$@. Bu uygulamadan daha eski (veya başka bir cmux uygulamasına ait) bir cmux CLI, bu uygulamada olmayan yöntemler gönderir; bu uygulamanın CLI'ı %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Невідомий метод %1$@. cmux CLI, старіший за цей застосунок (або з іншого застосунку cmux), надсилає методи, яких цей застосунок не має; CLI цього застосунку: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phương thức không xác định %1$@. cmux CLI cũ hơn ứng dụng này (hoặc từ một ứng dụng cmux khác) gửi các phương thức mà ứng dụng này không có; CLI của ứng dụng này là %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未知方法 %1$@。比此应用旧的 cmux CLI（或其他 cmux 应用的 CLI）会发送此应用没有的方法；此应用的 CLI 是 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未知的方法 %1$@。比此 App 舊的 cmux CLI（或其他 cmux App 的 CLI）會傳送此 App 沒有的方法；此 App 的 CLI 是 %2$@"
+          }
+        }
+      }
+    },
     "control.error.routerStopped": {
       "extractionState": "manual",
       "localizations": {

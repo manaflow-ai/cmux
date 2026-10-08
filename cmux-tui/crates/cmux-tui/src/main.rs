@@ -26,6 +26,8 @@ mod coderouter_usage;
 mod config;
 mod headless;
 mod private_mode;
+#[cfg(unix)]
+mod signal_sender;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
@@ -72,6 +74,7 @@ mod remote_cli {
         1
     }
 }
+mod owner_start;
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
@@ -139,20 +142,6 @@ unsafe extern "C" {
     static mut environ: *mut *mut libc::c_char;
 }
 
-#[cfg(unix)]
-extern "C" fn handle_signal(_: libc::c_int) {
-    SHUTDOWN_REQUESTED.store(true, Ordering::Release);
-    let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
-    if writer >= 0 {
-        let byte = 1_u8;
-        // SAFETY: write(2) is async-signal-safe, `writer` is a process-lifetime
-        // socket descriptor, and the one-byte source remains valid for the call.
-        unsafe {
-            let _ = libc::write(writer, std::ptr::from_ref(&byte).cast(), 1);
-        }
-    }
-}
-
 pub(crate) fn shutdown_requested() -> bool {
     SHUTDOWN_REQUESTED.load(Ordering::Acquire)
 }
@@ -177,7 +166,7 @@ fn install_signal_handlers() -> io::Result<()> {
     SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
+        action.sa_sigaction = signal_sender::handle_signal as *const () as libc::sighandler_t;
         if libc::sigemptyset(&mut action.sa_mask) != 0 {
             SIGNAL_WAKE_READER.store(-1, Ordering::Release);
             SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
@@ -186,7 +175,8 @@ fn install_signal_handlers() -> io::Result<()> {
         // Termination must interrupt startup and teardown syscalls. In
         // particular, reopening `/dev/tty` can block forever after the host
         // PTY disappears if the handler is installed with SA_RESTART.
-        action.sa_flags = 0;
+        // SA_SIGINFO names the sender (cx-0tgl LA).
+        action.sa_flags = libc::SA_SIGINFO;
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
                 SIGNAL_WAKE_READER.store(-1, Ordering::Release);
@@ -2103,9 +2093,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
-    if args.ephemeral && args.state.is_some() {
-        anyhow::bail!("--ephemeral and --state are mutually exclusive");
-    }
+    owner_start::prepare(args.ephemeral, args.state.is_some())?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2117,7 +2105,7 @@ fn run_server(
         );
     }
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
-    let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
+    let ws_token = headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
