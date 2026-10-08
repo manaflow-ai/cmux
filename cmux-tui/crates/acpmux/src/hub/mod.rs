@@ -475,6 +475,7 @@ impl Hub {
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
             rehydrate: AtomicBool::new(false),
+            claude_unstored: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(false),
