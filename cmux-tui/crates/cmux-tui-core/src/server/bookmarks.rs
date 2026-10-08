@@ -177,7 +177,7 @@ fn apply(mux: &Mux, key: Key, op: BookmarkOp) -> anyhow::Result<Value> {
     let key = match (key.origin, key.mutation_id) {
         (None, None) => None,
         (Some(origin), Some(mutation_id)) => Some(
-            WorkspaceMutation::new(mutation_id, origin)
+            WorkspaceMutation::daemon(mutation_id, origin)
                 .map_err(|error| invalid_bookmark(error.to_string()))?,
         ),
         _ => return Err(invalid_bookmark("origin and mutation_id must be given together")),

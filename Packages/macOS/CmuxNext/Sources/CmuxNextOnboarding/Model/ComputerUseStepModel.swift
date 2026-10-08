@@ -55,6 +55,9 @@ public final class ComputerUseStepModel {
             return
         }
         unavailable = false
+        // Computer Use is off: the person's Allow turns it on, so the helper
+        // that needs the grant starts and its rows turn Done by themselves.
+        if permissions.isOff { source.enable() }
         source.openSettings(pane)
         helping = pane
     }

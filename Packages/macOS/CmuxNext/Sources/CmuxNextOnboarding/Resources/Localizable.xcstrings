@@ -14279,6 +14279,137 @@
           }
         }
       }
+    },
+    "onboarding.computerUse.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use is off. Allow turns it on, then shows its permissions here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ操作はオフです。「許可」でオンにすると、ここに権限が表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام الكمبيوتر متوقف. يشغّله «سماح» ثم يعرض أذوناته هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use je isključen. Dozvoli ga uključuje, a zatim ovdje prikazuje njegove dozvole."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use er slået fra. Tillad slår det til og viser derefter tilladelserne her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ist aus. „Erlauben“ schaltet es ein und zeigt dann hier die Berechtigungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use está desactivado. Permitir lo activa y luego muestra sus permisos aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use est désactivé. Autoriser l’active, puis affiche ses autorisations ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use è disattivato. Consenti lo attiva e poi ne mostra qui i permessi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ត្រូវបានបិទ។ អនុញ្ញាត នឹងបើកវា បន្ទាប់មកបង្ហាញសិទ្ធិរបស់វានៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use가 꺼져 있습니다. 허용을 누르면 켜지고 여기에 권한이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use er av. Tillat slår det på og viser deretter tillatelsene her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use jest wyłączone. Zezwól włącza je, a potem pokazuje tu jego uprawnienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Computer Use está desativado. Permitir o ativa e depois mostra as permissões aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use выключен. «Разрешить» включит его и покажет здесь разрешения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ปิดอยู่ อนุญาตจะเปิดใช้งาน แล้วแสดงสิทธิ์ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use kapalı. İzin Ver onu açar ve izinlerini burada gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use вимкнено. «Дозволити» вмикає його й показує тут дозволи."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use đang tắt. Cho phép sẽ bật nó rồi hiển thị quyền ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "电脑操作已关闭。“允许”会将其打开，然后在此显示权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "電腦操作已關閉。「允許」會將其開啟，然後在此顯示權限。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

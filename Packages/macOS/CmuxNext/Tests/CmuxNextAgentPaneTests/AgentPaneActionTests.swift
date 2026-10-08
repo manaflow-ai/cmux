@@ -70,6 +70,9 @@ import Testing
         var scripts: [String] = []
         view.evaluateScript = { scripts.append($0) }
         _ = await view.model.respond(to: .ready)
+        // Theme setup may arrive while the async ready handshake is resolving;
+        // the assertion below is about the reveal commands themselves.
+        scripts.removeAll()
         view.revealTurn("turn-1")
         view.revealTurn("a\");alert(1);//")
         #expect(scripts == [

@@ -23,6 +23,8 @@
 //! - [`proc_roles`]: process roles from `server.json` (server.md 5.1).
 //! - [`run_roles`]: `cmux host run` without a bind agent (macOS).
 //! - [`status`]: `cmux host status`.
+//! - [`cloud`]: the Cloud machine agent role (bind, status reports, events).
+//! - [`team_ssh`]: sshd trust files, fail-closed principals and revoked-session reaping.
 //! - [`cli`]: the verbs; also the standalone `cmux-host` binary.
 //! - `linux`: the Linux platform (descriptors, spawn, identity, `/proc`).
 //!
@@ -38,6 +40,7 @@
 pub mod agent;
 pub mod announce;
 pub mod cli;
+pub mod cloud;
 pub mod config;
 pub mod daemon_spec;
 #[cfg(target_os = "linux")]
@@ -50,3 +53,4 @@ pub mod retry;
 pub mod roles;
 pub mod run_roles;
 pub mod status;
+pub mod team_ssh;

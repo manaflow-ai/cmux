@@ -209,7 +209,9 @@ export const treeUnsafeCSS = /* css */ `
 /* Long names (changes/treeTitles.ts): one unclipped line inside the content section, which clips
    it with a fade at its end (no ellipsis, no middle truncation keeping the extension); the counts
    never shrink. --cmux-title-lead is padding left of the first glyph, inside the section, that a
-   marquee fades glyphs across; the negative margin keeps the name where Pierre puts it. */
+   marquee fades glyphs across; the negative margin keeps the name where Pierre puts it.
+   --cmux-title-tail is the gap before the counts, also inside the section, so the fade ends at
+   the counts (or the row's end) and the name uses all the room there is. */
 [data-type="item"] [data-item-section="content"] {
   flex: 0 1 auto;
   min-width: 0;
@@ -218,6 +220,7 @@ export const treeUnsafeCSS = /* css */ `
   white-space: nowrap;
   margin-inline-start: calc(-1 * var(--cmux-title-lead, 0px));
   padding-inline-start: var(--cmux-title-lead, 0px);
+  padding-inline-end: var(--cmux-title-tail, 0px);
 }
 [data-type="item"] [data-item-section="content"] > * { width: max-content; min-width: max-content; max-width: none; }
 [data-type="item"] [data-item-section="content"] [data-truncate-group-container] > div { flex: none; min-width: max-content; }
@@ -226,8 +229,8 @@ export const treeUnsafeCSS = /* css */ `
 [data-type="item"] [data-item-section="content"] :is([data-truncate-content="overflow"], [data-truncate-marker-cell], [data-truncate-fill]) { display: none; }
 [data-type="item"] [data-item-section="content"] [data-truncate-content="visible"] { white-space: pre; }
 [data-type="item"] [data-item-section="content"][data-cmux-clipped] {
-  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--cmux-title-lead, 0px), #000 calc(100% - var(--cmux-title-fade, 20px)), transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0, #000 var(--cmux-title-lead, 0px), #000 calc(100% - var(--cmux-title-fade, 20px)), transparent 100%);
+  -webkit-mask-image: var(--cmux-title-mask);
+  mask-image: var(--cmux-title-mask);
 }
-[data-type="item"] [data-item-section="decoration"] { flex: 0 0 auto; margin-inline-start: auto; padding-inline-start: 6px; }
+[data-type="item"] [data-item-section="decoration"] { flex: 0 0 auto; margin-inline-start: auto; }
 ${PIERRE_TREES_SCROLLER_CSS}`;

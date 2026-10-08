@@ -7,7 +7,7 @@ extension SidebarListView {
     typealias Drag = SidebarListDrag
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
-        guard let row = displayed.row(for: press.key) else { return }
+        guard displayed.row(for: press.key) != nil else { return }
         let payload: DragPayload
         var hidden: Set<SidebarRowKey>
         let origin: DropTarget?
@@ -29,21 +29,18 @@ extension SidebarListView {
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
-        let rowFrame = frame(for: row)
+        // A group lifts as one block: its header and the member rows under it (cx-bp40).
+        let rows = SidebarListLift.rows(self, for: press.key, hidden: hidden)
+        guard let rowFrame = SidebarListLift.blockFrame(self, rows), let content = SidebarListLift.content(self, rows, in: rowFrame) else { return }
         let count: Int
         if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
-        let content = dequeue(press.key)
-        configure(content, row: row, animated: false)
-        content.isHovered = false
-        content.isSelected = false // The lifted card is its own raised surface: no selection fill on it.
-        (content as? WorkspaceRowView)?.isSecondarySelected = false
         let lift = SidebarReorderLift.lift(content, count: count, frame: rowFrame, in: self)
         let drag = Drag(
             payload: payload,
             grabbedKey: press.key,
             hiddenKeys: hidden,
             grabOffsetY: press.point.y - rowFrame.minY,
-            gapHeight: row.height,
+            gapHeight: rowFrame.height,
             lift: lift,
             target: origin
         )
@@ -112,7 +109,7 @@ extension SidebarListView {
     }
     /// Flies the lifted view to its row's current frame, then swaps it out.
     func land(_ drag: Drag) {
-        let destination = displayed.row(for: drag.grabbedKey).map(frame(for:)) ?? drag.lift.frame
+        let destination = SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
             guard let self else { return }
             self.suppressed.subtract(drag.hiddenKeys)

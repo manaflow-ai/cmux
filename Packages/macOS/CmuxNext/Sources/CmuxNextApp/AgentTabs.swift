@@ -237,6 +237,11 @@ final class AgentTabStore {
         let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = lookup(key), record.host == localHost else { return nil }
+        // A tab this run did not open and that has no chat yet is a New Tab page the store
+        // restored after a relaunch: it opens as the page again, not as an empty chat.
+        if newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil, !linkedSessions.contains(key) {
+            newTabPages[key] = firstPageNewTab?(nil)
+        }
         let model = AgentPaneModel(
             host: host,
             sessionId: sessions[key] ?? record.session,
@@ -284,6 +289,11 @@ final class AgentTabStore {
             guard let self else { return }
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
+        }
+        model.onNewTabInputReady = { [weak self] token in
+            guard let self else { return }
+            let key = resolve(provisional)
+            newTabPages[key]?.handler.inputReady(key, token)
         }
         model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }

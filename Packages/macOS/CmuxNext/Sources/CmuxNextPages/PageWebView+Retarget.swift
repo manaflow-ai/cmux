@@ -8,11 +8,11 @@ extension PageWebView {
     /// Retargets a pooled view to another bundled React page.
     ///
     /// Rebinding resets the router before the new descriptor is admitted, so every subscription and
-    /// in-flight page operation owned by the old document is cancelled. The document always loads
-    /// again, also for the same descriptor: the old document already ran its first reads and
-    /// subscriptions against the old routes (a parked spare has none, so its reads failed), and it
-    /// would keep that state with no live subscription (cx-o9kv). A plain load of the same URL with
-    /// another fragment is only a fragment navigation in WebKit, so that case reloads from script.
+    /// in-flight page operation owned by the old document is cancelled. Another page loads its own
+    /// document. The same page keeps its loaded document when that document acknowledges the claim
+    /// (``claimDocument(documentAttributes:)``): a parked spare held its reads, so it reads through
+    /// the new routes now. A document that already ran against other routes would keep that state
+    /// with no live subscription (cx-o9kv), so it refuses and reloads.
     @discardableResult
     func retarget(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                   documentAttributes: [String: String] = [:], surface: SurfaceKind? = nil,
@@ -29,14 +29,20 @@ extension PageWebView {
         touched = false
         reinstallPageScripts(documentAttributes: documentAttributes)
         installDocumentStartTheme()
-        loaded = false
         let target = descriptor.url(route: route)
-        if let current = webView.url, Self.sameDocumentURL(current, target) {
-            let fragment = self.route ?? "/"
-            webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();",
-                                       completionHandler: nil)
-        } else {
+        guard let current = webView.url, Self.sameDocumentURL(current, target) else {
+            noteLoadedClaim()
+            loaded = false
+            paintedUptime = nil // the new document has not painted; a pane holds until it does
             webView.load(URLRequest(url: target))
+            return true
+        }
+        if loaded {
+            claimDocument(documentAttributes: documentAttributes)
+        } else {
+            noteLoadedClaim()
+            paintedUptime = nil
+            reloadDocument()
         }
         return true
     }
