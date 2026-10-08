@@ -10,8 +10,15 @@ export type MediaPreview = {
   frames: string[];
 };
 
-function fixtureImage(colors: [string, string, string], shift: number, label: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400">
+function fixtureImage(
+  colors: [string, string, string],
+  shift: number,
+  label: string,
+  dimensions: [number, number] = [640, 400],
+): string {
+  const [width, height] = dimensions;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
+    <g transform="scale(${width / 640} ${height / 400})">
     <defs>
       <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="${colors[0]}"/><stop offset=".52" stop-color="${colors[1]}"/><stop offset="1" stop-color="${colors[2]}"/>
@@ -25,6 +32,7 @@ function fixtureImage(colors: [string, string, string], shift: number, label: st
     <path d="M0 334 C130 ${285 + shift / 3} 236 ${410 - shift / 3} 382 316 S540 ${260 + shift / 2} 640 328" fill="none" stroke="#fff" stroke-opacity=".34" stroke-width="3"/>
     <rect x="28" y="28" width="${180 + label.length * 3}" height="34" rx="17" fill="#fff" fill-opacity=".12"/>
     <text x="46" y="50" fill="#fff" fill-opacity=".88" font-family="system-ui, sans-serif" font-size="14">${label}</text>
+    </g>
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -69,7 +77,7 @@ export const MEDIA_PREVIEWS: MediaPreview[] = [
     description: "A panoramic crop for checking contain versus cover behavior.",
     format: "static · AVIF target",
     kind: "still",
-    frames: [fixtureImage(["#172033", "#395783", "#d0a66e"], 54, "wide reference")],
+    frames: [fixtureImage(["#172033", "#395783", "#d0a66e"], 54, "wide reference", [800, 300])],
   },
   {
     id: "portrait-art",
@@ -77,7 +85,7 @@ export const MEDIA_PREVIEWS: MediaPreview[] = [
     description: "A tall subject that exposes accidental stretching immediately.",
     format: "static · JPEG XL target",
     kind: "still",
-    frames: [fixtureImage(["#25152c", "#9a536a", "#f1c27d"], -18, "portrait reference")],
+    frames: [fixtureImage(["#25152c", "#9a536a", "#f1c27d"], -18, "portrait reference", [360, 640])],
   },
   {
     id: "dark-motion",
@@ -97,6 +105,7 @@ function PreviewCard({ item, autoplay, fit }: { item: MediaPreview; autoplay: bo
   const [frame, setFrame] = useState(0);
   const [paused, setPaused] = useState(false);
   const hasMotion = item.frames.length > 1;
+  const globallyPaused = hasMotion && !autoplay;
 
   useEffect(() => {
     setFrame(0);
@@ -114,14 +123,18 @@ function PreviewCard({ item, autoplay, fit }: { item: MediaPreview; autoplay: bo
       <button
         className="cmux-gallery-media-stage"
         type="button"
-        onClick={() => hasMotion && setPaused((current) => !current)}
-        aria-label={hasMotion ? `${item.title}, ${paused ? "resume" : "pause"} preview` : `${item.title} preview`}
-        aria-pressed={hasMotion ? paused : undefined}
+        onClick={() => hasMotion && autoplay && setPaused((current) => !current)}
+        aria-label={
+          hasMotion
+            ? `${item.title}, ${globallyPaused ? "paused by the global control" : paused ? "resume" : "pause"} preview`
+            : `${item.title} preview`
+        }
+        aria-pressed={hasMotion && autoplay ? paused : undefined}
       >
         <img src={item.frames[frame]} alt="" style={{ objectFit: fit }} />
         <span className="cmux-gallery-media-stage-top" aria-hidden="true">
           <span className="cmux-gallery-media-kind">
-            {item.kind === "still" ? "Static" : paused ? "Paused" : "Playing"}
+            {item.kind === "still" ? "Static" : paused || globallyPaused ? "Paused" : "Playing"}
           </span>
           {hasMotion ? (
             <span className="cmux-gallery-media-count">
@@ -131,7 +144,7 @@ function PreviewCard({ item, autoplay, fit }: { item: MediaPreview; autoplay: bo
         </span>
         {hasMotion ? (
           <span className="cmux-gallery-media-stage-hint" aria-hidden="true">
-            {paused ? "click to play" : "click to pause"}
+            {globallyPaused ? "play previews to resume" : paused ? "click to play" : "click to pause"}
           </span>
         ) : null}
       </button>
@@ -154,7 +167,7 @@ export function VisualMediaBoard() {
     () => (filter === "all" ? MEDIA_PREVIEWS : MEDIA_PREVIEWS.filter((item) => item.kind === filter)),
     [filter],
   );
-  const motionCount = MEDIA_PREVIEWS.filter((item) => item.kind === "sequence").length;
+  const motionCount = items.filter((item) => item.kind === "sequence").length;
 
   return (
     <div className="cmux-gallery-media-board">
