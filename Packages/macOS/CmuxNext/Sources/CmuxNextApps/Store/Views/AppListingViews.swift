@@ -27,7 +27,7 @@ struct AppListingCard: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hovered ? colors.selection : colors.hover))
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        .onTapGesture { model.selection = listing.id }
+        .onTapGesture { model.show(.discover, selection: listing.id) }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
     }
@@ -59,7 +59,7 @@ struct AppListingRow: View {
             .fill(selected ? colors.selection : hovered ? colors.hover : .clear))
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        .onTapGesture { model.selection = listing.id }
+        .onTapGesture { model.show(.discover, selection: listing.id) }
     }
 }
 

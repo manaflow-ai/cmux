@@ -209,6 +209,19 @@ describe("direct client session state", () => {
 
   const connect = () => AcpmuxDirectClient.connect(host, (snapshot) => snapshots.push(snapshot));
 
+  test("the inspector journal follows selection and does not expose the mutable event list", async () => {
+    const client = await connect();
+    try {
+      expect(client.sessionEvents().map((event) => event.seq)).toEqual([5, 6]);
+      client.sessionEvents().pop();
+      expect(client.sessionEvents().map((event) => event.seq)).toEqual([5, 6]);
+      await client.select("b");
+      expect(client.sessionEvents().map((event) => event.seq)).toEqual([1]);
+    } finally {
+      client.close();
+    }
+  });
+
   test("warms one live child for each recent project without creating a session", async () => {
     ScriptedSocket.respond = ({ method, params }) => {
       if (method === "_acpmux/watch")
@@ -1311,7 +1324,9 @@ describe("direct client session state", () => {
     expect(attach.params.kinds).toEqual(["transcript", "available_commands_update", "usage_update"]);
     expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     expect(texts()).toEqual(["a five"]);
-    expect(latest().commands).toEqual([{ name: "review", description: "review help", hint: undefined }]);
+    expect(latest().commands).toEqual([
+      { name: "review", description: "review help", hint: undefined, source: "agent" },
+    ]);
     ScriptedSocket.current.notify("session/update", {
       sessionId: "a",
       update: {

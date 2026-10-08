@@ -12839,137 +12839,6 @@
       }
     }
   },
-    "agentPane.confirmMode.message": {
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ستنتقل هذه المحادثة إلى %@، وهو وضع لا يسأل فيه الوكيل قبل أن يتصرف."
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Ovaj razgovor bi prešao na %@, način u kojem agent ne pita prije nego što djeluje."
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Denne chat skifter til %@, en tilstand hvor agenten ikke spørger, før den handler."
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Dieser Chat würde zu %@ wechseln, einem Modus, in dem der Agent nicht fragt, bevor er handelt."
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "This chat would switch to %@, a mode in which the agent does not ask before it acts."
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Este chat pasaría a %@, un modo en el que el agente no pregunta antes de actuar."
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Ce chat passerait en %@, un mode dans lequel l’agent ne demande pas avant d’agir."
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Questa chat passerebbe a %@, una modalità in cui l’agente non chiede prima di agire."
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "このチャットは %@ に切り替わります。このモードでは、エージェントは実行前に確認しません。"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ការជជែកនេះនឹងប្ដូរទៅ %@ ដែលជារបៀបដែលភ្នាក់ងារមិនសួរមុនធ្វើសកម្មភាព។"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "이 채팅은 에이전트가 작업 전에 묻지 않는 모드인 %@(으)로 전환됩니다."
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Denne chatten bytter til %@, en modus der agenten ikke spør før den handler."
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Ten czat przełączy się na %@, tryb, w którym agent nie pyta przed działaniem."
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Este chat mudaria para %@, um modo em que o agente não pergunta antes de agir."
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Этот чат перейдёт в режим %@, в котором агент не спрашивает перед действием."
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "แชทนี้จะเปลี่ยนเป็น %@ ซึ่งเป็นโหมดที่เอเจนต์ไม่ถามก่อนทำงาน"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Bu sohbet, aracının işlem yapmadan önce sormadığı %@ moduna geçer."
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Цей чат перейде в режим %@, у якому агент не питає перед дією."
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cuộc trò chuyện này sẽ chuyển sang %@, chế độ mà tác tử không hỏi trước khi hành động."
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "此聊天将切换到 %@，在该模式下代理执行操作前不会询问。"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "此聊天將切換到 %@，在該模式下代理執行操作前不會詢問。"
-        }
-      }
-    }
-  },
     "agentPane.confirmMode.switch": {
     "extractionState": "manual",
     "localizations": {
@@ -13097,399 +12966,6 @@
         "stringUnit": {
           "state": "translated",
           "value": "切換模式"
-        }
-      }
-    }
-  },
-    "agentPane.addRoot.title": {
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "هل تريد إضافة هذا المجلد إلى مساحة العمل؟"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Dodati ovaj folder u radni prostor?"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Vil du føje denne mappe til arbejdsområdet?"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Diesen Ordner zum Arbeitsbereich hinzufügen?"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Add this folder to the workspace?"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "¿Añadir esta carpeta al espacio de trabajo?"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Ajouter ce dossier à l’espace de travail ?"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Aggiungere questa cartella allo spazio di lavoro?"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "このフォルダをワークスペースに追加しますか？"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "បន្ថែមថតនេះទៅកន្លែងធ្វើការ?"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "이 폴더를 워크스페이스에 추가할까요?"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Vil du legge til denne mappen i arbeidsområdet?"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Dodać ten folder do obszaru roboczego?"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Adicionar esta pasta ao espaço de trabalho?"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Добавить эту папку в рабочее пространство?"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "เพิ่มโฟลเดอร์นี้ลงในพื้นที่ทำงานหรือไม่"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Bu klasör çalışma alanına eklensin mi?"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Додати цю папку до робочого простору?"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Thêm thư mục này vào không gian làm việc?"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "要将此文件夹添加到工作区吗？"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "要將此檔案夾加入工作區嗎？"
-        }
-      }
-    }
-  },
-    "agentPane.addRoot.message": {
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "طلب الوكيل العمل في %@، وهو خارج مجلدات مساحة العمل هذه."
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agent je tražio da radi u %@, koji je izvan foldera ovog radnog prostora."
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agenten bad om at arbejde i %@, som ligger uden for dette arbejdsområdes mapper."
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Der Agent möchte in %@ arbeiten, das außerhalb der Ordner dieses Arbeitsbereichs liegt."
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "The agent asked to work in %@, which is outside this workspace's folders."
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "El agente pidió trabajar en %@, que está fuera de las carpetas de este espacio de trabajo."
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "L’agent a demandé à travailler dans %@, qui se trouve hors des dossiers de cet espace de travail."
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "L’agente ha chiesto di lavorare in %@, che è fuori dalle cartelle di questo spazio di lavoro."
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "エージェントが %@ での作業を求めています。このフォルダはワークスペースのフォルダの外にあります。"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ភ្នាក់ងារបានស្នើធ្វើការក្នុង %@ ដែលនៅក្រៅថតនៃកន្លែងធ្វើការនេះ។"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "에이전트가 이 워크스페이스의 폴더 밖에 있는 %@에서 작업하려고 합니다."
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agenten ba om å jobbe i %@, som ligger utenfor mappene i dette arbeidsområdet."
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agent poprosił o pracę w %@, który jest poza folderami tego obszaru roboczego."
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "O agente pediu para trabalhar em %@, que está fora das pastas deste espaço de trabalho."
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Агент запросил работу в %@, а эта папка находится вне папок рабочего пространства."
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "เอเจนต์ขอทำงานใน %@ ซึ่งอยู่นอกโฟลเดอร์ของพื้นที่ทำงานนี้"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Aracı, bu çalışma alanının klasörleri dışında kalan %@ içinde çalışmak istedi."
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Агент попросив працювати в %@, що поза папками цього робочого простору."
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Tác tử yêu cầu làm việc trong %@, nằm ngoài các thư mục của không gian làm việc này."
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "代理请求在 %@ 中工作，它位于此工作区的文件夹之外。"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "代理要求在 %@ 中工作，它位於此工作區的檔案夾之外。"
-        }
-      }
-    }
-  },
-    "agentPane.addRoot.add": {
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "إضافة المجلد"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Dodaj folder"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Tilføj mappe"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Ordner hinzufügen"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Add Folder"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Añadir carpeta"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Ajouter le dossier"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Aggiungi cartella"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "フォルダを追加"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "បន្ថែមថត"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "폴더 추가"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Legg til mappe"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Dodaj folder"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Adicionar pasta"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Добавить папку"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "เพิ่มโฟลเดอร์"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Klasör Ekle"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Додати папку"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Thêm thư mục"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "添加文件夹"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "加入檔案夾"
         }
       }
     }
@@ -14931,6 +14407,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "App 拒絕了此連結。"
+          }
+        }
+      }
+    },
+    "agentPane.shell.completionTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة الإكمال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dovršavanje je isteklo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuldførelsen fik timeout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vervollständigung hat das Zeitlimit überschritten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completion timed out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de la finalización"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Délai de complétion dépassé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo scaduto per il completamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "補完がタイムアウトしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបំពេញស្វ័យប្រវត្តិអស់ពេល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 완성 시간이 초과되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fullføringen fikk tidsavbrudd"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekroczono limit czasu uzupełniania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conclusão excedeu o tempo limite"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время автодополнения истекло"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเติมข้อความหมดเวลา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamamlama zaman aşımına uğradı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час автодоповнення вичерпано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoàn thành tự động đã hết thời gian"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "补全超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "補全逾時"
           }
         }
       }
@@ -16769,133 +16376,133 @@
         }
       }
     },
-    "agentPane.shell.completionTimedOut": {
+    "agentPane.loading": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انتهت مهلة الإكمال"
+            "value": "جارٍ تحميل محادثة الوكيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dovršavanje je isteklo"
+            "value": "Učitavanje chata s agentom"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fuldførelsen fik timeout"
+            "value": "Indlæser agentchat"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vervollständigung hat das Zeitlimit überschritten"
+            "value": "Agenten-Chat wird geladen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Completion timed out"
+            "value": "Loading agent chat"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se agotó el tiempo de la finalización"
+            "value": "Cargando el chat con el agente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Délai de complétion dépassé"
+            "value": "Chargement de la discussion avec l’agent"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tempo scaduto per il completamento"
+            "value": "Caricamento della chat con l’agente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "補完がタイムアウトしました"
+            "value": "エージェントチャットを読み込み中"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការបំពេញស្វ័យប្រវត្តិអស់ពេល"
+            "value": "កំពុងផ្ទុកការជជែកភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "자동 완성 시간이 초과되었습니다"
+            "value": "에이전트 채팅 불러오는 중"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fullføringen fikk tidsavbrudd"
+            "value": "Laster inn agentchat"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przekroczono limit czasu uzupełniania"
+            "value": "Wczytywanie czatu z agentem"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A conclusão excedeu o tempo limite"
+            "value": "Carregando o chat com o agente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Время автодополнения истекло"
+            "value": "Загрузка чата с агентом"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การเติมข้อความหมดเวลา"
+            "value": "กำลังโหลดแชตเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamamlama zaman aşımına uğradı"
+            "value": "Ajan sohbeti yükleniyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Час автодоповнення вичерпано"
+            "value": "Завантаження чату з агентом"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hoàn thành tự động đã hết thời gian"
+            "value": "Đang tải cuộc trò chuyện tác tử"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "补全超时"
+            "value": "正在加载代理聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "補全逾時"
+            "value": "正在載入代理聊天"
           }
         }
       }
@@ -17289,137 +16896,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "從此處分支"
-          }
-        }
-      }
-    },
-    "agentPane.loading": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ تحميل محادثة الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Učitavanje chata s agentom"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indlæser agentchat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten-Chat wird geladen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loading agent chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cargando el chat con el agente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chargement de la discussion avec l’agent"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caricamento della chat con l’agente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャットを読み込み中"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំពុងផ្ទុកការជជែកភ្នាក់ងារ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 채팅 불러오는 중"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Laster inn agentchat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wczytywanie czatu z agentem"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carregando o chat com o agente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Загрузка чата с агентом"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังโหลดแชตเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajan sohbeti yükleniyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Завантаження чату з агентом"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đang tải cuộc trò chuyện tác tử"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在加载代理聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在載入代理聊天"
           }
         }
       }

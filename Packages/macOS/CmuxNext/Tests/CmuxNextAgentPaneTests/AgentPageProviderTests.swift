@@ -36,12 +36,12 @@ import Testing
         #expect(!PageDescriptor.agent.owns(URL(string: "cmux-agent://pane/")))
     }
 
-    /// The page opens no connection (the native transport carries acpmux) and shows only loopback
-    /// previews; nothing else on the network.
+    /// The page opens no connection (the native transport carries acpmux) and frames only loopback
+    /// previews and the render frame (`AgentPaneRenderFrame`); nothing else on the network.
     @Test func theAgentPageCSPAllowsOnlyLoopback() {
         let header = PageDescriptor.agent.csp.header
         #expect(header.contains("connect-src 'none'"))
-        #expect(header.contains("frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"))
+        #expect(header.contains("frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"))
         #expect(header.hasPrefix("default-src 'none'"))
     }
 

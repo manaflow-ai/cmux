@@ -55,6 +55,8 @@ final class TabHoverCardController: HoverCardSource {
     /// Each recently hovered tab's last CPU and memory sample, shown until
     /// the first fresh one arrives (no placeholder flash on a retarget).
     private var lastReports: [TabID: ResourceReport] = [:]
+    /// Tabs whose last fetch had no thumbnail: their cards open without one.
+    private var noThumbnail: Set<TabID> = []
     private var bodyID: HoverTargetID?
     private var memoryPressure: (any DispatchSourceMemoryPressure)?
 
@@ -118,7 +120,10 @@ final class TabHoverCardController: HoverCardSource {
         let body = body ?? TabHoverCardView()
         self.body = body
         body.configure(content)
-        if case .tab = content { body.setResources(resources.report ?? lastReports[tab]) }
+        if case .tab = content {
+            body.setResources(resources.report ?? lastReports[tab])
+            if noThumbnail.contains(tab) { body.setThumbnailVisible(false) }
+        }
         let newCard = bodyID != id
         // A retarget keeps the shown thumbnail until this tab's lands; a tab
         // seen before shows its own at once.
@@ -162,6 +167,7 @@ final class TabHoverCardController: HoverCardSource {
         let open = Set(strip.model.tabs.map(\.id))
         thumbnails.keep(only: open)
         lastReports = lastReports.filter { open.contains($0.key) }
+        noThumbnail.formIntersection(open)
     }
 
     private func rememberReport(_ report: ResourceReport, for tab: TabID) {
@@ -192,14 +198,19 @@ final class TabHoverCardController: HoverCardSource {
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
-            // No thumbnail (a page never captured): the placeholder, not the
-            // previous tab's picture kept through the retarget.
+            // No thumbnail (a page never captured): none, not the previous
+            // tab's picture kept through the retarget or an empty frame.
             guard let image else {
+                self.noThumbnail.insert(id)
                 self.body?.setThumbnail(nil)
+                self.body?.setThumbnailVisible(false)
+                self.coordinator.contentChanged(target)
                 return
             }
             self.thumbnails.insert(image, for: id)
             self.body?.setThumbnail(image)
+            // A tab that had none gets its thumbnail frame back.
+            if self.noThumbnail.remove(id) != nil { self.coordinator.contentChanged(target) }
         }
     }
 }

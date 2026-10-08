@@ -292,7 +292,9 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApps",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

@@ -26,7 +26,7 @@ Paths (`AgentPaneReplyPaths`): `~/` and relative paths expand from the session's
 (`~/.ssh`, `~/.gnupg`, `~/Library/Keychains`, `~/.aws`, `~/.config/gh`, `*.pem`, `*.key`, `.env*`) applies to
 the spelling and to the canonical path (symlinks resolved); the roots check uses the canonical path; a path
 outside the roots is never checked on disk, so the page cannot probe for files. The gesture is spent only
-after both checks pass. `agentPane.links.outsideRoots`: `confirm` (native sheet), `text`, `open`.
+after both checks pass. `agentPane.links.outsideRoots`: `open` (the default), `confirm` (native sheet), `text`.
 
 Web images (`AgentPaneSafeFetch`, `AgentPaneNetworkRules`): https only; every resolved address must be
 public (no loopback, RFC 1918, link-local, CGNAT/Tailscale, ULA, multicast, documentation; embedded IPv4 in

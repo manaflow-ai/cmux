@@ -42,7 +42,7 @@
       "type" : "string"
     },
     "agentPane.links.outsideRoots" : {
-      "default" : "confirm",
+      "default" : "open",
       "description" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
       "enum" : [
         "confirm",
