@@ -3,9 +3,15 @@ import Foundation
 
 /// Compact avatar-stack policy with deterministic overflow.
 struct WorkspacePresencePolicy {
+    static let inactiveOpacity = 0.42
+
     static func layout(participants: [WorkspacePresenceParticipant], maximumVisible: Int = 4) -> (visible: [WorkspacePresenceParticipant], overflow: Int) {
         let limit = max(1, maximumVisible)
         return (Array(participants.prefix(limit)), max(0, participants.count - limit))
+    }
+
+    static func avatarOpacity(for participant: WorkspacePresenceParticipant) -> Double {
+        participant.isActive ? 1 : inactiveOpacity
     }
 
     static func names(_ participants: [WorkspacePresenceParticipant]) -> String {

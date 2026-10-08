@@ -63,4 +63,12 @@ struct CloudWorkspacePresenceHeadsTests {
         #expect(WorkspacePresencePolicy.accessibilityLabel(participants).contains("Person 12"))
         #expect(WorkspacePresencePolicy.names([.init(id: "missing-name")]).isEmpty == false)
     }
+
+    @Test("inactive viewers keep their head but render with reduced opacity")
+    func inactiveOpacity() {
+        let active = WorkspacePresenceParticipant(id: "active", isActive: true)
+        let inactive = WorkspacePresenceParticipant(id: "inactive", isActive: false)
+        #expect(WorkspacePresencePolicy.avatarOpacity(for: active) == 1)
+        #expect(WorkspacePresencePolicy.avatarOpacity(for: inactive) == WorkspacePresencePolicy.inactiveOpacity)
+    }
 }
