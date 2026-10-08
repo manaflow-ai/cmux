@@ -449,7 +449,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let selected = c.id == highlightID
         let k = key(.row, item: i, emphasized: emphasized(i))
         l.frame = frame
-        l.content.frame = l.bounds
+        // cmux: the text column, not the row's bounds: a row whose bitmap is unchanged returns
+        // before `show` sets it, and its name and preview drew over the avatar at x 0.
+        l.content.frame = CGRect(x: SidebarMetrics.textX, y: 0, width: metrics.textWidth, height: SidebarMetrics.rowHeight)
         l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
         l.selection.cornerRadius = SidebarMetrics.selectionRadius
         l.selection.isHidden = !selected

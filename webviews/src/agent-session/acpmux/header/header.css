@@ -15,8 +15,10 @@
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font:12px/18px -apple-system,BlinkMacSystemFont,sans-serif}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
-/* The agent pane does not load src/ui/ui.css, so the menu carries the primitive's stacking and submenu chevron. */
-.ui-positioner:has(>.acpmux-chat-menu-popover){z-index:50;outline:none}
+/* The agent pane does not load src/ui/ui.css, so the pane carries the primitive's stacking: every Base UI overlay
+   (menus, popovers, comboboxes, tooltips) portals to the page root and must draw above the composer card and the
+   transcript (cx-lzld: the folder menu drew under the card). The chat menu also carries the submenu chevron. */
+.ui-positioner{z-index:50;outline:none}
 .acpmux-chat-menu-popover .ui-submenu-chevron{flex:none;margin-inline-start:auto;width:6px;height:6px;border-block-start:1.5px solid currentColor;border-inline-end:1.5px solid currentColor;transform:rotate(45deg);opacity:.6}
 .acpmux-chat-menu-popover .ui-submenu-chevron:dir(rtl){transform:rotate(-45deg)}
 /* Changes beside the transcript once the pane is wide enough for both, as in the Codex app; narrower, it covers the transcript. */
