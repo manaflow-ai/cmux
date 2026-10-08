@@ -129,6 +129,46 @@ def observed(runners, pools, *, jobs=4, env=None, runners_error=None):
 class ConfiguredPoolTests(unittest.TestCase):
     """Only the pools CI_OWNED_POOL_SLOTS lists are owned pools."""
 
+    def test_gui_suite_skips_configured_aws_family(self):
+        """App-host suites stay on a GUI-capable mini while AWS is compile-only."""
+        aws_label = "glaeda-aws-std-xcode-26.6"
+        env = {
+            **OWNED_ENV,
+            "CI_OWNED_POOL_SLOTS": json.dumps({STD: 8, aws_label: 8}),
+            "RUN_FULL_SUITE": "true",
+        }
+        aws = [runner(f"aws-{index}", [aws_label], busy=False) for index in range(8)]
+        minis = [std_runner(index, busy=False) for index in range(8)]
+        choice = picker.pick(observed(aws + minis, {}, env=env))
+        self.assertEqual(choice.label, STD)
+
+    def test_compile_only_can_use_configured_aws_family(self):
+        """Compile-only runs retain the AWS route until its GUI session is eligible."""
+        aws_label = "glaeda-aws-std-xcode-26.6"
+        env = {**OWNED_ENV, "CI_OWNED_POOL_SLOTS": json.dumps({aws_label: 8})}
+        aws = [runner(f"aws-{index}", [aws_label], busy=False) for index in range(8)]
+        choice = picker.pick(observed(aws, {}, env=env))
+        self.assertEqual(choice.label, aws_label)
+
+    def test_aws_pick_retries_on_matching_xcode_pool(self):
+        aws = picker.Pool(
+            "glaeda-aws-std-xcode-26.3", 8, free=1,
+            xcode_app="/Applications/Xcode_26.3.app",
+        )
+        macos_15 = picker.Pool(
+            picker.BLACKSMITH[2], 10,
+            xcode_app="/Applications/Xcode_26.3.app",
+        )
+        state = picker.State(
+            jobs=1,
+            owned=(aws,),
+            blacksmith=(picker.Pool(picker.BLACKSMITH[0], 5), macos_15),
+            owned_enabled=True,
+        )
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, aws.label)
+        self.assertEqual(choice.retry_label, macos_15.label)
+
     def test_an_unlisted_owned_looking_label_is_never_picked(self):
         # Ten idle aws runners carry glaeda-std-xcode-26.3, which sorts before
         # the minis' 26.6; picking it sent compile admission to five runners
