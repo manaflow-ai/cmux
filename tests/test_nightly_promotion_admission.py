@@ -109,6 +109,7 @@ run(github, context, core, processForScript, () => writer).then(() => {
 
 
 def promotion_script() -> str:
+    """Extract the live promotion script from nightly.yml."""
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     steps = workflow["jobs"]["promote-nightly-next"]["steps"]
     return next(step["with"]["script"] for step in steps if step.get("name") == "Move nightly-next")
@@ -116,6 +117,7 @@ def promotion_script() -> str:
 
 def run_admission(*, empty_runs: int, job_name: str, job_conclusion: str,
                   job_status: str = "completed") -> dict:
+    """Run the promotion script against a deterministic mocked Actions API."""
     scenario = {
         "script": promotion_script(),
         "sha": SHA,
@@ -139,6 +141,7 @@ def run_admission(*, empty_runs: int, job_name: str, job_conclusion: str,
 
 
 def test_admission_retries_a_temporarily_missing_source_run() -> None:
+    """A delayed workflow index must not reject an otherwise green compile."""
     result = run_admission(
         empty_runs=1,
         job_name="cmux-next Release compile (Xcode 26)",
@@ -151,6 +154,7 @@ def test_admission_retries_a_temporarily_missing_source_run() -> None:
 
 
 def test_admission_still_rejects_a_missing_successful_release_compile() -> None:
+    """A matching SHA without the required Release compile must fail closed."""
     result = run_admission(
         empty_runs=0,
         job_name="cmux-next checks",
@@ -162,6 +166,7 @@ def test_admission_still_rejects_a_missing_successful_release_compile() -> None:
 
 
 def test_admission_rejects_a_success_conclusion_from_an_in_progress_job() -> None:
+    """A success conclusion on an unfinished job is not admission evidence."""
     result = run_admission(
         empty_runs=0,
         job_name="cmux-next Release compile (Xcode 26)",
@@ -173,6 +178,7 @@ def test_admission_rejects_a_success_conclusion_from_an_in_progress_job() -> Non
 
 
 def main() -> None:
+    """Run the focused regression suite without requiring a test runner."""
     test_admission_retries_a_temporarily_missing_source_run()
     test_admission_still_rejects_a_missing_successful_release_compile()
     test_admission_rejects_a_success_conclusion_from_an_in_progress_job()
