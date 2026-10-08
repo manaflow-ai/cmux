@@ -128,11 +128,15 @@ typedef enum {
   // Once per download: a = 1 complete, 2 cancelled, 3 interrupted;
   // b = cef_download_interrupt_reason_t; s1 = the full path ("" if none).
   CMUX_SHIM_DOWNLOAD_DONE = 36,
+  // A sign-in tab (cmux_shim_set_auth_callback) navigated its main frame to
+  // the session's callback. The shim cancelled the navigation before it
+  // loaded; s1 = the callback url.
+  CMUX_SHIM_AUTH_CALLBACK = 37,
   // A main-frame navigation to a local file cmux shows elsewhere (Markdown,
   // or H.264/HEVC or AAC media this build cannot decode;
   // CEFShim/src/local_file_handoff.h). The shim cancelled it; s1 = url. The
   // host opens the file in cmux's markdown page or a WebKit tab.
-  CMUX_SHIM_LOCAL_FILE_HANDOFF = 37,
+  CMUX_SHIM_LOCAL_FILE_HANDOFF = 38,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -592,6 +596,12 @@ CMUX_SHIM_EXPORT void cmux_shim_release_context(const char* profile_cache_path);
 // blob: and filesystem: of those. The same rule as AgentURLPolicy.swift
 // (plans/cmux-next/passwords.md, section 2).
 CMUX_SHIM_EXPORT void cmux_shim_set_navigation_guard(int browser_id, int mode);
+// The callback of a sign-in session (ASWebAuthenticationSession) that runs in
+// browser_id: a custom scheme, or an https host and path (auth_callback_policy.h).
+// A main-frame navigation (redirects included) to it is cancelled before it
+// loads and reported as AUTH_CALLBACK. All empty or NULL clears it.
+CMUX_SHIM_EXPORT void cmux_shim_set_auth_callback(int browser_id, const char* scheme, const char* https_host,
+                                                  const char* https_path);
 
 // Profile preferences (UI thread). Only these names are allowed:
 // credentials_enable_service, credentials_enable_autosignin,

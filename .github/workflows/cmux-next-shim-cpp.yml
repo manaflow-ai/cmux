@@ -18,6 +18,8 @@ on:
       - Packages/macOS/CmuxNext/CEFShim/**
       - scripts/cmux-next/test-shim-downloads-cpp.sh
       - scripts/cmux-next/test-password-reveal-relay-cpp.sh
+      - scripts/cmux-next/test-shim-switches-cpp.sh
+      - scripts/cmux-next/test-auth-callback-policy-cpp.sh
       - scripts/cmux-next/test-local-file-handoff-cpp.sh
       - schemas/local-file-handoff/vectors.json
       - .github/workflows/cmux-next-shim-cpp.yml
@@ -29,6 +31,8 @@ on:
       - Packages/macOS/CmuxNext/CEFShim/**
       - scripts/cmux-next/test-shim-downloads-cpp.sh
       - scripts/cmux-next/test-password-reveal-relay-cpp.sh
+      - scripts/cmux-next/test-shim-switches-cpp.sh
+      - scripts/cmux-next/test-auth-callback-policy-cpp.sh
       - scripts/cmux-next/test-local-file-handoff-cpp.sh
       - schemas/local-file-handoff/vectors.json
       - .github/workflows/cmux-next-shim-cpp.yml
@@ -56,5 +60,9 @@ jobs:
         run: ./scripts/cmux-next/test-shim-downloads-cpp.sh
       - name: Password reveal relay zeroes its copy
         run: ./scripts/cmux-next/test-password-reveal-relay-cpp.sh
+      - name: Feature-list switches merge with CEF's own lists
+        run: ./scripts/cmux-next/test-shim-switches-cpp.sh
+      - name: Sign-in session callbacks end only their own session
+        run: ./scripts/cmux-next/test-auth-callback-policy-cpp.sh
       - name: Local file handoff (shared vectors)
         run: ./scripts/cmux-next/test-local-file-handoff-cpp.sh

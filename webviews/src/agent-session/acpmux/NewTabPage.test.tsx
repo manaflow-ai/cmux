@@ -9,7 +9,18 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "Element", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Element",
+    "Node",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 Object.assign(globals, {
   window: dom.window,
@@ -17,6 +28,8 @@ Object.assign(globals, {
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
+  // The page checks `instanceof Node`; alone, no earlier file has left a global Node behind.
+  Node: dom.window.Node,
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0),
   cancelAnimationFrame: (id: number) => clearTimeout(id),

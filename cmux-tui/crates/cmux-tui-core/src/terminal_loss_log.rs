@@ -10,7 +10,9 @@
 //! pressure. The file is local diagnostics only; nothing reads it back. It
 //! is rotated once at [`MAX_LOG_BYTES`] (one previous file is kept). A dead
 //! host replaced on its still-running shell (PTY custody) is logged as an
-//! `"event":"host_replaced"` line instead; it is not a loss.
+//! `"event":"host_replaced"` line instead; it is not a loss. A terminal that
+//! got a new shell after a loss (L2 respawn) adds a
+//! `"event":"terminal_respawned"` line after its loss line.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -141,6 +143,66 @@ pub(crate) fn record_host_replaced(
     remove_signals(record_path);
 }
 
+/// What a respawned terminal's new shell had pre-filled on its input line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Prefilled {
+    /// An agent resume command (`claude --resume`, `codex resume`).
+    Harness,
+    /// The terminal's earlier command line.
+    Command,
+    None,
+}
+
+impl Prefilled {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Harness => "harness",
+            Self::Command => "command",
+            Self::None => "none",
+        }
+    }
+}
+
+/// The respawn line for `terminal_id` (cx-6so.49 L2).
+pub(crate) fn respawn_line(
+    terminal_id: &str,
+    (old_incarnation, new_incarnation): (&str, &str),
+    cause: &str,
+    prefilled: Prefilled,
+    at_ms: u128,
+) -> serde_json::Value {
+    serde_json::json!({
+        "at_ms": at_ms,
+        "event": "terminal_respawned",
+        "terminal_id": terminal_id,
+        "old_incarnation": old_incarnation,
+        "new_incarnation": new_incarnation,
+        "cause": cause,
+        "prefilled": prefilled.as_str(),
+    })
+}
+
+/// Append that terminal `terminal_id`, whose shell was lost with its host
+/// (`cause`, the `host_lost` reason), runs a new shell under the same id
+/// (cx-6so.49 L2). `root` is the terminal-host record directory.
+pub(crate) fn record_terminal_respawned(
+    root: &Path,
+    terminal_id: &str,
+    incarnations: (&str, &str),
+    cause: &str,
+    prefilled: Prefilled,
+) {
+    let at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let line = respawn_line(terminal_id, incarnations, cause, prefilled, at_ms);
+    eprintln!("cmux-tui: terminal {terminal_id} respawned: {line}");
+    if let Some(log) = root.parent().map(|dir| dir.join(LOSS_LOG_FILE)) {
+        append_rotating(&log, &line);
+    }
+}
+
 fn append_rotating(log: &Path, line: &serde_json::Value) {
     if fs::metadata(log).is_ok_and(|metadata| metadata.len() >= MAX_LOG_BYTES) {
         let _ = fs::rename(log, log.with_extension("jsonl.1"));
@@ -215,6 +277,29 @@ mod tests {
         assert!(line.get("end").is_none(), "a replacement is not an end: {line}");
         assert!(line["cause"].as_str().unwrap().contains("SIGKILL"), "{line}");
         assert!(!signals_path(&record).exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_respawn_is_logged_as_its_own_event() {
+        let root = temp_root("respawned");
+        let hosts = root.join("terminal-hosts-x");
+        record_terminal_respawned(
+            &hosts,
+            "abc",
+            ("i1", "i2"),
+            "dead_before_adoption",
+            Prefilled::Harness,
+        );
+        let text = fs::read_to_string(root.join(LOSS_LOG_FILE)).unwrap();
+        let line: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(line["event"], "terminal_respawned");
+        assert_eq!(
+            (line["old_incarnation"].as_str(), line["new_incarnation"].as_str()),
+            (Some("i1"), Some("i2"))
+        );
+        assert_eq!(line["cause"], "dead_before_adoption");
+        assert_eq!(line["prefilled"], "harness");
         let _ = fs::remove_dir_all(root);
     }
 

@@ -42,6 +42,7 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.folder</string>
+				<string>public.directory</string>
 			</array>
 		</dict>
 		<dict>
@@ -81,6 +82,8 @@
 				<string>public.shell-script</string>
 				<string>public.zsh-script</string>
 				<string>public.bash-script</string>
+				<string>public.csh-script</string>
+				<string>public.perl-script</string>
 			</array>
 		</dict>
 		<dict>
@@ -94,6 +97,23 @@
 			<array>
 				<string>public.unix-executable</string>
 			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>command</string>
+				<string>tool</string>
+				<string>sh</string>
+				<string>zsh</string>
+				<string>csh</string>
+				<string>pl</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Terminal scripts</string>
+			<key>CFBundleTypeRole</key>
+			<string>Shell</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
@@ -119,6 +139,7 @@
 				<string>public.source-code</string>
 				<string>public.json</string>
 				<string>public.yaml</string>
+				<string>com.netscape.javascript-source</string>
 			</array>
 		</dict>
 		<dict>
@@ -131,6 +152,62 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.plain-text</string>
+				<string>public.text</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Image</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.compuserve.gif</string>
+				<string>public.jpeg</string>
+				<string>public.png</string>
+				<string>org.webmproject.webp</string>
+				<string>public.avif</string>
+				<string>public.svg-image</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>PDF document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Audio and video</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.xiph.ogg-audio</string>
+				<string>org.xiph.ogv</string>
+				<string>org.webmproject.webm</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Saved web page</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.ietf.mhtml</string>
 			</array>
 		</dict>
 		<dict>
@@ -322,6 +399,18 @@
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>Local file URL</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>file</string>
+			</array>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
 	</array>
 	<key>CMUXIrohRelayPolicyKeyID</key>
 	<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
@@ -419,6 +508,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>NSUserActivityTypeBrowsingWeb</string>
+	</array>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
 	<key>NSPrincipalClass</key>
@@ -476,6 +569,96 @@
 				<key>public.mime-type</key>
 				<array>
 					<string>text/markdown</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.audio</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Ogg audio</string>
+			<key>UTTypeIdentifier</key>
+			<string>org.xiph.ogg-audio</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>ogg</string>
+					<string>oga</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>audio/ogg</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Ogg video</string>
+			<key>UTTypeIdentifier</key>
+			<string>org.xiph.ogv</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>ogv</string>
+					<string>ogm</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>video/ogg</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>WebM media</string>
+			<key>UTTypeIdentifier</key>
+			<string>org.webmproject.webm</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>webm</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>video/webm</string>
+					<string>audio/webm</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>MIME HTML document</string>
+			<key>UTTypeIdentifier</key>
+			<string>org.ietf.mhtml</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mhtml</string>
+					<string>mht</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>multipart/related</string>
+					<string>application/x-mimearchive</string>
 				</array>
 			</dict>
 		</dict>

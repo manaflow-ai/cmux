@@ -45,6 +45,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case chromeCommand(browser: Int32, command: Int32)
     /// The navigation guard cancelled a main-frame navigation to `url`.
     case navigationReroute(browser: Int32, url: String, isRedirect: Bool)
+    /// A sign-in tab navigated to its session's callback; the shim cancelled
+    /// the navigation (`cmux_shim_set_auth_callback`).
+    case authCallback(browser: Int32, url: String)
     /// The shim cancelled a main-frame navigation to a local file cmux shows
     /// elsewhere (`LocalFileHandoff`).
     case localFileHandoff(browser: Int32, url: String)
@@ -104,6 +107,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 25: self = .renderResponsive(browser: browser)
         case 26: self = .chromeCommand(browser: browser, command: request)
         case 27: self = .navigationReroute(browser: browser, url: s1, isRedirect: a != 0)
+        case 37: self = .authCallback(browser: browser, url: s1)
         case 28: self = .keyUnhandled(browser: browser, keyCode: Int(a), shift: b & 1 != 0)
         case 29: self = .installPrompt(browser: browser, promptID: request, json: s1)
         case 30: self = .omniboxSuggestions(requestID: request, extensionID: s1, json: s2)
@@ -113,7 +117,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 34...36:
             let download = CEFDownloadEvent(kind: kind, browser: browser, id: request, a: a, b: b, s1: s1, s2: s2)
             self = download.map(Self.download) ?? .unknown(kind: kind)
-        case 37: self = .localFileHandoff(browser: browser, url: s1)
+        case 38: self = .localFileHandoff(browser: browser, url: s1)
         default: self = .unknown(kind: kind)
         }
     }

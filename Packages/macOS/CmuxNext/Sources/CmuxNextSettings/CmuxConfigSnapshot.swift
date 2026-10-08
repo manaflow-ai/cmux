@@ -124,6 +124,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
+    /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
+    public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
@@ -133,6 +135,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
+    /// `appearance.appTheme`: the theme cmux's own chrome and pages take their tokens from, apart
+    /// from the terminal theme. Nil follows the terminal theme (`followTerminal`, the default).
+    public var chromeTheme: String?
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
@@ -147,6 +152,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
     public var updates = UpdatesSettings()
+    /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
+    public var computerUse = ComputerUseSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -175,6 +182,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             return snapshot
         }
         snapshot.retiredKeys = SettingsSchema.retiredKeys.keys.filter { root.value(at: $0.split(separator: ".").map(String.init)) != nil }.sorted()
+        snapshot.diagnostics += Self.chatDiagnostics(root)
         let tabBar = SurfaceTabBarParser.parse(root, configDirectory: configDirectory)
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
@@ -266,6 +274,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
+        let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
+        snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
+        if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
@@ -283,9 +294,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
+        let (chromeTheme, chromeThemeDiagnostic) = ChromeThemeSetting().parse(root)
+        snapshot.chromeTheme = chromeTheme
+        if let chromeThemeDiagnostic { snapshot.diagnostics.append(chromeThemeDiagnostic) }
         let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting().parseFamily(root)
         snapshot.terminalFontFamily = fontFamily
         if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }

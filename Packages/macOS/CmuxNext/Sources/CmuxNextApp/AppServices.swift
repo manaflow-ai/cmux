@@ -32,8 +32,7 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
-    /// The app's key window. Tests and `debug.key` replace it: a window
-    /// only becomes key in a running, active app.
+    /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
     private(set) var cloud: CloudService!
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
@@ -100,8 +99,8 @@ final class AppServices {
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
-    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md).
-    private(set) lazy var sidebarLayout: SidebarLayoutService = {
+    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md); tests may set a fake owner.
+    lazy var sidebarLayout: SidebarLayoutService = {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
@@ -268,6 +267,7 @@ final class AppServices {
             CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
+            onboarding.cookiePrompt.attach(entry)
         }
         cache.onSuggestionEngineCreated = { [unowned self] in BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0) }
         cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }

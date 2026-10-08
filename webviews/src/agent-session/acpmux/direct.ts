@@ -9,6 +9,7 @@ import { postNative } from "./native";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
+import { questionFromPermission } from "./question/model";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -45,7 +46,7 @@ export type AcpmuxHostConfig = {
 };
 
 /** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
-export type AcpmuxAdopt = { harness: string; agentSessionId: string };
+export type AcpmuxAdopt = { harness: string; agentSessionId: string; ifLive?: "fork" | "open" };
 
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. An adopt
  *  sends no cwd: acpmux resumes the chat where its harness recorded it. */
@@ -62,6 +63,15 @@ export function newSessionParams(
     ...(host.cwd ? { cwd: host.cwd } : {}),
     mcpServers: [],
     _meta: { acpmux: { harness, ...(host.peer ? { peer: host.peer } : {}) } },
+  };
+}
+
+/** What an `adopt.live` refusal's details offer: a fork (Claude Code), and the holding process. */
+function liveDetails(details: unknown): { canFork: boolean; command?: string } {
+  const d = details && typeof details === "object" ? (details as Record<string, unknown>) : {};
+  return {
+    canFork: d.canFork === true,
+    ...(typeof d.command === "string" && d.command ? { command: d.command } : {}),
   };
 }
 
@@ -102,7 +112,9 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const sessionId = envelope?.sessionId ?? raw?.sessionId;
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
+  const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
   return {
+    ...(question ? { question } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
@@ -220,6 +232,7 @@ export function mergeToolItem(
       startedAt: before?.startedAt ?? at,
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs:
         update.content === undefined
           ? placeDiffs(before?.diffs, update.locations)
@@ -261,6 +274,25 @@ function textFromContent(content: any): string {
   if (content?.type === "content") return textFromContent(content.content);
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   return "";
+}
+
+/// The largest image block a tool call keeps (its base64 text): a bigger one is left out.
+const MAX_TOOL_IMAGE_LENGTH = 8 * 1024 * 1024;
+
+/// The data URLs of ACP `image` content blocks (`{type: "image", mimeType, data}`, bare or in a
+/// `content` wrapper), images only and each under the cap.
+function imagesFromContent(content: any): string[] | undefined {
+  const found: string[] = [];
+  const visit = (block: any) => {
+    if (Array.isArray(block)) return block.forEach(visit);
+    if (block?.type === "content") return visit(block.content);
+    if (block?.type !== "image" || typeof block.data !== "string") return;
+    const type = String(block.mimeType ?? "");
+    if (/^image\/(png|jpeg|gif|webp)$/.test(type) && block.data.length <= MAX_TOOL_IMAGE_LENGTH)
+      found.push(`data:${type};base64,${block.data}`);
+  };
+  visit(content);
+  return found.length ? found : undefined;
 }
 
 function sessionUpdate(event: EventRecord): any | undefined {
@@ -397,6 +429,8 @@ export class AcpmuxDirectClient {
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
+  /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
+  private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
@@ -1350,6 +1384,7 @@ export class AcpmuxDirectClient {
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
+      liveChat: this.liveAdopt && { canFork: this.liveAdopt.canFork, command: this.liveAdopt.command },
     });
   }
 
@@ -1522,12 +1557,15 @@ export class AcpmuxDirectClient {
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
   }
-  async permission(permissionId: string, optionId: string): Promise<void> {
+  /// Answers a permission: `optionId` picks an option (absent cancels the request), and
+  /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
+  async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
     if (this.selectedSessionId)
       await this.request("_acpmux/permission_respond", {
         sessionId: this.selectedSessionId,
         permissionId,
-        optionId,
+        ...(optionId === undefined ? {} : { optionId }),
+        ...(answers === undefined ? {} : { answers }),
       });
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
@@ -1629,17 +1667,33 @@ export class AcpmuxDirectClient {
       result = await this.request("session/new", newSessionParams({ adopt }));
     } catch (error) {
       if (this.socket?.readyState !== WebSocket.OPEN) throw error;
+      if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !adopt.ifLive) {
+        this.liveAdopt = { adopt, ...liveDetails((error as { details?: unknown }).details) };
+        this.emit();
+        return;
+      }
       this.adoptFailed(error instanceof Error && error.message ? `: ${error.message}` : "");
       return;
     }
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
-    if (sessionId && adoptedBy(result, adopt)) {
+    // A fork is a new conversation: its harness session is its own, not the adopted one.
+    if (sessionId && (adopt.ifLive === "fork" || adoptedBy(result, adopt))) {
       this.adopted = sessionId;
       await this.select(sessionId);
       return;
     }
     if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
     this.adoptFailed(": this acpmux can't resume chats");
+  }
+  /// Adopts the chat acpmux refused as live elsewhere anyway: `open` resumes it as it is (two
+  /// processes then write one conversation), `fork` starts a new chat from it. Once; a second
+  /// click while it adopts does nothing.
+  async adoptLive(choice: "fork" | "open"): Promise<void> {
+    const live = this.liveAdopt;
+    if (!live || (choice === "fork" && !live.canFork)) return;
+    this.liveAdopt = undefined;
+    this.emit();
+    await this.adoptChat({ ...live.adopt, ifLive: choice });
   }
   /// A line in the shown transcript (a pick the agent refused).
   notice(text: string): void {

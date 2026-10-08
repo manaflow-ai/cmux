@@ -17,8 +17,8 @@ final class FilePageOpener: FileOpening {
 
     /// Files the browser tab previews (images, PDFs, media). An explicit list, because the system
     /// types `.ts` (TypeScript) as an MPEG transport stream.
-    nonisolated static let previewExtensions = Set<String>([
-        "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
+    nonisolated static let previewExtensions: Set<String> = Set([
+        "png", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
     ]).union(AgentPaneFileOpen.mediaExtensions)
 
     /// The engine of the tab that previews `url`: WebKit for video and audio the Chromium build

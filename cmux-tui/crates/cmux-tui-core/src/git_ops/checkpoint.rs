@@ -33,9 +33,9 @@ use serde_json::{Map, Value, json};
 
 use super::Repository;
 use super::write_run::WriteGit;
-use crate::Mux;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
+use crate::{Actor, Mux};
 use capture::{Include, Request, Stamp};
 use ledger::Identity;
 use record::{Checkpoint, Limits, Pin, Stored, now_ms, rfc3339};
@@ -160,7 +160,7 @@ fn create(
         expect_identity(&request.fields, &target)?;
         let hooks = store.hooks();
         let git = writer(&target, &hooks);
-        if let Some(reply) = resume(mux, store, &git, &key, &fingerprint)? {
+        if let Some(reply) = resume(mux, store, &git, &key, &fingerprint, &request.actor)? {
             return Ok(reply);
         }
         refs::sweep(store, &git, &target.repository_id, &target.worktree_id);
@@ -173,7 +173,7 @@ fn create(
         if seams::CRASH_AFTER_PUBLISH.with(|crash| crash.replace(false)) {
             return Err(refused(OPERATION, "store_failed", "simulated crash", Value::Null));
         }
-        let reply = finish(mux, store, &pending, false)?;
+        let reply = finish(mux, store, &pending, false, &request.actor)?;
         refs::prune(store, &git, &target.repository_id);
         Ok(reply)
     })
@@ -187,13 +187,14 @@ fn resume(
     git: &WriteGit<'_>,
     key: &str,
     fingerprint: &Value,
+    actor: &Actor,
 ) -> Result<Option<Value>, ResourceError> {
     const OPERATION: &str = "git.checkpoint.create";
     let Some(pending) = store.pending(key).map_err(|error| io_failed(OPERATION, &error))? else {
         return Ok(None);
     };
     if &pending.fingerprint == fingerprint && refs::published(git, &pending.draft) {
-        return finish(mux, store, &pending, true).map(Some);
+        return finish(mux, store, &pending, true, actor).map(Some);
     }
     store.finish_pending(key).map_err(|error| io_failed(OPERATION, &error))?;
     Ok(None)
@@ -206,12 +207,13 @@ fn finish(
     store: &Store,
     pending: &Pending,
     replayed: bool,
+    actor: &Actor,
 ) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.checkpoint.create";
     store.save(&pending.draft).map_err(|error| io_failed(OPERATION, &error))?;
     let value = serde_json::to_value(&pending.draft.record).expect("records serialize");
     let key = &pending.idempotency_key;
-    let reply = ledger::commit(mux, key, OPERATION, &pending.fingerprint, &value, replayed)?;
+    let reply = ledger::commit(mux, key, OPERATION, &pending.fingerprint, &value, replayed, actor)?;
     // A leftover entry only costs a lookup: the ledger now answers the key.
     let _ = store.finish_pending(key);
     Ok(reply)
@@ -388,7 +390,7 @@ fn pin(
             store.save(&stored).map_err(|error| io_failed(operation, &error))?;
         }
         let value = serde_json::to_value(&stored.record).expect("records serialize");
-        ledger::commit(mux, &key, operation, &fingerprint, &value, false)
+        ledger::commit(mux, &key, operation, &fingerprint, &value, false, &request.actor)
     })
 }
 

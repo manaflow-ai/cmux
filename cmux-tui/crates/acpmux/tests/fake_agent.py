@@ -90,6 +90,32 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "question: Q" asks Q the way Claude Code's AskUserQuestion does and
+    # echoes the outcome plus the answers acpmux put into the tool input.
+    if text.startswith("question:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "q1", "title": "Question", "kind": "other", "status": "pending",
+                             "rawInput": {"questions": [{"question": text[9:].strip(), "header": "Pick",
+                                                         "multiSelect": False,
+                                                         "options": [{"label": "A", "description": "first"},
+                                                                     {"label": "B"}]}]},
+                             "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
+                "options": [
+                    {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        res = res or {}
+        chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
+        answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "gate-ask: PATH" blocks on the FIFO at PATH (as "gate:"), then asks
     # like "ask:"; "drift-ask: MODE" changes its own mode to MODE, then asks.
     # Both let a test change the session between the dispatch and the ask.

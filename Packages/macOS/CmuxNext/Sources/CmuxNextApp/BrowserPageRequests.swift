@@ -108,7 +108,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
                                                          entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
             let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
-                                                     services: services) + host.items
+                                                     services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
             services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
         case .notice(let text):
