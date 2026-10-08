@@ -273,10 +273,10 @@ class ChromeTextField: NSTextField {
     private func applyPlaceholder() {
         guard !placeholderText.isEmpty else { return }
         performWithTheme {
-            setPlaceholderKeepingEdit(NSAttributedString(string: placeholderText, attributes: [
+            placeholderAttributedString = NSAttributedString(string: placeholderText, attributes: [
                 .foregroundColor: Palette.textSecondary,
                 .font: font ?? BrowserMetrics.bodyFont,
-            ]))
+            ])
         }
     }
 
@@ -292,18 +292,5 @@ class ChromeTextField: NSTextField {
         let accepted = super.becomeFirstResponder()
         if accepted { applyEditorColors() }
         return accepted
-    }
-}
-
-extension NSTextField {
-    /// The field's setter ends and restarts an active edit, which runs the
-    /// end-editing and focus paths mid-typing; the cell's only redraws.
-    func setPlaceholderKeepingEdit(_ placeholder: NSAttributedString) {
-        guard currentEditor() != nil, let cell = cell as? NSTextFieldCell else {
-            placeholderAttributedString = placeholder
-            return
-        }
-        cell.placeholderAttributedString = placeholder
-        needsDisplay = true
     }
 }

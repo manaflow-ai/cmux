@@ -100,11 +100,18 @@ import Testing
             if typed.isEmpty { editor.deleteBackward(nil) } else { editor.insertText(typed, replacementRange: editor.selectedRange()) }
             await h.settle()
             #expect(h.editor?.string == typed)
+            let selectionBefore = h.editor?.selectedRange
             h.chrome.onOmnibarEvent = { h.events.append($0) }
             window.appearance = NSAppearance(named: .darkAqua)
+            // Drive the field's real appearance callback directly as the app
+            // does when AppKit propagates a window appearance change. This
+            // keeps the regression independent of offscreen appearance
+            // propagation while preserving the key-window edit context.
+            h.bar.field.viewDidChangeEffectiveAppearance()
             await h.settle()
             #expect(h.bar.isEditing)
             #expect(h.editor?.string == typed)
+            #expect(h.editor?.selectedRange == selectionBefore, "the caret or selection moved (typed: \(typed))")
             #expect(h.events.isEmpty, "the edit never ended (typed: \(typed))")
         }
     }
