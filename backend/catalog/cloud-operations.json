@@ -3594,6 +3594,28 @@
               "name": "string"
             }
           }
+        },
+        "orphaned": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "former_owner": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "UserId"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -34400,6 +34422,22 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "orphaned": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "integer"
+                  },
+                  "former_owner": {
+                    "$ref": "#/$defs/UserId"
+                  }
+                },
+                "required": [
+                  "at",
+                  "former_owner"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -48851,6 +48889,22 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "orphaned": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "integer"
+                  },
+                  "former_owner": {
+                    "$ref": "#/$defs/UserId"
+                  }
+                },
+                "required": [
+                  "at",
+                  "former_owner"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -49754,6 +49808,22 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "orphaned": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "integer"
+                  },
+                  "former_owner": {
+                    "$ref": "#/$defs/UserId"
+                  }
+                },
+                "required": [
+                  "at",
+                  "former_owner"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [

@@ -165,7 +165,8 @@ const withAppLayout = async (run: () => Promise<void>) => {
     if (this.matches(".acpmux-composer-box")) return box(CARD) as DOMRect;
     if (this.matches(".acpmux-composer-context")) return box(ROW) as DOMRect;
     if (this.closest(".acpmux-location-picker")) return box(CONTROL) as DOMRect;
-    if (this === html || this === doc.body) return box({ left: 0, top: 0, right: PANE.width, bottom: PANE.height }) as DOMRect;
+    if (this === html || this === doc.body)
+      return box({ left: 0, top: 0, right: PANE.width, bottom: PANE.height }) as DOMRect;
     return box({ left: 0, top: 0, right: 0, bottom: 0 }) as DOMRect;
   };
   for (const [key, value] of [
