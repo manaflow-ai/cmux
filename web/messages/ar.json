@@ -1085,7 +1085,13 @@
         "lastAdminReason": "يحتاج الفريق إلى مسؤول واحد على الأقل. رقِّ شخصًا آخر أولًا.",
         "demoteSelfTitle": "هل تتوقف عن كونك مسؤولًا؟",
         "demoteSelfBody": "ستفقد صلاحيات المسؤول في هذا الفريق. يمكن لمسؤول آخر إعادتها إليك.",
-        "demoteSelfConfirm": "عيّنّي كعضو"
+        "demoteSelfConfirm": "عيّنّي كعضو",
+        "countWithLimit": "الأعضاء: {count} / {limit}",
+        "limitDescription": "يشمل العدد المالك. تحجز الدعوات المعلّقة أماكن.",
+        "pendingCount": "الدعوات المعلّقة: {count}",
+        "remainingCount": "الأماكن المتبقية: {count}",
+        "upgradePrice": "تبلغ تكلفة Team ‏${price} لكل عضو شهريًا. تُحتسب الاشتراكات الشخصية بشكل منفصل.",
+        "upgradeToTeam": "الترقية إلى Team"
       },
       "apiKeys": {
         "title": "مفاتيح API للفريق",

@@ -1085,7 +1085,13 @@
         "lastAdminReason": "Zespół musi mieć co najmniej jednego administratora. Najpierw awansuj inną osobę.",
         "demoteSelfTitle": "Przestać być administratorem?",
         "demoteSelfBody": "Stracisz uprawnienia administratora w tym zespole. Inny administrator może je przywrócić.",
-        "demoteSelfConfirm": "Ustaw mnie jako członka"
+        "demoteSelfConfirm": "Ustaw mnie jako członka",
+        "countWithLimit": "Członkowie: {count} / {limit}",
+        "limitDescription": "Właściciel jest wliczony. Oczekujące zaproszenia rezerwują miejsca.",
+        "pendingCount": "Oczekujące zaproszenia: {count}",
+        "remainingCount": "Wolne miejsca: {count}",
+        "upgradePrice": "Team kosztuje ${price} za członka miesięcznie. Subskrypcje osobiste są rozliczane oddzielnie.",
+        "upgradeToTeam": "Ulepsz do Team"
       },
       "apiKeys": {
         "title": "Klucze API zespołu",

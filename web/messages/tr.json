@@ -1085,7 +1085,13 @@
         "lastAdminReason": "Bir ekipte en az bir yönetici olmalıdır. Önce başka birini yönetici yapın.",
         "demoteSelfTitle": "Yöneticilikten çıkılsın mı?",
         "demoteSelfBody": "Bu ekipteki yönetici erişiminizi kaybedersiniz. Başka bir yönetici geri verebilir.",
-        "demoteSelfConfirm": "Beni üye yap"
+        "demoteSelfConfirm": "Beni üye yap",
+        "countWithLimit": "Üyeler: {count} / {limit}",
+        "limitDescription": "Sahip de dahildir. Bekleyen davetler yer ayırır.",
+        "pendingCount": "Bekleyen davetler: {count}",
+        "remainingCount": "Kalan yerler: {count}",
+        "upgradePrice": "Team, üye başına aylık ${price} tutarındadır. Kişisel abonelikler ayrıca faturalandırılır.",
+        "upgradeToTeam": "Team planına yükselt"
       },
       "apiKeys": {
         "title": "Ekip API anahtarları",

@@ -64,4 +64,15 @@ describe("team member capacity", () => {
     expect(html).not.toContain("Spots remaining");
     expect(html).not.toContain('href="/dashboard/teams/team-1/billing"');
   });
+
+  test("admins without invite permission do not see availability computed from hidden invitations", async () => {
+    detail = { ...detail, viewer: { ...detail.viewer, permissions: {
+      ...detail.viewer.permissions, inviteMembers: false,
+    } } };
+    const html = await render();
+    expect(html).toContain("Members: 2 / 3");
+    expect(html).not.toContain("Pending invitations: 2");
+    expect(html).not.toContain("Spots remaining");
+    expect(html).toContain('href="/dashboard/teams/team-1/billing"');
+  });
 });

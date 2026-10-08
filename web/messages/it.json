@@ -1085,7 +1085,13 @@
         "lastAdminReason": "Un team ha bisogno di almeno un admin. Prima promuovi un altro membro.",
         "demoteSelfTitle": "Smettere di essere admin?",
         "demoteSelfBody": "Perdi l’accesso admin a questo team. Un altro admin può restituirtelo.",
-        "demoteSelfConfirm": "Rendimi membro"
+        "demoteSelfConfirm": "Rendimi membro",
+        "countWithLimit": "Membri: {count} / {limit}",
+        "limitDescription": "Il proprietario è incluso. Gli inviti in attesa riservano posti.",
+        "pendingCount": "Inviti in attesa: {count}",
+        "remainingCount": "Posti disponibili: {count}",
+        "upgradePrice": "Team costa ${price} per membro al mese. Gli abbonamenti personali vengono fatturati separatamente.",
+        "upgradeToTeam": "Passa a Team"
       },
       "apiKeys": {
         "title": "Chiavi API del team",

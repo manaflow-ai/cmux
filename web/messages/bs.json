@@ -1085,7 +1085,13 @@
         "lastAdminReason": "Tim mora imati barem jednog administratora. Prvo unaprijedite nekog drugog.",
         "demoteSelfTitle": "Prestati biti administrator?",
         "demoteSelfBody": "Gubite administratorski pristup ovom timu. Drugi administrator vam ga može vratiti.",
-        "demoteSelfConfirm": "Postavi me za člana"
+        "demoteSelfConfirm": "Postavi me za člana",
+        "countWithLimit": "Članovi: {count} / {limit}",
+        "limitDescription": "Vlasnik je uključen. Pozivnice na čekanju rezervišu mjesta.",
+        "pendingCount": "Pozivnice na čekanju: {count}",
+        "remainingCount": "Preostala mjesta: {count}",
+        "upgradePrice": "Team košta ${price} po članu mjesečno. Lične pretplate naplaćuju se odvojeno.",
+        "upgradeToTeam": "Nadogradi na Team"
       },
       "apiKeys": {
         "title": "API ključevi tima",

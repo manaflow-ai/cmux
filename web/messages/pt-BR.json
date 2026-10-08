@@ -1085,7 +1085,13 @@
         "lastAdminReason": "Uma equipe precisa de pelo menos um administrador. Promova outra pessoa primeiro.",
         "demoteSelfTitle": "Deixar de ser administrador?",
         "demoteSelfBody": "Você perde o acesso de administrador a esta equipe. Outro administrador pode devolvê-lo.",
-        "demoteSelfConfirm": "Tornar-me membro"
+        "demoteSelfConfirm": "Tornar-me membro",
+        "countWithLimit": "Membros: {count} / {limit}",
+        "limitDescription": "Inclui o proprietário. Convites pendentes reservam vagas.",
+        "pendingCount": "Convites pendentes: {count}",
+        "remainingCount": "Vagas restantes: {count}",
+        "upgradePrice": "O Team custa ${price} por membro por mês. As assinaturas pessoais são cobradas separadamente.",
+        "upgradeToTeam": "Fazer upgrade para Team"
       },
       "apiKeys": {
         "title": "Chaves de API da equipe",

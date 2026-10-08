@@ -1085,7 +1085,13 @@
         "lastAdminReason": "團隊至少需要一位管理員。請先將其他成員升為管理員。",
         "demoteSelfTitle": "不再擔任管理員？",
         "demoteSelfBody": "你將失去此團隊的管理員權限。其他管理員可以重新授予。",
-        "demoteSelfConfirm": "設為成員"
+        "demoteSelfConfirm": "設為成員",
+        "countWithLimit": "成員：{count} / {limit}",
+        "limitDescription": "包含擁有者。待接受的邀請會保留名額。",
+        "pendingCount": "待接受的邀請：{count}",
+        "remainingCount": "剩餘名額：{count}",
+        "upgradePrice": "Team 每位成員每月 ${price}。個人訂閱另行計費。",
+        "upgradeToTeam": "升級至 Team"
       },
       "apiKeys": {
         "title": "團隊 API 金鑰",

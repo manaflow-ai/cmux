@@ -1425,7 +1425,13 @@
         "lastAdminReason": "チームには少なくとも 1 人の管理者が必要です。先に別のメンバーを管理者にしてください。",
         "demoteSelfTitle": "管理者をやめますか？",
         "demoteSelfBody": "このチームの管理者権限を失います。別の管理者が再び付与できます。",
-        "demoteSelfConfirm": "メンバーになる"
+        "demoteSelfConfirm": "メンバーになる",
+        "countWithLimit": "メンバー: {count} / {limit}",
+        "limitDescription": "オーナーも含まれます。承認待ちの招待は枠を確保します。",
+        "pendingCount": "承認待ちの招待: {count}",
+        "remainingCount": "残りの枠: {count}",
+        "upgradePrice": "Team はメンバー1人あたり月額 ${price} です。個人のサブスクリプションは別途請求されます。",
+        "upgradeToTeam": "Team にアップグレード"
       },
       "apiKeys": {
         "title": "チームの API キー",

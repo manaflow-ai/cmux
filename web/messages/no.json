@@ -1085,7 +1085,13 @@
         "lastAdminReason": "Et team må ha minst én administrator. Forfrem noen andre først.",
         "demoteSelfTitle": "Slutte å være administrator?",
         "demoteSelfBody": "Du mister administratortilgangen til dette teamet. En annen administrator kan gi den tilbake.",
-        "demoteSelfConfirm": "Gjør meg til medlem"
+        "demoteSelfConfirm": "Gjør meg til medlem",
+        "countWithLimit": "Medlemmer: {count} / {limit}",
+        "limitDescription": "Eieren er inkludert. Ventende invitasjoner reserverer plasser.",
+        "pendingCount": "Ventende invitasjoner: {count}",
+        "remainingCount": "Ledige plasser: {count}",
+        "upgradePrice": "Team koster ${price} per medlem per måned. Personlige abonnementer faktureres separat.",
+        "upgradeToTeam": "Oppgrader til Team"
       },
       "apiKeys": {
         "title": "Teamets API-nøkler",
