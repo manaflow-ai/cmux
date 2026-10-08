@@ -181,6 +181,10 @@ public struct DaemonCapabilities: Sendable {
     /// `list-personal` groups and on `workspace_group.update`, and a personal
     /// row for every new workspace (cmux-tui `personal_order.rs`).
     public let personalMixedOrder = "personal-mixed-order-v1"
+    /// `icon` on `workspace_group.update` and on personal groups.
+    public let workspaceGroupIcon = "workspace-group-icon-v1"
+    /// `pinned` (saved) on `workspace_group.update` and on personal groups.
+    public let workspaceGroupPin = "workspace-group-pin-v1"
     /// `attachment` parts and their bytes on the local conversation owner:
     /// `conversation-attachment-upload` and `conversation-attachment-read`.
     public let localAttachments = "local-attachments-v1"
@@ -243,7 +247,8 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, chiefInspect] }
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout,
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

@@ -6,7 +6,8 @@ import Testing
 
 /// The app starts the signed cmux Computer Use helper only while Computer
 /// Use is on: never an ad-hoc copy, token authorization only, the socket and
-/// the agent token exported to children (never the host token), and the
+/// the agent token offered to children's spawn environment (never the host
+/// token, never this process's environment), and the
 /// helper stopped when Computer Use turns off or the app quits.
 @MainActor
 @Suite struct ComputerUseHelperDaemonTests {
@@ -35,22 +36,20 @@ import Testing
     nonisolated static let nightly = URL(fileURLWithPath: "/Applications/cmux NIGHTLY.app/Contents/Library/cmux Computer Use.app")
     nonisolated static let adHoc = URL(fileURLWithPath: "/tmp/cmux DEV x.app/Contents/Library/cmux Computer Use.app")
 
-    static func daemon(signed: Set<URL>, launcher: FakeLauncher, exported: @escaping (String, String?) -> Void)
-        -> (ComputerUseHelperDaemon, String) {
+    static func daemon(signed: Set<URL>, launcher: FakeLauncher) -> (ComputerUseHelperDaemon, String) {
         let id = UUID().uuidString.prefix(8)
         // The real layout: /tmp/<private dir>/<scope>/cua.sock.
         let socket = "/tmp/cu-d-\(id)/s/cua.sock"
         let state = FileManager.default.temporaryDirectory.appending(path: "cu-state-\(id)")
         let daemon = ComputerUseHelperDaemon(identity: CuaHelperIdentity { signed.contains($0) },
                                              candidates: { [adHoc, nightly] }, launcher: launcher,
-                                             socketPath: socket, stateDirectory: state, exportEnvironment: exported)
+                                             socketPath: socket, stateDirectory: state)
         return (daemon, socket)
     }
 
     @Test func onStartsTheSignedHelperAndTheStepIsOffered() async throws {
         let launcher = FakeLauncher()
-        var exported: [String: String] = [:]
-        let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher) { key, value in exported[key] = value }
+        let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher)
         defer { daemon.stop(); try? FileManager.default.removeItem(atPath: ((socket as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent) }
 
         await daemon.apply(enabled: true)
@@ -63,7 +62,7 @@ import Testing
         let host = try #require(launch.environment["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"])
         #expect(agent != host)
         #expect(!launch.environment.keys.contains { $0.hasPrefix("CMUX_CUA_SOCKET_AUTHORIZED_ROOT") }, "token authorization only")
-        #expect(exported == ["CMUX_NEXT_CUA_SOCKET": socket, "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": agent], "never the host token")
+        #expect(daemon.childEnvironment == ["CMUX_NEXT_CUA_SOCKET": socket, "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": agent], "never the host token")
         #expect(daemon.state == .running(4242))
 
         // Onboarding reads this helper, so the computer use step is offered.
@@ -74,21 +73,19 @@ import Testing
 
     @Test func offStartsNothing() async {
         let launcher = FakeLauncher()
-        var exported: [String: String] = [:]
-        let (daemon, _) = Self.daemon(signed: [Self.nightly], launcher: launcher) { key, value in exported[key] = value }
+        let (daemon, _) = Self.daemon(signed: [Self.nightly], launcher: launcher)
         await daemon.apply(enabled: false)
         #expect(launcher.launches.isEmpty)
-        #expect(exported.isEmpty)
+        #expect(daemon.childEnvironment.isEmpty)
         #expect(daemon.state == .off)
     }
 
     @Test func withoutASignedHelperNothingStarts() async {
         let launcher = FakeLauncher()
-        var exported: [String: String] = [:]
-        let (daemon, _) = Self.daemon(signed: [], launcher: launcher) { key, value in exported[key] = value }
+        let (daemon, _) = Self.daemon(signed: [], launcher: launcher)
         await daemon.apply(enabled: true)
         #expect(launcher.launches.isEmpty, "an ad-hoc helper never starts")
-        #expect(exported.isEmpty)
+        #expect(daemon.childEnvironment.isEmpty)
         #expect(daemon.state == .unavailable)
     }
 
@@ -105,8 +102,7 @@ import Testing
         let launcher = FakeLauncher()
         let daemon = ComputerUseHelperDaemon(identity: CuaHelperIdentity { $0 == Self.nightly }, candidates: { [Self.nightly] },
                                              launcher: launcher, socketPath: "\(linked)/s/cua.sock",
-                                             stateDirectory: FileManager.default.temporaryDirectory.appending(path: "cu-st-\(id)"),
-                                             exportEnvironment: { _, _ in })
+                                             stateDirectory: FileManager.default.temporaryDirectory.appending(path: "cu-st-\(id)"))
         await daemon.apply(enabled: true)
         #expect(launcher.launches.isEmpty, "the helper started in a symlinked socket directory")
         #expect(daemon.state == .unavailable)
@@ -123,8 +119,7 @@ import Testing
         let launcher = FakeLauncher()
         let daemon = ComputerUseHelperDaemon(identity: CuaHelperIdentity { $0 == Self.nightly }, candidates: { [Self.nightly] },
                                              launcher: launcher, socketPath: "\(directory)/s/cua.sock",
-                                             stateDirectory: FileManager.default.temporaryDirectory.appending(path: "cu-st-\(id)"),
-                                             exportEnvironment: { _, _ in })
+                                             stateDirectory: FileManager.default.temporaryDirectory.appending(path: "cu-st-\(id)"))
         defer { daemon.stop() }
         await daemon.apply(enabled: true)
         #expect(launcher.launches.count == 1)
@@ -137,7 +132,7 @@ import Testing
     /// Each start mints new tokens (a stopped helper's token is useless).
     @Test func eachStartMintsNewTokens() async throws {
         let launcher = FakeLauncher()
-        let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher) { _, _ in }
+        let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher)
         defer { daemon.stop(); try? FileManager.default.removeItem(atPath: ((socket as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent) }
         await daemon.apply(enabled: true)
         await daemon.apply(enabled: false)
@@ -161,13 +156,12 @@ import Testing
 
     @Test func turningItOffOrQuittingStopsTheHelper() async {
         let launcher = FakeLauncher()
-        var exported: [String: String] = [:]
-        let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher) { key, value in exported[key] = value }
+        let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher)
         defer { try? FileManager.default.removeItem(atPath: ((socket as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent) }
         await daemon.apply(enabled: true)
         await daemon.apply(enabled: false)
         #expect(launcher.terminated == [4242])
-        #expect(exported["CMUX_NEXT_CUA_SOCKET"] == nil && exported["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == nil)
+        #expect(daemon.childEnvironment.isEmpty)
         await daemon.apply(enabled: true)
         daemon.applicationWillTerminate()
         #expect(launcher.terminated == [4242, 4242])
