@@ -138,6 +138,10 @@ extension TerminalNotificationDirectInteractionTests {
         surface.setRendererPresentedFrameForTesting(presentedFrameBeforeReveal)
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
+        // Revealing asks the surface to present again and can create a new
+        // presentation probe. Pin the fixture after that transition too, so a
+        // late probe acknowledgement cannot race the deferred callback.
+        surface.setRendererPresentedFrameForTesting(presentedFrameBeforeReveal)
         XCTAssertEqual(surface.hasPresentedFrame, presentedFrameBeforeReveal, file: file, line: line)
         XCTAssertFalse(surface.isRendererPresented, file: file, line: line)
         XCTAssertTrue(
