@@ -43,6 +43,14 @@ QUANTILE_POINTS = (10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99)
 RUNNER_BOOKEND_STEPS = {"set up job", "complete job"}
 
 
+def step_name(step: dict) -> str:
+    return str(step.get("name") or "")
+
+
+def is_workflow_step(step: dict) -> bool:
+    return bool(step_name(step)) and step_name(step).casefold() not in RUNNER_BOOKEND_STEPS
+
+
 def parse_time(value: str | None) -> dt.datetime | None:
     if not value:
         return None
@@ -145,8 +153,8 @@ class Job:
         out = []
         for step in self.raw.get("steps") or []:
             start, end = parse_time(step.get("started_at")), parse_time(step.get("completed_at"))
-            name = step.get("name") or ""
-            if start and end and name and name.casefold() not in RUNNER_BOOKEND_STEPS:
+            name = step_name(step)
+            if start and end and is_workflow_step(step):
                 out.append((name, (end - start).total_seconds()))
         return out
 
@@ -157,7 +165,7 @@ class Job:
             return None
         starts = [
             start for step in self.raw.get("steps") or []
-            if step.get("name", "").casefold() not in RUNNER_BOOKEND_STEPS
+            if is_workflow_step(step)
             and (start := parse_time(step.get("started_at"))) is not None
         ]
         if not starts:
@@ -171,7 +179,7 @@ class Job:
             return None
         ends = [
             end for step in self.raw.get("steps") or []
-            if step.get("name", "").casefold() not in RUNNER_BOOKEND_STEPS
+            if is_workflow_step(step)
             and (end := parse_time(step.get("completed_at"))) is not None
         ]
         if not ends:

@@ -115,6 +115,13 @@ class CriticalPathTests(unittest.TestCase):
         self.assertIsNone(empty.setup_seconds)
         self.assertIsNone(empty.cleanup_seconds)
 
+        malformed = job("malformed-step", 0, 10, 100)
+        malformed["steps"] = [{"name": None, "started_at": at(20), "completed_at": at(30)}]
+        measured = readout.Job(malformed)
+        self.assertEqual(measured.steps(), [])
+        self.assertIsNone(measured.setup_seconds)
+        self.assertIsNone(measured.cleanup_seconds)
+
 
 class ReadoutTests(unittest.TestCase):
     def test_readout_with_history(self):
@@ -125,6 +132,7 @@ class ReadoutTests(unittest.TestCase):
         self.assertIn("macOS compile admission 5m00s (p9", headline)
         self.assertIn("app-host unit tests (2/3) queued 4m00s (above p90) + 8m39s", headline)
         self.assertNotIn("tests 3s", headline)  # roll-ups stay in the table only
+        self.assertIn("| critical path | where | queue | run | runner setup | runner cleanup |", text)
         self.assertIn("| macos / macOS compile admission | mini cmux14 | 9s |", text)
         self.assertIn("| macos / macOS compile admission | mini cmux14 | 9s | 5m00s | 0s | 1m00s |", text)
         self.assertIn("| p92 (p50 4m00s, p90 4m40s) | 5m00s vs 4m00s ↑ |", text)
