@@ -214,7 +214,11 @@ describe("expiry at render time", () => {
     expect(changes).toBe(1)
     expect(store.getSnapshot()).toBe(true)
     unsubscribe()
-    expect(f.state.cleared).toBe(1)
+    // A card that unmounts before the expiry clears its timer.
+    const g = fakeScheduler(1_000)
+    expiryStore(5_000, g.scheduler).subscribe(() => {})()
+    expect(g.timers).toHaveLength(1)
+    expect(g.state.cleared).toBe(1)
   })
   it("schedules nothing for a request that already expired", () => {
     const f = fakeScheduler(9_000)
