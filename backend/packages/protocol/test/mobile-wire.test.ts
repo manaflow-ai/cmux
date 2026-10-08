@@ -45,7 +45,7 @@ const read = <T>(rel: string): T => JSON.parse(readFileSync(join(ROOT, rel), "ut
 const schemas = new SchemaSet()
 const envelope = join(ROOT, "envelope.schema.json")
 
-interface Case { readonly message?: string; readonly phase?: "request" | "result" | "opened" | "state" | "reject"; readonly frame: Record<string, unknown> }
+interface Case { readonly message?: string; readonly phase?: "request" | "result" | "opened" | "state" | "reject" | "refused"; readonly frame: Record<string, unknown> }
 const familyFiles = readdirSync(join(ROOT, "fixtures")).filter((f) => !["frames.json", "binary.json"].includes(f))
 const families = familyFiles.map((f) => read<{ family: string; cases: Array<Case> }>(`fixtures/${f}`))
 
@@ -130,6 +130,10 @@ describe("cmux.mobile/1 JSON frames", () => {
         } else if (phase === "reject") {
           expect(c.frame.t).toBe("reject")
           expect(def?.errors ?? []).toContain(c.frame.code)
+        } else if (phase === "refused") {
+          // Channel refusal is an envelope outcome, so it has no catalog
+          // message name to return from mobileMessageOf.
+          expect(c.frame.t).toBe("channel.refused")
         } else if (def?.kind === "message") {
           expect([label, errs(`#/$defs/${c.message}`, c.frame)]).toEqual([label, []])
         } else {
