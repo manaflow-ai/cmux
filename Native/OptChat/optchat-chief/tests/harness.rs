@@ -68,38 +68,35 @@ fn harness_with(settings: impl FnOnce(&std::path::Path) -> Settings) -> Harness 
     Harness::configured(dir, default_script(), owner(), s, Arc::new(|_: &str| {}))
 }
 
+/// Spec 3.3 (gist 3c190e0): the view goes in blocks of 4 lines, one marker
+/// on the last whole block; the system prompt is the constant text alone, so
+/// turns and compactions send the same one.
 #[test]
-fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_at_the_last_mark() {
+fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 1_200);
     let view = h.chat.render_view().text;
-    let marks = optchat_core::cache_marks(&view);
-    assert_eq!(
-        marks.len(),
-        3,
-        "a view past 100k characters: {}",
-        view.len()
-    );
+    let pieces = optchat_core::block_pieces(&view);
     h.connect();
     h.say("user_local", "where is project 7?");
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
-    // The turn names the turn preset, whose system prompt it set first.
     assert_eq!(inner.specs[0].preset.as_deref(), Some(TURN_PRESET));
-    let expected = format!("{}\n\n{}", claude_md(None), &view[..marks[0]]);
     assert_eq!(
         inner.prompt_sets,
-        vec![(TURN_PRESET.to_owned(), expected.clone())]
+        vec![(TURN_PRESET.to_owned(), claude_md(None))]
     );
-    assert_eq!(inner.systems[0].as_deref(), Some(expected.as_str()));
-    // The rest of the view, one marker on the piece ending at 100k, then
-    // the new message.
+    assert_eq!(inner.systems[0].as_deref(), Some(claude_md(None).as_str()));
     let blocks = &inner.prompts[0];
     let t = texts(blocks);
-    assert_eq!(t[..t.len() - 1].concat(), view[marks[0]..]);
+    assert_eq!(t[..t.len() - 1].concat(), view);
+    assert_eq!(t.len(), pieces.len() + 1);
     assert_eq!(t.last().unwrap(), "where is project 7?");
+    // The last whole block: the piece before the incomplete one.
     assert_eq!(markers(blocks), vec![t.len() - 3]);
+    let marked = &t[t.len() - 3];
+    assert_eq!(marked.lines().count(), optchat_core::BLOCK_LINES);
     assert_eq!(
         blocks[t.len() - 3]["cache_control"],
         json!({"type": "ephemeral"})
@@ -108,12 +105,11 @@ fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_
         *blocks,
         cached_layout(&claude_md(None), &view, "where is project 7?", true).blocks
     );
-    // The system prompt carries the instructions: no CLAUDE.md as well.
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
 
 #[test]
-fn consecutive_claude_turns_send_a_byte_identical_system_prompt_while_the_view_head_holds() {
+fn consecutive_claude_turns_find_the_last_turns_marker_within_the_lookback() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 1_200);
@@ -124,18 +120,13 @@ fn consecutive_claude_turns_send_a_byte_identical_system_prompt_while_the_view_h
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 2);
-    assert_eq!(inner.prompt_sets.len(), 2);
-    assert_eq!(
-        inner.prompt_sets[0], inner.prompt_sets[1],
-        "the cached prefix: same bytes in the second turn"
-    );
-    // The marked piece is the same text in both turns (it ends at 100k,
-    // before anything the first turn added at the tail).
-    let marked = |i: usize| {
-        let b = &inner.prompts[i];
-        b[markers(b)[0]]["text"].as_str().unwrap().to_owned()
-    };
-    assert_eq!(marked(0), marked(1));
+    assert_eq!(inner.prompt_sets[0], inner.prompt_sets[1]);
+    // The second turn has the first turn's marked block at the same place,
+    // and its own marker at most 20 blocks later (the API's lookback).
+    let (a, b) = (&inner.prompts[0], &inner.prompts[1]);
+    let (ma, mb) = (markers(a)[0], markers(b)[0]);
+    assert_eq!(texts(a)[..=ma], texts(b)[..=ma]);
+    assert!(mb >= ma && mb - ma <= 20, "markers {ma} then {mb}");
 }
 
 #[test]

@@ -350,13 +350,22 @@ fn start(
             crate::trace::Trace::off()
         }
     };
-    let config = Config {
+    // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
+    // prompt, so it reads it from the turns' cache entry.
+    let claude_text =
+        crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
+    let mut config = Config {
         agent: crate::prompt::AGENT.to_owned(),
+        prompt: optchat_host::CompactPrompt::Custom(claude_text.clone()),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
         db: Some(paths.memory_db.clone()),
         ..Config::default()
     };
     let route = compact_route(env("OPTCHAT_COMPACTOR").as_deref(), &config)?;
+    if engine_choice.as_deref() == Some("native") && route == CompactRoute::Api {
+        // And the native turns' tools (never called), for the same entry.
+        config.tools = Some(crate::native::Native::tools());
+    }
     // The harness family decides each session's layout and isolation; acpmux
     // says what a harness is (its declared family, else its kind and
     // command), never its name. Only the native engine with the API
@@ -485,8 +494,6 @@ fn start(
     // (the cached layout), with or without the isolation.
     let isolate = env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0");
     // The Claude turn preset carries the Claude system text (MCP tools).
-    let claude_text =
-        crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
     let mut preset = turn_preset(paths, home, &turn_profile, family, isolate, &claude_text);
     // A harness without the project settings' env (codex) reads its tools'
     // env from the acpmux daemon and the preset: the preset pins cmux.
