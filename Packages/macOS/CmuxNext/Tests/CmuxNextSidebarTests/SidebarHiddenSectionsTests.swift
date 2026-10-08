@@ -24,14 +24,25 @@ import Testing
         #expect(!model.listOptions().hidesWorkspaces)
     }
 
+    final class Chats: SidebarAppSectionProvider {
+        let view = NSView()
+        var onContentChange: (() -> Void)?
+        func title(for contribution: String) -> String? { "Chats" }
+        func makeView(for contribution: String) -> NSView? { contribution == SidebarLayoutDocument.recentsContribution ? view : nil }
+        func preferredHeight(for contribution: String, width: CGFloat) -> CGFloat { 3 * Metrics.sidebarRowHeight }
+    }
+
     @Test func hiddenChatsDrawsNothing() {
-        let model = SidebarModel(sections: SidebarDemoMock.makeSections())
-        model.layout = SidebarRecentsUnderListTests.layout.chatsLayout(enabled: false)
-        let view = SidebarView(model: model)
-        view.appSections = SidebarRecentsUnderListTests.Recents()
-        view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
-        view.layoutSubtreeIfNeeded()
-        #expect(view.list.trailer.region.layoutResult == .empty)
-        #expect(view.list.trailer.height == 0)
+        let chats = SidebarLayoutDocument.defaults.chatsLayout(enabled: true)
+        for (layout, drawn) in [(chats, true), (chats.chatsLayout(enabled: false), false)] {
+            let model = SidebarModel(sections: SidebarDemoMock.makeSections())
+            model.layout = layout
+            let view = SidebarView(model: model)
+            let provider = Chats()
+            view.appSections = provider
+            view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
+            view.layoutSubtreeIfNeeded()
+            #expect((provider.view.superview === view.belowRegion) == drawn)
+        }
     }
 }

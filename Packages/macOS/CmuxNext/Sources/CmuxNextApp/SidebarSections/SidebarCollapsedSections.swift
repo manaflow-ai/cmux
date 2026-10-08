@@ -1,7 +1,7 @@
 import CmuxNextSidebar
 import Foundation
 
-/// The layout sections this Mac keeps collapsed (Recents and the other app
+/// The layout sections this Mac keeps collapsed (Chats and the other app
 /// and item sections), read at window open and saved on every toggle, so a
 /// relaunch keeps them (Leo 2026-10-06). Workspace sections keep theirs in
 /// the sidebar snapshot.
