@@ -52,7 +52,7 @@ def manifest_results(manifest_path, manifest=None):
     for index, entry in enumerate(entries):
         if isinstance(entry, str):
             relative_path = entry
-            metadata = {}
+            metadata = {"path": relative_path}
         elif isinstance(entry, dict):
             relative_path = entry.get("path")
             metadata = entry
