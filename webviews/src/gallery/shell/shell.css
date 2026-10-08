@@ -651,3 +651,31 @@ main .gallery-entry-error {
 .gallery-tunable-side button {
   align-self: start;
 }
+
+/* Keep the entry rail useful on the narrow gallery widths used by the matrix and phones. */
+@media (min-width: 761px) and (max-width: 980px) {
+  .gallery {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .gallery {
+    display: block;
+    min-height: 100vh;
+    height: auto;
+  }
+  .gallery-list {
+    max-height: 42vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--g-line);
+  }
+  .gallery-main {
+    overflow: visible;
+    min-height: 58vh;
+    padding-inline: 10px;
+  }
+  .gallery-browse-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
