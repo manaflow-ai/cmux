@@ -140,6 +140,10 @@ path = "tests/test_cmux_cua_mcp_smoke.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cmux_cua_compat_contract.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_cmux_cua_build_cache_safety.py"
 lane = "macos-cli-no-socket"
 
