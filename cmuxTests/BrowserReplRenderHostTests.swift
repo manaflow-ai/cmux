@@ -214,6 +214,41 @@ struct BrowserReplRenderHostTests {
         #expect(panel.webView.window === window)
     }
 
+    /// A panel can report logical visibility before its retained portal slot
+    /// is revealed. The visibility callback must keep the WebView in the
+    /// render host until the portal emits its presentability signal.
+    @Test func logicalVisibilityChangeWaitsForPortalReveal() async throws {
+        let (window, anchor, panel, paneHost) = try makePane(key: false)
+        defer { window.orderOut(nil) }
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+        let sessionID = "render-host-test-\(UUID().uuidString)"
+        defer { BrowserReplTabAttachments.shared.detach(sessionID: sessionID) }
+        let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { _, _ in }
+
+        #expect(attachment.isInRenderWindow)
+        anchor.isHidden = true
+        paneHost.isHidden = true
+        defer {
+            anchor.isHidden = false
+            paneHost.isHidden = false
+        }
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        panel.noteWebViewVisibility(false, reason: "test.logicalHidden")
+        panel.noteWebViewVisibility(true, reason: "test.logicalShown")
+        await Task.yield()
+
+        #expect(attachment.isInRenderWindow)
+        #expect(panel.webView.window?.identifier?.rawValue == Self.renderWindowIdentifier)
+
+        anchor.isHidden = false
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        await Task.yield()
+
+        #expect(!attachment.isInRenderWindow)
+        #expect(panel.webView.window === window)
+    }
+
     @Test func shownTabInNonKeyWindowLeavesAMirrorAndReturnsWhenKey() async throws {
         // The user works in another app: the page needs a key window for
         // focus and hover, and the pane must not go blank meanwhile.
