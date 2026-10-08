@@ -34,7 +34,7 @@ extension CmuxTuiSurfaceProviderRegistry {
         if AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope != expectedTeamScope {
             throw VMClientError.notSignedIn
         }
-        try await prepareActivationHub(
+        await prepareActivationHub(
             wireGuardHub: wireGuardHub,
             expectedTeamScope: expectedTeamScope
         )
@@ -52,9 +52,15 @@ extension CmuxTuiSurfaceProviderRegistry {
     func prepareActivationHub(
         wireGuardHub: CloudWireGuardHub?,
         expectedTeamScope: AuthenticatedTeamScope
-    ) async throws {
-        guard let wireGuardHub else { throw VMClientError.cloudMachinesDisabled }
-        _ = try await wireGuardHub.prewarm(
+    ) async {
+        // The bundled cmux-tui client is optional. Cloud activation still
+        // enables machine creation when this build cannot host the terminal
+        // carrier; restored links remain retryable when a present hub is
+        // temporarily unavailable. A present hub is also prepared in the
+        // background so a missing socket or stale enrollment cannot hold
+        // activation open.
+        guard let wireGuardHub else { return }
+        await wireGuardHub.prepareForCloudUse(
             allowWhenCloudDisabled: true,
             expectedTeamScope: expectedTeamScope
         )

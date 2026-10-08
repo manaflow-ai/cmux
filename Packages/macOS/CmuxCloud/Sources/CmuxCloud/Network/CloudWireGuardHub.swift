@@ -219,12 +219,21 @@ public actor CloudWireGuardHub {
         }
     }
 
-    /// Schedules account-level preparation without making fleet discovery wait for enrollment.
-    /// Repeated refreshes and a first terminal join the same startup and keep one shared claim.
-    public func prepareForCloudUse() {
+    /// Schedules account-level preparation without making activation or fleet
+    /// discovery wait for enrollment. Repeated refreshes and a first terminal
+    /// join the same startup and keep one shared claim. The optional scope is
+    /// used by first-use activation so a background task cannot enroll a
+    /// different account if sign-out or team selection changes while it runs.
+    public func prepareForCloudUse(
+        allowWhenCloudDisabled: Bool = false,
+        expectedTeamScope: AuthenticatedTeamScope? = nil
+    ) {
         guard !Task.isCancelled, preparationTask == nil else { return }
         preparationTask = Task { [weak self] in
-            _ = try? await self?.prewarm()
+            _ = try? await self?.prewarm(
+                allowWhenCloudDisabled: allowWhenCloudDisabled,
+                expectedTeamScope: expectedTeamScope
+            )
         }
     }
 

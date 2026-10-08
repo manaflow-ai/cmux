@@ -133,7 +133,7 @@ struct CloudActivationCoordinatorTests {
             notificationCenter: NotificationCenter(),
             isAvailable: { true },
             prepare: {
-                try await registry.prepareActivationHub(
+                await registry.prepareActivationHub(
                     wireGuardHub: nil,
                     expectedTeamScope: scope
                 )

@@ -315,6 +315,50 @@ struct CloudWireGuardHubTests {
         #expect(await h.hub.status().leases == 1)
     }
 
+    @Test("A failed automatic preparation leaves restored-link demand retryable")
+    func automaticPreparationFailureDoesNotLoseRestoredLinkRetry() async throws {
+        let attempts = AttemptCounter()
+        let h = makeHarness(
+            enrollment: {
+                let attempt = await attempts.next()
+                if attempt <= 3 {
+                    throw VMClientError.httpStatus(
+                        503,
+                        #"{"error":"vm_cloud_service_unavailable","retryable":true}"#
+                    )
+                }
+                return CloudWireGuardHub.Enrollment(configPath: "/tmp/restored-link.conf", routes: ["10.0.0.0/8"])
+            },
+            backoff: [.seconds(1), .seconds(2)]
+        )
+
+        // Activation's background preparation is deliberately fire-and-forget.
+        // Exhaust that automatic sequence, as a restored provider would when
+        // its first graph refresh finds no usable hub.
+        await h.hub.prepareForCloudUse()
+        try await waitForPendingSleeps(h.gate, count: 1)
+        await h.gate.elapse()
+        try await waitForPendingSleeps(h.gate, count: 1)
+        await h.gate.elapse()
+        let exhausted = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < exhausted, await attempts.value < 3 {
+            await Task.yield()
+        }
+        #expect(await attempts.value == 3)
+        #expect(!(await h.hub.status().running))
+        #expect(await h.hub.status().leases == 1, "The failed preparation retains its retry claim")
+
+        // A restored-link demand is explicit and must be able to retry the
+        // stopped hub immediately, even though automatic preparation failed.
+        let restoredLink = try await h.hub.acquire()
+        #expect(await attempts.value == 4)
+        #expect(restoredLink.ready.socketPath == h.socketPath)
+        #expect(await h.hub.status().leases == 2)
+        await h.hub.release(restoredLink.lease)
+        await h.hub.releasePrewarm()
+        await h.hub.stop()
+    }
+
     @Test
     func explicitOpenAndPrewarmShareEnrollmentRecovery() async throws {
         let attempts = AttemptCounter()
