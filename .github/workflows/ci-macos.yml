@@ -2143,11 +2143,20 @@ jobs:
       # start and held until the job ends, through the console
       # session cleanup. An older hook gave the token at job start, so
       # take-gui returns 0 at once; one without take-gui exits 2 and still
-      # gave it at job start. Blacksmith has no helper.
+      # gave it at job start. Blacksmith has no owned GUI token. Some images
+      # still carry the helper path, so key this step off the requested runner
+      # instead of helper presence alone.
       - name: Take this Mac's gui token
+        env:
+          GLAEDA_CANONICAL_ROOT: /Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          REQUESTED_RUNNER: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
         run: |
           set -uo pipefail
-          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          case "$REQUESTED_RUNNER" in
+            glaeda-*) ;;
+            *) echo "No owned GUI token on $REQUESTED_RUNNER; running app-host tests directly."; exit 0 ;;
+          esac
+          helper=$GLAEDA_CANONICAL_ROOT
           [ -x "$helper" ] || exit 0
           status=0
           "$helper" take-gui --wait 1800 || status=$?
