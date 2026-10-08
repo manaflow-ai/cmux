@@ -126,7 +126,7 @@ impl Mux {
             "nonce": crate::workspace_registry::new_uuid_v4(),
         });
         self.commit_state(
-            &WorkspaceMutation::local("cmux-tui-browser-owner"),
+            &WorkspaceMutation::daemon_local("cmux-tui-browser-owner"),
             "browser.owner.set",
             &fingerprint,
             None,

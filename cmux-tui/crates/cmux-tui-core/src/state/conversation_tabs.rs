@@ -214,7 +214,7 @@ impl Mux {
             "operation": operation, "browser": browser_id, "session": session, "expected": expected,
         });
         let committed = self.commit_state(
-            &WorkspaceMutation::local("cmux-tui-conversation-tab"),
+            &WorkspaceMutation::daemon_local("cmux-tui-conversation-tab"),
             operation,
             &fingerprint,
             None,
