@@ -354,6 +354,7 @@ public final class BufferedAnalytics: AnalyticsEmitting, @unchecked Sendable {
             guard drainTask == nil else { return }
             drainTask = Task {
                 await BufferedAnalytics.defaultSleep(batchingInterval)
+                guard !Task.isCancelled else { return }
                 state.requestDrain()
             }
         }
