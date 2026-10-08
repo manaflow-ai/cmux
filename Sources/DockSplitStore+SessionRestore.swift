@@ -173,7 +173,8 @@ extension DockSplitStore {
                snapshotWorkspaceId:
                 sourceSnapshotWorkspaceId ?? sourceWorkspaceId,
                excludingStableIdentities: excludingStableIdentities,
-               restorableAgentIndex: restorableAgentIndex
+               restorableAgentIndex: restorableAgentIndex,
+               claudeBackgroundRestores: claudeBackgroundRestores
            ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
             if let restoredPanelId {
