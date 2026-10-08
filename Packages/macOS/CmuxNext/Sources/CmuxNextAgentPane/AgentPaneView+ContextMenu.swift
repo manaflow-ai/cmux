@@ -82,13 +82,8 @@ extension AgentPaneView {
         let target = messageMenuTarget
         messageMenuTarget = nil
         AgentPaneContextMenu.rebuild(menu, target: target, devTools: DevTools.isEnabled, actions: .init(
-            copy: { [weak self] text in self?.copyToPasteboard(text) },
+            copy: { [weak self] text in self?.copyText(text) },
             fork: { [weak self] seq in self?.fork(through: seq) }))
-    }
-
-    private func copyToPasteboard(_ text: String) {
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is

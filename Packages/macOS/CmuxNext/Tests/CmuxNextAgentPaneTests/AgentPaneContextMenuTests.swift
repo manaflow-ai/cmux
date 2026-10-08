@@ -23,6 +23,11 @@ import WebKit
         return menu
     }
 
+    /// Runs an item as a click does (its target and action), with no app event loop.
+    static func choose(_ item: NSMenuItem) {
+        _ = (item.target as? NSObject)?.perform(item.action, with: item)
+    }
+
     static func titles(_ menu: NSMenu) -> [String] {
         menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
     }
@@ -76,7 +81,7 @@ import WebKit
     @Test func choosingAnItemActsOnTheReportedMessage() throws {
         let (menu, copies, forks) = rebuilt(target: Self.reply, devTools: false)
         for title in [AgentPaneMenuStrings.copyMessage, AgentPaneMenuStrings.copyAsMarkdown, AgentPaneMenuStrings.forkFromHere] {
-            menu.performActionForItem(at: try #require(menu.items.firstIndex { $0.title == title }))
+            Self.choose(try #require(menu.items.first { $0.title == title }))
         }
         #expect(copies() == ["Done. See the diff.", "**Done.** See the `diff`."])
         #expect(forks() == [7])
@@ -96,9 +101,8 @@ import WebKit
         let index = try #require(AgentPaneView.bundledPage)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(index), pageHost: pageHost))
         defer { view.close() }
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("agent-pane-menu-\(UUID().uuidString)"))
-        defer { pasteboard.releaseGlobally() }
-        view.pasteboard = pasteboard
+        var copied: [String] = []
+        view.copyText = { copied.append($0) }
         var scripts: [String] = []
         view.evaluateScript = { scripts.append($0) }
         // What the web view's willOpenMenu runs on each host.
@@ -108,9 +112,9 @@ import WebKit
         let menu = Self.webKitMenu()
         openMenu(menu)
         #expect(!Self.titles(menu).contains("WKMenuItemIdentifierReload"))
-        menu.performActionForItem(at: try #require(menu.items.firstIndex { $0.title == AgentPaneMenuStrings.copyMessage }))
-        #expect(pasteboard.string(forType: .string) == "Done. See the diff.")
-        menu.performActionForItem(at: try #require(menu.items.firstIndex { $0.title == AgentPaneMenuStrings.forkFromHere }))
+        Self.choose(try #require(menu.items.first { $0.title == AgentPaneMenuStrings.copyMessage }))
+        #expect(copied == ["Done. See the diff."])
+        Self.choose(try #require(menu.items.first { $0.title == AgentPaneMenuStrings.forkFromHere }))
         #expect(scripts.contains { $0.contains("chat.fork") && $0.contains("throughSeq: 7") })
 
         let next = Self.webKitMenu()

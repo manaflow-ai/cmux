@@ -69,9 +69,12 @@ public final class AgentPaneView: NSView {
     /// Paces the transport's pushes (stopped when the pane closes).
     var transportPacer: AgentPaneFramePacer?
     /// The message the page reported under the pointer for the next context menu, and where the
-    /// menu's copies go (tests use their own pasteboard).
+    /// menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
-    var pasteboard = NSPasteboard.general
+    var copyText: @MainActor (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     let loadingView = AgentPaneLoadingView()
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
