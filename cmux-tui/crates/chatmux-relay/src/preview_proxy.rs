@@ -19,18 +19,7 @@
 //! - console/network CDP events tee into a bounded ring served by the
 //!   `preview_console_tail` verb (Pi-readable).
 //!
-//! Access (every request, before any byte reaches the dev server):
-//!
-//! - `Host` must be a loopback name (`localhost`, `*.localhost`), an
-//!   address literal, or a name under one of the registry's public preview
-//!   suffixes (the tunnel forwards its `<name>.preview.chatmux.dev` Host
-//!   verbatim). Every other name is a DNS-rebound page and gets a 403.
-//! - Proxied paths and upstream WebSocket upgrades need the per-preview
-//!   capability: the `__chatmux_preview_<proxy port>` cookie, the
-//!   `x-chatmux-capability` header, or a one-time
-//!   `?__chatmux_capability=` navigation, which answers a 302 that sets the
-//!   HttpOnly cookie and drops the parameter from the URL. The proxy strips
-//!   the credential before it forwards. A missing or wrong one gets a 401.
+//! Access rules (Host allowlist, capability, Origin): `preview_access`.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -38,6 +27,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
 
+use crate::preview_access::{
+    CAPABILITY_COOKIE_PREFIX, CAPABILITY_HEADER, ProxiedAccess, bootstrap_response, control_origin_allowed,
+    copy_credential_free, cross_origin_write, default_public_host_suffixes,
+    mint_preview_capability, normalize_public_host_suffixes, path_without_capability,
+    proxied_access, request_capability_allowed, request_host_allowed, wants_websocket,
+};
 use crate::relay_wire as wire;
 use crate::workspace::{Refusal, cap_utf16};
 
@@ -309,20 +304,11 @@ impl Default for PreviewRegistry {
     }
 }
 
-/// The public preview domain the chatmux tunnel serves proxies under.
-pub const DEFAULT_PUBLIC_HOST_SUFFIX: &str = "preview.chatmux.dev";
-/// Comma-separated extra public preview suffixes (self-hosted tunnels).
-pub const PUBLIC_HOST_SUFFIXES_ENV: &str = "CHATMUX_PREVIEW_HOST_SUFFIXES";
-
 impl PreviewRegistry {
     /// A registry whose proxies accept the default public preview suffix
     /// plus any listed in `CHATMUX_PREVIEW_HOST_SUFFIXES`.
     pub fn new() -> PreviewRegistry {
-        let mut suffixes = vec![DEFAULT_PUBLIC_HOST_SUFFIX.to_owned()];
-        if let Ok(extra) = std::env::var(PUBLIC_HOST_SUFFIXES_ENV) {
-            suffixes.extend(extra.split(',').map(str::to_owned));
-        }
-        PreviewRegistry::with_public_host_suffixes(suffixes)
+        PreviewRegistry::with_public_host_suffixes(default_public_host_suffixes())
     }
 
     /// A registry whose proxies accept `Host` names equal to or under
@@ -331,19 +317,9 @@ impl PreviewRegistry {
     pub fn with_public_host_suffixes(
         suffixes: impl IntoIterator<Item = impl Into<String>>,
     ) -> PreviewRegistry {
-        let mut normalized: Vec<String> = Vec::new();
-        for suffix in suffixes {
-            let suffix: String = suffix.into();
-            let suffix = suffix.trim().trim_matches('.').to_ascii_lowercase();
-            // A one-label suffix ("dev") would admit every name under a
-            // public TLD and bring DNS rebinding back.
-            if suffix.contains('.') && !normalized.contains(&suffix) {
-                normalized.push(suffix);
-            }
-        }
         PreviewRegistry {
             ring: Arc::new(ConsoleRing::new()),
-            public_host_suffixes: normalized.into(),
+            public_host_suffixes: normalize_public_host_suffixes(suffixes),
             proxies: tokio::sync::Mutex::new(HashMap::new()),
             order: tokio::sync::Mutex::new(VecDeque::new()),
         }
@@ -471,15 +447,15 @@ struct ProxyShared {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum PeerRole {
+pub(crate) enum PeerRole {
     Page,
     Devtools,
 }
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
-type ProxyBody = http_body_util::combinators::BoxBody<bytes::Bytes, BoxError>;
+pub(crate) type ProxyBody = http_body_util::combinators::BoxBody<bytes::Bytes, BoxError>;
 
-fn full_body(bytes: impl Into<bytes::Bytes>) -> ProxyBody {
+pub(crate) fn full_body(bytes: impl Into<bytes::Bytes>) -> ProxyBody {
     use http_body_util::BodyExt as _;
     http_body_util::Full::new(bytes.into()).map_err(|never| match never {}).boxed()
 }
@@ -584,22 +560,6 @@ async fn spawn_proxy(
     Ok(ProxyRuntime { port: proxy_port, capability, shutdown, task })
 }
 
-fn mint_preview_capability() -> Result<String, Refusal> {
-    let mut bytes = [0_u8; 32];
-    getrandom::fill(&mut bytes).map_err(|error| {
-        Refusal::failed(format!("could not allocate preview capability: {error}"))
-    })?;
-    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
-}
-
-fn wants_websocket(request: &hyper::Request<hyper::body::Incoming>) -> bool {
-    request
-        .headers()
-        .get(hyper::header::UPGRADE)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.eq_ignore_ascii_case("websocket"))
-}
-
 async fn handle_request(
     shared: Arc<ProxyShared>,
     request: hyper::Request<hyper::body::Incoming>,
@@ -630,14 +590,14 @@ async fn handle_request(
         "/__chatmux__/page" | "/__chatmux__/devtools" => {
             text_response(400, "websocket upgrade required")
         }
-        _ => match proxied_access(&shared, &request) {
+        _ => match proxied_access(&shared.capability, &shared.capability_cookie, &request) {
             ProxiedAccess::Denied => text_response(401, "preview capability required"),
             _ if cross_origin_write(&request) => text_response(403, "origin not allowed"),
             ProxiedAccess::Bootstrap
                 if !wants_websocket(&request)
                     && matches!(*request.method(), hyper::Method::GET | hyper::Method::HEAD) =>
             {
-                bootstrap_response(&shared, &request)
+                bootstrap_response(&shared.capability, &shared.capability_cookie, &request)
             }
             ProxiedAccess::Granted | ProxiedAccess::Bootstrap => {
                 if wants_websocket(&request) {
@@ -648,205 +608,6 @@ async fn handle_request(
             }
         },
     }
-}
-
-// ---------------------------------------------------------------------------
-// Access: Host allowlist and the proxied-path capability
-// ---------------------------------------------------------------------------
-
-const CAPABILITY_QUERY: &str = "__chatmux_capability";
-const CAPABILITY_HEADER: &str = "x-chatmux-capability";
-const CAPABILITY_COOKIE_PREFIX: &str = "__chatmux_preview_";
-
-/// The `Host` rule (module docs). Exactly one `Host` value; it must be a
-/// bare `name[:port]` (no userinfo, path or whitespace). Address literals
-/// pass: a rebound page always sends the domain name it loaded from.
-fn request_host_allowed(headers: &hyper::HeaderMap, public_suffixes: &[String]) -> bool {
-    let mut values = headers.get_all(hyper::header::HOST).iter();
-    let (Some(value), None) = (values.next(), values.next()) else { return false };
-    let Ok(value) = value.to_str() else { return false };
-    let value = value.trim();
-    if value.is_empty()
-        || value.bytes().any(|byte| {
-            matches!(byte, b'/' | b'\\' | b'@' | b'?' | b'#' | b'%') || byte.is_ascii_whitespace()
-        })
-    {
-        return false;
-    }
-    let Ok(url) = url::Url::parse(&format!("http://{value}/")) else { return false };
-    match url.host() {
-        Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)) => true,
-        Some(url::Host::Domain(name)) => {
-            let name = name.trim_end_matches('.').to_ascii_lowercase();
-            name == "localhost"
-                || name.ends_with(".localhost")
-                || public_suffixes.iter().any(|suffix| {
-                    name.strip_suffix(suffix.as_str())
-                        .is_some_and(|rest| rest.is_empty() || rest.ends_with('.'))
-                })
-        }
-        None => false,
-    }
-}
-
-enum ProxiedAccess {
-    /// A valid cookie or header and no capability in the query.
-    Granted,
-    /// A valid `?__chatmux_capability=` (and nothing invalid).
-    Bootstrap,
-    Denied,
-}
-
-fn capability_matches(presented: &[u8], expected: &str) -> bool {
-    use subtle::ConstantTimeEq as _;
-    !expected.is_empty() && bool::from(presented.ct_eq(expected.as_bytes()))
-}
-
-/// The decoded value when one raw query item names the capability
-/// parameter. Names are percent-decoded first, so `%5F_chatmux_capability`
-/// is caught too.
-fn capability_query_item(item: &str) -> Option<String> {
-    let (name, value) = url::form_urlencoded::parse(item.as_bytes()).next()?;
-    (name == CAPABILITY_QUERY).then(|| value.into_owned())
-}
-
-/// `(name, value)` byte pairs of every `Cookie` header. Raw bytes: a
-/// non-ASCII cookie of the app must neither break the check nor be dropped
-/// when the proxy strips its own cookies.
-fn cookie_pairs(headers: &hyper::HeaderMap) -> Vec<(&[u8], &[u8])> {
-    headers
-        .get_all(hyper::header::COOKIE)
-        .iter()
-        .flat_map(|value| value.as_bytes().split(|byte| *byte == b';'))
-        .map(<[u8]>::trim_ascii)
-        .filter(|item| !item.is_empty())
-        .map(|item| match item.iter().position(|byte| *byte == b'=') {
-            Some(at) => (item[..at].trim_ascii(), item[at + 1..].trim_ascii()),
-            None => (item, &item[item.len()..]),
-        })
-        .collect()
-}
-
-fn proxied_access(
-    shared: &ProxyShared,
-    request: &hyper::Request<hyper::body::Incoming>,
-) -> ProxiedAccess {
-    let expected = shared.capability.as_str();
-    // A presented query capability must be right: a wrong one never falls
-    // back to a cookie, so a link cannot carry a stale or forged value. A
-    // right one always takes the bootstrap, so it leaves the URL (and
-    // with it every later Referer) even when a cookie is already set.
-    let mut query_presented = false;
-    for item in request.uri().query().unwrap_or_default().split('&') {
-        if let Some(value) = capability_query_item(item) {
-            if !capability_matches(value.as_bytes(), expected) {
-                return ProxiedAccess::Denied;
-            }
-            query_presented = true;
-        }
-    }
-    if query_presented {
-        return ProxiedAccess::Bootstrap;
-    }
-    let header_ok = request
-        .headers()
-        .get_all(CAPABILITY_HEADER)
-        .iter()
-        .any(|value| capability_matches(value.as_bytes().trim_ascii(), expected));
-    let cookie_ok = cookie_pairs(request.headers()).into_iter().any(|(name, value)| {
-        name == shared.capability_cookie.as_bytes() && capability_matches(value, expected)
-    });
-    if header_ok || cookie_ok { ProxiedAccess::Granted } else { ProxiedAccess::Denied }
-}
-
-/// Browsers send the capability cookie on same-site requests, and a sibling
-/// preview (`a.preview.chatmux.dev` next to `b.preview.chatmux.dev`, or any
-/// `localhost` page) is same-site. So a request that can change state or
-/// open a socket must come from this preview's own origin when it names
-/// one: upgrades and every method but GET, HEAD and OPTIONS. A request
-/// without `Origin` is a navigation or a non-browser client.
-fn cross_origin_write(request: &hyper::Request<hyper::body::Incoming>) -> bool {
-    let safe = matches!(
-        *request.method(),
-        hyper::Method::GET | hyper::Method::HEAD | hyper::Method::OPTIONS
-    );
-    if safe && !wants_websocket(request) {
-        return false;
-    }
-    let Some(origin) = request.headers().get(hyper::header::ORIGIN) else { return false };
-    let Some(origin) = origin.to_str().ok().and_then(|value| url::Url::parse(value).ok()) else {
-        return true;
-    };
-    if !matches!(origin.scheme(), "http" | "https") {
-        return true;
-    }
-    let Some(host) = request
-        .headers()
-        .get(hyper::header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| url::Url::parse(&format!("{}://{value}/", origin.scheme())).ok())
-    else {
-        return true;
-    };
-    let normalize = |name: &str| name.trim_end_matches('.').to_ascii_lowercase();
-    origin.host_str().map(normalize) != host.host_str().map(normalize)
-        || origin.port_or_known_default() != host.port_or_known_default()
-}
-
-/// The request's path and query without the capability parameter. A
-/// leading run of slashes collapses to one, so the bootstrap `Location`
-/// can never be a protocol-relative URL to another host.
-fn path_without_capability(uri: &hyper::Uri) -> String {
-    let path = format!("/{}", uri.path().trim_start_matches(['/', '\\']));
-    let Some(query) = uri.query() else { return path };
-    let kept = query
-        .split('&')
-        .filter(|item| !item.is_empty() && capability_query_item(item).is_none())
-        .collect::<Vec<_>>();
-    if kept.is_empty() { path } else { format!("{path}?{}", kept.join("&")) }
-}
-
-/// 302 to the same URL without the capability, setting the HttpOnly
-/// cookie. `Secure` rides public (tunnel) names, which are always https.
-fn bootstrap_response(
-    shared: &ProxyShared,
-    request: &hyper::Request<hyper::body::Incoming>,
-) -> hyper::Response<ProxyBody> {
-    let secure = request
-        .headers()
-        .get(hyper::header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| url::Url::parse(&format!("http://{value}/")).ok())
-        .is_some_and(|url| match url.host() {
-            Some(url::Host::Domain(name)) => {
-                let name = name.trim_end_matches('.').to_ascii_lowercase();
-                name != "localhost" && !name.ends_with(".localhost")
-            }
-            _ => false,
-        });
-    let cookie = format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Lax{}",
-        shared.capability_cookie,
-        shared.capability,
-        if secure { "; Secure" } else { "" },
-    );
-    let mut response = hyper::Response::new(full_body(Vec::new()));
-    *response.status_mut() = hyper::StatusCode::FOUND;
-    let headers = response.headers_mut();
-    if let (Ok(location), Ok(cookie)) = (
-        hyper::header::HeaderValue::from_str(&path_without_capability(request.uri())),
-        hyper::header::HeaderValue::from_str(&cookie),
-    ) {
-        headers.insert(hyper::header::LOCATION, location);
-        headers.insert(hyper::header::SET_COOKIE, cookie);
-    }
-    headers
-        .insert(hyper::header::CACHE_CONTROL, hyper::header::HeaderValue::from_static("no-store"));
-    headers.insert(
-        hyper::header::REFERRER_POLICY,
-        hyper::header::HeaderValue::from_static("no-referrer"),
-    );
-    response
 }
 
 /// {"targetConnected": bool}. The web devtools drawer polls this endpoint
@@ -907,66 +668,6 @@ const REPLACED_CLOSE_CODE: u16 = 4001;
 /// Bound cleanup when a displaced peer's TCP writer is stuck.
 const REPLACED_WRITER_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// Browsers attach an `Origin` to every WebSocket handshake but apply no
-/// same-origin policy to it, so any page the user visits can dial the
-/// proxy's loopback port and drive the preview page over CDP. Admission:
-///
-/// - no Origin: a non-browser client (the tunnel health checks, tests);
-/// - loopback Host (direct local access): the Origin must be a loopback
-///   origin too, which refuses every public website;
-/// - public Host (the TLS tunnel forwards Host verbatim): the Origin must be
-///   https, which refuses DNS-rebinding pages (they cannot present TLS for
-///   the rebound name). The page connector dials its own host, so the page
-///   channel must also be same-origin. The DevTools frontend is served by
-///   the chatmux web app, whose origin this relay is not told. The status
-///   endpoint's cross-origin read grant reuses the Devtools admission.
-fn control_origin_allowed(headers: &hyper::HeaderMap, role: PeerRole) -> bool {
-    let Some(origin) = headers.get(hyper::header::ORIGIN) else {
-        return true;
-    };
-    let Some(origin) = origin.to_str().ok().and_then(|value| url::Url::parse(value).ok()) else {
-        return false;
-    };
-    if !matches!(origin.scheme(), "http" | "https") {
-        return false;
-    }
-    let Some(host) = headers
-        .get(hyper::header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| url::Url::parse(&format!("https://{value}")).ok())
-    else {
-        return false;
-    };
-    let (Some(origin_host), Some(request_host)) = (origin.host(), host.host()) else {
-        return false;
-    };
-    if is_loopback_host(&request_host) {
-        return is_loopback_host(&origin_host);
-    }
-    if origin.scheme() != "https" {
-        return false;
-    }
-    match role {
-        PeerRole::Page => {
-            origin_host == request_host
-                && origin.port_or_known_default() == host.port_or_known_default()
-        }
-        PeerRole::Devtools => true,
-    }
-}
-
-fn is_loopback_host(host: &url::Host<&str>) -> bool {
-    match host {
-        url::Host::Domain(name) => {
-            let name = name.trim_end_matches('.');
-            name.eq_ignore_ascii_case("localhost")
-                || name.to_ascii_lowercase().ends_with(".localhost")
-        }
-        url::Host::Ipv4(address) => address.is_loopback(),
-        url::Host::Ipv6(address) => address.is_loopback(),
-    }
-}
-
 fn accept_control_websocket(
     shared: Arc<ProxyShared>,
     request: hyper::Request<hyper::body::Incoming>,
@@ -978,23 +679,6 @@ fn accept_control_websocket(
         return text_response(403, "origin not allowed");
     }
     accept_websocket(shared, request, role)
-}
-
-/// A control request proves it belongs to this preview by presenting the
-/// capability `preview_open` returned (the injected connector receives it
-/// in its script URL, the devtools frontend over the relay wire). Values
-/// are compared in constant time so a guesser learns nothing from
-/// response latency; the length is public (64 hex characters).
-fn request_capability_allowed(
-    request: &hyper::Request<hyper::body::Incoming>,
-    expected: &str,
-) -> bool {
-    use subtle::ConstantTimeEq as _;
-    request.uri().query().is_some_and(|query| {
-        url::form_urlencoded::parse(query.as_bytes()).any(|(name, value)| {
-            name == "capability" && bool::from(value.as_bytes().ct_eq(expected.as_bytes()))
-        })
-    })
 }
 
 fn accept_websocket(
@@ -1245,10 +929,7 @@ fn copy_request(
     parts: &http::request::Parts,
     body: hyper::body::Incoming,
 ) -> Result<hyper::Request<hyper::body::Incoming>, String> {
-    // No preview capability reaches the dev server: not in the query, the
-    // Referer, the capability header, or a Cookie. Every
-    // `__chatmux_preview_*` cookie goes, not only this proxy's: cookies are
-    // not port-scoped, so a loopback browser sends sibling previews' too.
+    // No preview credential reaches the dev server (`copy_credential_free`).
     let uri = path_without_capability(&parts.uri);
     let mut builder = hyper::Request::builder().method(parts.method.clone()).uri(uri);
     if let Some(headers) = builder.headers_mut() {
@@ -1262,52 +943,9 @@ fn copy_request(
             }
             headers.append(name.clone(), value.clone());
         }
-        let kept = parts
-            .headers
-            .get_all(hyper::header::COOKIE)
-            .iter()
-            .flat_map(|value| value.as_bytes().split(|byte| *byte == b';'))
-            .map(<[u8]>::trim_ascii)
-            .filter(|item| {
-                !item.is_empty() && !item.starts_with(CAPABILITY_COOKIE_PREFIX.as_bytes())
-            })
-            .collect::<Vec<_>>();
-        if !kept.is_empty()
-            && let Ok(cookie) = hyper::header::HeaderValue::from_bytes(&kept.join(&b"; "[..]))
-        {
-            headers.insert(hyper::header::COOKIE, cookie);
-        }
-        if let Some(referer) = parts.headers.get(hyper::header::REFERER)
-            && let Some(cleaned) = referer_without_capability(referer)
-        {
-            headers.insert(hyper::header::REFERER, cleaned);
-        }
+        copy_credential_free(&parts.headers, headers);
     }
     builder.body(body).map_err(|error| format!("could not rebuild the proxied request: {error}"))
-}
-
-/// The Referer without the capability parameter. An unparsable Referer
-/// that still names the parameter is dropped.
-fn referer_without_capability(
-    referer: &hyper::header::HeaderValue,
-) -> Option<hyper::header::HeaderValue> {
-    let names_capability =
-        |query: &str| query.split('&').any(|item| capability_query_item(item).is_some());
-    let Ok(text) = referer.to_str() else { return Some(referer.clone()) };
-    let Ok(mut url) = url::Url::parse(text) else {
-        return (!names_capability(text.split_once('?').map_or("", |(_, query)| query)))
-            .then(|| referer.clone());
-    };
-    let Some(query) = url.query().map(str::to_owned) else { return Some(referer.clone()) };
-    if !names_capability(&query) {
-        return Some(referer.clone());
-    }
-    let kept = query
-        .split('&')
-        .filter(|item| !item.is_empty() && capability_query_item(item).is_none())
-        .collect::<Vec<_>>();
-    url.set_query((!kept.is_empty()).then(|| kept.join("&")).as_deref());
-    hyper::header::HeaderValue::from_str(url.as_str()).ok()
 }
 
 fn header_is_one(headers: &hyper::HeaderMap, name: &str) -> bool {
@@ -1463,6 +1101,10 @@ fn inject_into_html(html: &[u8], capability: &str) -> Vec<u8> {
 }
 
 #[cfg(test)]
+#[path = "preview_access_tests.rs"]
+mod access_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use futures_util::{SinkExt as _, StreamExt as _};
@@ -1491,7 +1133,7 @@ mod tests {
     /// Tiny dev-server double: "/" is HTML with a head, "/body-only" has no
     /// head, "/plain" is not HTML, "/opt-out" answers with the no-inject
     /// response header.
-    async fn spawn_target() -> u16 {
+    pub(super) async fn spawn_target() -> u16 {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("target bind");
         let port = listener.local_addr().expect("target addr").port();
         tokio::spawn(async move {
@@ -1509,37 +1151,6 @@ mod tests {
                             response.headers_mut().insert(
                                 hyper::header::CONTENT_TYPE,
                                 hyper::header::HeaderValue::from_static("text/html"),
-                            );
-                            return Ok::<_, std::convert::Infallible>(response);
-                        }
-                        if request.uri().path() == "/echo" {
-                            // What the dev server sees of the request: the
-                            // query, every Cookie value and the capability
-                            // header, one per line.
-                            let mut seen =
-                                format!("query={}\n", request.uri().query().unwrap_or_default());
-                            for value in request.headers().get_all(hyper::header::COOKIE) {
-                                seen.push_str(&format!(
-                                    "cookie={}\n",
-                                    String::from_utf8_lossy(value.as_bytes())
-                                ));
-                            }
-                            for value in request.headers().get_all(hyper::header::REFERER) {
-                                seen.push_str(&format!(
-                                    "referer={}\n",
-                                    value.to_str().unwrap_or_default()
-                                ));
-                            }
-                            for value in request.headers().get_all("x-chatmux-capability") {
-                                seen.push_str(&format!(
-                                    "header={}\n",
-                                    value.to_str().unwrap_or_default()
-                                ));
-                            }
-                            let mut response = hyper::Response::new(full_body(seen.into_bytes()));
-                            response.headers_mut().insert(
-                                hyper::header::CONTENT_TYPE,
-                                hyper::header::HeaderValue::from_static("text/plain"),
                             );
                             return Ok::<_, std::convert::Infallible>(response);
                         }
@@ -1578,7 +1189,7 @@ mod tests {
         port
     }
 
-    async fn spawn_upgrade_target() -> u16 {
+    pub(super) async fn spawn_upgrade_target() -> u16 {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("target bind");
         let port = listener.local_addr().expect("target addr").port();
         tokio::spawn(async move {
@@ -1616,7 +1227,7 @@ mod tests {
         open_proxy_credentials(registry, target_port).await.0
     }
 
-    async fn open_proxy_credentials(registry: &PreviewRegistry, target_port: u16) -> (u16, String) {
+    pub(super) async fn open_proxy_credentials(registry: &PreviewRegistry, target_port: u16) -> (u16, String) {
         match registry.open(i64::from(target_port)).await.expect("preview_open") {
             wire::WorkspaceResultBody::PreviewOpen(result) => {
                 (u16::try_from(result.proxy_port).expect("port range"), result.capability)
@@ -1795,7 +1406,7 @@ mod tests {
     /// One raw HTTP/1.1 exchange against the proxy, returning the response
     /// head (status line plus headers) lowercased. Lets a test pin the Host
     /// header, which reqwest always derives from the URL.
-    async fn raw_response_head(port: u16, request: &str) -> String {
+    pub(super) async fn raw_response_head(port: u16, request: &str) -> String {
         let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
             .await
             .expect("connect preview proxy");
@@ -2075,11 +1686,11 @@ mod tests {
         assert!(fresh["id"].as_i64().expect("id") >= PROXY_CDP_ID_BASE);
     }
 
-    type TestSocket = tokio_tungstenite::WebSocketStream<
+    pub(super) type TestSocket = tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >;
 
-    async fn ws_handshake(
+    pub(super) async fn ws_handshake(
         port: u16,
         path: &str,
         capability: Option<&str>,
@@ -2100,7 +1711,7 @@ mod tests {
         tokio_tungstenite::connect_async(request).await.map(|(socket, _)| socket)
     }
 
-    fn refused_with_forbidden(outcome: Result<TestSocket, tungstenite::Error>) -> bool {
+    pub(super) fn refused_with_forbidden(outcome: Result<TestSocket, tungstenite::Error>) -> bool {
         matches!(outcome, Err(tungstenite::Error::Http(response)) if response.status() == 403)
     }
 
@@ -2192,402 +1803,6 @@ mod tests {
         ws_handshake(proxy, "/__chatmux__/devtools", Some(&capability), &[])
             .await
             .expect("originless client");
-        registry.shutdown().await;
-    }
-
-    /// The full raw HTTP/1.1 response (head and body) of one request that
-    /// asks the proxy to close the connection.
-    async fn raw_exchange(port: u16, request: &str) -> String {
-        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
-            .await
-            .expect("connect preview proxy");
-        stream.write_all(request.as_bytes()).await.expect("write raw request");
-        let mut response = Vec::new();
-        tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut response))
-            .await
-            .expect("raw exchange timeout")
-            .expect("read raw exchange");
-        String::from_utf8(response).expect("raw exchange utf8")
-    }
-
-    fn get_request(path: &str, host: &str, extra: &str) -> String {
-        format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n{extra}Connection: close\r\n\r\n")
-    }
-
-    fn upgrade_request(path: &str, host: &str, extra: &str) -> String {
-        format!(
-            "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n{extra}\r\n"
-        )
-    }
-
-    #[tokio::test]
-    async fn proxied_requests_and_upgrades_require_the_preview_capability() {
-        let registry = PreviewRegistry::new();
-        let target = spawn_target().await;
-        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
-        let host = format!("localhost:{proxy}");
-        let cookie = format!("__chatmux_preview_{proxy}");
-        let wrong = "0".repeat(capability.len());
-
-        // Missing and wrong capabilities: no byte of the dev server leaks.
-        for extra in [
-            String::new(),
-            format!("x-chatmux-capability: {wrong}\r\n"),
-            format!("Cookie: {cookie}={wrong}\r\n"),
-        ] {
-            let response = raw_exchange(proxy, &get_request("/", &host, &extra)).await;
-            assert!(response.starts_with("HTTP/1.1 401"), "{extra:?}: {response}");
-            assert!(!response.contains("<title>t</title>"), "{extra:?} leaked the page");
-        }
-        let response = raw_exchange(
-            proxy,
-            &get_request(&format!("/?__chatmux_capability={wrong}"), &host, ""),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 401"), "wrong bootstrap: {response}");
-
-        // A valid header passes.
-        let response = raw_exchange(
-            proxy,
-            &get_request("/", &host, &format!("x-chatmux-capability: {capability}\r\n")),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 200"), "header: {response}");
-        assert!(response.contains("<title>t</title>"));
-
-        // The navigation bootstrap trades the query capability for an
-        // HttpOnly cookie and drops it from the visible URL.
-        let response = raw_exchange(
-            proxy,
-            &get_request(&format!("/app?__chatmux_capability={capability}&x=1"), &host, ""),
-        )
-        .await;
-        let lower = response.to_ascii_lowercase();
-        assert!(lower.starts_with("http/1.1 302"), "bootstrap: {response}");
-        assert!(lower.contains("\r\nlocation: /app?x=1\r\n"), "bootstrap: {response}");
-        let set_cookie = lower
-            .lines()
-            .find(|line| line.starts_with("set-cookie:"))
-            .expect("bootstrap sets a cookie")
-            .to_owned();
-        assert!(set_cookie.contains(&format!("{cookie}={capability}")), "{set_cookie}");
-        assert!(set_cookie.contains("httponly"), "{set_cookie}");
-        assert!(set_cookie.contains("path=/"), "{set_cookie}");
-
-        // The cookie passes, and the dev server never sees the credential
-        // (other cookies of the app still reach it).
-        let response = raw_exchange(
-            proxy,
-            &get_request("/", &host, &format!("Cookie: {cookie}={capability}\r\n")),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 200"), "cookie: {response}");
-        let response = raw_exchange(
-            proxy,
-            &get_request(
-                "/echo?a=1",
-                &host,
-                &format!(
-                    "Cookie: app=1; {cookie}={capability}; theme=dark\r\nx-chatmux-capability: {capability}\r\n"
-                ),
-            ),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 200"), "echo: {response}");
-        assert!(!response.contains(&capability), "the dev server saw the capability: {response}");
-        assert!(response.contains("cookie=app=1; theme=dark"), "{response}");
-        assert!(response.contains("query=a=1"), "{response}");
-
-        // Upstream WebSocket upgrades (a dev server's HMR socket) need it too.
-        let upgrade_target = spawn_upgrade_target().await;
-        let (upgrade_proxy, upgrade_capability) =
-            open_proxy_credentials(&registry, upgrade_target).await;
-        let upgrade_host = format!("localhost:{upgrade_proxy}");
-        let upgrade_cookie = format!("__chatmux_preview_{upgrade_proxy}");
-        for extra in [String::new(), format!("Cookie: {upgrade_cookie}={wrong}\r\n")] {
-            let head =
-                raw_response_head(upgrade_proxy, &upgrade_request("/hmr", &upgrade_host, &extra))
-                    .await;
-            assert!(head.starts_with("http/1.1 401"), "upgrade {extra:?}: {head}");
-        }
-        let head = raw_response_head(
-            upgrade_proxy,
-            &upgrade_request(
-                "/hmr",
-                &upgrade_host,
-                &format!("Cookie: {upgrade_cookie}={upgrade_capability}\r\n"),
-            ),
-        )
-        .await;
-        assert!(head.starts_with("http/1.1 101"), "upgrade with cookie: {head}");
-        registry.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn a_rebinding_host_is_refused_on_every_path() {
-        let registry = PreviewRegistry::new();
-        let target = spawn_target().await;
-        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
-        let cookie = format!("__chatmux_preview_{proxy}");
-        let credential = format!("x-chatmux-capability: {capability}\r\n");
-        let rebinding = format!("rebind.example:{proxy}");
-
-        // A DNS-rebound page sends its own name as Host. Even a request that
-        // carries the capability (a cookie the browser would not send to
-        // that name anyway) is refused on proxied and control paths.
-        for path in ["/", "/plain", "/__chatmux__/status", "/__chatmux__/target.js"] {
-            let response = raw_exchange(proxy, &get_request(path, &rebinding, &credential)).await;
-            assert!(response.starts_with("HTTP/1.1 403"), "{path}: {response}");
-        }
-        for host in ["rebind.example", "localhost.rebind.example", "evil@localhost"] {
-            let response = raw_exchange(proxy, &get_request("/", host, &credential)).await;
-            assert!(response.starts_with("HTTP/1.1 403"), "{host}: {response}");
-        }
-        let response = raw_exchange(
-            proxy,
-            &format!("GET / HTTP/1.1\r\n{credential}Connection: close\r\n\r\n"),
-        )
-        .await;
-        assert!(!response.starts_with("HTTP/1.1 200"), "a request without Host: {response}");
-        let response = raw_exchange(
-            proxy,
-            &format!(
-                "GET / HTTP/1.1
-Host: localhost
-Host: rebind.example
-{credential}Connection: close
-
-"
-            ),
-        )
-        .await;
-        assert!(!response.starts_with("HTTP/1.1 200"), "two Host headers: {response}");
-
-        // Rebinding on a WebSocket upgrade: the dev server's HMR socket and
-        // both control sockets (an originless handshake included).
-        let upgrade_target = spawn_upgrade_target().await;
-        let (upgrade_proxy, upgrade_capability) =
-            open_proxy_credentials(&registry, upgrade_target).await;
-        let head = raw_response_head(
-            upgrade_proxy,
-            &upgrade_request(
-                "/hmr",
-                &format!("rebind.example:{upgrade_proxy}"),
-                &format!("Cookie: __chatmux_preview_{upgrade_proxy}={upgrade_capability}\r\n"),
-            ),
-        )
-        .await;
-        assert!(head.starts_with("http/1.1 403"), "hmr upgrade: {head}");
-        for path in ["/__chatmux__/page", "/__chatmux__/devtools"] {
-            let outcome =
-                ws_handshake(proxy, path, Some(&capability), &[("host", &rebinding)]).await;
-            assert!(refused_with_forbidden(outcome), "{path} accepted a rebinding Host");
-        }
-
-        // Loopback names and address literals stay allowed.
-        for host in [
-            format!("localhost:{proxy}"),
-            format!("app.localhost:{proxy}"),
-            format!("127.0.0.1:{proxy}"),
-            format!("[::1]:{proxy}"),
-            "localhost.".to_owned(),
-            format!("10.0.0.5:{proxy}"),
-        ] {
-            let response = raw_exchange(
-                proxy,
-                &get_request("/", &host, &format!("Cookie: {cookie}={capability}\r\n")),
-            )
-            .await;
-            assert!(response.starts_with("HTTP/1.1 200"), "{host}: {response}");
-        }
-        registry.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn public_preview_hosts_pass_only_under_the_configured_suffixes() {
-        let registry = PreviewRegistry::with_public_host_suffixes([".Preview.Test."]);
-        let target = spawn_target().await;
-        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
-        let credential = format!("{CAPABILITY_HEADER}: {capability}\r\n");
-        for host in ["p1.preview.test", "P1.Preview.Test:443", "preview.test", "p1.preview.test."] {
-            let response = raw_exchange(proxy, &get_request("/", host, &credential)).await;
-            assert!(response.starts_with("HTTP/1.1 200"), "{host}: {response}");
-        }
-        for host in ["xpreview.test", "p1.preview.test.evil.example", "preview.chatmux.dev"] {
-            let response = raw_exchange(proxy, &get_request("/", host, &credential)).await;
-            assert!(response.starts_with("HTTP/1.1 403"), "{host}: {response}");
-        }
-        // The tunnel bootstrap marks the cookie Secure (the tunnel is https).
-        let response = raw_exchange(
-            proxy,
-            &get_request(&format!("/?{CAPABILITY_QUERY}={capability}"), "p1.preview.test", ""),
-        )
-        .await
-        .to_ascii_lowercase();
-        assert!(response.starts_with("http/1.1 302"), "{response}");
-        assert!(response.contains("\r\nlocation: /\r\n"), "{response}");
-        let set_cookie =
-            response.lines().find(|line| line.starts_with("set-cookie:")).expect("cookie");
-        assert!(set_cookie.contains("; secure"), "{set_cookie}");
-        assert!(set_cookie.contains("samesite=lax"), "{set_cookie}");
-        registry.shutdown().await;
-        // A one-label suffix is ignored: it would admit a public TLD.
-        let registry = PreviewRegistry::with_public_host_suffixes(["test"]);
-        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
-        let response = raw_exchange(
-            proxy,
-            &get_request(
-                "/",
-                "rebind.test",
-                &format!(
-                    "{CAPABILITY_HEADER}: {capability}
-"
-                ),
-            ),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 403"), "{response}");
-        registry.shutdown().await;
-        // The default registry serves the chatmux tunnel's domain.
-        let registry = PreviewRegistry::new();
-        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
-        let response = raw_exchange(
-            proxy,
-            &get_request(
-                "/",
-                "abc.preview.chatmux.dev",
-                &format!("{CAPABILITY_HEADER}: {capability}\r\n"),
-            ),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-        registry.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn the_capability_never_lingers_in_the_url_or_reaches_the_dev_server() {
-        let registry = PreviewRegistry::new();
-        let target = spawn_target().await;
-        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
-        let host = format!("localhost:{proxy}");
-        let cookie = format!("{CAPABILITY_COOKIE_PREFIX}{proxy}={capability}");
-        let location = |response: &str| {
-            response
-                .to_ascii_lowercase()
-                .lines()
-                .find_map(|line| line.strip_prefix("location: ").map(str::to_owned))
-                .unwrap_or_default()
-        };
-
-        // A second visit of the capability link (cookie already set) still
-        // takes the 302, so the URL and later Referers drop it.
-        let response = raw_exchange(
-            proxy,
-            &get_request(
-                &format!("/?{CAPABILITY_QUERY}={capability}"),
-                &host,
-                &format!("Cookie: {cookie}\r\n"),
-            ),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 302"), "{response}");
-
-        // A percent-encoded name is the same parameter.
-        let wrong = "0".repeat(capability.len());
-        let response = raw_exchange(
-            proxy,
-            &get_request(&format!("/?%5F_chatmux_capability={wrong}"), &host, ""),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 401"), "{response}");
-        let response = raw_exchange(
-            proxy,
-            &get_request(&format!("/echo?%5F_chatmux_capability={capability}&a=1"), &host, ""),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 302"), "{response}");
-        assert_eq!(location(&response), "/echo?a=1");
-
-        // The bootstrap never redirects off the host.
-        for path in ["//evil.example/x", "/\\evil.example/x", "///evil.example/x"] {
-            let response = raw_exchange(
-                proxy,
-                &get_request(&format!("{path}?{CAPABILITY_QUERY}={capability}"), &host, ""),
-            )
-            .await;
-            assert!(response.starts_with("HTTP/1.1 302"), "{path}: {response}");
-            assert_eq!(location(&response), "/evil.example/x", "{path}");
-        }
-
-        // The dev server sees no preview cookie (sibling previews' cookies
-        // included, since cookies are not port-scoped), keeps the app's
-        // non-ASCII cookie, and gets a Referer without the capability.
-        let response = raw_exchange(
-            proxy,
-            &get_request(
-                "/echo",
-                &host,
-                &format!(
-                    "Cookie: {CAPABILITY_COOKIE_PREFIX}1=sibling; app=caf\u{e9}; {cookie}\r\nReferer: http://{host}/page?{CAPABILITY_QUERY}={capability}&b=2\r\n"
-                ),
-            ),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-        assert!(!response.contains(&capability), "{response}");
-        assert!(!response.contains("sibling"), "{response}");
-        assert!(response.contains("cookie=app=caf\u{e9}"), "{response}");
-        assert!(response.contains(&format!("referer=http://{host}/page?b=2")), "{response}");
-        registry.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn a_sibling_origin_cannot_write_or_open_a_socket_with_the_cookie() {
-        let registry = PreviewRegistry::new();
-        let target = spawn_target().await;
-        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
-        let host = format!("localhost:{proxy}");
-        let cookie = format!("Cookie: {CAPABILITY_COOKIE_PREFIX}{proxy}={capability}\r\n");
-        let post = |origin: &str| {
-            format!(
-                "POST /echo HTTP/1.1\r\nHost: {host}\r\nOrigin: {origin}\r\n{cookie}Content-Length: 0\r\nConnection: close\r\n\r\n"
-            )
-        };
-        // Another localhost page is same-site, so its browser sends the
-        // cookie; the proxy still refuses its writes.
-        let response = raw_exchange(proxy, &post("http://localhost:1")).await;
-        assert!(response.starts_with("HTTP/1.1 403"), "{response}");
-        let response = raw_exchange(proxy, &post("null")).await;
-        assert!(response.starts_with("HTTP/1.1 403"), "{response}");
-        let response = raw_exchange(proxy, &post(&format!("http://{host}"))).await;
-        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-
-        let upgrade_target = spawn_upgrade_target().await;
-        let (upgrade_proxy, upgrade_capability) =
-            open_proxy_credentials(&registry, upgrade_target).await;
-        let upgrade_host = format!("localhost:{upgrade_proxy}");
-        let upgrade_cookie =
-            format!("Cookie: {CAPABILITY_COOKIE_PREFIX}{upgrade_proxy}={upgrade_capability}\r\n");
-        let head = raw_response_head(
-            upgrade_proxy,
-            &upgrade_request(
-                "/hmr",
-                &upgrade_host,
-                &format!("{upgrade_cookie}Origin: http://localhost:1\r\n"),
-            ),
-        )
-        .await;
-        assert!(head.starts_with("http/1.1 403"), "sibling upgrade: {head}");
-        let head = raw_response_head(
-            upgrade_proxy,
-            &upgrade_request(
-                "/hmr",
-                &upgrade_host,
-                &format!("{upgrade_cookie}Origin: http://{upgrade_host}\r\n"),
-            ),
-        )
-        .await;
-        assert!(head.starts_with("http/1.1 101"), "same-origin upgrade: {head}");
         registry.shutdown().await;
     }
 
