@@ -4,7 +4,7 @@ import Testing
 @testable import CmuxNextApp
 
 /// Leo (2026-10-06): a section header collapses its section, and the state
-/// survives a relaunch (Recents and the other layout sections; workspace
+/// survives a relaunch (Chats and the other layout sections; workspace
 /// sections keep theirs in the sidebar snapshot).
 @MainActor @Suite struct SidebarCollapsedSectionsTests {
     private func freshDefaults() -> UserDefaults {
