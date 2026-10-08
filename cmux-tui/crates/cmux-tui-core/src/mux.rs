@@ -43,7 +43,6 @@ mod tab_workspace_name;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
-pub(crate) use terminal_archive::TerminalArchive;
 mod pending_terminals;
 pub(crate) mod terminal_archive;
 mod terminal_directory;

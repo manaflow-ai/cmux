@@ -117,7 +117,7 @@ impl Mux {
         RespawnLaunch {
             options,
             cell_pixels: geometry.map_or(creation_cell_pixels, |(_, cell_pixels)| cell_pixels),
-            seed: respawn_seed(previous.map(|previous| previous.bytes), &marker),
+            seed: respawn_seed(previous.map(|previous| previous.bytes), Some(&marker)),
         }
     }
 }
@@ -136,8 +136,9 @@ fn usable_env(env: &[(String, String)]) -> Vec<(String, String)> {
 }
 
 /// The previous screen (dropped whole when it would not fit), the mode reset
-/// and one dim `marker` line, bounded by `VT_REPLAY_MAX_BYTES`.
-pub(in crate::mux) fn respawn_seed(previous: Option<Vec<u8>>, marker: &str) -> Vec<u8> {
+/// and one dim `marker` line (none: no line), bounded by
+/// `VT_REPLAY_MAX_BYTES`.
+pub(in crate::mux) fn respawn_seed(previous: Option<Vec<u8>>, marker: Option<&str>) -> Vec<u8> {
     let budget = crate::surface::VT_REPLAY_MAX_BYTES.saturating_sub(MARKER_HEADROOM_BYTES);
     let mut seed = previous.filter(|previous| previous.len() <= budget).unwrap_or_default();
     let had_screen = !seed.is_empty();
@@ -145,9 +146,11 @@ pub(in crate::mux) fn respawn_seed(previous: Option<Vec<u8>>, marker: &str) -> V
     if had_screen {
         seed.extend_from_slice(b"\r\n");
     }
-    seed.extend_from_slice(b"\x1b[2m");
-    seed.extend(marker.chars().filter(|c| !c.is_control()).collect::<String>().bytes());
-    seed.extend_from_slice(b"\x1b[0m\r\n");
+    if let Some(marker) = marker {
+        seed.extend_from_slice(b"\x1b[2m");
+        seed.extend(marker.chars().filter(|c| !c.is_control()).collect::<String>().bytes());
+        seed.extend_from_slice(b"\x1b[0m\r\n");
+    }
     seed
 }
 
@@ -157,17 +160,21 @@ mod tests {
 
     #[test]
     fn the_seed_is_the_screen_then_one_dim_marker_line_within_the_bound() {
-        let seed = respawn_seed(Some(b"old screen".to_vec()), "restored");
+        let seed = respawn_seed(Some(b"old screen".to_vec()), Some("restored"));
         let text = String::from_utf8(seed).unwrap_or_default();
         assert!(text.starts_with("old screen\x1b7\x1b[?1049l"), "{text:?}");
         assert!(text.ends_with("\r\n\x1b[2mrestored\x1b[0m\r\n"), "{text:?}");
 
-        let alone = respawn_seed(None, "restored");
+        let alone = respawn_seed(None, Some("restored"));
         assert!(!alone.starts_with(b"\r\n") && alone.ends_with(b"restored\x1b[0m\r\n"));
 
         let huge = vec![b'x'; crate::surface::VT_REPLAY_MAX_BYTES];
-        let bounded = respawn_seed(Some(huge), "restored");
+        let bounded = respawn_seed(Some(huge), Some("restored"));
         assert!(bounded.len() < MARKER_HEADROOM_BYTES, "an oversized screen is dropped whole");
+
+        let quiet = respawn_seed(Some(b"old screen".to_vec()), None);
+        assert!(quiet.ends_with(MODE_RESET) || quiet.ends_with(b"\r\n"));
+        assert!(!quiet.windows(4).any(|window| window == b"\x1b[2m"), "no marker line");
     }
 
     #[test]

@@ -117,19 +117,6 @@ pub(crate) fn terminal_replay_blob(
     surface: &crate::Surface,
     terminal_id: &TerminalPublicId,
 ) -> anyhow::Result<JournalContentBlob> {
-    terminal_replay_blob_with(surface, terminal_id, false)
-}
-
-/// [`terminal_replay_blob`]; with `alternate_as_text`, a terminal on its
-/// alternate screen (a full-screen program) is captured as the plain text of
-/// its visible rows instead. A replay holds only the active screen, and a
-/// shell started below it must leave the alternate screen, which would hide
-/// that screen (archive on close, ARCHIVE-1).
-pub(crate) fn terminal_replay_blob_with(
-    surface: &crate::Surface,
-    terminal_id: &TerminalPublicId,
-    alternate_as_text: bool,
-) -> anyhow::Result<JournalContentBlob> {
     let epoch_before = surface
         .terminal_journal_capture_epoch()
         .context("captured terminal is not a PTY surface")?;
@@ -137,21 +124,11 @@ pub(crate) fn terminal_replay_blob_with(
         epoch_before & 1 == 0,
         "terminal journal ingress is unsettled during replay capture"
     );
-    let (cols, rows, mut replay, text) = surface.try_with_terminal(|terminal| {
-        let text = (alternate_as_text && terminal.active_screen() == ghostty_vt::Screen::Alternate)
-            .then(|| terminal.viewport_text())
-            .transpose()?;
+    let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
         terminal
             .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-            .map(|replay| (terminal.cols(), terminal.rows(), replay, text))
+            .map(|replay| (terminal.cols(), terminal.rows(), replay))
     })??;
-    let bytes = match text {
-        Some(text) => {
-            replay.kitty_image_aliases.clear();
-            plain_screen_bytes(&text)
-        }
-        None => replay.self_contained_bytes().into_owned(),
-    };
     let epoch_after = surface
         .terminal_journal_capture_epoch()
         .context("captured terminal is not a PTY surface")?;
@@ -163,7 +140,7 @@ pub(crate) fn terminal_replay_blob_with(
         "format":"cmux.vt-replay.v1",
         "cols":cols,
         "rows":rows,
-        "bytes_base64":base64::engine::general_purpose::STANDARD.encode(&bytes),
+        "bytes_base64":base64::engine::general_purpose::STANDARD.encode(replay.self_contained_bytes()),
         "kitty_image_aliases":replay.kitty_image_aliases.iter().map(|alias| json!({
             "image_id":alias.image_id,
             "image_number":alias.image_number,
@@ -204,19 +181,6 @@ pub(crate) fn terminal_replay_blob_with(
         },
         compressed,
     )
-}
-
-/// VT bytes that draw `text` (rows separated by newlines) from the top left
-/// of a cleared screen; control characters in the text are dropped.
-fn plain_screen_bytes(text: &str) -> Vec<u8> {
-    let mut bytes = b"\x1b[0m\x1b[H\x1b[2J".to_vec();
-    for (index, line) in text.lines().enumerate() {
-        if index > 0 {
-            bytes.extend_from_slice(b"\r\n");
-        }
-        bytes.extend(line.chars().filter(|c| !c.is_control()).collect::<String>().bytes());
-    }
-    bytes
 }
 
 #[cfg(test)]

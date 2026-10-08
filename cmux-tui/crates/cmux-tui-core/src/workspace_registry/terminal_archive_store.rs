@@ -1,36 +1,103 @@
-//! What a close stopped in an archived terminal (ARCHIVE-1, cx-gzh.4.1).
+//! Archives of closed terminals (ARCHIVE-1, cx-gzh.4.1).
 //!
-//! A close that ends a terminal which still runs a program archives it
-//! first (`mux/terminal_archive.rs`): its screen becomes the terminal's exit
-//! snapshot (`terminal_exit_snapshots`) and the program the close stops is
-//! one row here, so Reopen Closed shows the screen and names the program.
+//! A close that stops a running terminal stores one row here
+//! (`mux/terminal_archive.rs`): the screen with its newest scrollback (VT
+//! replay, gzip) and the basename of the program the close stopped (never its
+//! arguments). Reopen Closed shows that screen above the new shell.
 //!
-//! One row per public terminal id: the incarnation that was stopped, the
-//! program's basename (never its arguments, which can carry secrets) and the
-//! time. A terminal whose shell was idle gets no row. Rows are additive and
-//! small; they live as long as the closed history can reopen the terminal
-//! (ARCHIVE-1: forever), like the exit snapshot they describe.
+//! The table is bounded and deletable, unlike the append-only journal blobs:
+//! - one archive keeps at most [`ARCHIVE_MAX_SCREEN_BYTES`] of VT bytes (the
+//!   capture drops the oldest scrollback first);
+//! - at most [`MAX_ARCHIVES`] rows; a new archive deletes the oldest beyond
+//!   that, and its reopened tab starts without the old screen;
+//! - triggers on `closed_groups` delete an archive once no closed-history
+//!   group names its terminal (the group was reopened, consumed or deleted).
+//!
+//! The screen holds whatever the terminal printed, so a printed secret stays
+//! until one of those three removes the row.
 
+use std::io::{Read, Write};
+
+use anyhow::Context;
+use flate2::Compression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::WorkspaceRegistry;
 
-pub(super) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS terminal_archive_stops (
-           terminal_id TEXT PRIMARY KEY NOT NULL,
-           generation TEXT NOT NULL,
-           program TEXT NOT NULL,
-           stopped_at_ms INTEGER NOT NULL
-         );",
-    )?;
-    Ok(())
-}
-
+/// Largest VT replay one archive keeps, uncompressed.
+pub(crate) const ARCHIVE_MAX_SCREEN_BYTES: usize = 1024 * 1024;
+/// Most archives kept; the oldest go first.
+pub(crate) const MAX_ARCHIVES: usize = 100;
 /// Longest stored program name, in bytes (cut at a character boundary).
 const MAX_PROGRAM_BYTES: usize = 255;
 
-/// `program` without control characters, at most [`MAX_PROGRAM_BYTES`].
+/// Creates the table and the triggers that drop an archive with the last
+/// closed-history group that names its terminal. Runs after `closed_groups`
+/// exists. An older daemon ignores the table; its triggers keep working
+/// there, since they only read `closed_groups` and this table.
+pub(crate) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    const ORPHANS: &str = "DELETE FROM terminal_archives
+           WHERE instr(OLD.record_json, '\"terminal_id\":\"' || terminal_archives.terminal_id || '\"') > 0
+             AND NOT EXISTS (
+               SELECT 1 FROM closed_groups AS g
+               WHERE instr(g.record_json, '\"terminal_id\":\"' || terminal_archives.terminal_id || '\"') > 0
+             );";
+    transaction.execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS terminal_archives (
+           terminal_id TEXT PRIMARY KEY NOT NULL,
+           generation TEXT NOT NULL,
+           program TEXT,
+           cols INTEGER NOT NULL CHECK(cols > 0),
+           rows INTEGER NOT NULL CHECK(rows > 0),
+           screen BLOB,
+           screen_bytes INTEGER NOT NULL CHECK(screen_bytes >= 0),
+           created_at_ms INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS terminal_archives_by_age
+           ON terminal_archives(created_at_ms);
+         CREATE TRIGGER IF NOT EXISTS closed_groups_delete_drops_archives
+           AFTER DELETE ON closed_groups
+         BEGIN {ORPHANS} END;
+         CREATE TRIGGER IF NOT EXISTS closed_groups_update_drops_archives
+           AFTER UPDATE OF record_json ON closed_groups
+         BEGIN {ORPHANS} END;"
+    ))?;
+    Ok(())
+}
+
+/// One archive to store.
+pub(crate) struct ArchiveRow<'a> {
+    pub terminal_id: &'a str,
+    pub generation: &'a str,
+    pub program: Option<&'a str>,
+    pub cols: u16,
+    pub rows: u16,
+    /// VT replay, at most [`ARCHIVE_MAX_SCREEN_BYTES`].
+    pub screen: Option<&'a [u8]>,
+}
+
+/// A stored archive, as reopen reads it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StoredArchive {
+    pub program: Option<String>,
+    pub cols: u16,
+    pub rows: u16,
+    pub screen: Option<Vec<u8>>,
+}
+
+/// Invisible format characters (bidi controls, zero-width marks) that could
+/// make the marker line read differently from the program name.
+fn is_format(character: char) -> bool {
+    matches!(
+        character,
+        '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'
+    )
+}
+
+/// `program` without control or format characters, at most
+/// [`MAX_PROGRAM_BYTES`].
 fn clean_program(program: &str) -> Option<String> {
     let mut clean = String::new();
     for character in
@@ -44,57 +111,96 @@ fn clean_program(program: &str) -> Option<String> {
     (!clean.is_empty()).then_some(clean)
 }
 
-/// Invisible format characters (bidi controls, zero-width marks) that could
-/// make the marker line read differently from the program name.
-fn is_format(character: char) -> bool {
-    matches!(
-        character,
-        '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'
-    )
+fn gzip(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(bytes)?;
+    Ok(encoder.finish()?)
 }
 
-/// Record that the close of `terminal_id` (incarnation `generation`)
-/// stopped `program`; `None` (an idle shell) removes an older stop. A later
-/// stop of the same terminal replaces the row.
-pub(crate) fn record_stop(
-    transaction: &Transaction<'_>,
-    terminal_id: &str,
-    generation: &str,
-    program: Option<&str>,
-    now_ms: u64,
-) -> anyhow::Result<()> {
-    let Some(program) = program.and_then(clean_program) else {
-        transaction
-            .execute("DELETE FROM terminal_archive_stops WHERE terminal_id = ?1", [terminal_id])?;
-        return Ok(());
-    };
-    transaction.execute(
-        "INSERT INTO terminal_archive_stops(terminal_id, generation, program, stopped_at_ms)
-         VALUES(?1, ?2, ?3, ?4)
-         ON CONFLICT(terminal_id) DO UPDATE SET
-           generation = excluded.generation,
-           program = excluded.program,
-           stopped_at_ms = excluded.stopped_at_ms",
-        params![terminal_id, generation, program, i64::try_from(now_ms)?],
-    )?;
-    Ok(())
+fn gunzip(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let limit = u64::try_from(ARCHIVE_MAX_SCREEN_BYTES)?.saturating_add(1);
+    let mut out = Vec::new();
+    GzDecoder::new(bytes).take(limit).read_to_end(&mut out).context("decompress archive")?;
+    anyhow::ensure!(out.len() <= ARCHIVE_MAX_SCREEN_BYTES, "archive exceeds its size limit");
+    Ok(out)
 }
 
 impl WorkspaceRegistry {
-    /// The incarnation and program the close of public terminal
-    /// `terminal_id` stopped.
-    pub(crate) fn terminal_archive_stop(
+    /// Store `archives` in one transaction (a later archive of the same
+    /// terminal replaces its row), then keep only the newest
+    /// [`MAX_ARCHIVES`].
+    pub(crate) fn put_terminal_archives(
+        &mut self,
+        archives: &[ArchiveRow<'_>],
+        now_ms: u64,
+    ) -> anyhow::Result<()> {
+        if archives.is_empty() {
+            return Ok(());
+        }
+        let tx = self.connection.transaction()?;
+        for archive in archives {
+            let screen = archive
+                .screen
+                .filter(|screen| !screen.is_empty() && screen.len() <= ARCHIVE_MAX_SCREEN_BYTES);
+            tx.execute(
+                "INSERT INTO terminal_archives(
+                   terminal_id, generation, program, cols, rows, screen, screen_bytes,
+                   created_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(terminal_id) DO UPDATE SET
+                   generation = excluded.generation, program = excluded.program,
+                   cols = excluded.cols, rows = excluded.rows, screen = excluded.screen,
+                   screen_bytes = excluded.screen_bytes, created_at_ms = excluded.created_at_ms",
+                params![
+                    archive.terminal_id,
+                    archive.generation,
+                    archive.program.and_then(clean_program),
+                    i64::from(archive.cols.max(1)),
+                    i64::from(archive.rows.max(1)),
+                    screen.map(gzip).transpose()?,
+                    i64::try_from(screen.map_or(0, <[u8]>::len))?,
+                    i64::try_from(now_ms)?,
+                ],
+            )?;
+        }
+        tx.execute(
+            "DELETE FROM terminal_archives WHERE terminal_id NOT IN (
+               SELECT terminal_id FROM terminal_archives
+               ORDER BY created_at_ms DESC, rowid DESC LIMIT ?1
+             )",
+            [i64::try_from(MAX_ARCHIVES)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The archive of public terminal `terminal_id`.
+    pub(crate) fn terminal_archive(
         &self,
         terminal_id: &str,
-    ) -> anyhow::Result<Option<(String, String)>> {
-        Ok(self
+    ) -> anyhow::Result<Option<StoredArchive>> {
+        let row = self
             .connection
             .query_row(
-                "SELECT generation, program FROM terminal_archive_stops WHERE terminal_id = ?1",
+                "SELECT program, cols, rows, screen FROM terminal_archives WHERE terminal_id = ?1",
                 [terminal_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, Option<Vec<u8>>>(3)?,
+                    ))
+                },
             )
-            .optional()?)
+            .optional()?;
+        let Some((program, cols, rows, screen)) = row else { return Ok(None) };
+        Ok(Some(StoredArchive {
+            program,
+            cols: u16::try_from(cols).unwrap_or(u16::MAX),
+            rows: u16::try_from(rows).unwrap_or(u16::MAX),
+            screen: screen.as_deref().map(gunzip).transpose()?,
+        }))
     }
 
     /// Whether a closed-history group can reopen public terminal
@@ -117,16 +223,5 @@ impl WorkspaceRegistry {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_program_name_keeps_no_control_characters_and_is_bounded() {
-        assert_eq!(clean_program("sl\u{1b}eep").as_deref(), Some("sleep"));
-        assert_eq!(clean_program("\u{7}"), None);
-        assert_eq!(clean_program("ab\u{202E}c").as_deref(), Some("abc"));
-        let long = "é".repeat(200);
-        let clean = clean_program(&long).unwrap_or_default();
-        assert!(clean.len() <= MAX_PROGRAM_BYTES && clean.chars().all(|c| c == 'é'));
-    }
-}
+#[path = "terminal_archive_store_tests.rs"]
+mod tests;

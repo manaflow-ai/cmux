@@ -481,21 +481,24 @@ touch it.
 - S2 (daemon): `layout.bulk` op with every selector and verb, one group per call.
 - S3 (daemon): terminal provider (scrollback blob, env deny-list, agent session resume offer).
 - S3 archive on close, AS BUILT (cx-gzh.4.1): a close that stops a running terminal (the reaper
-  after Cmd-W, or a batch close with `end_terminals`) first stores its screen with scrollback
-  (bounded `cmux.vt-replay.v1`, the terminal's exit snapshot) and the basename of the program it
-  stops (`terminal_archive_stops`: the PTY's foreground job when it is not the shell, read from the
-  terminal's own child, never a process scan; never argv). Reopen starts a new shell in the
-  recorded cwd with the recorded env, seeded with that screen and one dim line "tab reopened
-  (<program> was stopped when the tab closed)". Env: an ALLOWLIST, not a deny-list: only TERM,
-  TERMINFO, COLORTERM, TERM_PROGRAM, TERM_PROGRAM_VERSION, CMUX_SOCKET_PATH, CMUX_BUNDLE_ID and
-  CMUX_TAG, and any key containing TOKEN, KEY, SECRET, PASSWORD, AUTH, COOKIE or CREDENTIAL is
-  dropped even when allowlisted (`relaunch_store`, nxdog62). Inherited and user env is not kept.
-  Only a terminal a closed-history group names is archived (never an ephemeral workspace's, an
-  unplaced API terminal's, or a close kept out of history); the reaper stores only after its
-  guarded close commits. A full-screen program (alternate screen) is kept as the plain text of its
-  visible rows. Unix only.
-  Not yet: the blob budget (2 GB) and its eviction (journal content blobs cannot be deleted today);
-  the reopened shell starts at the pane size, not the archived size; agent resume offer on reopen.
+  after Cmd-W, or a batch close with `end_terminals`) captures its screen with the newest
+  scrollback and the basename of the program it stops (the PTY's foreground job when it is not the
+  shell, read from the terminal's own child, never a process scan; never argv), and stores them
+  once the close committed in `terminal_archives` (registry SQLite, its own deletable table, not
+  the append-only journal blobs). Budget: at most 1 MiB of VT bytes per archive (oldest scrollback
+  dropped first; a full-screen program on the alternate screen is kept as the plain text of its
+  visible rows), at most 100 archives (the oldest go first), and triggers on `closed_groups` delete
+  an archive once no group names its terminal (reopened, consumed or deleted). Only a terminal a
+  closed-history group names is archived (never an ephemeral workspace's, an unplaced API
+  terminal's, or a close kept out of history). Reopen starts a new shell in the recorded cwd with
+  the recorded env, seeded with the archived screen; a dim line "<program> was stopped when this
+  tab closed" follows only when a program was stopped (coordinator decision). Env: an ALLOWLIST,
+  not a deny-list: only TERM, TERMINFO, COLORTERM, TERM_PROGRAM, TERM_PROGRAM_VERSION,
+  CMUX_SOCKET_PATH, CMUX_BUNDLE_ID and CMUX_TAG, and any key containing TOKEN, KEY, SECRET,
+  PASSWORD, AUTH, COOKIE or CREDENTIAL is dropped even when allowlisted (`relaunch_store`,
+  nxdog62). Inherited and user env is not kept. Unix only.
+  Follow-ups (beads): the 2 GB byte budget across archives; reopen at the archived size (today the
+  screen replays into the pane size); the agent resume offer on reopen; non-Unix archives.
 - S4 (Swift): S4.0 repro of today's Cmd-Shift-T failure on cmux-lawrence-2; `history.reopenClosed`
   with the alias; Reopen Closed… page; catalog presets of 5.3 on one shared path; app-local kinds
   (agent, page, viewer, local browser) push restore state and restore through the provider registry;

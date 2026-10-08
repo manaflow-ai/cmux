@@ -3995,7 +3995,6 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
     relaunch_store::create_schema(transaction)?;
-    terminal_archive_store::create_schema(transaction)?;
     Ok(())
 }
 

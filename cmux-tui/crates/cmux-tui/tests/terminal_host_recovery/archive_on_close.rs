@@ -1,8 +1,8 @@
-//! ARCHIVE-1 (cx-gzh.4.1): closing a terminal that still runs a program
-//! archives it. The daemon keeps its screen and the name of the program the
-//! close stopped, then ends it. Reopen Closed starts a new shell in the same
-//! directory with the old screen above one dim line that names the stopped
-//! program. Both stop paths are covered: a closed tab that the reaper ends
+//! ARCHIVE-1 (cx-gzh.4.1): closing a terminal archives it. The daemon keeps
+//! its screen and the name of the program the close stopped, then ends it.
+//! Reopen Closed starts a new shell in the same directory with the old screen
+//! above one dim line that names the stopped program (no line when nothing
+//! ran). Both stop paths are covered: a closed tab that the reaper ends
 //! (Cmd-W in the app) and a workspace closed with `end_terminals`.
 
 use super::pty_custody::send_line;
@@ -304,10 +304,10 @@ fn a_closed_full_screen_program_reopens_with_its_screen_and_no_argument() {
     assert!(!stop_line.contains("ARCHIVESECRETARG"), "the stop line shows an argument: {text}");
 }
 
-/// d. An idle shell stops nothing: the reopened tab says only that it was
-/// reopened.
+/// d. An idle shell stops nothing: the reopened tab shows its old screen
+/// and no stop line.
 #[test]
-fn a_closed_idle_shell_reopens_without_a_stopped_program() {
+fn a_closed_idle_shell_reopens_with_its_screen_and_no_stop_line() {
     let _exclusive = exclusive_process_test();
     let harness =
         RecoveryHarness::start_with_args("archive-idle", &["--terminal-reap-grace-seconds", "0"]);
@@ -315,8 +315,11 @@ fn a_closed_idle_shell_reopens_without_a_stopped_program() {
     send_line(&harness.socket, surface, "echo idle-$((40+2))");
     wait_for_screen(&harness.socket, surface, "idle-42\n");
     let surface = close_tab_and_reopen(&harness, surface, &terminal_id, "idle");
-    let text = wait_for_screen(&harness.socket, surface, "tab reopened");
-    assert!(text.contains("tab reopened"), "no reopen line: {text}");
+    let text = wait_for_screen(&harness.socket, surface, "idle-42");
+    assert!(text.contains("idle-42"), "the old screen is gone: {text}");
     assert!(!text.contains("was stopped"), "an idle shell named a stopped program: {text}");
-    assert!(text.find("idle-42").unwrap_or(usize::MAX) < text.find("tab reopened").unwrap_or(0));
+    // The new shell answers below the old screen.
+    send_line(&harness.socket, surface, "echo fresh-$((1+1))");
+    let text = wait_for_screen(&harness.socket, surface, "fresh-2\n");
+    assert!(text.find("idle-42").unwrap_or(usize::MAX) < text.find("fresh-2\n").unwrap_or(0));
 }

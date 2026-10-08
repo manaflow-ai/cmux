@@ -8,8 +8,7 @@ use cmux_tui_core::terminal_respawn_text::{ENGLISH, TerminalRespawnText};
 static JAPANESE: TerminalRespawnText = TerminalRespawnText {
     restored: "\u{2014} セッションを復元しました（前のプロセスは終了しました） \u{2014}",
     restored_command: "\u{2014} セッションを復元しました（前のプロセスは終了しました。実行していたコマンド: {program}） \u{2014}",
-    reopened: "\u{2014} タブを再び開きました \u{2014}",
-    reopened_stopped: "\u{2014} タブを再び開きました（タブを閉じたときに {program} を停止しました） \u{2014}",
+    stopped: "\u{2014} このタブを閉じたときに {program} を停止しました \u{2014}",
 };
 
 fn text_for(catalog: &'static super::Catalog) -> &'static TerminalRespawnText {
@@ -32,9 +31,7 @@ mod tests {
             ja.restored_command.contains("{program}") && en.restored_command.contains("{program}")
         );
         assert_ne!(en.restored, ja.restored);
-        assert!(
-            ja.reopened_stopped.contains("{program}") && en.reopened_stopped.contains("{program}")
-        );
-        assert_ne!(en.reopened, ja.reopened);
+        assert!(ja.stopped.contains("{program}") && en.stopped.contains("{program}"));
+        assert_ne!(en.stopped, ja.stopped);
     }
 }
