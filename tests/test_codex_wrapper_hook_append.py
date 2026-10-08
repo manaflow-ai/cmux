@@ -533,6 +533,8 @@ if __name__ == "__main__":
     print("PASS: injected Codex hooks carry one cmux group per event and no user handlers")
     test_persistent_cmux_hook_is_not_duplicated()
     print("PASS: persistent cmux hooks are not duplicated and user hooks are not copied")
+    test_computer_use_notify_handler_is_preserved()
+    print("PASS: Computer Use notify remains configured alongside cmux Stop hooks")
     try:
         test_live_codex_runs_user_hooks_and_cmux_hook_once_each()
     except unittest.SkipTest as skipped:
