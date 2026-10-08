@@ -82,6 +82,16 @@ final class CloudService {
         return nil
     }
 
+    /// Whether a Cloud API request may go out: not turned off by the
+    /// organization, the managed team present (P17-3), not a local-only
+    /// backend. (A missing cmux-tui client blocks machines, not the API.)
+    var mayCallCloud: Bool {
+        if policyDisabled { return false }
+        if auth.managedTeamID != nil, auth.teamID == nil { return false }
+        if case .localOnly = configuration.backend { return false }
+        return true
+    }
+
     func start() {
         auth.start()
         if configuration.linkSource == .appServer, linkEvents == nil {
@@ -147,6 +157,7 @@ final class CloudService {
                 guard let self, auth.isSignedIn else { return }
                 await hub?.resume()
                 await refresh()
+                await installSignedIn()
             }
         }
     }
@@ -270,7 +281,10 @@ final class CloudService {
         dropAllMachines()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
-        await installIdentity.signOut()
+        if let stackUser = auth.user?.id {
+            let auth = auth
+            await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
+        }
         await auth.signOut()
     }
 
@@ -278,7 +292,7 @@ final class CloudService {
     /// mints one token. A failure is logged: the relay mints again when it
     /// needs a token, and the hub path does not depend on it.
     private func installSignedIn() async {
-        guard let stackUser = auth.user?.id else { return }
+        guard let stackUser = auth.user?.id, mayCallCloud else { return }
         let auth = auth
         do {
             try await installIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
