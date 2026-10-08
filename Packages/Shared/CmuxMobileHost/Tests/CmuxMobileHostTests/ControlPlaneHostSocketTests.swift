@@ -21,7 +21,10 @@ private actor ScriptedControlPlaneConnection: ControlPlaneConnection {
     func send(_ text: String) async throws {}
 
     func receive() async throws -> String {
-        guard let text = await iterator.next() else { throw CancellationError() }
+        var iterator = iterator
+        let text = await iterator.next()
+        self.iterator = iterator
+        guard let text else { throw CancellationError() }
         return text
     }
 
