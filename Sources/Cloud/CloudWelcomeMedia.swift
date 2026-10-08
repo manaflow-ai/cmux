@@ -776,11 +776,12 @@ extension CloudWelcomeMediaCarousel {
             await withTaskCancellationHandler(operation: {
                 for await _ in events { }
             }, onCancel: { [weak self] in
-                Task { @MainActor in self?.cancelAdvanceTimer() }
+                Task { @MainActor in self?.cancelAdvanceTimer(ifGeneration: generation) }
             })
         }
 
-        private func cancelAdvanceTimer() {
+        private func cancelAdvanceTimer(ifGeneration generation: Int? = nil) {
+            guard generation == nil || generation == advanceGeneration else { return }
             advanceGeneration += 1
             advanceTimer?.cancel()
             advanceTimer = nil
