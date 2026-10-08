@@ -285,9 +285,14 @@ extension DockSplitStore {
             nil
         }
         let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
+        let shouldAutoResumeNormallyEndedClaude =
+            SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
+                restorableAgent: restorableAgent,
+                resumeBinding: resumeBinding
+            )
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
-        ) && agentWasRunning
+        ) && (agentWasRunning || shouldAutoResumeNormallyEndedClaude)
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let shouldCheckAgentOwnership = shouldAutoResumeAgent && !usesExecutionAdmission &&
@@ -399,7 +404,7 @@ extension DockSplitStore {
         let agentLaunch = shouldAutoResumeAgent && restorableAgentCanAutoResume &&
             hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
-            ? restorableAgent?.resumeStartupInput(
+            ? restorableAgent?.sessionRestoreStartupInput(
                 restoringWorkingDirectory: resumeSessionWorkingDirectory
             ).map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
@@ -410,7 +415,7 @@ extension DockSplitStore {
             hibernation == nil,
             restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
             if let restorableAgent, restorableAgentCanAutoResume {
-                restorableAgent.resumeStartupInput(
+                restorableAgent.sessionRestoreStartupInput(
                     restoringWorkingDirectory: resumeSessionWorkingDirectory
                 )
             } else {

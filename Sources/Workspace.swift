@@ -1646,7 +1646,13 @@ extension Workspace {
                 : nil
             let claudeBackgroundAttach = claudeBackgroundRestore?.attach
             let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit &&
+            let shouldAutoResumeNormallyEndedClaude =
+                SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
+                    restorableAgent: restorableAgent,
+                    resumeBinding: resumeBinding
+                )
+            let shouldAutoResumeAgent = autoResumeAgentSessions &&
+                (agentWasRunningAtQuit || shouldAutoResumeNormallyEndedClaude) &&
                 !suppressesResumeForBackgroundSession
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
@@ -1846,13 +1852,13 @@ extension Workspace {
                    restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
-                        restorableAgent?.resumeStartupInput(
+                        restorableAgent?.sessionRestoreStartupInput(
                             useLocalRestoreVerb: false,
                             workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
                         )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
-                        restorableAgent?.resumeStartupInput(
+                        restorableAgent?.sessionRestoreStartupInput(
                             restoringWorkingDirectory: resumeSessionWorkingDirectory
                         ).map(SurfaceResumeStartupLaunch.input)
                     }
@@ -1879,12 +1885,12 @@ extension Workspace {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         // Same rule as the immediate remote resume above: only the trusted
                         // remote cwd, never the recorded directory as a fallback.
-                        restorableAgent.resumeStartupInput(
+                        restorableAgent.sessionRestoreStartupInput(
                             useLocalRestoreVerb: false,
                             workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
                         )
                     } else {
-                        restorableAgent.resumeStartupInput(
+                        restorableAgent.sessionRestoreStartupInput(
                             restoringWorkingDirectory: resumeSessionWorkingDirectory
                         )
                     }
@@ -2600,6 +2606,12 @@ extension Workspace {
         if restoredAgentLifecycle.hasInFlightRestoreIntent(
             panelId: panelId,
             matching: restorableAgent
+        ) {
+            return true
+        }
+        if SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
+            restorableAgent: restorableAgent,
+            resumeBinding: resumeBinding
         ) {
             return true
         }

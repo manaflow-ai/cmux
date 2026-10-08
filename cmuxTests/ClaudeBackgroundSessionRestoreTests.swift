@@ -174,6 +174,7 @@ struct ClaudeBackgroundSessionRestoreTests {
 
     private func restore(
         _ fixture: Fixture,
+        roundTrip: Bool = false,
         mutate: (inout SessionTerminalPanelSnapshot) -> Void
     ) throws -> Restored {
         let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
@@ -185,6 +186,10 @@ struct ClaudeBackgroundSessionRestoreTests {
         terminal.workingDirectory = fixture.workingDirectory.path
         mutate(&terminal)
         snapshot.panels[panelIndex].terminal = terminal
+        if roundTrip {
+            let data = try JSONEncoder().encode(snapshot)
+            snapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
+        }
 
         let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
         defer { restored.teardownAllPanels() }
@@ -242,7 +247,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
-        let restored = try restore(fixture) { terminal in
+        let restored = try restore(fixture, roundTrip: true) { terminal in
             terminal.agent = agent(fixture, hadActivePromptTurn: false)
             terminal.resumeBinding = hookBinding(fixture, autoResume: true)
             terminal.wasAgentRunning = false
@@ -259,7 +264,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
-        let restored = try restore(fixture) { terminal in
+        let restored = try restore(fixture, roundTrip: true) { terminal in
             terminal.agent = agent(fixture, hadActivePromptTurn: true)
             terminal.resumeBinding = hookBinding(fixture, autoResume: true)
             terminal.wasAgentRunning = true
@@ -292,6 +297,32 @@ struct ClaudeBackgroundSessionRestoreTests {
             terminal.wasAgentRunning = false
         }
         #expect(missing.input == nil, Comment(rawValue: missing.input ?? ""))
+    }
+
+    @Test("Unsafe native resume data fails closed and keeps the binding")
+    func nativeResumeFailureLeavesAnOrdinaryShell() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture) { terminal in
+            var brokenAgent = agent(fixture, hadActivePromptTurn: false)
+            brokenAgent.launchCommand = AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/bin/sh",
+                arguments: ["/bin/sh", "echo unsafe"],
+                workingDirectory: fixture.workingDirectory.path,
+                environment: [:],
+                capturedAt: 1_791_158_107,
+                source: "environment"
+            )
+            terminal.agent = brokenAgent
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+        }
+
+        #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+        #expect(restored.binding?.checkpointId == sessionID)
+        #expect(restored.binding?.autoResume == true)
     }
 
     @Test("A stale registry record on a reused PID does not block the resume fallback")

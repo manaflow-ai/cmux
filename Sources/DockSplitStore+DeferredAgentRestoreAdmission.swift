@@ -107,12 +107,12 @@ extension DockSplitStore {
             let claim: (kind: String, sessionId: String)?
             if let restorableAgent = restore.restorableAgent {
                 startupInput = if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                    restorableAgent.resumeStartupInput(
+                    restorableAgent.sessionRestoreStartupInput(
                         useLocalRestoreVerb: false,
                         restoringWorkingDirectory: restore.resumeWorkingDirectory
                     )
                 } else {
-                    restorableAgent.resumeStartupInput(
+                    restorableAgent.sessionRestoreStartupInput(
                         restoringWorkingDirectory: restore.resumeWorkingDirectory
                     )
                 }

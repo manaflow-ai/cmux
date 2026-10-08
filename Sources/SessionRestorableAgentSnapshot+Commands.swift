@@ -9,6 +9,7 @@ extension SessionRestorableAgentSnapshot {
         case launchCommand
         case registration
         case permissionMode
+        case hadActivePromptTurn
     }
 
     init(from decoder: Decoder) throws {
@@ -38,8 +39,63 @@ extension SessionRestorableAgentSnapshot {
             ),
             registration: registration,
             // Optional so snapshots persisted before the field decode unchanged.
-            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode)
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
+            hadActivePromptTurn: try container.decodeIfPresent(Bool.self, forKey: .hadActivePromptTurn)
         )
+    }
+
+    /// Claude's `cmux restore` command is a deferred-tool continuation. A
+    /// normally completed conversation has no active prompt turn to continue,
+    /// so it must use the native `claude --resume` launch instead.
+    func sessionRestoreStartupInput(
+        useLocalRestoreVerb: Bool = true,
+        restoringWorkingDirectory: String? = nil
+    ) -> String? {
+        sessionRestoreStartupInput(
+            useLocalRestoreVerb: useLocalRestoreVerb,
+            workingDirectorySelection: .recordedFallback(preferred: restoringWorkingDirectory)
+        )
+    }
+
+    func sessionRestoreStartupInput(
+        useLocalRestoreVerb: Bool,
+        workingDirectorySelection: RestorableAgentWorkingDirectorySelection
+    ) -> String? {
+        resumeStartupInput(
+            useLocalRestoreVerb: useLocalRestoreVerb &&
+                (kind != .claude || hadActivePromptTurn == true),
+            workingDirectorySelection: workingDirectorySelection
+        )
+    }
+
+    /// A validated Claude hook binding is enough to resume a normally ended
+    /// conversation. Other agents retain the persisted process-liveness gate.
+    static func shouldAutoResumeNormallyEndedClaude(
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?
+    ) -> Bool {
+        guard let restorableAgent,
+              restorableAgent.kind == .claude,
+              restorableAgent.hadActivePromptTurn != true,
+              let resumeBinding,
+              resumeBinding.isAgentHookBinding,
+              resumeBinding.allowsAutomaticResume,
+              let checkpointID = resumeBinding.checkpointId,
+              ManagedAgentSessionIdentity.sessionIDsMatch(
+                  kind: RestorableAgentKind.claude.rawValue,
+                  lhs: checkpointID,
+                  rhs: restorableAgent.sessionId
+              ) else {
+            return false
+        }
+        guard let bindingKind = resumeBinding.kind,
+              RestorableAgentKind(
+                  persistedRawValue: bindingKind,
+                  registration: restorableAgent.registration
+              )?.rawValue == RestorableAgentKind.claude.rawValue else {
+            return false
+        }
+        return true
     }
 
     var resumeCommand: String? {
