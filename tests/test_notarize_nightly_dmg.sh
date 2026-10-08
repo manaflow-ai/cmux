@@ -24,6 +24,7 @@ LOG="$TMP_DIR/calls.log"
 HELPER_STATE="$TMP_DIR/helper-notarization.state"
 mkdir -p "$APP/Contents/MacOS" "$FAKE_BIN"
 printf 'signed-app-fixture\n' > "$APP/Contents/MacOS/cmux"
+mkdir -p "$APP/Contents/Library/cmux Computer Use.app/Contents"
 printf 'submission_id=fixture-id\ncdhash=fixture-cdhash\n' > "$HELPER_STATE"
 
 cat > "$FAKE_BIN/create-dmg" <<'EOF'

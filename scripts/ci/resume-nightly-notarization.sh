@@ -27,6 +27,7 @@ DMG_IMMUTABLE="$4"
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 XCRUN_TOOL="${CMUX_XCRUN_TOOL:-xcrun}"
 CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
+DITTO_TOOL="${CMUX_DITTO_TOOL:-/usr/bin/ditto}"
 HDIUTIL_TOOL="${CMUX_HDIUTIL_TOOL:-/usr/bin/hdiutil}"
 SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
 SYSPOLICY_TOOL="${CMUX_SYSPOLICY_TOOL:-syspolicy_check}"
@@ -36,6 +37,27 @@ VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-
 NOTARY_WAIT_TIMEOUT="${CMUX_NOTARY_WAIT_TIMEOUT:-60m}"
 EVIDENCE_FILE="${CMUX_NOTARY_EVIDENCE_FILE:-${DMG_RELEASE}.notarization.log}"
 NOTARY_OUTPUT_FILE="${CMUX_NOTARY_OUTPUT_FILE:-${DMG_RELEASE}.resume-notarization.log}"
+GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-80}"
+GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
+
+assess_with_gatekeeper() {
+  local target="$1" attempt=1
+  while :; do
+    if "$SPCTL_TOOL" -a -vv --ignore-cache --no-cache --type execute "$target"; then
+      return 0
+    fi
+    if [ "$attempt" -ge "$GATEKEEPER_ASSESS_ATTEMPTS" ]; then
+      echo "Gatekeeper still rejects $target after $attempt attempts" >&2
+      return 3
+    fi
+    if [ "$attempt" -eq 1 ]; then
+      echo "Gatekeeper propagation budget: $GATEKEEPER_ASSESS_ATTEMPTS attempts x ${GATEKEEPER_ASSESS_DELAY_SECONDS}s (about $((GATEKEEPER_ASSESS_ATTEMPTS * GATEKEEPER_ASSESS_DELAY_SECONDS / 60)) minutes)"
+    fi
+    echo "Gatekeeper rejected $target (attempt $attempt/$GATEKEEPER_ASSESS_ATTEMPTS); retrying in ${GATEKEEPER_ASSESS_DELAY_SECONDS}s"
+    attempt=$((attempt + 1))
+    sleep "$GATEKEEPER_ASSESS_DELAY_SECONDS"
+  done
+}
 
 if [ ! -f "$STATE_FILE" ] || [ ! -r "$STATE_FILE" ]; then
   echo "Notarization state file not found: $STATE_FILE" >&2
@@ -142,6 +164,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
+verify_computer_use_helper() {
+  local helper_path="$APP_PATH/Contents/Library/cmux Computer Use.app"
+  local standalone_helper="$TMP_DIR/cmux Computer Use.app"
+  if [ ! -d "$helper_path/Contents" ]; then
+    echo "Recovered app is missing the Computer Use helper: $helper_path" >&2
+    return 1
+  fi
+  # The helper was independently notarized before the outer DMG submission.
+  # Verify its stapled ticket and code signature again after recovery, then
+  # assess the same standalone shape the runtime copies and launches. This is
+  # deliberately deferred until the outer Apple wait has elapsed, avoiding a
+  # 20-minute CDN propagation hold on the signing lane.
+  "$XCRUN_TOOL" stapler validate "$helper_path"
+  "$CODESIGN_TOOL" --verify --strict --verbose=2 "$helper_path"
+  "$DITTO_TOOL" "$helper_path" "$standalone_helper"
+  "$XCRUN_TOOL" stapler validate "$standalone_helper"
+  "$CODESIGN_TOOL" --verify --strict --verbose=2 "$standalone_helper"
+  assess_with_gatekeeper "$standalone_helper"
+}
+
 # shellcheck source=lib/notary-auth.sh
 source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
 NOTARY_DIR="$TMP_DIR/notary"
@@ -202,6 +244,7 @@ if [ "$WAIT_EXIT" -ne 0 ] || [ "$WAIT_STATUS" != "Accepted" ] || [ "$LOG_EXIT" -
 fi
 
 "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"
+verify_computer_use_helper
 "$XCRUN_TOOL" stapler staple "$APP_PATH"
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"

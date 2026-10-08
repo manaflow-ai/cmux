@@ -63,6 +63,15 @@ source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
 # Both knobs stay env-configurable; the calling job's timeout must cover them.
 GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-80}"
 GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
+DEFER_GATEKEEPER_ASSESSMENT="${CMUX_DEFER_GATEKEEPER_ASSESSMENT:-false}"
+
+case "$DEFER_GATEKEEPER_ASSESSMENT" in
+  true|false) ;;
+  *)
+    echo "CMUX_DEFER_GATEKEEPER_ASSESSMENT must be true or false" >&2
+    exit 2
+    ;;
+esac
 
 assess_with_gatekeeper() {
   local target="$1" attempt=1
@@ -241,7 +250,15 @@ finish_submission() {
   "$XCRUN_TOOL" stapler validate "$STANDALONE_HELPER"
   verify_stapled_ticket_covers_slices "$STANDALONE_HELPER"
   "$CODESIGN_TOOL" --verify --strict --verbose=2 "$STANDALONE_HELPER"
-  assess_with_gatekeeper "$STANDALONE_HELPER"
+  if [ "$DEFER_GATEKEEPER_ASSESSMENT" = true ]; then
+    # Gatekeeper's CDN-backed assessment can lag an Accepted ticket by many
+    # minutes. Published continuation performs this same check after the
+    # outer Apple wait, so the signing lane can finish without weakening the
+    # ticket, stapler, or code-signature gates above.
+    echo "Deferring Gatekeeper assessment for the published continuation"
+  else
+    assess_with_gatekeeper "$STANDALONE_HELPER"
+  fi
 
   # Stapling the nested app changes the host's resource seal. Re-sign only the
   # outer app: re-signing nested code here would discard the helper's ticket.

@@ -454,6 +454,7 @@ assert "if: needs.decide.outputs.fast_build != 'true'" in notarize
 assert "id: notarize-nightly" in notarize
 assert "notarization_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}" in workflow
 assert "needs.build-sign-notarize-nightly.outputs.notarization_pending != 'true'" in workflow
+assert "CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}" in notarize
 
 recovery = step("Upload pending notarization recovery artifact")
 prepare_recovery = step("Prepare pending notarization recovery artifact")
@@ -495,6 +496,8 @@ assert "resolve-notarization-recovery.py" in resume
 assert "--extract-app" in resume
 assert "scripts/ci/resume-nightly-notarization.sh" in resume
 resume_script = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-nightly-notarization.sh").read_text(encoding="utf-8")
+assert "verify_computer_use_helper" in resume_script
+assert "standalone_helper" in resume_script
 assert "notarytool submit" not in resume_script
 assert "LOG_STATUS" in resume_script and "LOG_EXIT" in resume_script
 assert "SYSPOLICY_TOOL" in resume_script

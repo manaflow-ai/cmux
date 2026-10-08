@@ -208,6 +208,15 @@ class HelperNotarizationTests(unittest.TestCase):
         self.assertEqual(len(self.calls('spctl')), 3)
         self.assertFalse(self.calls('sign-bundle'))
 
+    def test_published_continuation_can_defer_gatekeeper_assessment(self):
+        # The continuation re-runs this assessment after the outer Apple wait.
+        # Deferral must retain every deterministic helper gate and only skip the
+        # CDN-backed check on the signing lane.
+        self.run_helper(CMUX_DEFER_GATEKEEPER_ASSESSMENT='true')
+        self.assertFalse(self.calls('spctl'))
+        self.assertTrue(self.calls('xcrun', 'stapler', 'validate'))
+        self.assertTrue(self.calls('sign-bundle'))
+
     def notary_auth(self):
         path = self.root / 'notary-auth'
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
