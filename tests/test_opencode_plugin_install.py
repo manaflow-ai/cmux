@@ -11,6 +11,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -19,6 +20,16 @@ from claude_teams_test_utils import resolve_cmux_cli
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def wait_for_log(path: Path, needle: str, timeout: float = 5.0) -> str:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        if needle in text:
+            return text
+        time.sleep(0.01)
+    return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
 def main() -> int:
@@ -165,6 +176,14 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
+        check_env["CMUX_OPENCODE_HOOKS_DISABLED"] = ""
+        for launch_key in (
+            "CMUX_AGENT_LAUNCH_KIND",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE",
+            "CMUX_AGENT_LAUNCH_ARGV_B64",
+            "CMUX_AGENT_LAUNCH_CWD",
+        ):
+            check_env.pop(launch_key, None)
         check_source = """
 const pluginPath = process.env.CMUX_TEST_OPENCODE_PLUGIN_PATH;
 const pluginCopyPath = process.env.CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH;
@@ -248,13 +267,13 @@ await v1Hooks.event({
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = fake_args_log.read_text(encoding="utf-8") if fake_args_log.exists() else ""
-        stdin_log = fake_stdin_log.read_text(encoding="utf-8") if fake_stdin_log.exists() else ""
-        env_log = fake_env_log.read_text(encoding="utf-8") if fake_env_log.exists() else ""
-        if "hooks opencode session-start" not in args_log:
+        args_log = wait_for_log(fake_args_log, "hooks enqueue opencode session-start")
+        stdin_log = wait_for_log(fake_stdin_log, '"session_id":"opencode-session-test"')
+        env_log = wait_for_log(fake_env_log, "kind=opencode")
+        if "hooks enqueue opencode session-start" not in args_log:
             print(f"FAIL: plugin did not invoke hooks opencode session-start, got {args_log!r}")
             return 1
-        if args_log.count("hooks opencode session-start") != 1:
+        if args_log.count("hooks enqueue opencode session-start") != 1:
             print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
