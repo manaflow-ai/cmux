@@ -5,7 +5,7 @@
  * so a rehearsal in one worktree counts for an apply in another on the same
  * machine; CMUX_RELEASE_RECEIPTS_DIR overrides it (CI: the job's temp dir).
  */
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, unlinkSync, writeSync } from "node:fs"
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs"
 import { homedir, hostname, userInfo } from "node:os"
 import { join } from "node:path"
 
@@ -67,14 +67,16 @@ export const writeReceipt = (dir: string, receipt: Receipt): string => {
   }
 }
 
+/** Every receipt in the order it was written (receipts.jsonl is append-only; file names can tie within one millisecond). */
 export const readReceipts = (dir: string): Array<Receipt & { file: string }> => {
-  if (!existsSync(dir)) return []
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".json"))
-    .sort()
-    .flatMap((f) => {
+  const log = join(dir, "receipts.jsonl")
+  if (!existsSync(log)) return []
+  return readFileSync(log, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
       try {
-        return [{ ...(JSON.parse(readFileSync(join(dir, f), "utf8")) as Receipt), file: join(dir, f) }]
+        return [JSON.parse(line) as Receipt & { file: string }]
       } catch {
         return []
       }
