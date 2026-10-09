@@ -132,6 +132,41 @@ describe("the page's report on contextmenu", () => {
     setMessageMenuSource(undefined);
   });
 
+  test("a right-click inside selected transcript text reports the selection; outside it or in the composer, not", () => {
+    setMessageMenuSource((rowId) => messageMenuTarget(snapshot(), rowId));
+    const dom = new JSDOM(
+      '<article data-row-id="a1"><p><b id="inside">Fixed</b> it</p></article><div id="outside">x</div>' +
+        '<div contenteditable="true"><span id="draft">my draft</span></div>',
+    );
+    const doc = dom.window.document;
+    const posted: unknown[] = [];
+    installMessageMenuReporter(doc, () => ({ postMessage: (body) => posted.push(body) }));
+    const select = (id: string) => {
+      const range = doc.createRange();
+      range.selectNodeContents(doc.getElementById(id)!);
+      dom.window.getSelection()!.removeAllRanges();
+      dom.window.getSelection()!.addRange(range);
+    };
+    const rightClick = (id: string) =>
+      doc.getElementById(id)!.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true }));
+    select("inside");
+    rightClick("inside");
+    rightClick("outside");
+    select("draft");
+    rightClick("draft");
+    expect(posted).toEqual([
+      {
+        text: "Fixed in main.rs:\n\n- one\n- two",
+        markdown: "Fixed in `main.rs`:\n\n- one\n- two",
+        forkSeq: 41,
+        selection: "Fixed",
+      },
+      null,
+      null,
+    ]);
+    setMessageMenuSource(undefined);
+  });
+
   test("before the client connects every report is null", () => {
     const { posted, rightClick } = page();
     rightClick("inside");
