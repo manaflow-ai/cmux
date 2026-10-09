@@ -148,6 +148,12 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 
+- A codex Chief's isolated turns run on the Chief's own `CODEX_HOME`
+  (`optchat/turn-codex`: the user's routing and model keys, the sign-in
+  linked, no user MCP servers, hooks, plugins or skills, and
+  `features.multi_agent = false`), so `chief spawn` is its only way to start
+  a subagent, as `TURN_TOOLS` leaves a Claude turn no Task tool.
+
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
 A subagent's first message carries no cache mark of ours, and all of a
@@ -1070,7 +1076,7 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 - **Single-flight** releases waiting calls at the writer's response start
   (on acpmux: its first streamed output), and the prefix then counts as
   written for 5 minutes, so later calls on it go at once.
-- **Model.** The compactor runs Claude Haiku 5.5 at high effort
+- **Model.** The compactor runs Claude Haiku 5.5 at medium effort (measured: as good as high, 20% cheaper, 36% faster)
   (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
   `compactor-model` pick another). An account without the model builds
   with the turn model, logged once. Haiku and the turns' model have

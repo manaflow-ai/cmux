@@ -665,9 +665,10 @@ final class RowBitmaps {
     /// Main thread: get the bitmap now or when it is rendered.
     func request(_ spec: RowSpec, _ done: ((CGImage) -> Void)? = nil) {
         // Long text rows are tiles (TiledBubble.swift): no bitmap, and no spec (with its text) held here.
-        if TiledBubble.applies(spec) { done?(TiledBubble.emptyImage); return }
+        // cmux: without the empty image (allocation failed) a tiled row has no bitmap to report.
+        if TiledBubble.applies(spec) { if let empty = TiledBubble.emptyImage { done?(empty) }; return }
         if let img = cache[spec] { done?(img); return }
-        if waiters[spec] != nil { if let done { waiters[spec]!.append(done) }; return }
+        if waiters[spec] != nil { if let done { waiters[spec]?.append(done) }; return } // cmux: no force unwrap
         waiters[spec] = done.map { [$0] } ?? []
         let gen = Fixture.paletteGeneration
         // Newest first: older pending renders drop a priority step (a fling's rows that left
@@ -693,7 +694,12 @@ final class RowBitmaps {
                 }
                 return
             }
-            let img = RowBitmaps.render(spec)
+            // cmux: a bitmap that could not be allocated is not delivered; the waiters are dropped
+            // and the row shows no bitmap (BitmapFailure logged it).
+            guard let img = RowBitmaps.render(spec) else {
+                DispatchQueue.main.async { self.waiters[spec] = nil }
+                return
+            }
             self.deliver(spec, img, gen)
         }
         op.queuePriority = .veryHigh
@@ -784,11 +790,11 @@ final class RowBitmaps {
     static func prerender(_ specs: ArraySlice<RowSpec>) -> [(RowSpec, CGImage)] {
         guard prerenderEnabled else { return [] }
         return specs.compactMap { spec in
-            switch spec.kind { case .receipt, .typing: return nil; default: return (spec, render(spec)) }
+            switch spec.kind { case .receipt, .typing: return nil; default: return render(spec).map { (spec, $0) } } // cmux: unallocated rows are skipped
         }
     }
 
-    static func render(_ spec: RowSpec) -> CGImage {
+    static func render(_ spec: RowSpec) -> CGImage? { // cmux: nil when allocation fails
         if TiledBubble.applies(spec) { return TiledBubble.emptyImage }
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
@@ -805,19 +811,21 @@ final class RowBitmaps {
 /// pixel as the sRGB `.standard` renderer it replaces. AppKit builds draw through the
 /// shim's renderer, whose bitmaps are in the window's colour space already.
 enum WideBitmap {
-    static let space = CGColorSpace(name: CGColorSpace.displayP3)!
-    static func make(size: CGSize, scale: CGFloat, opaque: Bool, _ draw: (CGContext) -> Void) -> CGImage {
+    static let space = LabColorSpace.displayP3 // cmux: no force unwrap
+    /// cmux: nil when the bitmap cannot be allocated (a huge size, memory pressure); the
+    /// caller draws nothing and BitmapFailure logs the first one (crash program, no trap).
+    static func make(size: CGSize, scale: CGFloat, opaque: Bool, _ draw: (CGContext) -> Void) -> CGImage? {
         #if canImport(UIKit)
         let fmt = UIGraphicsImageRendererFormat()
         fmt.scale = scale
         fmt.opaque = opaque
         fmt.preferredRange = .extended
-        return UIGraphicsImageRenderer(size: size, format: fmt).image { draw($0.cgContext) }.cgImage!
+        return BitmapFailure.checked(UIGraphicsImageRenderer(size: size, format: fmt).image { draw($0.cgContext) }.cgImage, size: size)
         #else
         let fmt = UIGraphicsImageRendererFormat()
         fmt.scale = scale
         fmt.opaque = opaque
-        return UIGraphicsImageRenderer(size: size, format: fmt).image { draw($0.cgContext) }.cgImage!
+        return BitmapFailure.checked(UIGraphicsImageRenderer(size: size, format: fmt).image { draw($0.cgContext) }.cgImage, size: size)
         #endif
     }
 }

@@ -332,5 +332,186 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertNotEqual(completed.returncode, 0, completed.stdout)
             self.assertFalse([line for line in calls.read_text(encoding="utf-8").splitlines() if "--skip-build" in line])
 
+    def _write_fake_swift(self, temp: pathlib.Path, body: str) -> None:
+        # Every call appends "start <suite> <t>" and "end <suite> <t>" lines to
+        # $CMUX_SWIFT_TEST_EVENTS, so a test can tell whether suites overlapped.
+        fake_swift = temp / "swift"
+        fake_swift.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys, time\n"
+            "args = sys.argv[1:]\n"
+            "with open(os.environ['CMUX_SWIFT_TEST_CALLS'], 'a') as calls:\n"
+            "    calls.write(' '.join(args) + '\\n')\n"
+            "suites = os.environ['FAKE_SUITES'].split()\n"
+            "if args[:2] == ['test', 'list']:\n"
+            "    for suite in suites:\n"
+            "        print(f'ExampleTests.{suite}/testOne()')\n"
+            "    raise SystemExit(0)\n"
+            "selected = args[args.index('--filter') + 1]\n"
+            "suite = next(s for s in suites if s in selected)\n"
+            "def event(kind):\n"
+            "    with open(os.environ['CMUX_SWIFT_TEST_EVENTS'], 'a') as events:\n"
+            "        events.write(f'{kind} {suite} {time.monotonic()}\\n')\n"
+            "event('start')\n"
+            + body
+            + "event('end')\n",
+            encoding="utf-8",
+        )
+        fake_swift.chmod(0o755)
+
+    def _jobs_env(self, temp: pathlib.Path, suites: list[str], jobs: str) -> dict[str, str]:
+        env = os.environ.copy()
+        env["PATH"] = f"{temp}:{env['PATH']}"
+        env["CMUX_SWIFT_TEST_CALLS"] = str(temp / "calls.txt")
+        env["CMUX_SWIFT_TEST_EVENTS"] = str(temp / "events.txt")
+        env["FAKE_SUITES"] = " ".join(suites)
+        env["CMUX_SWIFT_TEST_SUITE_JOBS"] = jobs
+        return env
+
+    @staticmethod
+    def _overlapped(events_path: pathlib.Path, first: str, second: str) -> bool:
+        spans: dict[str, list[float]] = {}
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            kind, suite, at = line.split()
+            spans.setdefault(suite, [0.0, 0.0])[0 if kind == "start" else 1] = float(at)
+        return spans[first][0] < spans[second][1] and spans[second][0] < spans[first][1]
+
+    def test_concurrent_suites_print_whole_blocks_under_their_own_header(self) -> None:
+        """CMUX_SWIFT_TEST_SUITE_JOBS runs suites at once; each suite's output stays
+        one block after a header that names the suite, never interleaved."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            suites = ["AlphaSuite", "BetaSuite"]
+            self._write_fake_swift(
+                temp,
+                "for index in range(5):\n"
+                "    print(f'{suite} line {index}', flush=True)\n"
+                "    time.sleep(0.2)\n"
+                "print('Test run with 1 test passed after 0.001 seconds.', flush=True)\n",
+            )
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = self._jobs_env(temp, suites, "2")
+
+            completed = run_runner(package, env)
+
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertTrue(
+                self._overlapped(temp / "events.txt", "AlphaSuite", "BetaSuite"),
+                "the two suites did not run at the same time",
+            )
+            lines = completed.stdout.splitlines()
+            for suite in suites:
+                body = [index for index, line in enumerate(lines) if line.startswith(f"{suite} line ")]
+                self.assertEqual(len(body), 5, completed.stdout)
+                self.assertEqual(body, list(range(body[0], body[0] + 5)), completed.stdout)
+                header = lines[body[0] - 1]
+                self.assertIn("--filter", header, completed.stdout)
+                self.assertIn(suite, header, completed.stdout)
+            calls = (temp / "calls.txt").read_text(encoding="utf-8").splitlines()
+            for call in calls[1:]:
+                self.assertIn("--ignore-lock", call)
+
+    def test_concurrent_run_exits_with_the_first_failure_in_suite_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            suites = ["APassingSuite", "BSlowFailingSuite", "CFastFailingSuite", "DPassingSuite"]
+            self._write_fake_swift(
+                temp,
+                "if suite == 'BSlowFailingSuite':\n"
+                "    time.sleep(1)\n"
+                "    print('Test run with 1 test failed after 1 seconds.')\n"
+                "    event('end')\n"
+                "    raise SystemExit(17)\n"
+                "if suite == 'CFastFailingSuite':\n"
+                "    print('Test run with 1 test failed after 0.001 seconds.')\n"
+                "    event('end')\n"
+                "    raise SystemExit(23)\n"
+                "time.sleep(0.5)\n"
+                "print('Test run with 1 test passed after 0.5 seconds.')\n",
+            )
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = self._jobs_env(temp, suites, "4")
+
+            completed = run_runner(package, env)
+
+            # C fails first in time; B is first in suite order and decides the status.
+            self.assertEqual(completed.returncode, 17, completed.stdout)
+            self.assertTrue(self._overlapped(temp / "events.txt", "BSlowFailingSuite", "CFastFailingSuite"))
+            summary = completed.stdout[completed.stdout.index("Swift test suites:"):].splitlines()
+            self.assertEqual(summary[0], "Swift test suites: 2 passed, 2 failed", completed.stdout)
+            self.assertEqual(
+                [line.strip() for line in summary[1:]],
+                [
+                    "PASS ^ExampleTests\\.APassingSuite/",
+                    "FAIL (exit 17) ^ExampleTests\\.BSlowFailingSuite/",
+                    "FAIL (exit 23) ^ExampleTests\\.CFastFailingSuite/",
+                    "PASS ^ExampleTests\\.DPassingSuite/",
+                ],
+                completed.stdout,
+            )
+
+    def test_summary_lists_every_suite_when_suites_outnumber_jobs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            suites = [f"Suite{index:02d}" for index in range(12)]
+            self._write_fake_swift(
+                temp,
+                "time.sleep(0.05 * (len(suites) - suites.index(suite)) % 0.3)\n"
+                "print('Test run with 1 test passed after 0.001 seconds.')\n",
+            )
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = self._jobs_env(temp, suites, "3")
+
+            completed = run_runner(package, env)
+
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            summary = completed.stdout[completed.stdout.index("Swift test suites:"):].splitlines()
+            self.assertEqual(summary[0], "Swift test suites: 12 passed, 0 failed", completed.stdout)
+            self.assertEqual(
+                [line.strip() for line in summary[1:]],
+                [f"PASS ^ExampleTests\\.{suite}/" for suite in suites],
+            )
+            starts = [line for line in (temp / "events.txt").read_text().splitlines() if line.startswith("start")]
+            self.assertEqual(len(starts), 12)
+
+    def test_one_job_keeps_the_serial_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            suites = ["AlphaSuite", "BetaSuite"]
+            self._write_fake_swift(
+                temp,
+                "time.sleep(0.3)\n"
+                "print('Test run with 1 test passed after 0.3 seconds.')\n",
+            )
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = self._jobs_env(temp, suites, "1")
+
+            completed = run_runner(package, env)
+
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertFalse(self._overlapped(temp / "events.txt", "AlphaSuite", "BetaSuite"))
+            calls = (temp / "calls.txt").read_text(encoding="utf-8").splitlines()
+            for call in calls[1:]:
+                self.assertNotIn("--ignore-lock", call)
+
+    def test_invalid_job_count_is_refused(self) -> None:
+        for jobs in ("0", "two", "-3"):
+            with self.subTest(jobs=jobs), tempfile.TemporaryDirectory() as temp_dir:
+                temp = pathlib.Path(temp_dir)
+                self._write_fake_swift(temp, "print('Test run with 1 test passed after 0.001 seconds.')\n")
+                package = temp / "ExampleTests"
+                package.mkdir()
+                env = self._jobs_env(temp, ["AlphaSuite"], jobs)
+
+                completed = run_runner(package, env)
+
+                self.assertEqual(completed.returncode, 2, completed.stdout)
+                self.assertIn("CMUX_SWIFT_TEST_SUITE_JOBS", completed.stdout)
+                self.assertFalse((temp / "calls.txt").exists())
+
 if __name__ == "__main__":
     unittest.main()
