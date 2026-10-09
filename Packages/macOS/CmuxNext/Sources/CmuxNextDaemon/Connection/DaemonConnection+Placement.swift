@@ -49,6 +49,10 @@ extension DaemonConnection {
         var options = options
         if identity?.supports(DaemonCapabilities.shared.terminalReap) != true { options.keep = nil }
         if !supportsPlacementEnv { options.terminalID = nil }
+        if identity?.supports(DaemonCapabilities.shared.splitClientKeys) != true {
+            options.paneID = nil
+            options.tabID = nil
+        }
         return options
     }
 
