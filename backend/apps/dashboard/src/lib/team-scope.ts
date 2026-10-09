@@ -13,7 +13,8 @@ export interface UserTeam {
   readonly id: string
   readonly display_name: string
   readonly kind: "personal" | "stack"
-  readonly role: "owner" | "admin" | "member"
+  /** The caller's role; a newer server may answer a role this build does not name (shown as is). */
+  readonly role: "owner" | "admin" | "member" | (string & {})
 }
 
 export interface TeamsList {
