@@ -57,7 +57,8 @@ const SHIPPED = ["CLI", "Sources", "Packages", "cmux-tui/crates", ":!**/*Tests*"
 export const latestRelease = (): string => execFileSync("gh", ["release", "view", "--repo", "manaflow-ai/cmux", "--json", "tagName", "--jq", ".tagName"], { encoding: "utf8" }).trim()
 
 export const inventoryHits = (root: string, tag: string, words: ReadonlyArray<string>): Array<string> => {
-  spawnSync("git", ["-C", root, "fetch", "--quiet", "--no-tags", "--depth=1", "origin", `refs/tags/${tag}:refs/tags/${tag}`])
+  // Forced: a release tag that moved on origin (v0.65.0 did) must not leave a stale local copy in charge.
+  spawnSync("git", ["-C", root, "fetch", "--quiet", "--no-tags", "--depth=1", "origin", `+refs/tags/${tag}:refs/tags/${tag}`])
   const hits: Array<string> = []
   for (const w of words) {
     const run = spawnSync("git", ["-C", root, "grep", "-l", "-F", w, tag, "--", ...SHIPPED], { encoding: "utf8" })
@@ -195,9 +196,20 @@ export const compatProblems = (dir: string, key: string, target: string, now = D
   return problems
 }
 
+/** The commit origin's release tag names now (peeled), or undefined when it cannot be read. */
+export const remoteTagCommit = (root: string, tag: string): string | undefined => {
+  const run = spawnSync("git", ["-C", root, "ls-remote", "origin", `refs/tags/${tag}`, `refs/tags/${tag}^{}`], { encoding: "utf8" })
+  if (run.status !== 0) return undefined
+  const lines = run.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"))
+  return (lines.find(([, ref]) => ref?.endsWith("^{}")) ?? lines[0])?.[0]
+}
+
 export interface GateInput {
   readonly latest: string
   readonly specTag?: string
+  /** The spec's tag commit and the commit origin's tag names now. */
+  readonly specSha?: string
+  readonly tagSha?: string
   readonly staticErrors: ReadonlyArray<string>
   readonly affectsCmuxOld: boolean
   readonly reach: string
@@ -215,6 +227,7 @@ export interface GateInput {
 export const gateProblems = (g: GateInput): Array<string> => {
   const problems: Array<string> = []
   if (g.specTag !== g.latest) problems.push(`the cmux-old replay spec is ${g.specTag ?? "missing"} but the latest stable release is ${g.latest}: bun scripts/cmux-next/release/cmux-old.ts generate --tag ${g.latest}, commit it`)
+  else if (!g.tagSha || g.specSha !== g.tagSha) problems.push(`the cmux-old replay spec was generated from ${g.latest} at ${g.specSha?.slice(0, 12) ?? "?"}, but origin's ${g.latest} names ${g.tagSha?.slice(0, 12) ?? "nothing readable"}: the tag moved; regenerate the spec`)
   problems.push(...g.staticErrors.map((e) => `static: ${e}`))
   if (!g.replay) problems.push("the cmux-old replay did not run")
   else {
@@ -264,7 +277,8 @@ export const compatNow = async (root: string, change: Change, env: Record<string
     replayed = await (deps.replay ?? ((s, o, c) => old.authenticatedReplay(s, o, c, { gaps: old.readGaps(), revisions })))(spec, old.STAGING_ORIGIN, creds).catch((e: Error) => ({ ok: false, authenticated: false, lines: [], failures: [e.message], warnings: [], counts: {}, shapeOnly: [] }))
     writeReceipt(dir, { action: "compat-smoke", what: `in-step ${replayed.authenticated ? "signed-in (agent profile)" : "unauthenticated"} replay of ${spec.requests.length} ${spec.tag} requests against ${old.STAGING_ORIGIN}`, tree, target: "production", result: replayed.ok && replayed.authenticated ? "pass" : "fail", at: new Date().toISOString(), setHash: key, release: spec.tag, releaseSha: spec.sha, authenticated: replayed.authenticated, counts: replayed.counts, shapeOnly: replayed.shapeOnly, revisions, runId: runIdOf(env), by: actor(), ...(replayed.failures.length ? { errors: replayed.failures } : {}), ...(replayed.warnings.length ? { warnings: replayed.warnings } : {}) })
   }
-  problems.push(...gateProblems({ latest, ...(spec ? { specTag: spec.tag } : {}), staticErrors: stat.errors, affectsCmuxOld: stat.affectsCmuxOld, reach: stat.notes.join("; "), ...(replayed ? { replay: replayed } : {}), revisions }))
+  const tagSha = remoteTagCommit(root, latest)
+  problems.push(...gateProblems({ latest, ...(spec ? { specTag: spec.tag, specSha: spec.sha } : {}), ...(tagSha ? { tagSha } : {}), staticErrors: stat.errors, affectsCmuxOld: stat.affectsCmuxOld, reach: stat.notes.join("; "), ...(replayed ? { replay: replayed } : {}), revisions }))
   return problems
 }
 
