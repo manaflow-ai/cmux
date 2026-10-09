@@ -200,16 +200,17 @@ export class HarnessSwitch {
 
   /// Picks `harness` for a new chat, in `cwd`, else in the shown chat's folder (the switch keeps
   /// the project). Draws it now; resolves with the session once it opens (undefined when a newer
-  /// pick or a cancel replaced it, or it failed).
-  switchTo(harness: string, folder?: string): Promise<string | undefined> {
+  /// pick or a cancel replaced it, or it failed). `deferred`: the pane stays where it is (the New
+  /// Tab page, cx-e2aa) and the new chat shows with the next prompt, as a pick during a turn does.
+  switchTo(harness: string, folder?: string, options: { deferred?: boolean } = {}): Promise<string | undefined> {
     const previous = this.intent;
     const port = this.port;
     const shownSession = port?.shown();
     const cwd = folder ?? previous?.cwd ?? shownSession?.cwd;
     if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd)
       return previous.done.promise;
-    // While the shown session's turn streams, the pick applies to the next turn.
-    const shown = previous?.shown ?? !(port?.turnRunning() ?? false);
+    // While the shown session's turn streams (or the pane holds a page), the pick applies to the next turn.
+    const shown = options.deferred ? false : (previous?.shown ?? !(port?.turnRunning() ?? false));
     // Back to the harness of the session still on screen: there is nothing left to switch.
     if (!shown && previous && shownSession?.harness === harness) {
       this.cancel();
@@ -223,9 +224,9 @@ export class HarnessSwitch {
       shown,
       phase: "starting",
       queued: previous?.queued ?? [],
-      // A model or mode picked for one harness does not carry to another.
-      config: { options: {} },
-      tickets: new Map(),
+      // A model or mode picked for one harness does not carry to another; to another folder it does.
+      config: previous?.harness === harness ? previous.config : { options: {} },
+      tickets: previous?.harness === harness ? previous.tickets : new Map(),
       done,
     };
     if (previous) this.retire(previous, false);
@@ -253,7 +254,7 @@ export class HarnessSwitch {
     if (!intent) return undefined;
     // After a failure, sending is retrying with this prompt.
     if (intent.phase === "failed") {
-      void this.switchTo(intent.harness, intent.cwd);
+      void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
       intent = this.intent!;
     }
     const { promise, resolve, reject } = (() => {
@@ -345,7 +346,7 @@ export class HarnessSwitch {
   /// Retry after a failure: starts the harness again (the prompt stays in the composer).
   retry(): void {
     const intent = this.intent;
-    if (intent?.phase === "failed") void this.switchTo(intent.harness, intent.cwd);
+    if (intent?.phase === "failed") void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
   }
 
   /// The user went elsewhere (another session, a fork, a default new chat): the switch ends and

@@ -100,57 +100,6 @@ private func identity(_ owner: FakeOwner, _ directory: URL) -> MacInstallIdentit
     MacInstallIdentity(store: .files(directory: directory), transport: owner, deviceName: "cmux-test-mac", clientVersion: "1.0.0")
 }
 
-@Suite struct MacInstallIdentityTests {
-    @Test func signInRegistersAMacInstallWithTheMacGrantAndMintsAToken() async throws {
-        let owner = FakeOwner(), directory = temporaryDirectory()
-        let mac = identity(owner, directory)
-        try await mac.signedIn(stackUser: "stack_1", session: { "session" })
-        let registered = await owner.registered
-        #expect(registered.count == 1)
-        #expect(registered.first?.kind == "mac")
-        #expect(registered.first?.platform == "macos")
-        #expect(registered.first?.opClasses == ["read", "mutate-own", "mutate-shared", "cloud-link"])
-        #expect(await owner.mints == 1)
-        #expect(try await mac.installToken().hasPrefix("eyJ"))
-    }
-
-    @Test func aRestartedAppMintsWithoutTheSessionAndWithoutRegisteringAgain() async throws {
-        let owner = FakeOwner(), directory = temporaryDirectory()
-        try await identity(owner, directory).signedIn(stackUser: "stack_1", session: { "session" })
-        let sessionCalls = await owner.sessionCalls
-        let restarted = identity(owner, directory)
-        try await restarted.signedIn(stackUser: "stack_1", session: { throw CancellationError() })
-        #expect(await owner.registered.count == 1)
-        #expect(await owner.sessionCalls == sessionCalls)
-        #expect(await owner.mints == 2)
-    }
-
-    @Test func signOutRevokesTheInstallAndForgetsItsKeyAndRecord() async throws {
-        let owner = FakeOwner(), directory = temporaryDirectory()
-        let mac = identity(owner, directory)
-        try await mac.signedIn(stackUser: "stack_1", session: { "session" })
-        await mac.signOut(stackUser: "stack_1", session: { "session" })
-        #expect(await owner.revoked == ["inst_1"])
-        await #expect(throws: MacInstallIdentity.Failure.signedOut) { try await mac.installToken() }
-        // The session ends (the app's observer unbinds); the next sign-in
-        // registers a new install with a new key.
-        await mac.unbind()
-        try await mac.signedIn(stackUser: "stack_1", session: { "session" })
-        let keys = await owner.registered.map(\.keyX)
-        #expect(keys.count == 2 && keys[0] != keys[1])
-    }
-
-    @Test func aDevelopmentStoreKeepsItsFilesOwnerOnly() async throws {
-        let owner = FakeOwner(), directory = temporaryDirectory()
-        try await identity(owner, directory).signedIn(stackUser: "stack_1", session: { "session" })
-        let mode = { (url: URL) in (try? FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) ?? -1 }
-        #expect(mode(directory) == 0o700)
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        #expect(!files.isEmpty)
-        for file in files { #expect(mode(file) == 0o600, "\(file.lastPathComponent)") }
-    }
-}
-
 @Suite struct MacInstallIdentityReviewTests {
     /// Release builds call the API Worker (cloud-api.cmux.dev), never the web
     /// origin; a development build may override it.

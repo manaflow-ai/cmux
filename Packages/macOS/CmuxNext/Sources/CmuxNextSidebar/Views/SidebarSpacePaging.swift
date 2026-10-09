@@ -142,7 +142,11 @@ import QuartzCore
         let shown = ((layer.presentation() ?? layer).value(forKeyPath: keyPath) as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
         let start = from ?? shown
         layer.removeAnimation(forKey: Self.slideKey)
-        Motion.transaction(nil) { layer.setValue(x, forKeyPath: keyPath) }
+        Motion.transaction(nil) {
+            // A page's layer keeps its shift through AppKit's geometry writes.
+            (layer as? SpacePageLayer)?.shiftX = x
+            layer.setValue(x, forKeyPath: keyPath)
+        }
         guard let spring, Motion.animatesMovement, start != x else {
             if x != 0 { layer.add(Self.hold(keyPath, at: x), forKey: Self.slideKey) }
             return
@@ -234,4 +238,35 @@ final class SpacePageView: NSView {
     var list: SidebarListView?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func makeBackingLayer() -> CALayer { SpacePageLayer() }
+}
+
+/// A page's backing layer: it moves by `shiftX` only. AppKit writes a view's
+/// geometry to its layer on the first display pass after the view is
+/// inserted, transform included (identity), so a page placed at a swipe's
+/// first event went back to 0 in the layer's value (cx-gq1k; the hold
+/// animation only kept what the render server shows, and a host without a
+/// screen shows nothing). Every transform written here is the page's shift.
+nonisolated final class SpacePageLayer: CALayer {
+    var shiftX: CGFloat = 0 {
+        didSet { super.transform = CATransform3DMakeTranslation(shiftX, 0, 0) }
+    }
+
+    override init() { super.init() }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+        shiftX = (layer as? SpacePageLayer)?.shiftX ?? 0
+    }
+
+    required init?(coder: NSCoder) { super.init(coder: coder) }
+
+    override var transform: CATransform3D {
+        get { super.transform }
+        set { super.transform = CATransform3DMakeTranslation(shiftX, 0, 0) }
+    }
+
+    override func setAffineTransform(_ transform: CGAffineTransform) {
+        super.transform = CATransform3DMakeTranslation(shiftX, 0, 0)
+    }
 }

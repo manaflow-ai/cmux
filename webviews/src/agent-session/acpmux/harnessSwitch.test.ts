@@ -591,3 +591,38 @@ describe("harness switch: prewarm hints", () => {
     expect(port.calls).toEqual([]);
   });
 });
+
+// cx-e2aa: the New Tab page's model chip picks before any chat exists. The page stays; the new
+// chat starts behind it and shows with the prompt, with the picks applied.
+describe("harness switch: a deferred pick from the New Tab page", () => {
+  test("the page stays while the harness starts, and the prompt opens the chat with the picked model", async () => {
+    const { store, port, opened } = setup();
+    port.session = undefined;
+    void store.switchTo("codex", "/src/app", { deferred: true });
+    void store.pickModel("gpt-6.1-sol");
+    port.creates[0]!.reply.resolve("codex-2");
+    await settle();
+    expect(port.calls).toEqual(["create codex"]);
+    expect(opened).toEqual([]);
+    expect(store.view().intent?.shown).toBe(false);
+    // Enter: the same agent in the same folder is the same switch.
+    void store.switchTo("codex", "/src/app");
+    void store.send("ship it");
+    await settle();
+    // The prompt is when the pane leaves the page for the new chat.
+    expect(port.calls).toEqual(["create codex", "leave", "open codex-2", "model gpt-6.1-sol", "send ship it"]);
+    expect(opened).toEqual(["codex-2"]);
+  });
+
+  test("a pick carries to another folder of the same agent, not to another agent", () => {
+    const { store, port } = setup();
+    port.session = undefined;
+    void store.switchTo("codex", "/src/a", { deferred: true });
+    void store.pickModel("gpt-6.1-sol");
+    void store.switchTo("codex", "/src/b", { deferred: true });
+    expect(store.view().intent?.config.model).toBe("gpt-6.1-sol");
+    expect(store.view().intent?.cwd).toBe("/src/b");
+    void store.switchTo("claude", "/src/b", { deferred: true });
+    expect(store.view().intent?.config.model).toBeUndefined();
+  });
+});

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowserAutomation
 import WebKit
 
 /// Off-screen render windows for agent-driven WebKit tabs that no pane shows
@@ -102,7 +103,7 @@ final class AgentRenderPanel: NSPanel {
     func park(_ chrome: NSView, webView: WKWebView?) {
         guard let content = contentView else { return }
         self.webView = webView
-        if let webView { Self.setOcclusionDetection(false, on: webView) }
+        if let webView { WebKitPrivateCalls.setOcclusionDetection(false, on: webView) }
         chrome.frame = content.bounds
         chrome.autoresizingMask = [.width, .height]
         orderBack(nil)
@@ -116,7 +117,7 @@ final class AgentRenderPanel: NSPanel {
     func finish() {
         guard !finished else { return }
         finished = true
-        if let webView { Self.setOcclusionDetection(true, on: webView) }
+        if let webView { WebKitPrivateCalls.setOcclusionDetection(true, on: webView) }
         (contentView as? AgentRenderContentView)?.onSubviewLeave = nil
         contentView?.subviews.forEach { $0.removeFromSuperview() }
         orderOut(nil)
@@ -124,18 +125,6 @@ final class AgentRenderPanel: NSPanel {
         let release = onRelease
         onRelease = nil
         release?()
-    }
-
-    /// WebKit's private switch (the legacy app used it the same way): with
-    /// detection on, a window no pixel of which is on a display counts as
-    /// occluded, and the page stops rendering.
-    private static func setOcclusionDetection(_ enabled: Bool, on webView: WKWebView) {
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
-        guard webView.responds(to: selector) else { return }
-        typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
-        let setter = unsafeBitCast(webView.method(for: selector), to: Setter.self)
-        setter(webView, selector, enabled)
     }
 }
 

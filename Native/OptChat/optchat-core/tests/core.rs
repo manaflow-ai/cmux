@@ -300,7 +300,7 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
     match size_check(std::slice::from_ref(&long)) {
         SizeCheck::Retry(msg) => {
             assert!(msg
-                .starts_with("Too long: your line is 600 bytes, over the 512-byte limit. Write\n"));
+                .starts_with("Too long: your last line for this <input> was 600 bytes,\nover the 512-byte limit."));
             assert!(msg.ends_with("| ← LIMIT"));
             assert_eq!(cut_at_bytes(&long, 512).len(), 512);
         }
@@ -496,7 +496,7 @@ fn the_size_loop_measures_a_cut_line_against_its_reduced_room() {
     let reply = "x".repeat(480);
     match size_check_in(std::slice::from_ref(&reply), room) {
         SizeCheck::Retry(text) => assert!(
-            text.starts_with("Too long: your line is 480 bytes, over the 450-byte limit."),
+            text.starts_with("Too long: your last line for this <input> was 480 bytes,\nover the 450-byte limit."),
             "{text}"
         ),
         other => panic!("{other:?}"),
@@ -758,4 +758,39 @@ fn a_burst_of_long_messages_starts_64_compactions_at_once() {
         .count();
     assert_eq!(models, 64);
     assert_eq!(memory.busy().count(), 64);
+}
+
+/// hq-6d (measured 2026-10-09, 33 node inputs, Haiku 5.5 medium, two runs):
+/// a task that asks for about 400 bytes, well inside the 512-byte limit,
+/// and retries as fresh calls held 94-97% of nodes to at most one retry
+/// (75-88% before) at 20% less cost. The task says so, and the retry
+/// note names the last line (the reference client's wording).
+#[test]
+fn the_task_aims_well_inside_the_limit_and_the_note_names_the_last_line() {
+    let mut memory = Memory::new(VIEW);
+    let store = Mem::default();
+    for _ in 0..2 {
+        store.push(Kind::Echo, "z".repeat(5_000));
+        memory.append();
+    }
+    let leaf = compact_request(&memory, &store, NodeId::new(0, 1), String::new()).unwrap();
+    assert!(
+        leaf.step.contains("aim for about 400 bytes"),
+        "{}",
+        leaf.step
+    );
+    drain(&mut memory, &store);
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    drain(&mut memory, &store);
+    let tries = vec!["x".repeat(600)];
+    match size_check_in(&tries, NODE) {
+        SizeCheck::Retry(note) => assert!(
+            note.starts_with("Too long: your last line for this <input> was 600 bytes"),
+            "{note}"
+        ),
+        other => panic!("{other:?}"),
+    }
 }
