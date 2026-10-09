@@ -32,6 +32,15 @@ printf '{"opened":%s}' "$MODE"
 }
 
 describe("guest OS browser opener", () => {
+  test("native Codex login opens the URL in the VM display", () => fixture(async (directory, env) => {
+    const chrome = join(directory, "chrome");
+    writeFileSync(chrome, '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/browser-args"\n', { mode: 0o755 });
+    writeFileSync(join(directory, "cmux-open-url"), GUEST_BROWSER_OPENER.replaceAll("/usr/bin/google-chrome", chrome));
+    const result = await runChild(join(directory, "cmux-open-url"), [url], { env: { ...env, CMUX_BROWSER_TARGET: "vm" } });
+    expect(result.status).toBe(0);
+    expect(readFileSync(join(directory, "browser-args"), "utf8")).toContain(url);
+  }));
+
   test("forwards exact URL bytes and terminal identity only after host acknowledgement", () => fixture(async (directory, env) => {
     const result = await runChild(join(directory, "cmux-open-url"), [url], { env });
     expect(result.status).toBe(0);
