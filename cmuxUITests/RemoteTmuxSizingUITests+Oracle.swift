@@ -249,19 +249,26 @@ extension RemoteTmuxSizingUITests {
             // -1 let "missing vs missing" pass the comparison and vouch for
             // frames that were never reported.
             guard let windowWidth = entry["window_width"] as? Double,
-                  let contentWidth = entry["content_view_width"] as? Double else {
-                XCTFail("root_frames entry missing width fields \(context): \(entry)")
+                  let contentWidth = entry["content_view_width"] as? Double,
+                  let windowHeight = entry["window_height"] as? Double,
+                  let contentHeight = entry["content_view_height"] as? Double else {
+                XCTFail("root_frames entry missing size fields \(context): \(entry)")
                 continue
             }
             XCTAssertLessThanOrEqual(
                 contentWidth, windowWidth + 1,
                 "content view wider than its window \(context): \(entry)"
             )
+            XCTAssertLessThanOrEqual(contentHeight, windowHeight + 1,
+                                     "content view taller than its window \(context): \(entry)")
             for ancestor in entry["ancestors"] as? [[String: Any]] ?? [] {
-                guard let width = ancestor["width"] as? Double else {
-                    XCTFail("root_frames ancestor missing width \(context): \(ancestor)")
+                guard let width = ancestor["width"] as? Double,
+                      let height = ancestor["height"] as? Double else {
+                    XCTFail("root_frames ancestor missing size \(context): \(ancestor)")
                     continue
                 }
+                XCTAssertLessThanOrEqual(height, windowHeight + 1,
+                                         "ancestor taller than its window \(context): \(ancestor)")
                 XCTAssertLessThanOrEqual(
                     width, windowWidth + 1,
                     "\(ancestor["class"] ?? "?") is \(Int(width))pt wide in a \(Int(windowWidth))pt window \(context) — an ancestor adopted a content-derived width"
@@ -351,14 +358,16 @@ extension RemoteTmuxSizingUITests {
         return nil
     }
 
-    /// The pushed column count `pane_grids` reports for a tmux window.
-    func pushedCols(window: Int) -> Int? {
-        guard let windows = paneGridsWindows() else { return nil }
-        for entry in windows where (entry["window_id"] as? String) == "@\(window)" {
-            return (entry["pushed"] as? [String: Any])?["cols"] as? Int
-        }
-        return nil
+    /// The client claim, read once for either resize axis.
+    func pushedSize(window: Int) -> (cols: Int, rows: Int)? {
+        guard let entry = paneGridsWindows()?.first(where: {
+            ($0["window_id"] as? String) == "@\(window)"
+        }), let pushed = entry["pushed"] as? [String: Any],
+              let cols = pushed["cols"] as? Int, let rows = pushed["rows"] as? Int else { return nil }
+        return (cols, rows)
     }
+
+    func pushedCols(window: Int) -> Int? { pushedSize(window: window)?.cols }
 
     func splitWindowPaneIds() throws -> [String] {
         let out = try XCTUnwrap(tmux(["list-panes", "-t", "\(sessionName):@0", "-F", "#{pane_id}"]))

@@ -126,14 +126,22 @@ final class RemoteTmuxSizingUITests: XCTestCase {
             "window_id": windowID, "display": "\(displayIndex)",
         ])
         XCTAssertEqual(moved?["ok"] as? Bool, true, "could not move onto test display: \(moved ?? [:])")
-        setMirrorWindowSize(CGSize(width: 2400, height: 1000))
+        let remaining = displays.filter { ($0["display_id"] as? NSNumber)?.uint32Value != harness.displayID }
+        for display in remaining {
+            let frame = try XCTUnwrap(display["frame"] as? [String: Any])
+            XCTAssertLessThan(try XCTUnwrap(frame["width"] as? Int), 2400,
+                              "disconnect harness needs a wider display than every remaining display")
+            XCTAssertLessThan(try XCTUnwrap(frame["height"] as? Int), 1300,
+                              "disconnect harness needs a taller display than every remaining display")
+        }
+        setMirrorWindowSize(CGSize(width: 2400, height: 1300))
         // Recenter after growing so the whole window is on the test display.
         XCTAssertEqual(socketJSON(method: "window.display", params: [
             "window_id": windowID, "display": "\(displayIndex)",
         ])?["ok"] as? Bool, true)
         try startRulers(window: 0)
         try assertSettles(selectedWindow: 0, within: 10, context: "on the virtual display")
-        let before = try XCTUnwrap(pushedCols(window: 0))
+        let before = try XCTUnwrap(pushedSize(window: 0))
 
         var isRecording = false
         if let path = harness.recordingPath {
@@ -160,13 +168,78 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try assertSettles(selectedWindow: 0, within: 10, context: "after display removal")
         try assertRootContentTracksWindow(context: "after display removal")
         try assertClaimsWithinWindowCeiling(context: "after display removal")
-        let after = try XCTUnwrap(pushedCols(window: 0))
-        XCTAssertLessThan(after, before, "tmux did not shrink after losing the larger display")
+        let after = try XCTUnwrap(pushedSize(window: 0))
+        XCTAssertLessThan(after.cols, before.cols, "columns did not shrink after display removal")
+        XCTAssertLessThan(after.rows, before.rows, "rows did not shrink after display removal")
         try assertWindowContentMatchesTmux(window: 0, context: "after display removal")
         if isRecording {
             _ = socketJSON(method: "window.record.note", params: ["text": "Display removed; tmux panes match the new size"])
         }
-        print("Display disconnect: display \(harness.displayID) removed, tmux \(before) -> \(after) columns")
+        print("Display disconnect: display \(harness.displayID) removed, tmux \(before.cols)x\(before.rows) -> \(after.cols)x\(after.rows)")
+    }
+
+    /// The middle window stays hidden through attach and its first claim.
+    func testNeverSelectedWindowReceivesItsInitialSizeClaim() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildLabSession()
+        // Neither the default first tab nor the attach's final tab is @1.
+        mustRunTmux(["new-window", "-t", sessionName], "adding the third window")
+        mustRunTmux(["select-window", "-t", "\(sessionName):0"], "selecting the first window before attach")
+        attachSession()
+        let deadline = Date().addingTimeInterval(10)
+        var claimed = false
+        while Date() < deadline {
+            if let hidden = paneGridsWindows()?.first(where: { $0["window_id"] as? String == "@1" }) {
+                XCTAssertEqual(hidden["visible_for_sizing"] as? Bool, false, "@1 was selected")
+                if let claim = hidden["pushed"] as? [String: Any],
+                   let cols = claim["cols"] as? Int, let rows = claim["rows"] as? Int,
+                   cols > 1, rows > 1 {
+                    claimed = true
+                    break
+                }
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        XCTAssertTrue(claimed, "never-selected @1 did not receive its initial claim")
+        let surfaces = try XCTUnwrap(socketJSON(method: "remote.tmux.pane_surfaces", params: [
+            "host": "e2e-shim-host", "session": sessionName,
+        ])?["panes"] as? [[String: Any]])
+        let hiddenPanes = surfaces.filter { $0["window_id"] as? String == "@1" }
+        XCTAssertFalse(hiddenPanes.isEmpty)
+        for pane in hiddenPanes { XCTAssertEqual(pane["on_screen"] as? Bool, false) }
+        try assertSettles(selectedWindow: 0, within: 10, context: "with @1 never selected")
+    }
+
+    /// Height-only growth and shrink must reflow stacked and nested panes.
+    func testHeightResizeSweepConvergesWithStackedPanes() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildShapeZoo()
+        attachSession()
+        for name in ["rows3", "nested"] {
+            let window = try XCTUnwrap(windowId(named: name))
+            XCTAssertTrue(selectTab(named: name))
+            setMirrorWindowSize(CGSize(width: 1200, height: 620))
+            try assertSettles(selectedWindow: window, within: 10, context: "\(name) before height sweep")
+            try startRulers(window: window)
+            var previous = try XCTUnwrap(pushedSize(window: window))
+            var previousHeight = 620
+            for height in [760, 900, 760, 620] {
+                setMirrorWindowSize(CGSize(width: 1200, height: CGFloat(height)))
+                try assertSettles(selectedWindow: window, within: 10, context: "\(name) at height \(height)")
+                let claim = try XCTUnwrap(pushedSize(window: window))
+                XCTAssertEqual(claim.cols, previous.cols)
+                if height > previousHeight { XCTAssertGreaterThan(claim.rows, previous.rows) }
+                else { XCTAssertLessThan(claim.rows, previous.rows) }
+                try assertRootContentTracksWindow(context: "\(name) at height \(height)")
+                try assertWindowContentMatchesTmux(window: window, context: "\(name) at height \(height)")
+                previous = claim
+                previousHeight = height
+            }
+        }
     }
 
     /// Attach a session holding a 3-pane split window plus a single-pane

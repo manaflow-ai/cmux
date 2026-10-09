@@ -20,7 +20,7 @@ Scope to one scenario while iterating with `-only-testing:cmuxUITests/RemoteTmux
 
 `testDisplayDisconnectRefreshesVisiblePaneGrids` needs an external display
 harness. Build and launch `scripts/create-virtual-display.m` with a 2560x1440
-mode, then write `/tmp/cmux-ui-test-tmux-display-harness.json`:
+mode larger than every remaining display; the test uses a 2400x1300 window. Write `/tmp/cmux-ui-test-tmux-display-harness.json`:
 
 ```json
 {"displayID": 8, "requestPath": "/path/in/test-runner-home/disconnect.request", "recordingPath": "/tmp/tmux-display-disconnect.gif"}
@@ -29,7 +29,7 @@ mode, then write `/tmp/cmux-ui-test-tmux-display-harness.json`:
 Use the helper's actual display ID and a request path writable by the sandboxed
 test runner. The external controller watches for that file and stops only its
 own display-helper process. The test moves its window onto that display,
-requests removal, and checks that tmux shrinks, pane grids settle, and terminal
+requests removal, and checks that columns and rows shrink, grids settle, and terminal
 content matches. `recordingPath` is optional. Remove the manifest afterward;
 without it, the disconnect scenario skips while the other scenarios still run.
 
