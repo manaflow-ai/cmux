@@ -1231,6 +1231,10 @@ pub fn compactor_settings() -> Value {
         "hooks": {},
         "disableAllHooks": true,
         "disableBundledSkills": true,
+        // The same TTL as the node's own 5-minute mark: the API refuses a
+        // 5m mark before a 1h one, and Claude Code may pick 1h on a
+        // subscription.
+        "promptCacheTtl": "5m",
         "enableAllProjectMcpServers": false,
         "cleanupPeriodDays": TRANSCRIPT_DAYS,
     })
@@ -1287,6 +1291,14 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
                     // No cmux agent tools (acpmux `agent_tools.rs`): a
                     // compactor session stays isolated.
                     ("ACPMUX_AGENT_TOOLS".to_owned(), "0".to_owned()),
+                    // No user skills (`$HOME/.agents/skills`): a private,
+                    // empty HOME (`codex_private_home`).
+                    (
+                        "HOME".to_owned(),
+                        crate::codex_home::codex_private_home(&paths.compactor_codex)
+                            .display()
+                            .to_string(),
+                    ),
                     (
                         "CODEX_HOME".to_owned(),
                         codex_slot_home(&paths.compactor_codex, k)
@@ -1323,6 +1335,10 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS",
         // A refusal must reach the host, whose fallback model is probed.
         "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK",
+        // Claude Code's own marks at 5 minutes, the TTL of the node's mark:
+        // on a subscription login it marks 1 hour, and the API refuses a
+        // 1h mark after a 5m one.
+        "FORCE_PROMPT_CACHING_5M",
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }

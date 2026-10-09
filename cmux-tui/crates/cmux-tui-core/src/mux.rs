@@ -12189,7 +12189,10 @@ impl Mux {
         self.begin_session_shutdown();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
-        if !self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT) {
+        if !self.wait_for_terminal_host_closes(
+            TERMINAL_HOST_CLOSE_WAIT,
+            Instant::now() + TERMINAL_HOST_CLOSE_WAIT,
+        ) {
             eprintln!("cmux-tui: closed terminal hosts did not exit before shutdown");
         }
         self.config_reload_changed.notify_all();
