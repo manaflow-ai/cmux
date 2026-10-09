@@ -6,6 +6,13 @@ import CryptoKit
 public struct WebRTCPublicKey: Sendable, Hashable, CustomStringConvertible {
     public let x963Representation: Data
 
+    /// Builds a key from CryptoKit's already validated representation. This
+    /// avoids turning an impossible CryptoKit invariant into a process trap in
+    /// software identity construction.
+    public init(cryptoKitKey: P256.Signing.PublicKey) {
+        self.x963Representation = cryptoKitKey.x963Representation
+    }
+
     public init?(x963Representation: Data) {
         guard (try? P256.Signing.PublicKey(x963Representation: x963Representation)) != nil else { return nil }
         self.x963Representation = Data(x963Representation)

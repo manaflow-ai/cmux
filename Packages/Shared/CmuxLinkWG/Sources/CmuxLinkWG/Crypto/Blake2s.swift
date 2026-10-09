@@ -26,8 +26,15 @@ struct Blake2s {
     private var counter: UInt64 = 0
     private let outputLength: Int
 
-    init(outputLength: Int = 32, key: [UInt8] = []) {
-        precondition((1...32).contains(outputLength) && key.count <= 32)
+    init() {
+        outputLength = 32
+        state = Self.iv
+    }
+
+    /// Creates a hasher for the RFC 7693 parameter range. Invalid parameters
+    /// are rejected at the boundary instead of trapping the process.
+    init?(outputLength: Int, key: [UInt8]) {
+        guard (1...32).contains(outputLength), key.count <= 32 else { return nil }
         self.outputLength = outputLength
         state = Self.iv
         state[0] ^= 0x0101_0000 ^ (UInt32(key.count) << 8) ^ UInt32(outputLength)
@@ -62,7 +69,7 @@ struct Blake2s {
     }
 
     static func hash(_ parts: [UInt8]..., outputLength: Int = 32, key: [UInt8] = []) -> [UInt8] {
-        var hasher = Blake2s(outputLength: outputLength, key: key)
+        guard var hasher = Blake2s(outputLength: outputLength, key: key) else { return [] }
         for part in parts { hasher.update(part) }
         return hasher.finalize()
     }

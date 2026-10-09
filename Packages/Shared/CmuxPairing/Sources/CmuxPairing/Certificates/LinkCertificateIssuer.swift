@@ -17,7 +17,7 @@ public struct LinkCertificateIssuer: Sendable {
     /// Signs `key` (32 bytes) for `purpose`, valid from `now` for `lifetime`
     /// milliseconds (capped at the purpose's maximum).
     public func issue(purpose: LinkPurpose, key: Data, now: Date = Date(), lifetime: Int64? = nil) async throws -> LinkCertificate {
-        precondition(key.count == 32, "link keys and fingerprints are 32 bytes")
+        guard key.count == 32 else { throw LinkCertificateError.badKey }
         let issued = Int64((now.timeIntervalSince1970 * 1000).rounded(.down))
         let expires = issued + min(lifetime ?? purpose.maxLifetimeMilliseconds, purpose.maxLifetimeMilliseconds)
         let encoded = key.base64URLEncodedString()

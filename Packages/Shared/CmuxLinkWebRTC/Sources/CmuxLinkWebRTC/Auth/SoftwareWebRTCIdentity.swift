@@ -18,10 +18,7 @@ public struct SoftwareWebRTCIdentity: WebRTCIdentity {
 
     private init(key: P256.Signing.PrivateKey) {
         privateKey = key
-        guard let publicKey = WebRTCPublicKey(x963Representation: key.publicKey.x963Representation) else {
-            preconditionFailure("CryptoKit produced an invalid P-256 public key")
-        }
-        self.publicKey = publicKey
+        self.publicKey = WebRTCPublicKey(cryptoKitKey: key.publicKey)
     }
 
     public var privateKeyRepresentation: Data { privateKey.rawRepresentation }
