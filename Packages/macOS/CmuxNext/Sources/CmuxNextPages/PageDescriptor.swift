@@ -94,7 +94,9 @@ public nonisolated struct PageNativeOp {
     /// The refusal of a person-only action (``ActionDescriptor/isPersonOnly``) that a page asked
     /// for without a real click or key in the page view.
     public static let userOnlyCode = "cmux.app.user_only"
-    /// Writes text to the pasteboard: `{text}`.
+    /// Writes text to the pasteboard: `{text}`. Only within a moment of a real key, click or native
+    /// context menu choice in the page view (`PageCallContext.userGesture`); otherwise refused with
+    /// ``userOnlyCode``.
     public static let clipboardWrite = "cmux.app.clipboard.write"
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
     /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.

@@ -38,6 +38,7 @@ enum AppActions {
         WindowMembershipHandlers.bind(into: registry, context: context)
         SidebarHandlers.bind(into: registry, context: context)
         SidebarSectionHandlers.bind(into: registry, context: context)
+        SidebarHiddenSections.bind(into: registry, context: context)
         SettingsHandlers.bind(into: registry, context: context)
         AppearanceHandlers.bind(into: registry, context: context)
         FocusRingHandlers.bind(into: registry, context: context)

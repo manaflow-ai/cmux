@@ -1255,6 +1255,13 @@ impl Terminal {
         self.kitty_inflight.set_max_bytes(bounded);
     }
 
+    /// Whether a Kitty image upload is being assembled: a chunked
+    /// transmission still loading, or a Kitty command not yet terminated. A
+    /// limit change while one is can drop its retained bytes.
+    pub fn kitty_upload_in_progress(&self) -> bool {
+        self.kitty_inflight.loading || self.kitty_inflight.has_partial_command()
+    }
+
     pub fn kitty_inflight_storage_limit(&self) -> u64 {
         self.kitty_inflight.max_bytes() as u64
     }

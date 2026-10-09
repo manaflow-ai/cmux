@@ -574,6 +574,7 @@ impl Hub {
             // and its turn there is a Web turn (the remote floor).
             control: if r.web { crate::hub::Control::Web } else { crate::hub::Control::Local },
             trust_gate: false,
+            steer_only: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

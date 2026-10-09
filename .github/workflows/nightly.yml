@@ -70,6 +70,11 @@ on:
         required: false
         default: false
         type: boolean
+      notary_test_without_browser_data_import:
+        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One notary submission, nothing published.
+        required: false
+        default: false
+        type: boolean
       promote_nightly_next_sha:
         description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
         required: false
@@ -111,7 +116,7 @@ concurrency:
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import) && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -152,6 +157,7 @@ jobs:
       should_publish: ${{ steps.decide.outputs.should_publish }}
       notary_paused: ${{ steps.decide.outputs.notary_paused }}
       notary_test: ${{ steps.decide.outputs.notary_test }}
+      notary_test_browser_data: ${{ steps.decide.outputs.notary_test_browser_data }}
       no_publish: ${{ steps.decide.outputs.no_publish }}
       variants: ${{ steps.decide.outputs.variants }}
       feeds: ${{ steps.decide.outputs.feeds }}
@@ -206,7 +212,8 @@ jobs:
           # nothing (cx-f58x: every nightly-next DMG got notary status 7000
           # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
           NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
-          NOTARY_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && 'true' || 'false' }}
+          NOTARY_TEST: ${{ github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import) && 'true' || 'false' }}
+          NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_browser_data_import && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -516,6 +523,7 @@ jobs:
             const notaryPaused = track === 'nightly-next' && process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1' && !notaryTest;
             core.setOutput('notary_paused', notaryPaused ? 'true' : 'false');
             core.setOutput('notary_test', notaryTest ? 'true' : 'false');
+            core.setOutput('notary_test_browser_data', notaryTest && process.env.NOTARY_TEST_BROWSER_DATA === 'true' ? 'true' : 'false');
             core.setOutput('no_publish', notaryPaused || notaryTest ? 'true' : 'false');
             if (notaryTest) {
               core.notice('cx-f58x notary test: the browser password-import readers are compiled out (CMUX_NO_PASSWORD_IMPORT); one notary submission, nothing published.');
@@ -1497,11 +1505,20 @@ jobs:
       - name: Build nightly app (Release)
         env:
           NOTARY_TEST: ${{ needs.decide.outputs.notary_test }}
+          NOTARY_TEST_BROWSER_DATA: ${{ needs.decide.outputs.notary_test_browser_data }}
         run: |
           set -euo pipefail
-          # cx-f58x notary test only: compile out the browser password-import readers.
+          # cx-f58x notary test only: compile out the browser password-import
+          # readers, and with notary_test_without_browser_data_import every read
+          # of another browser's files or Keychain items plus the shipped
+          # browser target list.
           notary_test_flags=(build)
-          if [[ "$NOTARY_TEST" == true ]]; then
+          if [[ "$NOTARY_TEST_BROWSER_DATA" == true ]]; then
+            printf '%s\n' '{"schemaVersion": 1, "engines": {}, "browsers": []}' \
+              > Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
+            # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
+            notary_test_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT' build)
+          elif [[ "$NOTARY_TEST" == true ]]; then
             # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
             notary_test_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT' build)
           fi
@@ -1548,6 +1565,12 @@ jobs:
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
           scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/cmux"
+
+      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
+        if: needs.decide.outputs.notary_test_browser_data == 'true'
+        run: |
+          set -euo pipefail
+          scripts/ci/check-browser-data-import-absent.sh "build-universal/Build/Products/Release/cmux.app"
 
       - name: Bound Xcode compilation cache size
         id: compilation-cache-bound
@@ -1833,6 +1856,10 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
+    outputs:
+      # nightly-next is arm64 only, so its one matrix leg sets this; publish
+      # waits for a later run when Apple had not accepted the build in time.
+      notary_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -2424,17 +2451,18 @@ jobs:
       - name: Notarize app ticket through final DMG
         id: notarize-nightly
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
-        # Published nightly-next hands Apple the exact signed DMG and records
-        # the state for continuation; it never staples or publishes before a
-        # later Accepted result. Private nightly/RC paths keep the bounded wait.
+        # Published nightly-next waits at most 20m (usually a few minutes):
+        # an Accepted build is stapled and published by this run, and one still
+        # in Apple's queue is handed to the next nightly-next run through the
+        # recovery artifact below. Private nightly/RC paths keep the 40m wait.
         timeout-minutes: 50
         env:
-          CMUX_NOTARY_WAIT_TIMEOUT: 40m
+          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && '20m' || '40m' }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}
+          CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}
           CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
         run: |
           ./scripts/ci/notarize-nightly-dmg.sh \
@@ -2475,8 +2503,8 @@ jobs:
             "$NIGHTLY_VARIANT" \
             "$CHANNEL_RELEASE_TAG" \
             "$NIGHTLY_BUILD" \
-            "${{ needs.decide.outputs.head_sha }}" \
-            "${{ needs.decide.outputs.short_sha }}" <<'PY'
+            "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" \
+            "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}" <<'PY'
           import json
           import pathlib
           import sys
@@ -2492,7 +2520,8 @@ jobs:
               state[key] = value
           if state.get("dmg_sha256") != actual_sha:
               raise SystemExit("notarization state SHA-256 does not match the signed DMG")
-          if state.get("submit_exit", "0") != "0":
+          # A bounded wait that ran out exits nonzero after a successful upload.
+          if state.get("submit_exit", "0") != "0" and state.get("wait_timed_out") != "true":
               raise SystemExit("notarization submit exited nonzero; refusing automatic continuation")
           submission_id = state.get("submission_id", "")
           if not submission_id or not all(character.isalnum() or character in "._-" for character in submission_id):
@@ -2535,7 +2564,7 @@ jobs:
         if: always() && steps.prepare-notarization-recovery.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
+          name: cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: |
             ${{ env.NIGHTLY_DMG_RELEASE }}
             ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.state
@@ -2558,11 +2587,11 @@ jobs:
             "$NIGHTLY_DMG_IMMUTABLE"
 
       - name: Gate distribution with syspolicy_check
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.track != 'nightly-next'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
 
       - name: Generate Sparkle appcasts (nightly)
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.track != 'nightly-next'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
         env:
           NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
           CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -2591,7 +2620,7 @@ jobs:
           fi
 
       - name: Upload nightly variant artifacts
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.track != 'nightly-next'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-${{ matrix.variant }}
@@ -2638,7 +2667,7 @@ jobs:
     needs: [decide, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.track != 'nightly-next' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true'
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
@@ -2710,7 +2739,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTES_HEAD: ${{ needs.decide.outputs.head_sha }}
+          NOTES_HEAD: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           # nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
           NOTES_BRANCH: ${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}
           NOTES_APP_NAME: ${{ needs.decide.outputs.app_name }}
@@ -3041,7 +3070,7 @@ jobs:
     # DMG and signed appcast. The nightly-next track signs in release-next
     # with its own key, as build-sign-notarize-nightly does.
     environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, build-nightly-app, publish-nightly]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success'
     permissions:
       contents: read
@@ -3070,7 +3099,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -3152,7 +3181,7 @@ jobs:
     # This job is intentionally outside publish-nightly's concurrency group:
     # a newer run may publish its full feed immediately, and the tag guard below
     # prevents an older delta from overwriting it.
-    needs: [decide, build-nightly-app, publish-nightly, generate-nightly-deltas]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success'
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -3169,7 +3198,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -3185,7 +3214,8 @@ jobs:
         run: |
           set -euo pipefail
           current_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHANNEL_RELEASE_TAG" --jq .sha)"
-          if [ "$current_sha" != "${{ needs.decide.outputs.head_sha }}" ]; then
+          # The publication moved the tag to the resolved build commit.
+          if [ "$current_sha" != "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" ]; then
             echo "Skipping stale delta result: $CHANNEL_RELEASE_TAG is at $current_sha"
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0

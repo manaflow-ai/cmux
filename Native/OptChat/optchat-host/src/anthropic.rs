@@ -201,8 +201,8 @@ mod tests {
         assert_eq!(body["system"][0]["text"], "SYS");
         assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
         assert_eq!(body["cache_control"]["type"], "ephemeral");
-        assert_eq!(body["model"], "claude-sonnet-5-5");
-        assert_eq!(body["output_config"]["effort"], "medium");
+        assert_eq!(body["model"], "claude-haiku-5-5");
+        assert_eq!(body["output_config"]["effort"], "high");
         assert!(body.get("tools").is_none());
         let m = body["messages"].as_array().unwrap();
         assert_eq!(m.len(), 3);

@@ -5,7 +5,7 @@ import CmuxNextHistory
 /// The titlebar band's Back and Forward (R69): a click runs
 /// focusHistoryBack / focusHistoryForward, the right-click or long-press list
 /// runs `history.goTo {index}`, and each button is enabled only while the
-/// trail has somewhere to go.
+/// shown page's history or the trail has somewhere to go (history.md 4.2b).
 extension WindowController {
     func installHistoryButtons() {
         let band = root.toolbarBand
@@ -36,6 +36,6 @@ extension WindowController {
     /// Re-reads whether Back and Forward have somewhere to go.
     func refreshHistoryButtons() {
         let trail = services.locationTrail
-        root.toolbarBand.setHistoryEnabled(back: trail.canNavigate(.back), forward: trail.canNavigate(.forward))
+        root.toolbarBand.setHistoryEnabled(back: trail.canNavigate(.back, in: self), forward: trail.canNavigate(.forward, in: self))
     }
 }

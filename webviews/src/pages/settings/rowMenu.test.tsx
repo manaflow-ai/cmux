@@ -18,9 +18,11 @@ afterEach(() => {
 async function openMenu(rendered: Rendered, key: string): Promise<HTMLElement> {
   const title = rowElement(rendered.container, key).querySelector(".row-title")!;
   await act(async () => {
-    title.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }));
+    title.dispatchEvent(
+      new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+    );
   });
-  const menu = rowElement(rendered.container, key).querySelector<HTMLElement>("[role=menu]");
+  const menu = document.querySelector<HTMLElement>("[role=menu]");
   if (!menu) throw new Error(`no menu opened on ${key}`);
   return menu;
 }
@@ -55,8 +57,53 @@ describe("a setting row's context menu", () => {
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }]);
   });
 
+  // cx-dmnf (nxdog77-v1): the menu opened about 340 px right of the pointer. A category's enter
+  // animation (`.section`, fill mode both) keeps a transform on it, and WebKit then makes it the
+  // containing block of fixed descendants, so a fixed menu inside it is offset by the category
+  // column's position. The menu lives at the document root and sits at the pointer.
+  test("opens at the pointer, outside the animated category", async () => {
+    page = await renderPage({ path: "/settings/privacy" });
+    const menu = await openMenu(page, "history.terminalCommands");
+    expect(menu.closest(".section")).toBeNull();
+    expect(page.container.contains(menu)).toBe(false);
+    expect([menu.style.left, menu.style.top]).toEqual(["40px", "60px"]);
+  });
+
   test("a managed setting cannot be reset from the menu", async () => {
     page = await renderPage({ path: "/settings/browser" });
     expect(item(await openMenu(page, mockManagedKey), "Reset to Default")!.disabled).toBe(true);
+  });
+});
+
+// cx-64hi (nxdog77-v1): the Theme page's own rows (Match System Appearance, the theme pickers, the
+// app theme) opened no menu, unlike every other setting title. They offer the same menu for the
+// setting they edit.
+describe("the Theme page rows' context menu", () => {
+  async function openThemeMenu(rendered: Rendered, row: string): Promise<HTMLElement> {
+    const title = rendered.container.querySelector(`[data-theme-row="${row}"] .row-title`);
+    if (!title) throw new Error(`no theme row ${row}`);
+    await act(async () => {
+      title.dispatchEvent(
+        new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+      );
+    });
+    const menu = document.querySelector<HTMLElement>("[role=menu]");
+    if (!menu) throw new Error(`no menu opened on theme row ${row}`);
+    return menu;
+  }
+
+  test.each([
+    ["match", "appearance.theme"],
+    ["single", "appearance.theme"],
+    ["app", "appearance.appTheme"],
+  ])("the %s row copies %s", async (row, key) => {
+    page = await renderPage({ path: "/settings/theme" });
+    const menu = await openThemeMenu(page, row);
+    expect([...menu.querySelectorAll("[role=menuitem]")].map((button) => button.textContent)).toEqual([
+      "Copy Setting Key",
+      "Reset to Default",
+    ]);
+    await click(item(menu, "Copy Setting Key")!);
+    expect(page.provider.clipboard).toBe(key);
   });
 });
