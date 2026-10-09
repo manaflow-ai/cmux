@@ -1,8 +1,11 @@
 //! Every case of `backend/catalog/cloud-vectors.json` round-trips through the
 //! generated types: the params decode as the op's params struct, every
-//! response body decodes as the op's typed envelope (with the op's closed
-//! error enum), and each encodes back to the same JSON. The generated op set
-//! equals the catalog's (name, class, idempotency, declared error codes).
+//! response body decodes as the op's typed envelope (with the op's error
+//! enum), each encodes back to the same JSON, and no part of a vector lands in
+//! an `Unknown` variant (the vectors use only declared codes, values and union
+//! members). The generated op set equals the catalog's (name, class,
+//! idempotency, declared error codes). A newer backend's code, enum value or
+//! union member decodes to `Unknown` and encodes back unchanged.
 
 use cmux_cloud_wire::{
     HttpError, Op, OpRequest, OpResponse, OpVisitor, ReadResponse, WireClass, WireError, visit_op,
@@ -10,6 +13,7 @@ use cmux_cloud_wire::{
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use std::fmt::Debug;
 use std::path::Path;
 
 fn catalog_file(name: &str) -> Value {
@@ -32,9 +36,17 @@ fn same(a: &Value, b: &Value) -> bool {
     }
 }
 
-fn round_trip<T: Serialize + DeserializeOwned>(what: &str, json: &Value) -> Result<(), String> {
+fn round_trip<T: Serialize + DeserializeOwned + Debug>(
+    what: &str,
+    json: &Value,
+) -> Result<(), String> {
     let typed: T =
         serde_json::from_value(json.clone()).map_err(|e| format!("{what}: decode: {e}"))?;
+    // Every Unknown variant (error code, string enum, union) is a tuple variant.
+    let debug = format!("{typed:?}");
+    if debug.contains("Unknown(") {
+        return Err(format!("{what}: a part decodes only as Unknown: {debug}"));
+    }
     let back = serde_json::to_value(&typed).map_err(|e| format!("{what}: encode: {e}"))?;
     if same(&back, json) {
         Ok(())
@@ -52,10 +64,10 @@ impl OpVisitor for CaseTrip<'_> {
     fn visit<O: Op>(self) -> Self::Output {
         let case = self.0;
         let name = case["name"].as_str().unwrap_or("?");
-        if let Some(class) = case["class"].as_str() {
-            if class != O::CLASS.as_str() {
-                return Err(format!("{name}: class {class}, catalog {}", O::CLASS.as_str()));
-            }
+        if let Some(class) = case["class"].as_str()
+            && class != O::CLASS.as_str()
+        {
+            return Err(format!("{name}: class {class}, catalog {}", O::CLASS.as_str()));
         }
         let params = &case["params"];
         round_trip::<O::Params>(&format!("{name} params"), params)?;
@@ -149,19 +161,22 @@ impl OpVisitor for CatalogRow<'_> {
                 O::IDEMPOTENCY.as_str()
             ));
         }
-        let declared: Vec<&str> =
+        let mut declared: Vec<&str> =
             row["errors"].as_array().expect("errors").iter().filter_map(Value::as_str).collect();
+        // A row may list a code twice; the generated set holds it once.
+        declared.dedup();
         if declared != O::Error::CODES {
             wrong.push(format!("{name}: errors {declared:?} vs {:?}", O::Error::CODES));
         }
         for code in &declared {
-            match O::Error::from_code(code) {
-                Some(e) if e.code() == *code => {}
-                other => wrong.push(format!("{name}: code {code} maps to {other:?}")),
+            let e = O::Error::from_code(code);
+            if e.code() != *code || !e.is_declared() {
+                wrong.push(format!("{name}: code {code} maps to {e:?}"));
             }
         }
-        if O::Error::from_code("cmux.undeclared.code").is_some() {
-            wrong.push(format!("{name}: an undeclared code decodes"));
+        let newer = O::Error::from_code("cmux.newer.code");
+        if newer.is_declared() || newer.code() != "cmux.newer.code" {
+            wrong.push(format!("{name}: an undeclared code maps to {newer:?}"));
         }
         let principals: Vec<&str> = O::PRINCIPALS.iter().map(|p| p.as_str()).collect();
         let want: Vec<&str> = row["principals"]
@@ -193,23 +208,43 @@ fn the_generated_op_set_is_the_catalog() {
 }
 
 #[test]
-fn an_undeclared_error_code_does_not_decode() {
+fn a_newer_error_code_decodes_as_unknown_and_round_trips() {
     let catalog = catalog_file("cloud-operations.json");
     let op = "cloud.machine.list";
     assert!(catalog["operations"].get(op).is_some(), "{op} left the catalog; pick another op");
 
-    struct Refuses;
-    impl OpVisitor for Refuses {
-        type Output = (bool, bool);
+    struct Newer;
+    impl OpVisitor for Newer {
+        type Output = Result<(), String>;
         fn visit<O: Op>(self) -> Self::Output {
             let declared = json!({ "_tag": "Unauthenticated", "code": "auth.unauthenticated", "message": "x" });
-            let undeclared =
-                json!({ "_tag": "Conflict", "code": "cmux.undeclared.code", "message": "x" });
-            (
-                serde_json::from_value::<HttpError<O::Error>>(declared).is_ok(),
-                serde_json::from_value::<HttpError<O::Error>>(undeclared).is_err(),
-            )
+            let newer = json!({ "_tag": "Conflict", "code": "cmux.newer.code", "message": "x" });
+            let d: HttpError<O::Error> =
+                serde_json::from_value(declared).map_err(|e| e.to_string())?;
+            let n: HttpError<O::Error> =
+                serde_json::from_value(newer.clone()).map_err(|e| e.to_string())?;
+            if !d.code.is_declared() || n.code.is_declared() {
+                return Err(format!("declared {:?}, newer {:?}", d.code, n.code));
+            }
+            let back = serde_json::to_value(&n).map_err(|e| e.to_string())?;
+            if back != newer {
+                return Err(format!("newer code round trip: {back}"));
+            }
+            Ok(())
         }
     }
-    assert_eq!(visit_op(op, Refuses), Some((true, true)));
+    assert_eq!(visit_op(op, Newer), Some(Ok(())));
+}
+
+#[test]
+fn a_newer_union_member_decodes_as_unknown_and_round_trips() {
+    let newer = json!({ "type": "cmux_newer_body", "anything": [1, "two"] });
+    let body: cmux_cloud_wire::Body = serde_json::from_value(newer.clone()).expect("decodes");
+    assert!(matches!(body, cmux_cloud_wire::Body::Unknown(_)), "{body:?}");
+    assert_eq!(serde_json::to_value(&body).expect("encodes"), newer);
+
+    let known = json!({ "type": "steps", "steps": [] });
+    let body: cmux_cloud_wire::Body = serde_json::from_value(known.clone()).expect("decodes");
+    assert!(matches!(body, cmux_cloud_wire::Body::Steps(_)), "{body:?}");
+    assert_eq!(serde_json::to_value(&body).expect("encodes"), known);
 }
