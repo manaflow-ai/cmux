@@ -226,6 +226,8 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
       for (const outcome of [
         "malformed",
         '{"status":"succeeded"}',
+        '{"version":1.0,"lifecycle_id":"predecessor","status":"succeeded"}',
+        '{"version":1e0,"lifecycle_id":"predecessor","status":"succeeded"}',
         '{"version":2,"lifecycle_id":"predecessor","status":"succeeded"}',
         '{"version":1,"lifecycle_id":"","status":"succeeded"}',
         `{"version":1,"lifecycle_id":"predecessor","status":"failed"}\n${succeededOutcome}`,

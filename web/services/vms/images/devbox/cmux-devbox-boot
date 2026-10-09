@@ -174,11 +174,35 @@ recover_rebooted_daemon_state() {
   if [ -n "$previous_boot_id" ] && [ "$previous_boot_id" != "$current_boot_id" ]; then
     session_state="$REMOTE_STATE_DIR/sessions/$REMOTE_SESSION_COMPONENT"
     outcome="$session_state/shutdown.json"
-    if [ ! -e "$outcome" ] || {
-      command -v jq >/dev/null 2>&1 && jq -e -s \
-        'length == 1 and (.[0] | type == "object" and .version == 1 and (.lifecycle_id | type == "string" and length > 0) and .status == "succeeded")' \
-        "$outcome" >/dev/null 2>&1;
-    }; then
+    if [ ! -e "$outcome" ] || python3 - "$outcome" <<'PY'
+import json
+import sys
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate object key")
+        result[key] = value
+    return result
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        value = json.load(stream, object_pairs_hook=unique_object)
+except (OSError, TypeError, ValueError):
+    raise SystemExit(1)
+
+if (
+    type(value) is not dict
+    or type(value.get("version")) is not int
+    or value["version"] != 1
+    or type(value.get("lifecycle_id")) is not str
+    or not value["lifecycle_id"]
+    or value.get("status") != "succeeded"
+):
+    raise SystemExit(1)
+PY
+    then
       rm -f "$session_state/runtime.json" "$outcome"
     fi
   fi
