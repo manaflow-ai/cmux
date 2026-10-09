@@ -12,8 +12,8 @@ import CmuxNextSettings
 /// Params: `x`, `y` (window points from the top left), `dy`, `dx` (lines for
 /// a wheel, points per event for a trackpad), `count` (events, default 1),
 /// `trackpad` (one gesture: began, changed..., ended), `window`.
-/// Every event carries the same timestamp, so a wheel's `count` notches
-/// land inside one paging interval: send one call per notch to page more.
+/// Each event carries the time it is posted, like the window server's, so
+/// a wheel's paging interval holds as it does for a real wheel.
 @MainActor enum DebugSidebarWheel {
     static func post(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
@@ -33,6 +33,7 @@ import CmuxNextSettings
             guard let event = CGEvent(scrollWheelEvent2Source: nil, units: trackpad ? .pixel : .line,
                                       wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0) else { continue }
             event.location = location
+            event.timestamp = CGEventTimestamp(clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
             event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
             event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
             if trackpad {
