@@ -186,9 +186,12 @@ final class WindowManager {
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
+        // A fresh store's snapshot can show Home before its kind row: decide
+        // once ensure_home answered, with the workspace it named.
+        await services.home.awaitHomeEnsured()
         // The workspace a launch gives an empty tree, on its New Tab page.
         var firstWorkspace: String?
-        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
+        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover, home: services.home.homeWorkspaceID) {
             firstWorkspace = await createWorkspace(newTabPage: true)
         }
         let restoredRegistry = WindowRegistry(records: document.windows)

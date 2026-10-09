@@ -31,20 +31,36 @@ extension HomeService {
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
+        homeEnsureGeneration &+= 1
+        let generation = homeEnsureGeneration
+        homeEnsureInFlight = true
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             do {
                 let home = try await HomeWorkspaceClient(connection).ensureHome()
+                // Cancelled: the newer ensure_home owns the in-flight flag.
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
+                settleHomeEnsure(generation)
                 homeWorkspaceStep = "ensured \(home)"
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {
+                self?.settleHomeEnsure(generation)
                 self?.homeWorkspaceStep = "failed: \(String(describing: error))"
                 self?.logger.error("home workspace: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    private func settleHomeEnsure(_ generation: Int) {
+        if homeEnsureGeneration == generation { homeEnsureInFlight = false }
+    }
+
+    /// Returns once no `ensure_home` is in flight (at once when none is).
+    /// Each request has the connection's timeout, so this never outlives it.
+    func awaitHomeEnsured() async {
+        for await inFlight in Observations({ self.homeEnsureInFlight }) where !inFlight { return }
     }
 
     /// The Chief owner's connection, once it serves conversations (this task
