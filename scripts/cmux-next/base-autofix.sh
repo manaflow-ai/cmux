@@ -4,14 +4,14 @@
 #   - generated files: copies DIR's files (the cmux-next generated files job's
 #     cmux-next-generated-patch artifact: the action contracts and the CI target
 #     graph regenerated on a Mac, at their repository paths) over the checkout;
-#   - cmux-tui tree inputs: adds each embed check_cmux_tui_tree_inputs.py finds
-#     missing to cmux-tui-tree-inputs.txt and to cmux-tui-artifacts.yml's
-#     pull_request_target paths;
+#   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
+#     finds missing (the fix edits a workflow file, which GITHUB_TOKEN cannot push);
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
 #     app-ffi-repin pull request carries it);
 #   - formatting: cargo fmt over the cmux-tui workspace (unless --no-fmt).
 # A path matching base-autofix-frozen.txt is never written; it is reported.
-# Prints one line per change ("fixed: ...") or skip ("skipped (frozen): ...").
+# Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
+# repair left to a person ("left: ...").
 #
 # Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--no-fmt] REPO
 set -euo pipefail
@@ -49,36 +49,13 @@ if [[ -n "$generated" && -d "$generated" ]]; then
   done < <(find "$generated" -type f -print0 | sort -z)
 fi
 
-# 2. cmux-tui tree inputs.
-inputs="scripts/cmux-next/cmux-tui-tree-inputs.txt"
-artifacts=".github/workflows/cmux-tui-artifacts.yml"
+# 2. cmux-tui tree inputs: reported only. Each must also be a pull_request_target
+# path of cmux-tui-artifacts.yml, a workflow file GITHUB_TOKEN cannot push, and
+# the two lists must change together.
 missing="$(python3 -I "$script_dir/../ci/check_cmux_tui_tree_inputs.py" --root "$repo" 2>&1 >/dev/null | grep -E '^(blob|tree) ' || true)"
-if [[ -n "$missing" ]]; then
-  if frozen "$inputs" || frozen "$artifacts"; then
-    echo "skipped (frozen): $inputs"
-  else
-    printf '%s\n' "$missing" >> "$repo/$inputs"
-    python3 -I - "$repo/$artifacts" "$missing" <<'PY'
-import sys
-path, missing = sys.argv[1], sys.argv[2].split("\n")
-lines = open(path).read().split("\n")
-start = next(i for i, l in enumerate(lines) if l.strip() == "pull_request_target:")
-paths = next(i for i in range(start, len(lines)) if lines[i].strip() == "paths:")
-end = paths + 1
-while end < len(lines) and lines[end].startswith("      - "):
-    end += 1
-new = []
-for entry in missing:
-    kind, rel = entry.split(" ", 1)
-    pattern = rel + "/**" if kind == "tree" else rel
-    if f'      - "{pattern}"' not in lines[paths + 1:end]:
-        new.append(f'      - "{pattern}"')
-lines[end:end] = new
-open(path, "w").write("\n".join(lines))
-PY
-    while IFS= read -r entry; do echo "fixed: tree input $entry"; done <<<"$missing"
-  fi
-fi
+while IFS= read -r entry; do
+  [[ -n "$entry" ]] && echo "left: cmux-tui tree input $entry (add it to scripts/cmux-next/cmux-tui-tree-inputs.txt and .github/workflows/cmux-tui-artifacts.yml by hand)"
+done <<<"$missing"
 
 # 3. The app FFI pin (reported only: Package.swift is frozen).
 if [[ -f "$repo/Packages/macOS/CmuxNext/Package.swift" && -x "$repo/scripts/cmux-next/check-app-ffi-pin.sh" ]]; then

@@ -3,17 +3,18 @@ name: cmux-next base autofix
 # After each cmux-next run on a feat-cmux-next push, repairs the base's
 # mechanical reds in one commit on top of that push, so no pull request has to
 # carry them: the generated files the Mac generated-files job rebuilt (its
-# cmux-next-generated-patch artifact: action contracts, CI target graph),
-# missing cmux-tui tree inputs and cargo fmt in cmux-tui
-# (scripts/cmux-next/base-autofix.sh). A frozen path
-# (scripts/cmux-next/base-autofix-frozen.txt) is reported and never written;
-# the app FFI pin stays with app-ffi-release.yml's app-ffi-repin pull request.
+# cmux-next-generated-patch artifact: action contracts, CI target graph) and
+# cargo fmt in cmux-tui (scripts/cmux-next/base-autofix.sh). A frozen path
+# (scripts/cmux-next/base-autofix-frozen.txt, including every workflow file)
+# is reported and never written; missing cmux-tui tree inputs are reported
+# (their fix edits cmux-tui-artifacts.yml); the app FFI pin stays with
+# app-ffi-release.yml's app-ffi-repin pull request.
 #
-# Push identity: the cmux base autofix GitHub App (vars.CMUX_BASE_AUTOFIX_APP_ID,
-# secrets.CMUX_BASE_AUTOFIX_APP_KEY) with contents and workflows write, allowed
-# to push to feat-cmux-next. Its token exists only in the push step, after the
-# repository's own code has run. An App push starts cmux-next again; on a
-# current tree the next autofix changes nothing.
+# Push identity: github-actions[bot] through this job's GITHUB_TOKEN
+# (contents: write). No ruleset or branch protection applies to
+# feat-cmux-next (2026-10-09). GITHUB_TOKEN cannot push workflow files, and its
+# pushes start no workflow: the repair commit is verified by the next push's
+# cmux-next run, which is enough for mechanical fixes, and the bot cannot loop.
 #
 # Dry run until the repo variable CMUX_NEXT_BASE_AUTOFIX is 1: it repairs and
 # commits locally, and the summary shows what it would push.
@@ -32,12 +33,12 @@ concurrency:
 jobs:
   autofix:
     name: autofix feat-cmux-next
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'feat-cmux-next' && github.event.workflow_run.head_repository.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for feat-cmux-next; ephemeral Blacksmith VM, reads no variable before the push step
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/cmux-next.yml' && github.event.workflow_run.head_branch == 'feat-cmux-next' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 20
     permissions:
       actions: read
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -78,7 +79,7 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git config user.name "cmux base autofix"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit --quiet -m "chore(next): base autofix at ${HEAD_SHA:0:12}" \
@@ -87,30 +88,20 @@ jobs:
           git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Mint the autofix token
-        id: app-token
-        if: steps.commit.outputs.changed == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BASE_AUTOFIX_APP_ID }}
-          private-key: ${{ secrets.CMUX_BASE_AUTOFIX_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: write
-          permission-workflows: write
-
       - name: Push the repairs
         if: steps.commit.outputs.changed == 'true'
         env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          # The checkout keeps no credentials; the token is used only here.
+          TOKEN: ${{ github.token }}
+          ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          if [[ -z "$APP_TOKEN" ]]; then
+          if [[ "$ENABLED" != true ]]; then
             echo "Dry run (CMUX_NEXT_BASE_AUTOFIX is not 1): would push $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
           with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
