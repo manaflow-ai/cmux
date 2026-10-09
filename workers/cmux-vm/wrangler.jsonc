@@ -88,7 +88,9 @@
       "vars": {
         "ENVIRONMENT": "production",
         // Stack team ids treated as dev/test in production (idle timeout <= 300 s).
-        "DEV_TEST_TENANT_IDS": "",
+        // cmux-vm-smoke-service is no Stack team: only the production smoke service key
+        // (teams ["cmux-vm-smoke-service"], role=chief VMs only) acts for it (smoke-production).
+        "DEV_TEST_TENANT_IDS": "cmux-vm-smoke-service",
         // JSON object of Stack team id to live VM limit; the default is 20.
         "TENANT_VM_QUOTAS": "{}",
         "STACK_API_URL": "https://api.stack-auth.com",

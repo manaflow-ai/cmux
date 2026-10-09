@@ -107,7 +107,7 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .tryTip, .dismissTip, .openWhatsNew, .shareCmux, .dismissUpdated:
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .noticeAction, .dismissNotice, .openWhatsNew, .shareCmux, .dismissUpdated:
             SidebarCardFeed.handle(intent, services: services)
         case .layout(let op):
             applyLayoutOp(op)

@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextCrashReporting
+import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
 
@@ -34,11 +35,14 @@ struct AppCrashReporting: Sendable {
     let reporter: CrashReporter
     /// Nil outside the app process. With reports off it only marks reports done.
     let forwarder: SystemCrashForwarder?
+    /// The app's cmux-tui owner's panic log (cx-urd.59); nil outside the app process.
+    let ownerPanics: OwnerPanicForwarder?
 
     init(environment: AppEnvironment) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
         guard environment.marksRun else {
             forwarder = nil
+            ownerPanics = nil
             return
         }
         let sends = reporter.start()
@@ -48,5 +52,23 @@ struct AppCrashReporting: Sendable {
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
         forwarder.start()
         self.forwarder = forwarder
+        let tag = environment.launch.tag
+        let ownerPanics = OwnerPanicForwarder(
+            log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(tag: tag),
+                                         session: (try? DaemonLauncher.sessionName(tag: tag)) ?? "cmux-app"),
+            stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
+                .appending(path: "owner-panic-forwarder.json"),
+            sends: sends)
+        ownerPanics.start()
+        self.ownerPanics = ownerPanics
+    }
+
+    /// The owner's state root: the parent of its sessions directory, which
+    /// is the tag's `CMUX_TUI_STATE_DIR` (DaemonLauncher) or cmux-tui's default.
+    static func ownerStateRoot(tag: String?) -> URL {
+        let sessions = tag.map(DaemonLauncher.tagStateDirectory(tag:))
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appending(path: "Library/Application Support/cmux-tui/sessions", directoryHint: .isDirectory)
+        return sessions.deletingLastPathComponent()
     }
 }

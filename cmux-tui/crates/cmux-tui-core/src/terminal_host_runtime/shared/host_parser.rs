@@ -3,17 +3,27 @@
 //! flushes the terminal's own replies (queries, clipboard reads) to the PTY
 //! after every command.
 
-use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use ghostty_vt::Callbacks;
+
+use super::super::*;
+use super::clipboard_read::*;
+use super::host_shared::HostShared;
+use super::host_state::*;
 
 /// State the parser shares with the terminal's callbacks.
-pub(super) struct ParserSignals {
-    pub(super) pending_responses: Arc<Mutex<Vec<u8>>>,
-    pub(super) title_changed: Arc<AtomicBool>,
-    pub(super) bell: Arc<AtomicBool>,
+pub(crate) struct ParserSignals {
+    pub(crate) pending_responses: Arc<Mutex<Vec<u8>>>,
+    pub(crate) title_changed: Arc<AtomicBool>,
+    pub(crate) bell: Arc<AtomicBool>,
 }
 
 impl ParserSignals {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             pending_responses: Arc::new(Mutex::new(Vec::new())),
             title_changed: Arc::new(AtomicBool::new(false)),
@@ -24,7 +34,7 @@ impl ParserSignals {
     /// The callbacks of the host's authoritative terminal. The host keeps no
     /// program status records (the daemon's mirror keeps them), but it is
     /// the only parser that may answer the `OSC 7501 ; ?` support query.
-    pub(super) fn callbacks(&self, clipboard: &ClipboardReads) -> Callbacks {
+    pub(crate) fn callbacks(&self, clipboard: &ClipboardReads) -> Callbacks {
         Callbacks {
             on_pty_write: Some(Box::new({
                 let pending = self.pending_responses.clone();
@@ -49,14 +59,14 @@ impl ParserSignals {
 /// grace, SIGKILL, child wait) plus the launch-owner deadline.
 const PARSER_FAILURE_EXIT_BOUND: Duration = Duration::from_secs(10);
 /// The process exit status of a host whose parser panicked (EX_SOFTWARE).
-pub(super) const PARSER_FAILURE_EXIT_CODE: i32 = 70;
+pub(crate) const PARSER_FAILURE_EXIT_CODE: i32 = 70;
 
 /// Runs the parser worker `parse` (production: [`run_host_parser`]) on the
 /// calling thread. If it panics, the terminal can no longer apply output
 /// and nothing else marks the PTY drained, so the host would live forever
 /// without an exit. Instead the host ends its child, publishes its exit
 /// (bounded wait), and then `end_process` ends the host process.
-pub(super) fn run_guarded_host_parser(
+pub(crate) fn run_guarded_host_parser(
     host: &Arc<HostShared>,
     parse: impl FnOnce(),
     end_process: impl FnOnce(),
@@ -104,7 +114,7 @@ impl HostShared {
     }
 }
 
-pub(super) fn run_host_parser(
+pub(crate) fn run_host_parser(
     parser_host: Arc<HostShared>,
     parser_command_receiver: Receiver<ParserCommand>,
     initial_colors: TerminalColorOverrides,

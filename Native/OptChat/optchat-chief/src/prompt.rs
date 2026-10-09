@@ -192,7 +192,15 @@ pub fn subagent_system_text(user: Option<&str>, tools: &Tools) -> String {
 /// Claude Code's own breakpoint at the message's end serves the subagent's
 /// later requests.
 pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
-    turn_blocks(view, &[format!("Your task:\n\n{task}")])
+    let task = format!("Your task:\n\n{task}");
+    // An empty chat has no view to give: only the task.
+    let lines = view
+        .lines()
+        .filter(|l| !matches!(l.trim(), "" | "<chat>" | "</chat>"));
+    if lines.count() == 0 {
+        return vec![json!({"type": "text", "text": task})];
+    }
+    turn_blocks(view, &[task])
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
@@ -435,6 +443,19 @@ pub fn turn_blocks(view: &str, texts: &[String]) -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Live proof subp7: a subagent spawned from an empty chat showed
+    /// "<chat></chat>" as the first lines of its pane. An empty view is left
+    /// out; the task stays.
+    #[test]
+    fn a_subagents_first_message_leaves_out_an_empty_view() {
+        let blocks = subagent_blocks("<chat>\n</chat>\n", "count lines");
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0]["text"], "Your task:\n\ncount lines");
+        let full = subagent_blocks("<chat>\n0+1|user: hi\n</chat>\n", "t");
+        assert!(full.len() > 1);
+    }
+
     use super::*;
 
     #[test]
