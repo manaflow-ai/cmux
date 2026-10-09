@@ -83,6 +83,9 @@ import Testing
         #expect(region.reorder?.dropsToList == true)
         #expect(!region.displayedSections.flatMap(\.items).contains { $0.id == LayoutItemID("t1") },
                 "over the list the band shows itself without the tile (the drop's outcome)")
+        // The pressed tile's view owns the press: AppKit sends it the drags and
+        // the release, so it stays in the band (hidden) until the drag ends.
+        #expect(region.itemView(LayoutItemID("t1"))?.superview === region, "the pressed view still gets the release")
     }
 
     @Test func aTileDroppedOnTheListDoesNotFlyBackIntoTheBand() throws {
