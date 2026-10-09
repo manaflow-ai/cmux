@@ -6,7 +6,8 @@
   "swift.fatal_error",
   "swift.objc_selector",
   "swift.precondition",
-  "swift.iuo"
+  "swift.iuo",
+  "swift.force_unwrap"
  ],
  "allow": [
   {
