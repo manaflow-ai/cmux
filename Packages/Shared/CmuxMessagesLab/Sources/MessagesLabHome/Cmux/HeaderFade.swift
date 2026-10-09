@@ -99,6 +99,9 @@ extension MessagesLabHomeView {
         if first { host.updateHeaderZone() }
     }
 
+    /// cmux: the name pill's own translucent capsule, always shown.
+    public func setHeaderPillBacking(_ color: NSColor) { controller.host.paneHeader.setPillBacking(color) }
+
     /// The header fade's opacity as set (0 hidden, 1 shown).
     public var headerFadeOpacity: Float { controller.host.headerBackdrop.revealOpacity }
     /// The header fade's strongest alpha.
