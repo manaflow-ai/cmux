@@ -54,6 +54,7 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
             placement.discard()
             return nil
         }
+        item.suggestedFilename = DownloadDestination.sanitizedFilename(suggestedFilename)
         item.filename = placement.finalURL.lastPathComponent
         item.destination = placement.finalURL
         item.placement = placement

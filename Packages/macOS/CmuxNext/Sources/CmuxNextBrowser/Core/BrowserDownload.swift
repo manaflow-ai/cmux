@@ -43,9 +43,14 @@ public final class BrowserDownload: Identifiable {
     @ObservationIgnored
     private var finishHandlers: [(BrowserDownload) -> Void] = []
 
-    public init(sourceURL: URL?, filename: String) {
+    /// The name the page suggested (sanitized), before a free file name was
+    /// picked: what an agent's `download.suggestedFilename()` returns.
+    public internal(set) var suggestedFilename: String
+
+    public init(sourceURL: URL?, filename: String, suggestedFilename: String? = nil) {
         self.sourceURL = sourceURL
         self.filename = filename
+        self.suggestedFilename = suggestedFilename ?? filename
     }
 
     /// A download refused before it started, listed blocked: `reason`

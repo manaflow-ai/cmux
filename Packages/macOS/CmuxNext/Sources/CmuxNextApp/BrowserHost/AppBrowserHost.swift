@@ -188,7 +188,7 @@ extension AppBrowserHost {
     static func report(_ item: BrowserDownload, tab: String, to provider: BrowserHostProvider?) {
         let id = item.id.uuidString.lowercased()
         provider?.reportDownloadStarted(targetID: tab, downloadID: id, url: item.sourceURL?.absoluteString ?? "",
-                                        suggestedFilename: item.filename)
+                                        suggestedFilename: item.suggestedFilename)
         item.onFinish { [weak provider] item in
             switch item.status {
             case .finished:
