@@ -72,6 +72,9 @@ public final class AgentPaneModel {
     /// (`quick.openInWindow`). Gets the chat's session, nil before the
     /// first prompt.
     @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
+    /// The quick panel's Return started its chat (`quick.startInBackground`): the
+    /// session goes to the sidebar; the reply waits until the host placed it or failed.
+    @ObservationIgnored public var onQuickStartInBackground: (@MainActor (AgentPaneQuickStart) async -> Void)?
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
@@ -122,7 +125,6 @@ public final class AgentPaneModel {
     /// the user picks; true when saved, false when the user cancelled. Nil
     /// leaves the page to copy the log instead.
     @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
-    /// Writes `agentPane.showContextUsage` (Hide or Show Context Usage); nil keeps the page's choice.
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
@@ -339,6 +341,15 @@ public final class AgentPaneModel {
             }
             onQuickOpenInWindow(sessionId)
             return AgentPaneReply.success()
+        case .quickStartInBackground(let start):
+            guard let onQuickStartInBackground else { return Self.unsupported("quick.startInBackground") }
+            if start.sessionId != sessionId {
+                sessionId = start.sessionId
+                newTab = nil
+                onSessionChange?(start.sessionId)
+            }
+            await onQuickStartInBackground(start)
+            return AgentPaneReply.success()
         case .git(let git):
             guard let onGit else { return Self.gitFailure(.notConnected) }
             do {
@@ -374,12 +385,10 @@ public final class AgentPaneModel {
         case .transportClose(let connection):
             transport.close(connection: connection)
             return AgentPaneReply.success()
-        case .reply(let reply):
-            return await respond(to: reply)
+        case .reply(let reply): return await respond(to: reply)
         case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
         case .showContextUsage(let show): return await showContextUsage(show)
-        case .unsupported(let method):
-            return Self.unsupported(method)
+        case .unsupported(let method): return Self.unsupported(method)
         }
     }
 

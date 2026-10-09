@@ -297,3 +297,10 @@
   .acpmux-composer-bar .acpmux-access-trigger { max-width: 112px; }
   .acpmux-composer-bar .acpmux-mode-text { display: none; }
 }
+/* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
+   and rounded corners move to the top. */
+.acpmux-composer-box[data-context-first] > .acpmux-composer-context {
+  border-top: 0;
+  border-bottom: 1px solid var(--acpmux-composer-edge);
+  border-radius: 18px 18px 0 0;
+}

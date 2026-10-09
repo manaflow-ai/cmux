@@ -1,5 +1,6 @@
 extension AgentPaneModel {
-    /// `pane.showContextUsage`: writes the setting through ``onShowContextUsage``.
+    /// `pane.showContextUsage`: writes `agentPane.showContextUsage` (Hide or Show Context Usage) through
+    /// ``onShowContextUsage``; with no writer the page keeps its own choice.
     func showContextUsage(_ show: Bool) async -> [String: Any] {
         guard let onShowContextUsage else { return AgentPaneReply.failure(code: "unsupported", message: "Settings are unavailable") }
         do {

@@ -170,9 +170,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
 
-    /// Keys under `shortcuts` that are settings, not action IDs.
-    static let reservedShortcutKeys: Set<String> = ["bindings", "tiers", "when", "showModifierHoldHints"]
-
     /// Parses a document. `validDensities` and `validMetrics` come from the
     /// design module so this stays free of main-actor types.
     public static func parse(
@@ -273,7 +270,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
         snapshot.diagnostics += Self.closeWarningDiagnostics(root)
-        snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
+        snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }

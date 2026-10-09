@@ -43,7 +43,7 @@ final class HomeVideo {
         guard let demo = controller?.demo else { return }
         var cells: [String: RowCell] = [:]
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
-            if let spec = cell.spec, case let .part(p) = spec.kind { cells[Self.key(p.ref)] = cell }
+            if let spec = cell.spec, case let .part(p) = spec.kind { cells.updateValue(cell, forKey: Self.key(p.ref)) } // crash program: dictionary write
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
