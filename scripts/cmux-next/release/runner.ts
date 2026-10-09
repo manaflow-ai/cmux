@@ -197,6 +197,12 @@ export const outsideProblems = async (sql: Sql, schema: string, writesBefore: Ma
   return [...new Set(problems)]
 }
 
+/** A fingerprint of every relation in user schemas outside `schema` (CONCURRENTLY files cannot roll back). */
+const outsideFingerprint = async (sql: Sql, schema: string) =>
+  (await sql.query<{ f: string | null }>(`SELECT md5(string_agg(c.oid::text || ':' || c.relfilenode || ':' || coalesce(c.relacl::text, '') || ':' || c.relowner, ',' ORDER BY c.oid)) AS f
+      FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname NOT IN ($1, 'pg_toast', 'pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast_temp%'`, [schema]))[0]?.f
+
 /** The index a DROP INDEX CONCURRENTLY file drops (schema.name), or undefined. */
 const droppedIndexOf = async (f: MigrationFile): Promise<string | undefined> => {
   const [stmt] = await parseSql(f.sql)
@@ -243,25 +249,27 @@ export const applyPending = async (
       if (dropped) {
         // DROP INDEX CONCURRENTLY cannot run in a transaction either (alone in its file, by the lint).
         if (tree.name === "cmux-vm" && !dropped.startsWith(`${tree.schema}.`)) throw new Error(`${f.name}: DROP INDEX CONCURRENTLY outside schema ${tree.schema}; refused before it ran`)
-        for (const q of sessionSettings(tree, "SESSION")) await sql.query(q)
-        try {
-          await sql.query(f.sql)
-        } finally {
-          await sql.query("RESET lock_timeout; RESET statement_timeout; RESET search_path")
+        const exists = async () => (await sql.query<{ v: string | null }>("SELECT to_regclass($1)::text AS v", [dropped]))[0]?.v != null
+        const before = tree.name === "cmux-vm" ? await outsideFingerprint(sql, tree.schema) : undefined
+        // A rerun after a run that dropped the index but died before its tracking row: nothing to drop.
+        if (await exists()) {
+          for (const q of sessionSettings(tree, "SESSION")) await sql.query(q)
+          try {
+            await sql.query(f.sql)
+          } finally {
+            await sql.query("RESET lock_timeout; RESET statement_timeout; RESET search_path")
+          }
+          if (await exists()) throw new Error(`${f.name}: index ${dropped} still exists after DROP INDEX CONCURRENTLY`)
         }
-        const left = (await sql.query<{ v: string | null }>("SELECT to_regclass($1)::text AS v", [dropped]))[0]?.v
-        if (left) throw new Error(`${f.name}: index ${dropped} still exists after DROP INDEX CONCURRENTLY`)
-        await record(sql, tree, f, options.by)
+        await record(sql, tree, f, options.by) // recorded first: the index is gone whatever the compare says
+        if (tree.name === "cmux-vm" && (await outsideFingerprint(sql, tree.schema)) !== before) throw new Error(`${f.name}: relations in user schemas outside ${tree.schema} changed during DROP INDEX CONCURRENTLY (it cannot be rolled back; another session may have done it); stop and inspect`)
         applied.push(f.name)
         continue
       }
       const index = await indexNameOf(f)
       if (index) {
         if (tree.name === "cmux-vm" && !index.startsWith(`${tree.schema}.`)) throw new Error(`${f.name}: CREATE INDEX CONCURRENTLY on a table outside schema ${tree.schema}; refused before it ran`)
-        const fingerprint = async () =>
-          (await sql.query<{ f: string | null }>(`SELECT md5(string_agg(c.oid::text || ':' || c.relfilenode || ':' || coalesce(c.relacl::text, '') || ':' || c.relowner, ',' ORDER BY c.oid)) AS f
-              FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname NOT IN ($1, 'pg_toast', 'pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast_temp%'`, [tree.schema]))[0]?.f
+        const fingerprint = () => outsideFingerprint(sql, tree.schema)
         const before = tree.name === "cmux-vm" ? await fingerprint() : undefined
         for (const q of sessionSettings(tree, "SESSION")) await sql.query(q)
         try {
