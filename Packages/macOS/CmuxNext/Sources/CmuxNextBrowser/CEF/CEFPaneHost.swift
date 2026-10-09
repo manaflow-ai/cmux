@@ -94,7 +94,9 @@ final class CEFPaneHost {
     func present(_ tab: CEFTab, in container: NSView) {
         lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
         if hostView.superview !== container {
-            hostView.removeFromSuperview()
+            // A direct addSubview moves the view without taking it out of
+            // the window: the page's child window is not re-added (about
+            // 3 ms of window ordering on each tab switch).
             hostView.frame = container.bounds
             // The tab's content view lays it out (page frame beside a docked DevTools).
             hostView.autoresizingMask = []

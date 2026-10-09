@@ -19,6 +19,7 @@ mod link;
 mod messages;
 mod pipe;
 mod render;
+mod shutdown;
 #[cfg(test)]
 mod tests;
 mod tui;
@@ -58,6 +59,8 @@ pub(super) struct Args {
     pub help: bool,
     /// `chief engine …` or `chief stop`.
     pub control: Option<control::Control>,
+    /// `cmux chief shutdown` (shutdown.rs).
+    pub shutdown: bool,
 }
 
 /// `cmux [global options] chief …`; `None` when `args` names another scope.
@@ -88,6 +91,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
         match flag {
             "engine" if first => parsed.control = Some(control::Control::Engine(Vec::new())),
             "stop" if first => parsed.control = Some(control::Control::Stop(None)),
+            "shutdown" if first => parsed.shutdown = true,
             name if !name.starts_with('-')
                 && matches!(parsed.control, Some(control::Control::Stop(None))) =>
             {
@@ -141,6 +145,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     if args.help {
         println!("{}", m.usage);
         return 0;
+    }
+    if args.shutdown {
+        return shutdown::run(&global, args.chief_home.as_deref());
     }
     if let Some(control) = &args.control {
         return control::run(&global, args.chief_home.as_deref(), control, global.output);
