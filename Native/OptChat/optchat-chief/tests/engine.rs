@@ -171,10 +171,25 @@ fn a_fast_codex_turn_runs_fast_and_claude_refuses_fast() {
     .unwrap();
     h.say("user_local", "one");
     h.settle();
-    save(&file, &EngineChoice { harness: Some("codex".into()), ..EngineChoice::default() }).unwrap();
+    save(
+        &file,
+        &EngineChoice {
+            harness: Some("codex".into()),
+            ..EngineChoice::default()
+        },
+    )
+    .unwrap();
     h.say("user_local", "two");
     h.settle();
-    let fast: Vec<bool> = h.agents.inner.lock().unwrap().specs.iter().map(|s| s.fast).collect();
+    let fast: Vec<bool> = h
+        .agents
+        .inner
+        .lock()
+        .unwrap()
+        .specs
+        .iter()
+        .map(|s| s.fast)
+        .collect();
     assert_eq!(fast, [true, false]);
     assert!(check_speed("fast", Family::Codex).is_ok());
     assert!(check_speed("default", Family::Claude).is_ok());
@@ -182,10 +197,17 @@ fn a_fast_codex_turn_runs_fast_and_claude_refuses_fast() {
     assert!(refused.contains("Claude Code"), "{refused}");
     assert!(check_speed("ultrafast", Family::Codex).is_err());
     // engine set flags take both speeds.
-    let args: Vec<String> = ["engine", "set", "--speed", "fast", "--compactor-speed", "fast"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let args: Vec<String> = [
+        "engine",
+        "set",
+        "--speed",
+        "fast",
+        "--compactor-speed",
+        "fast",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
     let flags = optchat_chief::cli::Flags::parse(&args);
     let choice = optchat_chief::engine::apply_flags(EngineChoice::default(), &flags).unwrap();
     assert_eq!(choice.speed.as_deref(), Some("fast"));
@@ -199,9 +221,18 @@ fn a_fast_codex_turn_runs_fast_and_claude_refuses_fast() {
 #[test]
 fn a_non_claude_chief_compacts_on_claude_haiku() {
     use optchat_chief::host::default_compactor_harness;
-    assert_eq!(default_compactor_harness("codex", Family::Codex, "claude"), "claude");
-    assert_eq!(default_compactor_harness("opencode", Family::Other, "claude-cr"), "claude-cr");
-    assert_eq!(default_compactor_harness("claude-sr", Family::Claude, "claude"), "claude-sr");
+    assert_eq!(
+        default_compactor_harness("codex", Family::Codex, "claude"),
+        "claude"
+    );
+    assert_eq!(
+        default_compactor_harness("opencode", Family::Other, "claude-cr"),
+        "claude-cr"
+    );
+    assert_eq!(
+        default_compactor_harness("claude-sr", Family::Claude, "claude"),
+        "claude-sr"
+    );
     assert_eq!(
         optchat_chief::compactor::compactor_model_for(Family::Claude).as_deref(),
         Some("claude-haiku-5-5")
