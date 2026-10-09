@@ -89,8 +89,9 @@ export type SwitchView = {
     id: number;
     harness: string;
     /// Starting: acpmux has not started the session yet. Waiting: it has, and the pane waits for
-    /// the next prompt (a turn was streaming at the pick). Failed: it could not start.
-    phase: "starting" | "waiting" | "failed";
+    /// the next prompt (a turn was streaming at the pick). Failed: it could not start. Trust:
+    /// acpmux waits for the folder's trust answer; the switch keeps its prompts until then.
+    phase: "starting" | "waiting" | "failed" | "trust";
     /// The pane draws the new chat (false while the old session's turn still streams).
     shown: boolean;
     sessionId?: string;
@@ -116,7 +117,7 @@ type Intent = {
   harness: string;
   cwd?: string;
   shown: boolean;
-  phase: "starting" | "waiting" | "failed";
+  phase: "starting" | "waiting" | "failed" | "trust";
   sessionId?: string;
   /// The session was the one the pane left (empty, same harness): reused, never discarded.
   reused?: boolean;
@@ -189,7 +190,7 @@ export class HarnessSwitch {
   connect(port: SwitchPort): void {
     this.port = port;
     const intent = this.intent;
-    if (intent && intent.phase !== "failed" && !intent.running) void this.run(intent);
+    if (intent && intent.phase !== "failed" && intent.phase !== "trust" && !intent.running) void this.run(intent);
   }
   /// The connection dropped: whatever was in flight runs again on the next client.
   disconnect(port?: SwitchPort): void {
@@ -341,6 +342,16 @@ export class HarnessSwitch {
     this.handlers.restore?.(prompt.text, prompt.attachments);
     prompt.reject(new Error(t("switch.cancelled")));
     this.changed();
+  }
+
+  /// After the folder's Trust answer: the switch that waited for it starts the same harness in the
+  /// same folder now, and sends the prompts it kept, once (the trust route's re-run, direct.ts).
+  resumeAfterTrust(): void {
+    const intent = this.intent;
+    if (intent?.phase !== "trust") return;
+    intent.phase = "starting";
+    this.changed();
+    void this.run(intent);
   }
 
   /// Retry after a failure: starts the harness again (the prompt stays in the composer).
@@ -501,31 +512,30 @@ export class HarnessSwitch {
   }
 
   private fail(intent: Intent, error: unknown): void {
-    // Trust is a separate binary decision in the pane. A pending or denied folder must return the
-    // queued prompt to the composer and let the trust ask own the next action, rather than leaving
-    // a generic "Couldn't start" card with a Retry button beside it.
-    const trustRefusal = isTrustRefusal(error);
+    // Trust is a separate binary decision in the pane: the one trust question owns the next step,
+    // never a generic "Couldn't start" card with Retry. The switch keeps its harness, folder and
+    // prompts and waits; Trust runs it again (`resumeAfterTrust`) and sends them once (cx-nn3e).
+    if (isTrustRefusal(error)) {
+      intent.phase = "trust";
+      intent.error = undefined;
+      this.changed();
+      return;
+    }
     intent.phase = "failed";
     intent.error = errorText(error) || t("switch.unknownError");
     if (intent.queued.length) {
       this.handBack(intent.queued);
-      // The prompts are back in the composer (`handedBack`); acpmux's refusal reason and folder
-      // ride along, so a trust refusal still asks about the folder.
-      const refusal = error as { reason?: unknown; cwd?: unknown } | undefined;
+      // The prompts are back in the composer (`handedBack`); acpmux's refusal reason rides along.
+      const refusal = error as { reason?: unknown } | undefined;
       const reason = Object.assign(new Error(intent.error), {
         handedBack: true,
         ...(typeof refusal?.reason === "string" ? { reason: refusal.reason } : {}),
-        ...(typeof refusal?.cwd === "string" ? { cwd: refusal.cwd } : {}),
       });
       for (const prompt of intent.queued) prompt.reject(reason);
       intent.queued = [];
     }
-    if (trustRefusal && this.intent === intent) {
-      this.intent = undefined;
-      intent.done.resolve(undefined);
-    }
     this.changed();
-    if (!trustRefusal) intent.done.resolve(undefined);
+    intent.done.resolve(undefined);
   }
 
   private changed(): void {

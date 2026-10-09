@@ -1984,8 +1984,9 @@ function AcpmuxPane() {
           turnRunning: () => client.turnRunning(),
           shown: () => client.shownSession(),
           create: async (harness, cwd) => {
-            // After a Trust answer the switch runs again (the trust route, direct.ts).
-            const again = () => void harnessSwitch.switchTo(harness, cwd);
+            // After a Trust answer the switch that waited for it runs again, with its prompts
+            // (the trust route, direct.ts; harnessSwitch.resumeAfterTrust).
+            const again = () => harnessSwitch.resumeAfterTrust();
             const sessionId = await client.startSession(harness, cwd, undefined, again).catch((error: unknown) => {
               setBlockedHarness(harnessBlock(error));
               throw error;
