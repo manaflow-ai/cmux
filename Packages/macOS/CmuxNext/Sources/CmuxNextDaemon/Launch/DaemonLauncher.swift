@@ -158,9 +158,9 @@ public struct DaemonLauncher: Sendable {
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
-    /// variables only, never a build's `CMUX_*` identity.
+    /// variables only, never a build's `CMUX_*` identity; and the brain's tools socket (chief.*).
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
-        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"]
+        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET"]
         return base.filter { kept.contains($0.key) }
     }
 

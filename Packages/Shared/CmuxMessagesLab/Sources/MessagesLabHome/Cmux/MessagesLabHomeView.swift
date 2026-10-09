@@ -72,6 +72,18 @@ public final class MessagesLabHomeView: NSView {
         set { projection.isSendEnabled = newValue }
     }
 
+    /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
+    public var isWorking: Bool {
+        get { controller.isWorking }
+        set { controller.isWorking = newValue }
+    }
+
+    /// The host's shared stop action.
+    public var onStop: (() -> Void)? {
+        get { controller.onStop }
+        set { controller.onStop = newValue }
+    }
+
     /// The window is key and visible (read cursor).
     public var isVisibleToUser: Bool {
         get { projection.isVisibleToUser }

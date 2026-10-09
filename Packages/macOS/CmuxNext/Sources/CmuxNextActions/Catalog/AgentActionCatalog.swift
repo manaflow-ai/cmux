@@ -193,6 +193,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 symbol: "sidebar.right", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // Stops the Home Chief's running turn (chief.stop); the compose bar's
+            // stop button, Esc and Cmd-. in its field run this one action.
+            ActionDescriptor(
+                id: "home.stopChief",
+                title: String(localized: "action.home.stopChief", defaultValue: "Stop the Chief", bundle: .module),
+                keywords: ["chief", "home", "stop", "cancel", "interrupt", "turn"], category: .agents,
+                symbol: "stop.circle", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             // The local Chief's memory inspector (optchat-inspector.md): what the
             // model saw each turn and the memory tree, in a browser tab in a new
             // column. Debug builds only (DEV and nightly).
