@@ -240,7 +240,10 @@ extension ContentView {
                     trailingStillWidth: { rightSidebarWidth },
                     isPeekPresenting: { sidebarPeek.presentsPanel },
                     dockedLayoutWillCommit: { docked in syncTrafficLightInset(docked: docked) },
-                    tabBarInsetDelta: { tabBarLeadingInset(docked: false) - tabBarLeadingInset(docked: true) }
+                    tabBarInsetDelta: { tabBarLeadingInset(docked: false) - tabBarLeadingInset(docked: true) },
+                    splitButtonCount: {
+                        tabManager.selectedWorkspace?.bonsplitController.configuration.appearance.splitButtons.count ?? 0
+                    }
                 )
                 sidebarPeek.setPolicy(SidebarCustomizationSettings.peekPolicy())
             }

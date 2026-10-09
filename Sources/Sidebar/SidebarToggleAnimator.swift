@@ -32,12 +32,15 @@ final class SidebarToggleAnimator: ObservableObject {
     private var dockedLayoutWillCommit: (Bool) -> Void = { _ in }
     /// How much further right the tab bar's first tab rests hidden.
     private var tabBarInsetDelta: () -> CGFloat = { 0 }
-    /// A hide's tab row picture, taken before the hidden layout commits.
+    /// How many action buttons a pane's tab bar shows on its trailing end.
+    private var splitButtonCount: () -> Int = { 0 }
+    /// A hide's pictures, taken before the hidden layout commits.
     private var pendingTabRow: SidebarSlideTabRowCapture?
+    private var pendingTrailingChrome: SidebarSlideTrailingChromeCapture?
     private var machine = SidebarToggleSlideMachine(docked: true)
     /// What carries the running slide, captured when it starts and kept for
     /// every retarget until it lands.
-    private var session: SlideSession?
+    private var session: SidebarToggleSlideSession?
     /// Effects are being carried out; a press arriving meanwhile (the atomic
     /// commit runs the run loop once) waits its turn.
     private var isExecuting = false
@@ -53,7 +56,8 @@ final class SidebarToggleAnimator: ObservableObject {
         trailingStillWidth: @escaping () -> CGFloat,
         isPeekPresenting: @escaping () -> Bool,
         dockedLayoutWillCommit: @escaping (Bool) -> Void,
-        tabBarInsetDelta: @escaping () -> CGFloat
+        tabBarInsetDelta: @escaping () -> CGFloat,
+        splitButtonCount: @escaping () -> Int
     ) {
         self.sidebarState = sidebarState
         self.layout = layout
@@ -63,6 +67,7 @@ final class SidebarToggleAnimator: ObservableObject {
         self.isPeekPresenting = isPeekPresenting
         self.dockedLayoutWillCommit = dockedLayoutWillCommit
         self.tabBarInsetDelta = tabBarInsetDelta
+        self.splitButtonCount = splitButtonCount
         // A re-install drops any running slide; `reset` keeps the generation
         // counting, so a late stop from the old slide stays stale.
         if session != nil {
@@ -155,6 +160,7 @@ final class SidebarToggleAnimator: ObservableObject {
                     slide = nil
                 }
                 pendingTabRow = captureTabRow(in: window, docked: true)
+                pendingTrailingChrome = captureTrailingChrome(in: window)
                 commitAtomically(in: window) {
                     layout?.docksSidebar = false
                     dockedLayoutWillCommit(false)
@@ -162,6 +168,7 @@ final class SidebarToggleAnimator: ObservableObject {
                     if let slide { addSlideAnimation(slide, in: window) }
                 }
                 pendingTabRow = nil
+                pendingTrailingChrome = nil
                 if let slide { machine.slideDidStart(generation: slide.generation, at: CACurrentMediaTime()) }
             case let .animate(slide):
                 CATransaction.begin()
@@ -240,12 +247,15 @@ final class SidebarToggleAnimator: ObservableObject {
         guard machine.slide?.generation == slide.generation else { return }
         if session == nil, let views = Self.slidingViews(in: window), let layout {
             let tabRow = pendingTabRow ?? captureTabRow(in: window, docked: false)
+            let trailingChrome = pendingTrailingChrome ?? captureTrailingChrome(in: window)
             pendingTabRow = nil
-            session = SlideSession(
+            pendingTrailingChrome = nil
+            session = SidebarToggleSlideSession(
                 views: views,
                 trailingStillWidth: trailingStillWidth(),
                 titleGlide: layout.titlebarTitle?.glide(sidebarWidth: layout.width),
-                tabRow: tabRow
+                tabRow: tabRow,
+                trailingChrome: trailingChrome
             )
         }
         guard let session, !session.movingLayers.isEmpty else {
@@ -283,6 +293,11 @@ final class SidebarToggleAnimator: ObservableObject {
         guard let reference = TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(window)]?.installedReferenceView,
               let layout else { return nil }
         return SidebarSlideTabRowCapture.capture(in: reference, docked: docked, inset: tabBarInsetDelta(), sidebarWidth: layout.width)
+    }
+
+    private func captureTrailingChrome(in window: NSWindow) -> SidebarSlideTrailingChromeCapture? {
+        guard let reference = TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(window)]?.installedReferenceView else { return nil }
+        return SidebarSlideTrailingChromeCapture.capture(in: reference, buttonCount: splitButtonCount())
     }
 
     private func slideSpring(from: Double, to: Double, velocity: Double, duration: Double, keyPath: String = "transform.translation.x") -> CASpringAnimation {
@@ -393,85 +408,6 @@ final class SidebarToggleAnimator: ObservableObject {
     var debugWindow: NSWindow? { window() }
     var debugSidebarState: SidebarState? { sidebarState }
 #endif
-}
-
-/// The layers a slide moves, plus what keeps an open right sidebar still.
-///
-/// The right sidebar lives in the moving content root. While a slide runs,
-/// every moving layer is masked off at the right sidebar's leading edge (the
-/// mask runs the same spring backwards, so the edge stays put on screen) and
-/// a snapshot of the column is shown in its place, above everything. The
-/// terminal reads as sliding under the right sidebar, which never moves.
-@MainActor
-private final class SlideSession {
-    private(set) var movingLayers: [CALayer]
-    let masks: [CALayer]
-    private(set) var glides: [SidebarSlideGlide.Layer] = []
-    private let stillOverlay: NSView?
-    private var tabRowOverlay: NSView?
-
-    convenience init(views: [NSView], trailingStillWidth: CGFloat, titleGlide: SidebarSlideGlide.Layer?, tabRow: SidebarSlideTabRowCapture?) {
-        self.init(views: views, trailingStillWidth: trailingStillWidth)
-        glides = [titleGlide].compactMap { $0 }
-        // The tab row picture rides with the content root (below the right
-        // sidebar's still snapshot) and glides inside it.
-        if let tabRow, let reference = views.first, let container = reference.superview,
-           let overlay = tabRow.makeOverlay(above: reference, in: container), let layer = overlay.view.layer {
-            tabRowOverlay = overlay.view
-            movingLayers.append(layer)
-            glides.append(overlay.glide)
-        }
-    }
-
-    private init(views: [NSView], trailingStillWidth: CGFloat) {
-        movingLayers = views.compactMap(\.layer)
-        guard trailingStillWidth > 0,
-              let reference = views.first,
-              let container = reference.superview else {
-            masks = []
-            stillOverlay = nil
-            return
-        }
-        let stillRect = NSRect(
-            x: reference.bounds.maxX - trailingStillWidth,
-            y: reference.bounds.minY,
-            width: trailingStillWidth,
-            height: reference.bounds.height
-        )
-        if let rep = reference.bitmapImageRepForCachingDisplay(in: stillRect) {
-            reference.cacheDisplay(in: stillRect, to: rep)
-            let overlay = NSView(frame: container.convert(stillRect, from: reference))
-            overlay.wantsLayer = true
-            overlay.layer?.contents = rep.cgImage
-            overlay.layer?.contentsGravity = .resize
-            container.addSubview(overlay, positioned: .above, relativeTo: nil)
-            stillOverlay = overlay
-        } else {
-            stillOverlay = nil
-        }
-        let bleed: CGFloat = 10_000
-        var masks: [CALayer] = []
-        for view in views {
-            guard let layer = view.layer else { continue }
-            let edge = view.convert(NSPoint(x: stillRect.minX, y: 0), from: reference).x
-            let mask = CALayer()
-            mask.backgroundColor = NSColor.black.cgColor
-            mask.frame = CGRect(x: -bleed, y: -bleed, width: edge + bleed, height: layer.bounds.height + 2 * bleed)
-            layer.mask = mask
-            masks.append(mask)
-        }
-        self.masks = masks
-    }
-
-    func tearDown(animationKey: String) {
-        for layer in movingLayers {
-            layer.removeAnimation(forKey: animationKey)
-            layer.mask = nil
-        }
-        glides.forEach { $0.layer.removeAnimation(forKey: animationKey) }
-        tabRowOverlay?.removeFromSuperview()
-        stillOverlay?.removeFromSuperview()
-    }
 }
 
 /// Lands the slide when its spring stops. Core Animation retains its
