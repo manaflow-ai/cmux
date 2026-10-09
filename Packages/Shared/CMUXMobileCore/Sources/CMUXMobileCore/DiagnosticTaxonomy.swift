@@ -892,6 +892,11 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case agentFeedReplySucceeded = 672
     /// `c` is 0 when the reply was not sent and 1 when its delivery is unconfirmed.
     case agentFeedReplyFailed = 673
+
+    /// A natural terminal viewport report was published. `b` is the logical
+    /// column count, `c` is the logical row count, and `sequence` is the
+    /// report ID. The surface is a process-local opaque handle.
+    case terminalViewportReportPublished = 674
 }
 
 /// The user's configured connection method, mirrored from the settings picker
