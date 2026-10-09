@@ -735,3 +735,23 @@ fn a_compactor_call_with_a_missing_line_is_refused() {
     let leaf = compact_request(&memory, &store, NodeId::new(0, 4), String::new());
     assert_eq!(leaf.err(), Some(MissingNode(gone)));
 }
+
+/// Compactor width (hq-6d gap 3c): a burst of long messages (an import, a
+/// tool-heavy turn) starts 64 model calls at once, as the reference client
+/// does (64 jobs, 64 leaves ahead), not 8.
+#[test]
+fn a_burst_of_long_messages_starts_64_compactions_at_once() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..100 {
+        store.push(Kind::Echo, format!("message {k} {}", "x".repeat(700)));
+        memory.append();
+    }
+    let models = memory
+        .pump(&store)
+        .iter()
+        .filter(|w| matches!(w, Work::Model { .. }))
+        .count();
+    assert_eq!(models, 64);
+    assert_eq!(memory.busy().count(), 64);
+}
