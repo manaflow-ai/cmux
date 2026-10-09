@@ -187,7 +187,7 @@ test("Pro cannot bypass the memory gate with unknown snapshot or fork dimensions
   }
 });
 
-test("access verbs refuse a machine larger than the caller's current plan", async () => {
+test("access verbs keep an existing machine larger than the caller's current plan usable", async () => {
   const run = async (callerPlanId: string, reservation: { memoryMb: number; vcpus: number; diskMb: number }) => {
     const repo = {
       findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", ownerTeamId: "u", coderouterPoolId: null, status: "running",
@@ -201,19 +201,17 @@ test("access verbs refuse a machine larger than the caller's current plan", asyn
       .pipe(Effect.provide(layer)))
       .then(() => null, (error) => vmWorkflowErrorCause(error)?._tag ?? "unknown");
   };
-  // A 64 GB Max machine is locked on Pro.
-  expect(await run("pro", { memoryMb: 65536, vcpus: 32, diskMb: 131072 })).toBe("VmMemoryPlanError");
-  // CPU above the plan also locks an 8 GB machine.
-  expect(await run("pro", { memoryMb: 8192, vcpus: 20, diskMb: 32768 })).toBe("VmMemoryPlanError");
-  expect(await run("team", { memoryMb: 65536, vcpus: 16, diskMb: 131072 })).toBe("VmMemoryPlanError");
-  // CPU above Max's 2xl row is above every plan.
-  expect(await run("max", { memoryMb: 65536, vcpus: 40, diskMb: 131072 })).toBe("VmMemoryPlanError");
-  // Machines inside the plan pass.
+  // Existing over-limit machines are grandfathered during migration.
+  expect(await run("pro", { memoryMb: 65536, vcpus: 32, diskMb: 131072 })).toBeNull();
+  expect(await run("pro", { memoryMb: 8192, vcpus: 20, diskMb: 32768 })).toBeNull();
+  expect(await run("team", { memoryMb: 65536, vcpus: 16, diskMb: 131072 })).toBeNull();
+  expect(await run("max", { memoryMb: 65536, vcpus: 40, diskMb: 131072 })).toBeNull();
+  // Machines inside the plan also pass.
   expect(await run("pro", { memoryMb: 16384, vcpus: 8, diskMb: 65536 })).toBeNull();
   expect(await run("max", { memoryMb: 65536, vcpus: 32, diskMb: 131072 })).toBeNull();
 });
 
-test("paid access probes legacy rows without a reservation before allowing open or resume", async () => {
+test("paid access allows legacy rows without a reservation during migration", async () => {
   const row = {
     id: "row",
     userId: "u",
@@ -226,9 +224,7 @@ test("paid access probes legacy rows without a reservation before allowing open 
     providerMetadata: {},
   };
   const repo = { findUserVm: () => Effect.succeed(row) } as unknown as VmRepositoryShape;
-  const providers = {
-    getStats: () => Effect.succeed({ memoryTotalMb: 24576, cpus: 12, diskTotalMb: 98304 }),
-  } as unknown as VmProviderGatewayShape;
+  const providers = {} as VmProviderGatewayShape;
   const layer = Layer.mergeAll(
     Layer.succeed(VmRepository, repo),
     Layer.succeed(VmProviderGateway, providers),
@@ -238,13 +234,10 @@ test("paid access probes legacy rows without a reservation before allowing open 
     resumeVm({ userId: "u", billingTeamId: "u", providerVmId: "vm", maxActiveVms: 5, callerPlanId: "pro" })
       .pipe(Effect.provide(layer)),
   );
-  expect(result._tag).toBe("Failure");
-  if (result._tag === "Failure") {
-    expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
-  }
+  expect(result._tag).toBe("Success");
 });
 
-test("reopening an existing oversized Base cannot bypass the caller's Pro CPU ceiling", async () => {
+test("reopening an existing oversized Base remains usable during migration", async () => {
   const base = { id: "base", name: "default" };
   const generation = { id: "generation", generation: 1 };
   const caller = {
@@ -292,10 +285,7 @@ test("reopening an existing oversized Base cannot bypass the caller's Pro CPU ce
       Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
     );
     const result = await Effect.runPromiseExit(openBaseVm(caller).pipe(Effect.provide(layer)));
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
-    }
+    expect(result._tag).toBe("Success");
   }
 });
 
@@ -358,7 +348,7 @@ test("reopening a markerless Base persists the measured reservation before retur
   });
 });
 
-test("an idempotent create retry cannot return a Max-sized row to Pro", async () => {
+test("an idempotent create retry returns a grandfathered oversized row to Pro", async () => {
   const existing = {
     id: "vm",
     userId: "u",
@@ -413,8 +403,5 @@ test("an idempotent create retry cannot return a Max-sized row to Pro", async ()
     idempotencyKey: "retry",
   }).pipe(Effect.provide(layer)));
 
-  expect(result._tag).toBe("Failure");
-  if (result._tag === "Failure") {
-    expect(vmWorkflowErrorFromCause(result.cause)?._tag).toBe("VmMemoryPlanError");
-  }
+  expect(result._tag).toBe("Success");
 });
