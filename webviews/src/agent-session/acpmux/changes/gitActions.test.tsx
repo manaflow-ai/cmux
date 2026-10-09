@@ -56,7 +56,7 @@ afterAll(() => {
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { DiffPanel } = await import("../DiffPanel");
-const { t } = await import("../i18n");
+const { translate: t } = await import("../i18n");
 const { WriteKeys } = await import("./gitWrite");
 
 const doc = dom.window.document;
