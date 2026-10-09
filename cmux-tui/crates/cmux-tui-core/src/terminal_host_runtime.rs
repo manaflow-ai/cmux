@@ -871,6 +871,8 @@ mod unix {
     mod clipboard_read;
     mod control_responses;
     mod exited_drain;
+    mod host_accept;
+    mod host_crash;
     mod host_parser;
     mod host_scope;
     mod host_signals;
@@ -1923,6 +1925,7 @@ mod unix {
                 }
             }
         }
+        crate::host_exe::hold_in_use_lock();
         host_signals::install()
     }
 
@@ -4871,6 +4874,7 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
+        let mut backoff = host_accept::AcceptBackoff::new();
         loop {
             let now = Instant::now();
             if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -4891,18 +4895,10 @@ mod unix {
                 break;
             }
             match listener.accept() {
-                Ok((stream, _)) => {
-                    // Accepted sockets inherit O_NONBLOCK from the listener
-                    // on macOS. Client protocol threads use blocking framed
-                    // reads, so normalize the accepted descriptor here.
-                    stream.set_nonblocking(false)?;
-                    let host = shared.clone();
-                    thread::Builder::new().name("terminal-host-client".into()).spawn(
-                        move || {
-                            let _ = serve_client(host, stream);
-                        },
-                    )?;
-                }
+                Ok((stream, _)) => match host_accept::serve_accepted(&shared, stream) {
+                    Ok(()) => backoff.reset(),
+                    Err(error) => backoff.after_error(&shared, &error),
+                },
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     // Block until an attachment arrives or the accept waker
                     // reports a lifecycle change (terminal exit, last client
@@ -4929,15 +4925,24 @@ mod unix {
                     if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
                         let error = std::io::Error::last_os_error();
                         if error.kind() != std::io::ErrorKind::Interrupted {
-                            return Err(error.into());
+                            backoff.after_error(&shared, &error);
                         }
+                    } else {
+                        // The listener drained without error: a later error
+                        // starts a new streak.
+                        backoff.reset();
                     }
                     if fds[1].revents != 0 {
                         shared.accept_waker.drain();
                     }
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(error.into()),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
+                    ) => {}
+                // EMFILE, ENFILE, ENOBUFS, ENOMEM: never end the shell.
+                Err(error) => backoff.after_error(&shared, &error),
             }
         }
         thread::sleep(Duration::from_millis(20));
@@ -5753,6 +5758,21 @@ mod unix {
         }
         .validate()
         .map_err(|_| anyhow::anyhow!("terminal-host Kitty graphics limits are out of range"))
+    }
+
+    /// The Kitty limits a smart host's `ResyncRequired` carries when a quota
+    /// change evicted nothing (nx-scale 1b); `None` for an empty or attach-gap
+    /// payload, which still requires a reconnect.
+    pub(crate) fn decode_resync_kitty_graphics_limits(
+        payload: &[u8],
+    ) -> Option<KittyGraphicsLimits> {
+        if payload.len() != KITTY_GRAPHICS_LIMITS_ENCODED_LEN {
+            return None;
+        }
+        let mut decoder = PayloadDecoder::new(payload);
+        let limits = decode_kitty_graphics_limits(&mut decoder).ok()?;
+        decoder.finish().ok()?;
+        Some(limits)
     }
 
     fn encode_kitty_replay_state(
@@ -9747,9 +9767,9 @@ pub use unix::unadoptable::*;
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
     StandbyTerminalHost, acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version, launch_terminal_host_from, launch_terminal_host_seeded,
-    live_successor_record, load_terminal_host_records_for_reset, record_owner_token,
-    sweep_released_pty_locks,
+    decode_host_resize_payload_for_version, decode_resync_kitty_graphics_limits,
+    launch_terminal_host_from, launch_terminal_host_seeded, live_successor_record,
+    load_terminal_host_records_for_reset, record_owner_token, sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{

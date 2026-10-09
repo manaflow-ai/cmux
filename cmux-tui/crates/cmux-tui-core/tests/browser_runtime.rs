@@ -2,13 +2,13 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::os::unix::net::UnixStream;
-use std::sync::Mutex;
-use std::sync::mpsc;
+use std::sync::{Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
-
+mod support;
 use cmux_tui_core::{BrowserStatus, Mux, SurfaceKind, SurfaceOptions, server};
 use serde_json::{Value, json};
+use support::DaemonMuxOps;
 use tungstenite::{Message, accept};
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());

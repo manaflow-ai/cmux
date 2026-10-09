@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// Installed: every installed app with Enabled, Reload, Logs and Remove.
@@ -12,9 +13,9 @@ struct AppInstalledView: View {
                 ForEach(model.installedApps) { app in
                     AppInstalledRow(model: model, app: app)
                 }
-                AppPrototypeNote().padding(.top, Metrics.space4)
             }
-            .padding(Metrics.space5)
+            .appStoreColumn()
+            .padding(.vertical, Metrics.space5)
         }
         .overlay {
             if model.installedApps.isEmpty {
@@ -51,24 +52,27 @@ struct AppInstalledRow: View {
                 .toggleStyle(.switch).controlSize(.mini).labelsHidden()
                 .tint(colors.secondary)
                 .help(AppsStrings.enabled)
-                iconButton("arrow.clockwise", AppsStrings.reload) {
+                iconButton(.actionReload, AppsStrings.reload) {
                     // task-owner: one reload from a button
                     Task { await model.reload(app.id) }
                 }
-                iconButton("checkmark.shield", AppsStrings.permissions) {
+                // Disabled, not hidden, with nothing to grant: the row's buttons stay in place.
+                iconButton(.appPermissions, AppsStrings.permissions, enabled: hasGrants) {
                     model.grantsShown = model.grantsShown == app.id ? nil : app.id
                 }
-                iconButton("text.alignleft", model.logsShown == app.id ? AppsStrings.hideLogs : AppsStrings.logs) {
+                iconButton(.textDescription, model.logsShown == app.id ? AppsStrings.hideLogs : AppsStrings.logs) {
                     model.logsShown = model.logsShown == app.id ? nil : app.id
                 }
-                AppInstallButton(model: model, id: app.id)
+                AppInstallButton(model: model, id: app.id, builtIn: app.isBuiltIn)
             }
-            if model.grantsShown == app.id { AppGrantsView(model: model, app: app).padding(.leading, 32 + Metrics.space3) }
+            if model.grantsShown == app.id, hasGrants { AppGrantsView(model: model, app: app).padding(.leading, 32 + Metrics.space3) }
             if model.logsShown == app.id { logs }
         }
         .padding(Metrics.space3)
         .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius + 2, style: .continuous).fill(colors.hover))
     }
+
+    private var hasGrants: Bool { !app.manifest.scopes.isEmpty || !app.manifest.optionalScopes.isEmpty }
 
     private var logs: some View {
         let lines = model.host.logs[app.id] ?? []
@@ -86,26 +90,14 @@ struct AppInstalledRow: View {
         .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(colors.background))
     }
 
-    private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ icon: IconName, _ help: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(colors.secondary).frame(width: 22, height: 22)
+            Icon(icon, size: 14).foregroundStyle(enabled ? colors.secondary : colors.tertiary).frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .help(help)
         .accessibilityLabel(help)
-    }
-}
-
-/// "Prototype engine" label (DEV): the JSC engine is in-process.
-struct AppPrototypeNote: View {
-    @Environment(\.appSceneColors) private var colors
-
-    var body: some View {
-        HStack(spacing: Metrics.space2) {
-            Image(systemName: "flask").font(.system(size: 10))
-            Text(AppsStrings.prototypeEngine).font(Font(Typography.caption).weight(.medium))
-            Text(AppsStrings.prototypeHelp).font(Font(Typography.caption))
-        }
-        .foregroundStyle(colors.tertiary)
     }
 }

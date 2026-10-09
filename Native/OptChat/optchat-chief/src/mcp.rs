@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    DATE_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION, ZOOM_DESCRIPTION,
+    DATE_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION,
+    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -27,8 +28,8 @@ pub fn tools_for(subagent: bool) -> Value {
     let int = json!({"type": "integer", "minimum": 0});
     let text = json!({"type": "string", "minLength": 1});
     let mut list = vec![
-        json!({"name": "zoom", "description": ZOOM_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int, "n": int}, "required": ["id", "n"], "additionalProperties": false}}),
+        json!({"name": "zoom", "description": format!("{ZOOM_DESCRIPTION}{ZOOM_AGENT_DESCRIPTION}"),
+         "inputSchema": {"type": "object", "properties": {"id": {"type": ["integer", "string"]}, "n": int, "at": int}, "required": ["id"], "additionalProperties": false}}),
         json!({"name": "date", "description": DATE_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
     ];

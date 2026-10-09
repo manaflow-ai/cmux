@@ -67,6 +67,13 @@ final class PaneHeaderView: NSView {
 
     override var mouseDownCanMoveWindow: Bool { true }
 
+    /// The header acts on the first click, as the pill (an `NSButton`)
+    /// and a native titlebar do: in a window that is not key (an inactive
+    /// app, a background window) `NSWindow.sendEvent` passes a first click
+    /// on only to a view that accepts it, so without this the avatar's
+    /// click made the window key and never reached `mouseDown` (cx-3x9t).
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     /// The avatar opens the contact; elsewhere AppKit's window drag (with its
     /// snapping and Spaces behavior), not a move loop.
     override func mouseDown(with event: NSEvent) {

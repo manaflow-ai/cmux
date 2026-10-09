@@ -121,12 +121,15 @@ final class TabHoverCardView: NSView {
         if !visible { resources.show(nil) }
     }
 
-    /// Shows the latest sample; nil shows the placeholder line.
+    /// Shows the latest sample; nil shows the placeholder line. A tab with
+    /// no numbers to report (an agent chat, the New Tab page) shows none.
     func setResources(_ report: ResourceReport?) {
-        resources.show(report)
+        let unavailable = report?.tabs.first.map { !$0.available } ?? false
+        setResourcesVisible(!unavailable)
+        if !unavailable { resources.show(report) }
     }
 
-    private func setThumbnailVisible(_ visible: Bool) {
+    func setThumbnailVisible(_ visible: Bool) {
         thumbnail.isHidden = !visible
         thumbnailHeight?.constant = visible ? Self.thumbnailSize.height : 0
         thumbnailTop?.constant = visible ? Metrics.space4 : 0

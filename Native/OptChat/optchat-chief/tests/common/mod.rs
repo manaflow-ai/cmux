@@ -438,6 +438,8 @@ pub struct Agents {
     pub session_harness: Option<String>,
     /// Every permission answer: (session, permission id, option id).
     pub responses: Vec<(String, String, Option<String>)>,
+    /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
+    pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -691,6 +693,20 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        self.inner.lock().unwrap().prewarms.push((
+            harness.to_owned(),
+            preset.map(str::to_owned),
+            cwd.to_owned(),
+        ));
+        Ok(())
+    }
+
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
     fn cancel(&self, session: &str) -> Result<(), String> {
@@ -741,6 +757,7 @@ pub fn settings(dir: &Path) -> Settings {
         codex_preset: None,
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
+        cache_ttl: None,
     }
 }
 

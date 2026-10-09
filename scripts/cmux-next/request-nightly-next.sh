@@ -53,7 +53,21 @@ head="$(git rev-parse HEAD)"
 
 required_job="cmux-next Release compile (Xcode 26)"
 
+# A commit whose nightly.yml lacks the NIGHTLY_NEXT_NOTARY_PAUSED gate would
+# notarize even while the pause is on (cx-f58x), so it is never promoted.
+has_notary_gate() { # <sha>
+  # Read the whole file first: `git show | grep -q` fails under pipefail when
+  # grep stops at an early match and git show gets SIGPIPE.
+  local workflow
+  workflow="$(git show "$1:.github/workflows/nightly.yml" 2>/dev/null)" || return 1
+  [[ "$workflow" == *NIGHTLY_NEXT_NOTARY_PAUSED* ]]
+}
+
 request() { # <sha>
+  if ! has_notary_gate "$1"; then
+    echo "not promoting ${1:0:12}: its nightly.yml has no NIGHTLY_NEXT_NOTARY_PAUSED gate"
+    return 1
+  fi
   gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1"
   echo "requested nightly-next promotion of $1 (published cmux-tui tree, green Release compile)"
 }
@@ -70,24 +84,29 @@ key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { printf '%s\n' "$resolved" >&2; echo "error: the resolver printed no tree key" >&2; exit 1; }
 
 if [[ "$mode" == release-compile-green ]]; then
-  request "$sha"
+  request "$sha" || true
   exit 0
 fi
 
-# 2. --tree-ready: the newest green push run on feat-cmux-next whose commit has
-# this tree key. Runs are newest first; promotion only moves forward.
-runs="$(gh api --paginate --slurp \
-  "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
+# 2. --tree-ready: the newest green push run on feat-cmux-next whose commit
+# descends from <sha> and has this tree key. Runs are newest first; promotion
+# only moves forward. One fetch of the branch's recent history covers every
+# candidate (a fetch per commit took over 5 minutes in run 37820762809); a
+# commit it does not reach is older than <sha> or off the branch.
+git fetch -q --no-tags --depth="$((window * 4))" origin refs/heads/feat-cmux-next 2>/dev/null \
+  || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
+# One page holds the window (at most 99): paginating walked every push run ever made.
+runs="$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
 while read -r run_id run_sha; do
   [[ "$run_id" =~ ^[0-9]+$ && "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
   if [[ "$run_sha" != "$sha" ]]; then
-    git cat-file -e "$run_sha^{commit}" 2>/dev/null \
-      || git fetch -q --no-tags --depth=1 origin "$run_sha" 2>/dev/null \
-      || { echo "skipping ${run_sha:0:12}: could not fetch it" >&2; continue; }
+    git cat-file -e "$run_sha^{commit}" 2>/dev/null || continue
+    git merge-base --is-ancestor "$sha" "$run_sha" 2>/dev/null || continue
     run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)" || continue
     [[ "$run_key" == "$key" ]] || continue
   fi
   jobs="$(gh api --paginate --slurp "repos/$repo/actions/runs/$run_id/jobs?filter=latest&per_page=100")"
+  has_notary_gate "$run_sha" || continue
   if python3 -c '
 import json, sys
 name = sys.argv[1]
@@ -102,7 +121,8 @@ sys.exit(0 if ok else 1)
 done < <(python3 -c '
 import json, sys
 seen = set()
-for page in json.loads(sys.stdin.read()):
+data = json.loads(sys.stdin.read())
+for page in data if isinstance(data, list) else [data]:
     for run in page.get("workflow_runs", []):
         sha = run.get("head_sha")
         if run.get("head_branch") == "feat-cmux-next" and run.get("event") == "push" and sha not in seen:

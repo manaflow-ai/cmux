@@ -209,6 +209,19 @@ describe("direct client session state", () => {
 
   const connect = () => AcpmuxDirectClient.connect(host, (snapshot) => snapshots.push(snapshot));
 
+  test("the inspector journal follows selection and does not expose the mutable event list", async () => {
+    const client = await connect();
+    try {
+      expect(client.sessionEvents().map((event) => event.seq)).toEqual([5, 6]);
+      client.sessionEvents().pop();
+      expect(client.sessionEvents().map((event) => event.seq)).toEqual([5, 6]);
+      await client.select("b");
+      expect(client.sessionEvents().map((event) => event.seq)).toEqual([1]);
+    } finally {
+      client.close();
+    }
+  });
+
   test("warms one live child for each recent project without creating a session", async () => {
     ScriptedSocket.respond = ({ method, params }) => {
       if (method === "_acpmux/watch")
@@ -603,6 +616,81 @@ describe("direct client session state", () => {
       ),
     ).toBe("rejected");
     expect(snapshots.flatMap((snapshot) => snapshot.rows).some((row) => row.kind === "notice")).toBe(false);
+  });
+
+  // A Claude Code chat still running in a terminal (`claude --resume <id>`): acpmux refuses to
+  // adopt it (`adopt.live`); the pane offers Fork It and Open Anyway instead of a dead end, and the
+  // fork is the tab's session.
+  test("a chat open in another process is offered fork or open, and the fork becomes the tab's session", async () => {
+    const adopt = { harness: "claude", agentSessionId: "0a1b2c3d" };
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new") return { sessionId: "forked", _meta: { acpmux: { agentSessionId: "its-own" } } };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    ScriptedSocket.held = new Set(["session/new"]);
+    const connecting = AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
+    ScriptedSocket.current.fail("session/new", {
+      code: -32602,
+      message: "claude session 0a1b2c3d is open in another process (pid 812: claude --resume 0a1b2c3d)",
+      data: {
+        reason: "adopt.live",
+        details: { signal: "process", pid: 812, command: "claude --resume 0a1b2c3d", canFork: true },
+      },
+    });
+    const client = await connecting;
+    expect(snapshots.at(-1)?.liveChat).toEqual({ canFork: true, command: "claude --resume 0a1b2c3d" });
+    expect(snapshots.at(-1)?.rows.some((row) => row.kind === "notice")).toBe(false);
+    expect(client.adopted).toBeUndefined();
+
+    ScriptedSocket.held = new Set();
+    await client.adoptLive("fork");
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.at(-1)?.params._meta.acpmux.adopt).toEqual({ ...adopt, ifLive: "fork" });
+    expect(client.adopted).toBe("forked");
+    expect(snapshots.at(-1)?.liveChat).toBeUndefined();
+    expect(snapshots.at(-1)?.summary?.sessionId).toBe("forked");
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/kill")).toBe(false);
+  });
+
+  test("a live Codex chat offers no fork, and Open Anyway adopts it as it is", async () => {
+    const adopt = { harness: "codex", agentSessionId: "01999a2b" };
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new")
+        return {
+          sessionId: "opened",
+          _meta: { acpmux: { agentSessionId: params._meta.acpmux.adopt?.agentSessionId } },
+        };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    ScriptedSocket.held = new Set(["session/new"]);
+    const connecting = AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
+    ScriptedSocket.current.fail("session/new", {
+      code: -32602,
+      message: "codex session 01999a2b was written 30s ago by a harness outside cmux",
+      data: { reason: "adopt.live", details: { signal: "recentWrite", agoSeconds: 30, canFork: false } },
+    });
+    const client = await connecting;
+    expect(snapshots.at(-1)?.liveChat).toEqual({ canFork: false });
+
+    ScriptedSocket.held = new Set();
+    await client.adoptLive("fork");
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "session/new")).toHaveLength(1);
+    await client.adoptLive("open");
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.at(-1)?.params._meta.acpmux.adopt).toEqual({ ...adopt, ifLive: "open" });
+    expect(client.adopted).toBe("opened");
   });
 
   test("a chat started in a chosen project leaves the inherited cwd for the next default chat", async () => {
@@ -1236,7 +1324,9 @@ describe("direct client session state", () => {
     expect(attach.params.kinds).toEqual(["transcript", "available_commands_update", "usage_update"]);
     expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     expect(texts()).toEqual(["a five"]);
-    expect(latest().commands).toEqual([{ name: "review", description: "review help", hint: undefined }]);
+    expect(latest().commands).toEqual([
+      { name: "review", description: "review help", hint: undefined, source: "agent" },
+    ]);
     ScriptedSocket.current.notify("session/update", {
       sessionId: "a",
       update: {
@@ -1738,6 +1828,51 @@ describe("direct client session state", () => {
       ["user", "hi"],
       ["assistant", "Hello."],
     ]);
+  });
+
+  test("a reply that ends with its turn hands the transcript a new row, so its caret goes away", async () => {
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? { session: { sessionId: "a", status: "idle" }, events: [userEvent("a", 1, "Reply with exactly: pong")] }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    await connect();
+    await settle();
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 2,
+      at: 2,
+      dir: "in",
+      kind: "agent_message_chunk",
+      msg: {
+        method: "session/update",
+        params: {
+          sessionId: "a",
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "pong" } },
+        },
+      },
+    });
+    await settle();
+    const streamed = latest();
+    const live = streamed.rows.find((row) => row.kind === "assistant");
+    expect(live?.streaming).toBe(true);
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 3,
+      at: 3,
+      dir: "mux",
+      kind: "turn_result",
+      msg: { status: "completed" },
+    });
+    await settle();
+    const ended = latest().rows.find((row) => row.id === live?.id);
+    expect(ended?.streaming).toBe(false);
+    // The transcript memoizes rows by id and version against the snapshot it drew: the drawn snapshot
+    // must keep its streaming row, or the version check sees no change and the caret never goes away.
+    const drawn = streamed.rows.find((row) => row.id === live?.id);
+    expect(drawn?.streaming).toBe(true);
+    expect(ended?.version).toBeGreaterThan(drawn?.version ?? Infinity);
   });
 
   test("a superseded message drops every segment it was split into", async () => {

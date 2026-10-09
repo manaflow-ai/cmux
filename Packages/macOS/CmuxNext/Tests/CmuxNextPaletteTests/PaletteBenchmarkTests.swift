@@ -7,7 +7,7 @@ import Testing
 /// optimized build; debug builds (the default `swift test`) run several times
 /// slower, so they get a looser bound. Run the strict check with
 /// `swift test -c release --filter PaletteBenchmark`.
-@Suite struct PaletteBenchmarkTests {
+@Suite(.paletteRanker) struct PaletteBenchmarkTests {
     static var budgetMilliseconds: Double {
         #if DEBUG
         25

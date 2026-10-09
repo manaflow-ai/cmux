@@ -26,19 +26,8 @@ enum ConfirmationStrings {
         String(localized: "confirm.quitIncognito.title", defaultValue: "Quit and close incognito windows?", table: "Handlers", bundle: .module)
     }
 
-    static func incognitoBody(_ programs: String) -> String {
-        String(localized: "confirm.incognito.body",
-               defaultValue: "Still running: \(programs). Closing ends these processes and deletes the incognito browser data.",
-               table: "Handlers", bundle: .module)
-    }
-
     static func closeWorkspaceTitle(_ name: String) -> String {
         String(localized: "confirm.closeWorkspace.title", defaultValue: "Close “\(name)”?", table: "Handlers", bundle: .module)
-    }
-
-    static func closeWorkspaceBody(_ programs: String) -> String {
-        String(localized: "confirm.closeWorkspace.body",
-               defaultValue: "Still running: \(programs). Closing the workspace ends these processes.", table: "Handlers", bundle: .module)
     }
 
     /// "Close “name”?", for a tab as for a workspace.
@@ -48,15 +37,14 @@ enum ConfirmationStrings {
         String(localized: "confirm.closeTabs.title", defaultValue: "Close \(count) tabs?", table: "Handlers", bundle: .module)
     }
 
-    static func closeTabBody(_ programs: String) -> String {
-        String(localized: "confirm.closeTab.body",
-               defaultValue: "Still running: \(programs). Closing ends these processes.", table: "Handlers", bundle: .module)
+    /// "Still running: vim, npm." for a tab or workspace close.
+    static func stillRunning(_ programs: String) -> String {
+        String(localized: "confirm.stillRunning", defaultValue: "Still running: \(programs).", table: "Handlers", bundle: .module)
     }
 
-    /// "Claude is still working. …", naming the agent in the closing terminal.
+    /// "Claude is still working.", naming the agent in the closing terminal.
     static func agentStillWorking(_ agent: String) -> String {
-        String(localized: "confirm.closeTab.agentBody",
-               defaultValue: "\(agent) is still working. Closing the tab stops it.", table: "Handlers", bundle: .module)
+        String(localized: "confirm.agentWorking", defaultValue: "\(agent) is still working.", table: "Handlers", bundle: .module)
     }
 
     static var theAgent: String {
