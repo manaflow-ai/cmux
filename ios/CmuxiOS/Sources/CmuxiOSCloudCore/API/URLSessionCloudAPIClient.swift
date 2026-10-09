@@ -99,6 +99,7 @@ public struct URLSessionCloudAPIClient: CloudAPIClient {
             let body = (try? Data(contentsOf: temporary)).flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) } ?? .null
             throw CloudAPIError.refused(code: Self.code(in: body) ?? "http.\(http.statusCode)")
         }
+        try Task.checkCancellation()
         do {
             let fm = FileManager.default
             try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
