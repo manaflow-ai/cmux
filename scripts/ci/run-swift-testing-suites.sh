@@ -67,6 +67,21 @@ trap 'rm -rf "$evidence_dir"' EXIT
 case "$(cd "$package_path" && pwd -P)" in
   */Packages/macOS/CmuxNext)
     (cd "$script_dir/../.." && "${CMUX_ENSURE_WEB_BUNDLES:-scripts/ci/ensure-web-bundles.sh}")
+    # The live-daemon suites find this tree's hosted cmux-tui through
+    # `pin-cmux-tui.sh path` (about 60 git processes, 7-10 s), once in every
+    # suite process. Resolve it, and fetch a missing build, once for the run;
+    # the tests read CMUX_NEXT_TUI_TREE_PATH. They never wait for an
+    # unpublished tree (as in RealBinary).
+    if [ -z "${CMUX_NEXT_TUI_TREE_PATH:-}" ]; then
+      tree_path="$(cd "$script_dir/../.." && CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}" \
+        bash scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || tree_path=""
+      if [ -n "$tree_path" ] && [ ! -x "$tree_path" ]; then
+        (cd "$script_dir/../.." && CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}" \
+          bash scripts/cmux-next/pin-cmux-tui.sh fetch >&2) \
+          || echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+      fi
+      [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+    fi
     ;;
 esac
 # Keep process-global test state inside one suite. Some packages otherwise
