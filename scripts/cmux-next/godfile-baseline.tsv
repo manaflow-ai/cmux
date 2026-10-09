@@ -43,7 +43,6 @@ rust-file	cmux-tui/crates/cmux-remote/src/workspace/process.rs	4086	162
 rust-file	cmux-tui/crates/cmux-terminal-client/src/lib.rs	4256	139
 rust-file	cmux-tui/crates/cmux-tui-cdp/src/client.rs	3947	150
 rust-file	cmux-tui/crates/cmux-tui-core/src/agent_hooks.rs	1391	39
-rust-file	cmux-tui/crates/cmux-tui-core/src/browser.rs	1933	75
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_checkpoint.rs	1427	39
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_hooks.rs	2028	54
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_ingress.rs	2993	98
@@ -60,7 +59,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1930	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
 rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	8329	141
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
-rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	5252	196
+rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	4080	123
 rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime.rs	7456	244
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs	6055	229
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store.rs	1410	25
