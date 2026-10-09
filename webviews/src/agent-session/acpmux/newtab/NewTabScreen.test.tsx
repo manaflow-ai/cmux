@@ -429,6 +429,18 @@ test("typed text offers no app action rows", async () => {
   await act(async () => root.unmount());
 });
 
+// cx-e2aa decision (chief 2026-10-09): Cmd-L opens the page with the omnibar focused; the page's
+// own field must not take the keyboard (WebKit gives the web view first responder when it does).
+test("a page opened for the omnibar leaves its field unfocused", async () => {
+  const outside = dom.window.document.createElement("button");
+  dom.window.document.body.append(outside);
+  outside.focus();
+  const { root, field } = await mount({ focusField: false });
+  expect(dom.window.document.activeElement).not.toBe(field);
+  await act(async () => root.unmount());
+  outside.remove();
+});
+
 test("New Tab acknowledges the input generation only after the field has focus", async () => {
   const seen: string[] = [];
   const { root } = await mount({

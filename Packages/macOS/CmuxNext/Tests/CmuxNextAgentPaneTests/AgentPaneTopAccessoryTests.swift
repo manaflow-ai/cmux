@@ -79,4 +79,15 @@ import Testing
         view.discardUnsentChat()
         #expect(scripts.isEmpty)
     }
+
+    /// Cmd-L's page (cx-e2aa): the handshake tells the page to leave its field unfocused, so the
+    /// omnibar keeps the keyboard; any other page focuses its field (the key absent).
+    @Test func aPageOpenedForTheOmnibarTellsThePageNotToFocusItsField() throws {
+        var page = AgentPaneNewTab(kind: .agent)
+        let plain = try JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any]
+        #expect(plain?["focusesField"] == nil)
+        page.focusesField = false
+        let omnibar = try JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any]
+        #expect(omnibar?["focusesField"] as? Bool == false)
+    }
 }
