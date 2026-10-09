@@ -5,7 +5,11 @@
 //! - `_acpmux/chats_watch {enabled?, ...filter}`: the same page, then
 //!   `_acpmux/chat_changed {kind: upsert|removed, key, chat?}` for every
 //!   change on this connection (unfiltered; `_acpmux/chats_lagged` asks the
-//!   client to list again).
+//!   client to list again), and `{kind: activity, key, attention, preview}`
+//!   when the live session continuing a chat changes what it needs from the
+//!   person (`chats/activity.rs`). Every chat value carries `attention`
+//!   (`needsInput`, `failed`, `unread` or null) and `preview` (its live
+//!   session's latest reply, or null).
 //! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`):
 //!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
 //!   or `readOnly`; `needsFolder` when the person must pick the folder.
@@ -29,8 +33,9 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::{Conn, Origin};
-use crate::chats::{ChatQuery, ChatService, change_value};
+use crate::chats::{ChatQuery, ChatService, activity_change, change_value, changes_activity};
 use crate::hub::Hub;
+use crate::hub::HubEvent;
 use crate::rpc::{Message, RpcError};
 
 const PREFIX: &str = "_acpmux/chat";
@@ -54,7 +59,7 @@ pub(super) async fn route(
     match m {
         "_acpmux/chats" => {
             let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
-            page(service, query).await
+            page(hub, service, query).await
         }
         "_acpmux/chats_watch" => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
@@ -66,18 +71,19 @@ pub(super) async fn route(
                 }
                 // Subscribe before the snapshot so no change falls between.
                 if let Some(generation) = service.watch_on(&conn.id) {
-                    forward(service.clone(), conn.clone(), generation);
+                    forward(hub.clone(), service.clone(), conn.clone(), generation);
                 }
             } else if on {
                 // The index has not started (the app connects at launch):
                 // subscribe when it does, and ask the client to list again.
                 let conn = conn.clone();
+                let owner = hub.clone();
                 hub.when_chats_ready(Box::new(move |service| {
                     if conn.out.is_closed() {
                         return;
                     }
                     if let Some(generation) = service.watch_on(&conn.id) {
-                        forward(service.clone(), conn.clone(), generation);
+                        forward(owner.clone(), service.clone(), conn.clone(), generation);
                     }
                     conn.send(&Message::notification(
                         "_acpmux/chats_lagged",
@@ -85,7 +91,7 @@ pub(super) async fn route(
                     ));
                 }));
             }
-            page(service, query).await
+            page(hub, service, query).await
         }
         "_acpmux/chat_roots" => match service {
             Some(service) => blocking(move || Ok(service.roots_view())).await,
@@ -153,12 +159,20 @@ pub(super) async fn route(
     }
 }
 
-async fn page(service: Option<Arc<ChatService>>, query: ChatQuery) -> Result<Value, RpcError> {
+async fn page(
+    hub: &Arc<Hub>,
+    service: Option<Arc<ChatService>>,
+    query: ChatQuery,
+) -> Result<Value, RpcError> {
     let Some(service) = service else {
         return Ok(json!({"ready": false, "chats": [], "nextCursor": null}));
     };
+    let activity = hub.chat_activity();
     blocking(move || {
-        let (chats, next) = service.list(&query);
+        let (mut chats, next) = service.list(&query);
+        for chat in &mut chats {
+            activity.decorate(chat);
+        }
         let enabled = service.enabled();
         Ok(json!({"ready": true, "enabled": enabled, "chats": chats, "nextCursor": next}))
     })
@@ -173,7 +187,7 @@ async fn blocking(
 }
 
 /// Sends every index change to `conn` until it closes or turns watching off.
-fn forward(service: Arc<ChatService>, conn: Arc<Conn>, generation: u64) {
+fn forward(hub: Arc<Hub>, service: Arc<ChatService>, conn: Arc<Conn>, generation: u64) {
     let mut rx = service.subscribe();
     tokio::spawn(async move {
         loop {
@@ -186,11 +200,13 @@ fn forward(service: Arc<ChatService>, conn: Arc<Conn>, generation: u64) {
             }
             match next {
                 Ok(changes) => {
+                    let activity = hub.chat_activity();
                     for change in changes.iter() {
-                        conn.send(&Message::notification(
-                            "_acpmux/chat_changed",
-                            change_value(change),
-                        ));
+                        let mut value = change_value(change);
+                        if let Some(chat) = value.get_mut("chat") {
+                            activity.decorate(chat);
+                        }
+                        conn.send(&Message::notification("_acpmux/chat_changed", value));
                     }
                 }
                 Err(RecvError::Lagged(dropped)) => conn.send(&Message::notification(
@@ -202,4 +218,22 @@ fn forward(service: Arc<ChatService>, conn: Arc<Conn>, generation: u64) {
         }
         service.watch_off(&conn.id);
     });
+}
+
+/// AV: a session record that can change its chat's attention or preview
+/// reaches a chats watcher as `_acpmux/chat_changed {kind: "activity"}`,
+/// whether or not the connection watches or attaches to sessions.
+pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
+    let rec = &ev.record;
+    if rec.dir != "mux" || !changes_activity(&rec.kind) {
+        return;
+    }
+    if !hub.chat_index().is_some_and(|service| service.watches(&conn.id)) {
+        return;
+    }
+    if let Ok(session) = hub.resolve(&ev.session_id)
+        && let Some(change) = activity_change(&session)
+    {
+        conn.send(&Message::notification("_acpmux/chat_changed", change));
+    }
 }

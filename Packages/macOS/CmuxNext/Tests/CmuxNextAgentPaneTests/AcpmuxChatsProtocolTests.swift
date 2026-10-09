@@ -1,3 +1,4 @@
+import Foundation
 @testable import CmuxNextAgentPane
 import Testing
 
@@ -54,5 +55,23 @@ struct AcpmuxChatsStoreTests {
         #expect(store.chats.map(\.id) == ["codex:a", "claude:b"])
         #expect(store.filtered(query: "work").map(\.id) == ["codex:a"])
         #expect(store.filtered(query: "repo/b").map(\.id) == ["claude:b"])
+    }
+
+    /// Activity view (AV): a chat carries its live session's attention and
+    /// latest reply; an `activity` change updates them in place.
+    @Test func activityChangesUpdateAttentionAndPreviewInPlace() throws {
+        var store = AcpmuxChatsStore()
+        store.reset(["chats": [
+            ["key": "codex:a", "harness": "codex", "sessionId": "a", "updatedMs": 10, "attention": "unread", "preview": "Done: 3 files"],
+            ["key": "claude:b", "harness": "claude-code", "sessionId": "b", "updatedMs": 20, "attention": NSNull(), "preview": NSNull()],
+        ]])
+        #expect(store.chats.map(\.attention) == [nil, "unread"])
+        #expect(store.chats.last?.preview == "Done: 3 files")
+        store.apply(change: ["kind": "activity", "key": "codex:a", "attention": "needsInput", "preview": "Allow rm -rf build?"])
+        store.apply(change: ["kind": "activity", "key": "claude:b", "attention": NSNull(), "preview": "hello"])
+        store.apply(change: ["kind": "activity", "key": "codex:gone", "attention": "failed"])
+        #expect(store.chats.map(\.id) == ["claude:b", "codex:a"])
+        #expect(store.chats.map(\.attention) == [nil, "needsInput"])
+        #expect(store.chats.map(\.preview) == ["hello", "Allow rm -rf build?"])
     }
 }
