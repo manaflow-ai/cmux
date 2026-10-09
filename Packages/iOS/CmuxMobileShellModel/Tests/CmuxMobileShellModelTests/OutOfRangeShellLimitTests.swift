@@ -20,6 +20,8 @@ import Testing
         #expect(buffer.enqueue("ab", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
         #expect(buffer.nextBatch(maximumByteCount: 0)?.text == "a")
         #expect(buffer.nextBatch(maximumByteCount: 0)?.text == "b")
+        // The split chunk ends with its empty final piece, which carries the settle.
+        #expect(buffer.nextBatch(maximumByteCount: 0)?.text == "")
         #expect(buffer.nextBatch(maximumByteCount: 0) == nil)
     }
 }
