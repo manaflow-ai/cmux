@@ -103,7 +103,7 @@ public struct CmxIrohSystemLANInterfaceSnapshotProvider: CmxIrohLANInterfaceSnap
                   flags & IFF_POINTOPOINT == 0,
                   let addressPointer = current.ifa_addr,
                   let maskPointer = current.ifa_netmask else { continue }
-            let family = Int32(addressPointer.pointee.sa_family)
+            let family = Int32(clamping: addressPointer.pointee.sa_family)
             guard family == AF_INET || family == AF_INET6 else { continue }
             let name = String(cString: current.ifa_name)
             guard Self.isEligibleInterfaceName(name) else { continue }
@@ -140,7 +140,7 @@ public struct CmxIrohSystemLANInterfaceSnapshotProvider: CmxIrohLANInterfaceSnap
     }
 
     private static func numericAddress(_ pointer: UnsafePointer<sockaddr>) -> String? {
-        var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        var host = [CChar](repeating: 0, count: Int(clamping: NI_MAXHOST))
         let result = getnameinfo(
             pointer,
             socklen_t(pointer.pointee.sa_len),

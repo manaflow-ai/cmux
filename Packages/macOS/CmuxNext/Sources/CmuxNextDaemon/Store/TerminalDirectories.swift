@@ -8,6 +8,7 @@ struct TerminalDirectories {
     private var generation: DaemonGeneration?
 
     subscript(surface: SurfaceID) -> String? { bySurface[surface] }
+    func directory(for surface: SurfaceID) -> String? { bySurface[surface] }
 
     /// Stores the reported folder's path (`TabModel.path(reported:)`; nil for
     /// none or a report that names no local folder) and returns it.

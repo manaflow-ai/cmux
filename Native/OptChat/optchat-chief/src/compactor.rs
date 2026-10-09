@@ -150,6 +150,8 @@ pub struct CompactorSpec {
     /// The `env` of the user's Claude Code settings: the slots load no user
     /// setting source, so their project settings carry it.
     pub user_env: BTreeMap<String, String>,
+    /// Sessions at the fast service tier (`compactor_speed` fast).
+    pub fast: bool,
 }
 
 /// Compactor sessions that live at once across the main and fallback
@@ -732,6 +734,7 @@ impl AcpmuxCompactor {
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
             env: Default::default(),
+            fast: self.spec.fast,
         };
         let id = self
             .port
@@ -1686,6 +1689,7 @@ pub fn compactor_spec(
         timeout: CALL_TIMEOUT,
         chief: home_id(home),
         user_env: crate::session_dir::host_user_env(),
+        fast: false,
     }
 }
 

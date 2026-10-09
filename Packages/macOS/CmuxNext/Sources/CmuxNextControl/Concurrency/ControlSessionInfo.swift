@@ -81,7 +81,7 @@ public struct ControlSessionNaming: Sendable {
         }
         out = String(out.prefix(48))
         while out.hasSuffix("-") || out.hasSuffix(".") { out.removeLast() }
-        return out.isEmpty || Int(out) != nil ? nil : out
+        return out.isEmpty || Int(out, radix: 10) != nil ? nil : out
     }
 
     /// The first 8 hex digits of a session id (`machine:` ids hash to hex).

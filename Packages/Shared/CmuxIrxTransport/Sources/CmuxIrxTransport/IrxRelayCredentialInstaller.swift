@@ -18,14 +18,14 @@ actor IrxRelayCredentialInstaller {
     private var stopped = false
 
     init(
-        installed: [IrxRelayCredential],
+        installed initial: [IrxRelayCredential],
         journal: IrxJournal,
         now: @escaping @Sendable () -> Date = { Date() },
         // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
         sleep: (@Sendable (Duration) async throws -> Void)? = nil,
         install: @escaping Install
     ) {
-        self.installed = Self.index(installed)
+        self.installed = Self.index(initial)
         self.journal = journal
         self.now = now
         self.sleep = sleep ?? { try await Task.sleep(for: $0) }
@@ -34,7 +34,7 @@ actor IrxRelayCredentialInstaller {
 
     func replace(with credentials: [IrxRelayCredential], ownership: IrxRelayCredentialInstallOwnership? = nil) {
         guard !stopped else { return }
-        let next = Self.index(credentials)
+        let next: [String: IrxRelayCredential] = Self.index(credentials)
         guard next != desired || self.ownership != ownership else { return }
         desired = next
         self.ownership = ownership
