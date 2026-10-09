@@ -108,3 +108,32 @@ Rules:
 - The gallery stage checks every play step: an open popup must be the top element at its corners and
   center, and nothing may clip it (`judgePopups` in `gallery/play.ts`). It warns by default; an entry
   gates it with `checks.popupLayer = { value: true, reason }`.
+
+## Type scale
+
+One set of font sizes for every page and the agent pane, defined in `pages/shared/desktop.css` (loaded
+first everywhere). Use the token, never a size: `font-size: var(--text-body)` (and
+`line-height: var(--text-body--line-height)`) in CSS, `text-body` in Tailwind (sets both).
+
+| token            | size                               | line height        | for                                                                |
+| ---------------- | ---------------------------------- | ------------------ | ------------------------------------------------------------------ |
+| `--text-caption` | 11px                               | 14px               | keyboard shortcuts, group labels, badges, tiny counters            |
+| `--text-detail`  | 12px                               | 16px               | descriptions, secondary lines, metadata, section headers, tooltips |
+| `--text-body`    | 13px                               | 18px               | chrome text: labels, settings rows, page text (macOS system font)  |
+| `--text-control` | 14px                               | 18px               | menu and picker rows, menu search fields, composer controls        |
+| `--text-title`   | 15px                               | 20px               | card and panel titles, glyph buttons                               |
+| `--text-heading` | 17px                               | 22px               | page headings                                                      |
+| `--text-content` | the user's `--cv-font-size` (14px) | `--cv-line-height` | reading content: transcript, markdown, composer prompt             |
+
+Rules:
+
+- Chrome uses the UI steps (caption to heading); it does not grow with the user's content size, as
+  macOS chrome does not. Reading content uses `--text-content`, so the agent pane font setting
+  (theme.css / AgentPaneTheme) changes the transcript and prompt, not the menus.
+- `--text-body` is macOS's system font size (`NSFont.systemFontSize`, 13); `--text-control` is its
+  menu font size (14), so every menu, popover list and picker row in the app is the same size.
+- Relative sizes (`em`, `%`) are fine for parts that scale with their parent (a superscript).
+- `scripts/cmux-next/check-type-scale.py` (run by `bun run check`) fails on a new literal size
+  (`font-size: 12px`, a `font:` shorthand with a size, `fontSize: 12`, Tailwind `text-[12px]`); the old
+  ones sit in `scripts/cmux-next/type-scale-baseline.tsv`, which may only go down. Each component moves
+  to the tokens in its UI-tournament round.
