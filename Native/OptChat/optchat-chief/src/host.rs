@@ -67,6 +67,19 @@ pub fn harness_choice(
     (turn, compactor)
 }
 
+/// The compactor's harness when none is set (Lawrence 2026-10-09: "just
+/// always use haiku for default compactor"): the turns' own when it is a
+/// Claude harness (claude-sr stays claude-sr), else `claude`, the Claude
+/// route acpmux has (the configured CodeRouter route, else the user's own
+/// login).
+pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> String {
+    if family == Family::Claude {
+        turn.to_owned()
+    } else {
+        claude.to_owned()
+    }
+}
+
 /// The default harness: acpmux's own Claude Code adapter (`claude_stdio`)
 /// running the user's own `claude` login. The subrouter pool (`claude-sr`)
 /// is only an explicit choice.
@@ -507,12 +520,16 @@ fn start(
         // else the user's own Claude login (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
-            if compactor_set.is_none() {
-                compactor_harness = harness.clone();
-            }
             if sub_set.is_none() {
                 sub_harness = harness.clone();
             }
+        }
+        // The compactor runs on a Claude route unless set otherwise, whatever
+        // the turns run on (engine.json may swap them to codex per turn).
+        if compactor_set.is_none() {
+            let turn_family = crate::harness_gate::plan(&answer, &harness).family;
+            compactor_harness =
+                default_compactor_harness(&harness, turn_family, default_harness(&answer));
         }
         let (turn, compactor, sub) = (
             plan(&harness, "turn"),
