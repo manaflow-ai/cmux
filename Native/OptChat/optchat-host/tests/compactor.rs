@@ -286,6 +286,7 @@ impl CompactModel for Ending {
 
 fn node_request(step: &str) -> CompactRequest {
     CompactRequest {
+        imported: false,
         node: NodeId::new(0, 4),
         system: "SYS".into(),
         context: "<chat>\n</chat>".into(),
@@ -326,6 +327,7 @@ fn run_node_ends_the_conversation_once_on_every_outcome() {
 fn a_cut_request_line_starts_with_the_cut() {
     let model = Ending::new(vec![Ok(Reply::text("user: a long log"))]);
     let request = CompactRequest {
+        imported: false,
         cut: Some("(cut: 10 of 20 characters not shown) ".into()),
         ..node_request("S")
     };
@@ -354,6 +356,7 @@ fn a_cut_line_is_retried_against_its_reduced_room() {
         Ok(Reply::text("user: short")),
     ]);
     let request = CompactRequest {
+        imported: false,
         cut: Some(prefix.clone()),
         ..node_request("S")
     };

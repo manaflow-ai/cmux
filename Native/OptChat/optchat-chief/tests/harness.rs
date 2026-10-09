@@ -441,6 +441,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         optchat_chief::compactor::Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     );
     let request = optchat_host::CompactRequest {
+        imported: false,
         node: optchat_host::NodeId::new(0, 0),
         system: "SYS".into(),
         context: "<chat>\n</chat>".into(),
