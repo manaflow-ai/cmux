@@ -93,7 +93,7 @@ public struct IrxListeningPortScanner: Sendable {
             }
             guard bytes > 0 else { continue }
             let count = min(Int(clamping: bytes) / descriptorStride, maximumDescriptorsPerProcess)
-            for descriptor in descriptors.prefix(count) where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+            for descriptor in descriptors.prefix(count) where descriptor.proc_fdtype == UInt32(clamping: PROX_FDTYPE_SOCKET) {
                 if let listener = Self.listener(pid: pid, fd: descriptor.proc_fd) {
                     result.append(listener)
                 }
@@ -106,16 +106,16 @@ public struct IrxListeningPortScanner: Sendable {
         var info = socket_fdinfo()
         let size = Int32(clamping: MemoryLayout<socket_fdinfo>.size)
         guard proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, &info, size) == size else { return nil }
-        guard info.psi.soi_kind == Int32(SOCKINFO_TCP) else { return nil }
+        guard info.psi.soi_kind == Int32(clamping: SOCKINFO_TCP) else { return nil }
         let tcp = info.psi.soi_proto.pri_tcp
-        guard tcp.tcpsi_state == Int32(TSI_S_LISTEN) else { return nil }
+        guard tcp.tcpsi_state == Int32(clamping: TSI_S_LISTEN) else { return nil }
         let inet = tcp.tcpsi_ini
-        let port = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: inet.insi_lport)))
-        if inet.insi_vflag & UInt8(INI_IPV4) != 0 {
+        let port = Int(clamping: UInt16(bigEndian: UInt16(truncatingIfNeeded: inet.insi_lport)))
+        if inet.insi_vflag & UInt8(clamping: INI_IPV4) != 0 {
             var address = inet.insi_laddr.ina_46.i46a_addr4
             return Listener(port: port, address: .v4(withUnsafeBytes(of: &address) { Array($0) }), ipv6Only: false)
         }
-        if inet.insi_vflag & UInt8(INI_IPV6) != 0 {
+        if inet.insi_vflag & UInt8(clamping: INI_IPV6) != 0 {
             var address = inet.insi_laddr.ina_6
             // A dual-stack wildcard socket carries both flags; the IPv4 check
             // above already mapped it. IPv6-only here.

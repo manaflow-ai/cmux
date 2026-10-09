@@ -99,6 +99,11 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the view it got), in pages of 30,000 characters that say where to go on.
   Every report ends with `Full chat: zoom("a<N>")`. Subagents may zoom a
   subagent too.
+- Before it starts a subagent in its own subagent directory, the host
+  records that folder as trusted in acpmux (`acp.trust.set`, level
+  trusted), so the user's first message in the subagent's pane is not held
+  behind "trust this folder". A spawn's `cwd` (a folder of the user's) is
+  never trusted by the host: its pane asks as usual.
 - Subagents get `zoom` and `date` only (`optchat-chief mcp --role subagent`;
   `chief` refuses spawn/tell under `OPTCHAT_SUBAGENT=1`, and the socket refuses
   them from a subagent). Their tool calls stay in their own session.
@@ -1095,7 +1100,11 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   written for 5 minutes, so later calls on it go at once.
 - **Model.** The compactor runs Claude Haiku 5.5 at medium effort (measured: as good as high, 20% cheaper, 36% faster)
   (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
-  `compactor-model` pick another). An account without the model builds
+  `compactor-model` pick another), on a Claude route whatever the turns run
+  on: a Claude turn harness's own (claude-sr stays claude-sr), else
+  `claude` (the configured CodeRouter route, else the user's own login).
+  Only `OPTCHAT_COMPACTOR_HARNESS` or engine.json's `compactor-harness`
+  picks another harness; the turns' harness (a codex Chief) never does. An account without the model builds
   with the turn model, logged once. Haiku and the turns' model have
   separate cache entries, so compactions read only each other's.
 - **Width.** JOBS and AHEAD are 64 (spec: 8): 64 calls of about 1 s stay

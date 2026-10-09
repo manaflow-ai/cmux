@@ -74,17 +74,13 @@ public final class PaneModel: Identifiable {
 
     func recomputeSpans() {
         var spans: [TabGroupSpan] = []
-        var start = 0
-        while start < tabs.count {
-            guard let group = tabs[start].tabGroup else {
-                start += 1
-                continue
-            }
-            var end = start + 1
-            while end < tabs.count, tabs[end].tabGroup == group { end += 1 }
-            spans.append(TabGroupSpan(group: group, range: start..<end))
-            start = end
+        var open: (group: TabGroupID, start: Int)?
+        for (index, tab) in tabs.enumerated() {
+            if let run = open, tab.tabGroup == run.group { continue }
+            if let run = open { spans.append(TabGroupSpan(group: run.group, range: run.start..<index)) }
+            open = tab.tabGroup.map { (group: $0, start: index) }
         }
+        if let run = open { spans.append(TabGroupSpan(group: run.group, range: run.start..<tabs.count)) }
         if spans != groupSpans { groupSpans = spans }
     }
 }

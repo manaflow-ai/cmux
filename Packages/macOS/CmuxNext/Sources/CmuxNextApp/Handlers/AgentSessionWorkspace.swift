@@ -14,7 +14,8 @@ import Foundation
 ///
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
-/// so the caller can rename the workspace later), `cwd` (the terminal's).
+/// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
+/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux).
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -29,7 +30,9 @@ enum AgentSessionWorkspace {
         let given = invocation["key"]?.stringValue?.lowercased()
         let key = given.flatMap { UUID(uuidString: $0) == nil ? nil : WorkspaceKey(rawValue: $0) } ?? .generate()
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, services: context.services)
+        // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
+        let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -38,7 +41,7 @@ enum AgentSessionWorkspace {
     /// sidebar this way too. Throws when this build has no agent page or the
     /// daemon is offline.
     @discardableResult
-    static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?,
+    static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
                      services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
@@ -59,7 +62,7 @@ enum AgentSessionWorkspace {
                 }
                 // A workspace store tab bound to the session (agent-session-tabs-v1),
                 // so it is saved and restored with the workspace like any tab.
-                let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true)
+                let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
                 let created = try await pending.value()
                 // Selected wherever the workspace is shown later, never shown now.
                 for window in services.windows.controllers {

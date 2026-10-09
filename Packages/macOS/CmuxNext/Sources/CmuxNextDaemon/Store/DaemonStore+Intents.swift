@@ -134,7 +134,7 @@ extension DaemonStore {
     /// Undoes every overlay apply, newest first.
     private func liftOverlay() {
         for index in intentLog.entries.indices.reversed() {
-            if let undo = intentLog.entries[index].undo { IntentOverlay.undo(undo, in: self) }
+            if let undo = intentLog.entries[checked: index]?.undo { IntentOverlay.undo(undo, in: self) }
             if !intentLog.setUndo(nil, at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }

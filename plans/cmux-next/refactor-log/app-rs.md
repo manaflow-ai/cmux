@@ -10,7 +10,15 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 0d59d0e932a6 refactor-app-rs: app.rs layout types, menu model (MenuItem/MenuLevel), context menu, menu items, overlays -> app/{layout,menu,menu/context_menu,menu/items,overlays}.rs (MenuAction and keyboard_action_for_menu stay in app.rs: check-spec-inventory.py reads them there); app.rs 43325 -> 42019.
 - 2026-10-09 889e21be5cbf refactor-app-rs: app.rs selection, pointer types, rendered pointer route, deferred input, graphics keys, viewport motion, pane-area projection -> app/{selection,pointer,pointer/route,pointer/deferred,graphics,viewport,pane_projection}.rs; app.rs 42019 -> 40528.
 - 2026-10-09 916ef13b546c refactor-app-rs: app.rs status segments, status command capture, frame geometry, machine action worker + update pump, run entry, terminal guard -> app/{status_segments,status_command,frame_geometry,machine_worker,run,terminal_guard}.rs; app.rs 40528 -> 38125.
-- 2026-10-09 (pending) refactor-app-rs: impl App machine controller, machine UI, durable notices, sidebar rails -> app/{machine_controller,machine_ui,durable_notice,sidebar_rails}.rs (each its own impl App block); app.rs 38125 -> 36269.
+- 2026-10-09 93f663f26314 refactor-app-rs: impl App machine controller, machine UI, durable notices, sidebar rails -> app/{machine_controller,machine_ui,durable_notice,sidebar_rails}.rs (each its own impl App block); app.rs 38125 -> 36269.
+- 2026-10-09 3f6c053b3ab7 refactor-app-rs: impl App event loop, presentation journaling, pointer frame commit, deferred replay, session apply -> app/{event_loop,presentation,pointer_frame,deferred_replay,session_apply}.rs; app.rs 36269 -> 34673.
+- 2026-10-09 20a0ab2cf64e refactor-app-rs: impl App render, graphics emit, config/status upkeep, layout sync -> app/{render,graphics_emit,config_status,layout_sync}.rs; app.rs 34673 -> 33207.
+- 2026-10-09 9ca387f63c6d refactor-app-rs: impl App input dispatch, input admission, surface focus, drag/resize, selection ops -> app/{input_dispatch,input_admission,surface_focus,drag_resize,selection_ops}.rs; app.rs 33207 -> 31500.
+- 2026-10-09 e45682739c04 refactor-app-rs: impl App pane ops, managed machine/workspace ops, keyboard ingress, sidebar keys, machine/provider menus -> app/{pane_ops,managed_ops,keyboard,sidebar_keys,machine_menus}.rs; app.rs 31500 -> 29986.
+- 2026-10-09 8575e3a010c9 refactor-app-rs: impl App prompt/dialog keys, action dispatch, browser ops, menu activation, focus navigation -> app/{prompt_keys,actions,browser_ops,menu_activate,focus_nav}.rs; app.rs 29986 -> 28415.
+- 2026-10-09 33193c387817 refactor-app-rs: impl App key forwarding, hit testing + tab moves, mouse dispatch, PTY mouse, PTY writes -> app/{key_forward,tab_moves,mouse_dispatch,pty_mouse,pty_write}.rs; app.rs 28415 -> 26886.
+- 2026-10-09 0b621992dcdc refactor-app-rs: impl App hover/right button, left press, left drag/release, clipboard/toasts -> app/{pointer_hover,left_down,left_drag,clipboard}.rs; app.rs 26886 -> 25890.
+- 2026-10-09 (pending) refactor-app-rs: impl App scrollbars + split resize, context menu building, scroll wheel + browser pointer -> app/{scrollbar_resize,menu_build,scroll_browser}.rs; app.rs 25890 -> 24626.
 
 ## Target module map for cmux-tui/crates/cmux-tui/src/app.rs (2026-10-09)
 

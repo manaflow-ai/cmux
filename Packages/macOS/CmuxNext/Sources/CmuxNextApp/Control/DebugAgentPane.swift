@@ -47,6 +47,16 @@ enum DebugAgentPane {
         "set_model": "setModel", "models": "models", "stream": "stream",
     ]
 
+    /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
+    /// `click` delivers a real click): the relay then treats a folder the verb names, a send, a
+    /// pick or an answer as the user's, and automation reaches what a person sees (the trust
+    /// question, not `transport.path_outside_roots`; cx-nn3e P0b). Measuring verbs record none.
+    static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder"]
+
+    static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
+        if userVerbs.contains(action) { gestures.record() }
+    }
+
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
     private static let script = """
         let debug = window.cmuxAcpmuxDebug;
@@ -68,6 +78,7 @@ enum DebugAgentPane {
         }
         let action = params["action"]?.stringValue ?? ""
         keepRenderingWhenCovered(view.webView)
+        actAsUser(action, gestures: view.model.transport.gestures)
         if action == "pid" {
             let selector = NSSelectorFromString("_webProcessIdentifier")
             guard view.webView.responds(to: selector),

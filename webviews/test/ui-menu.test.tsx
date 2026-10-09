@@ -122,3 +122,31 @@ test("submenu opens from the keyboard and closes back through Escape", async () 
   await press(document.querySelectorAll('[role="menu"]')[1]!, "Escape");
   expect([...document.querySelectorAll('[role="menu"]')].length).toBe(1);
 });
+
+// Lawrence 2026-10-09 ("continue in jank"): a submenu drew its rows over the parent menu with no
+// surface. A submenu is its own popup beside the parent (never inside the parent's scrolling popup)
+// and wears the parent menu's surface, so a caller's themed menu never has a bare submenu.
+test("a submenu is its own popup outside the parent and wears the parent's surface", async () => {
+  const root = await render(
+    <UiProvider container={document.body}>
+      <Menu>
+        <MenuButton label="Actions">Actions</MenuButton>
+        <MenuPopup className="themed-menu">
+          <Submenu label="Continue in">
+            <MenuItem onSelect={() => {}}>Codex</MenuItem>
+          </Submenu>
+        </MenuPopup>
+      </Menu>
+    </UiProvider>,
+  );
+  await act(async () => root.querySelector("button")!.click());
+  await settle();
+  const trigger = document.querySelector<HTMLElement>('[role="menuitem"]')!;
+  await press(trigger, "ArrowRight");
+  await settle();
+  const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')];
+  expect(menus).toHaveLength(2);
+  const [parent, sub] = menus as [HTMLElement, HTMLElement];
+  expect(parent.contains(sub)).toBe(false);
+  expect(sub.classList.contains("themed-menu")).toBe(true);
+});

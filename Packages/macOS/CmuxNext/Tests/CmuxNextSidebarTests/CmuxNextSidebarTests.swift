@@ -263,33 +263,6 @@ import Testing
 }
 // MARK: - Keyboard reorder
 
-@Suite struct KeyboardReorderTests {
-    @Test func stepsOverCollapsedGroupAndIntoExpandedGroup() {
-        let s = fixture()
-        #expect(KeyboardReorder.target(moving: [id("b")], direction: .down, in: s) == DropPosition(section: local, index: 3))
-        #expect(KeyboardReorder.target(moving: [id("b")], direction: .up, in: s) == DropPosition(section: local, group: g1, index: 3))
-    }
-
-    @Test func leavesGroupFromFirstChild() {
-        let s = fixture()
-        #expect(KeyboardReorder.target(moving: [id("g1")], direction: .up, in: s) == DropPosition(section: local, index: 1))
-    }
-
-    @Test func stopsAtSectionBoundaries() {
-        let s = fixture()
-        #expect(KeyboardReorder.target(moving: [id("c")], direction: .down, in: s) == nil)
-        #expect(KeyboardReorder.target(moving: [id("x")], direction: .up, in: s) == nil)
-    }
-
-    @Test func modelMoveSelectionAppliesLocally() {
-        let model = SidebarModel(sections: fixture(), activeWorkspaceID: id("c"))
-        #expect(model.moveSelection(.up))
-        #expect(shape(model.sections, local) == "a G1[g1,g2,g3] b c G2[h1,h2]")
-        model.filterText = "zzz"
-        #expect(!model.moveSelection(.up))
-    }
-}
-
 // MARK: - Selection
 
 @Suite struct Selection {

@@ -31,12 +31,6 @@ final class FixtureHome: @unchecked Sendable {
     }
 }
 
-/// A fixed salt, so handles are reproducible in tests.
-struct FixedSalt: AccountLabelSaltProviding {
-    let bytes: Data
-    func salt() throws -> Data { bytes }
-}
-
 let fixtureSalt = Data((0..<32).map { UInt8($0) })
 let fixtureLabeler = AccountLabeler(salt: fixtureSalt)
 
@@ -48,16 +42,6 @@ struct FakeKeychain: KeychainProbing {
 struct FakeServers: LocalServerProbing {
     let reachable: Set<String>
     func isReachable(_ url: URL) async -> Bool { reachable.contains(url.absoluteString) }
-}
-
-/// In-memory ``ProviderKeyStoring``.
-final class FakeKeyStore: ProviderKeyStoring, @unchecked Sendable {
-    private var keys: [AIProvider: String]
-    init(_ keys: [AIProvider: String] = [:]) { self.keys = keys }
-    func savedProviders() -> Set<AIProvider> { Set(keys.keys) }
-    func save(_ key: String, for provider: AIProvider) throws { keys[provider] = key }
-    func key(for provider: AIProvider) throws -> String? { keys[provider] }
-    func delete(for provider: AIProvider) throws { keys[provider] = nil }
 }
 
 /// An unsigned JWT with `claims` (shape only; tests never verify it).
