@@ -145,11 +145,11 @@ pub trait TabSource: Send + Sync {
     fn opened(&self, _session: u64, _target_id: &str) {}
     /// The session kept `target_id` (`tab.keep`): it is the person's now.
     fn kept(&self, _session: u64, _target_id: &str) {}
-    /// Remembers that the session named `name` kept `target_id`, beyond
-    /// this engine: the next session of that name lists it as its own.
-    fn remember_kept(&self, _name: &str, _target_id: &str) {}
-    /// The tabs sessions named `name` kept (`remember_kept`).
-    fn kept_by(&self, _name: &str) -> Vec<String> {
+    /// Remembers that an agent session kept `target_id` (a deliverable),
+    /// beyond that session: later agent sessions list it as their own.
+    fn remember_kept(&self, _target_id: &str) {}
+    /// The tabs agent sessions kept (`remember_kept`).
+    fn kept_tabs(&self) -> Vec<String> {
         Vec::new()
     }
     /// Installs (or with `None` removes) a session's request filter; false

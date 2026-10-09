@@ -228,14 +228,13 @@ impl TabSource for ProviderSource {
             .collect()
     }
 
-    fn remember_kept(&self, name: &str, target_id: &str) {
+    fn remember_kept(&self, target_id: &str) {
         let mut kept = self.0.kept_tabs.lock().unwrap_or_else(PoisonError::into_inner);
-        kept.entry(name.to_owned()).or_default().insert(target_id.to_owned());
+        kept.insert(target_id.to_owned());
     }
 
-    fn kept_by(&self, name: &str) -> Vec<String> {
-        let kept = self.0.kept_tabs.lock().unwrap_or_else(PoisonError::into_inner);
-        kept.get(name).map(|tabs| tabs.iter().cloned().collect()).unwrap_or_default()
+    fn kept_tabs(&self) -> Vec<String> {
+        self.0.kept_tabs.lock().unwrap_or_else(PoisonError::into_inner).iter().cloned().collect()
     }
 
     fn all_tab_rows(&self) -> Vec<TabRow> {
