@@ -416,3 +416,68 @@ async fn the_model_probes_start_only_the_listed_harnesses() {
     assert!(!report("unused").exists(), "a harness outside the list was started");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// An engine change to a harness outside the start-time list (a Claude-only
+/// Chief set to codex) still gets that harness's model list: the client asks
+/// for it (`_acpmux/models {"probe": [...]}`), and the probe runs then.
+#[tokio::test]
+async fn a_harness_allowed_later_is_probed_and_its_models_listed() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let dir = std::env::temp_dir().join(format!("acpmux-probe-later-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let started = dir.join("later.started");
+    let profile = |marker: Option<&std::path::Path>| HarnessProfile {
+        kind: Default::default(),
+        argv: match marker {
+            Some(m) => vec![
+                "/bin/sh".to_owned(),
+                "-c".to_owned(),
+                format!("touch '{}'; exec python3 '{fake}'", m.display()),
+            ],
+            None => vec!["python3".to_owned(), fake.to_owned()],
+        },
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let agents = BTreeMap::from([
+        ("claude-only".to_owned(), profile(None)),
+        ("later".to_owned(), profile(Some(&started))),
+    ]);
+    let mut cfg = Config {
+        harnesses: agents,
+        default_harness: Some("claude-only".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.set_probe_only(Some(["claude-only".to_owned()].into()));
+    hub.begin_startup(false);
+    hub.finish_startup().await;
+    let listed = |catalog: &serde_json::Value| {
+        catalog["harnesses"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|h| h["harness"] == "later" && h["models"].to_string().contains("m2"))
+    };
+    // Outside the start-time list: never started.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!started.exists(), "a harness outside the list was started at daemon start");
+    hub.allow_probes(["later".to_owned()].into()).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let mut catalog = hub.models_catalog().await;
+    while !listed(&catalog) && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        catalog = hub.models_catalog().await;
+    }
+    assert!(started.exists(), "the later harness was never probed");
+    assert!(listed(&catalog), "the later harness has no probed model list: {catalog}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

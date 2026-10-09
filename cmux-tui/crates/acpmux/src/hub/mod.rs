@@ -346,6 +346,13 @@ impl Hub {
         *self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = names;
     }
 
+    /// A client now uses `names` too (the Chief's engine set): they join the
+    /// probe list and are probed now, in the background, so their model
+    /// lists arrive without a daemon restart.
+    pub async fn allow_probes(self: &Arc<Self>, names: std::collections::BTreeSet<String>) {
+        let _ = names;
+    }
+
     /// Whether the model probes may start harness `name`.
     pub(super) fn probes(&self, name: &str) -> bool {
         self.probe_only

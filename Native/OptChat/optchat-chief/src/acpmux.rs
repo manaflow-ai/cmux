@@ -187,6 +187,13 @@ pub trait AgentPort: Send + Sync {
     fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
         Err("set_mode is not supported".into())
     }
+    /// Asks acpmux to probe `harness`'s models now (`_acpmux/models
+    /// {"probe": [harness]}`): a harness outside the start-time probe list
+    /// (`ACPMUX_PROBE_HARNESSES`) the Chief now uses. Does not wait.
+    fn probe_models(&self, _harness: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     /// The daemon's `_acpmux/harnesses` answer: every profile with its kind,
     /// command and family (`harness_gate::admit` reads it before each Chief
     /// session). A port without one refuses every Chief session.
