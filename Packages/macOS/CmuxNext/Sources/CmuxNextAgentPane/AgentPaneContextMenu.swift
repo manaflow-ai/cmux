@@ -29,8 +29,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 /// The agent pane's native context menu. The pane is app chrome, so WebKit's default menu (Reload,
 /// Back, Look Up, Share...) never shows: Cut, Copy and Paste where WebKit offers them (Copy on a
 /// selection, Cut and Paste in the composer), Copy Message and Copy as Markdown for the message
-/// under the pointer, Fork from Here when its turn can be forked, and Inspect Element in builds
-/// with developer tools.
+/// under the pointer, Fork from Here when its turn can be forked, the chat's menu (Change
+/// Background, zoom, Find...) on empty space, and Inspect Element in builds with developer tools.
 @MainActor
 enum AgentPaneContextMenu {
     /// WebKit's edit items the pane keeps, in WebKit's order.
@@ -58,7 +58,9 @@ enum AgentPaneContextMenu {
         let fork: [NSMenuItem] = target?.forkSeq.map { seq in
             [AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) }]
         } ?? []
-        let groups: [[NSMenuItem]] = [copies, fork, inspect.map { [$0] } ?? []]
+        // Empty space (no message, nothing to edit) gets the chat's own menu, its sections kept.
+        let chat = target == nil && edits.isEmpty ? chatMenu.filter { $0.menu == nil } : []
+        let groups: [[NSMenuItem]] = [copies, fork, chat, inspect.map { [$0] } ?? []]
         for group in groups where !group.isEmpty {
             if menu.numberOfItems > 0 { menu.addItem(.separator()) }
             group.forEach(menu.addItem)

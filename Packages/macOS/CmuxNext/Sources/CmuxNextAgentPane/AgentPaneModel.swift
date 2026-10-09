@@ -1,3 +1,4 @@
+public import AppKit
 public import Foundation
 public import Observation
 
@@ -49,6 +50,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
     /// Opens onboarding's existing project and agent-history import flow.
     @ObservationIgnored public var onImportAndSync: (() -> Void)?
+    /// The chat's own menu for a right-click on empty space (Change Background, zoom, Find...),
+    /// detached items the App renders from its action placements.
+    @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).

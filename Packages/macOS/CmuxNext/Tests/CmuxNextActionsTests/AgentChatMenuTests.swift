@@ -2,8 +2,8 @@ import Testing
 @testable import CmuxNextActions
 
 /// The agent chat's empty-space right-click menu (POLISH right-click contract; Leo, 2026-10-08:
-/// the chat showed only macOS Services): Change Background… first, then zoom, Find and the
-/// inspector, each a catalog action placed in the `agentChat` menu.
+/// the chat showed only macOS Services): Change Background… first, then zoom and the inspector,
+/// each a catalog action placed in the `agentChat` menu.
 struct AgentChatMenuTests {
     private var ids: [ActionID] {
         ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .agentChat))
@@ -14,7 +14,7 @@ struct AgentChatMenuTests {
     }
 
     @Test(arguments: ["appearance.interfaceSize.increase", "appearance.interfaceSize.decrease",
-                      "appearance.interfaceSize.reset", "find", "agentPane.toggleInspector"] as [ActionID])
+                      "appearance.interfaceSize.reset", "agentPane.toggleInspector"] as [ActionID])
     func emptySpaceOffers(_ id: ActionID) {
         #expect(ids.contains(id))
     }

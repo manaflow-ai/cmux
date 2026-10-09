@@ -81,7 +81,8 @@ extension AgentPaneView {
     func editContextMenu(_ menu: NSMenu) {
         let target = messageMenuTarget
         messageMenuTarget = nil
-        AgentPaneContextMenu.rebuild(menu, target: target, devTools: DevTools.isEnabled, actions: .init(
+        let chatMenu = target == nil ? model.chatMenuItems?() ?? [] : []
+        AgentPaneContextMenu.rebuild(menu, target: target, devTools: DevTools.isEnabled, chatMenu: chatMenu, actions: .init(
             copy: { [weak self] text in self?.copyText(text) },
             fork: { [weak self] seq in self?.fork(through: seq) }))
     }
