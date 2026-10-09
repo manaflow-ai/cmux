@@ -288,6 +288,8 @@ mod tests {
         refuses_tools_with_a_space: ["--tools", "Bash, Read"];
         refuses_tools_with_an_empty_name: ["--tools", "Bash,,Read"];
         refuses_tools_with_a_wildcard: ["--tools", "*"];
+        refuses_tools_default: ["--tools", "default"];
+        refuses_tools_default_in_a_list: ["--tools", "Read,Default"];
         refuses_tools_without_a_value: ["--tools"];
         refuses_tools_equals_empty: ["--tools="];
         refuses_tools_equals_value: ["--tools=Bash"];

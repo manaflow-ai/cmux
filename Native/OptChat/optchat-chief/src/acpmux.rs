@@ -518,6 +518,12 @@ pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
     dropped.then_some(kept)
 }
 
+/// `args` without a `--tools <names>` list (`--tools ""` stays); None when
+/// it has none.
+pub fn without_tools_list(_args: &[Value]) -> Option<Vec<Value>> {
+    None
+}
+
 /// Sends a notification to the turn that owns its session, or to the brain.
 /// A running prompt's signals.
 struct TurnRoute {

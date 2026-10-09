@@ -1652,6 +1652,18 @@ fn an_older_acpmux_keeps_the_args_it_knows() {
         .map(Value::String)
         .collect();
     assert_eq!(without_isolation_args(&turn), Some(Vec::new()));
+    // An acpmux that knows the setting source but not a --tools list loses
+    // only the list: the turn keeps its setting-source isolation.
+    use optchat_chief::acpmux::without_tools_list;
+    assert_eq!(
+        without_tools_list(&turn),
+        Some(vec![
+            json!("--setting-sources"),
+            json!("project"),
+            json!("--disable-slash-commands")
+        ])
+    );
+    assert_eq!(without_tools_list(&args), None, "--tools \"\" stays");
 }
 
 /// A compactor slot loads no user setting source, so its project settings
