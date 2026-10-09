@@ -3,8 +3,9 @@
 //! (`AgentPort::steer`, a steered `session/prompt` with `steerOnly`); Claude
 //! Code reads them at its next tool boundary, and the turn's one reply
 //! answers them too. They are logged as `user` once acpmux says the harness
-//! read them. A session that cannot steer now gets the stop of decision
-//! 2026-10-04 instead, and the messages wait for the next turn.
+//! read them. When the session cannot steer now, the messages wait for the
+//! next turn; a human message also stops the running turn (decision
+//! 2026-10-04), a subagent report never does (decision 2026-10-09).
 
 use super::{Brain, Input, Phase, Queued, Source};
 use crate::acpmux::Family;
@@ -58,6 +59,10 @@ impl Brain {
         self.steer_seq += 1;
         let id = self.steer_seq;
         let prompt_id = format!("optchat-steer:{key}:{id}");
+        // Only a human message stops a turn it cannot reach (a report waits).
+        let human = items
+            .iter()
+            .any(|i| matches!(i.source, Source::Message { .. }));
         self.steering = Some(Steering { id, key, items });
         let (agents, tx) = (self.agents.clone(), self.tx.clone());
         let interrupt = self.interrupt.clone();
@@ -69,7 +74,7 @@ impl Brain {
                 // The outcome first: the brain then knows the stop is for
                 // these messages before the stopped turn can end.
                 let _ = tx.send(Input::Steered { id, result });
-                if failed {
+                if failed && human {
                     // The stop leaves at once, off the brain thread.
                     interrupt.request();
                 }
@@ -106,14 +111,23 @@ impl Brain {
                 }
             }
             Err(e) => {
+                let human = steer
+                    .items
+                    .iter()
+                    .any(|i| matches!(i.source, Source::Message { .. }));
                 (self.log)(&format!(
-                    "turn {}: the message could not reach the running turn ({e}); stopping the turn",
-                    steer.key
+                    "turn {}: the message could not reach the running turn ({e}); {}",
+                    steer.key,
+                    if human {
+                        "stopping the turn"
+                    } else {
+                        "the report waits for the next turn"
+                    }
                 ));
                 for item in steer.items.into_iter().rev() {
                     self.queue.push_front(item);
                 }
-                if current {
+                if current && human {
                     self.stop_wanted = true;
                     self.interrupt.request();
                 }
