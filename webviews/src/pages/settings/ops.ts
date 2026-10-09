@@ -143,6 +143,76 @@ export type AccountsState = {
 /** One Accounts gesture; `secret` only for the paste form's save and send. */
 export type AccountsRun = { action: string; provider?: string; account?: string; secret?: string };
 
+/** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
+export type AgentHarnessRow = {
+  id: string;
+  name: string;
+  /** `acp`, `claude-stdio` or `terminal`. */
+  kind: string;
+  /** `builtIn`, `user`, `managed`, `cmuxJson`, `acpx` or `registry`. */
+  source: string;
+  removable: boolean;
+  default: boolean;
+  family?: string;
+  icon?: string;
+  unavailable?: string;
+  probeError?: string;
+  sourcePath?: string;
+};
+
+export type AgentDoctorStep = {
+  name: string;
+  ok?: boolean;
+  status?: "pass" | "warn" | "fail" | "skip";
+  detail?: string;
+  fix?: string;
+};
+export type AgentDoctorResult = { running?: boolean; ok?: boolean; steps?: AgentDoctorStep[] };
+
+export type AgentRegistryAgent = {
+  id: string;
+  name: string;
+  description?: string;
+  version?: string;
+  website?: string;
+  /** How it can start here: `path` (installed), `npx`, `uvx` or `none`. */
+  launch: string;
+  installed?: boolean;
+  /** The harness it already is, when added. */
+  harnessId?: string;
+};
+
+/** Settings > Agents (`cmux.settings.agents.state`). */
+export type AgentsState = {
+  /** `loading`, `ready` or `unreachable` (no daemon answered; `message` says why). */
+  status: string;
+  message?: string;
+  /** False for an acpmux without the add, remove and doctor operations: the page shows the CLI. */
+  manages: boolean;
+  harnesses: AgentHarnessRow[];
+  doctor: Record<string, AgentDoctorResult>;
+  registry?: { agents: AgentRegistryAgent[] };
+  /** The last removal, for Undo. */
+  removed?: { id: string; backup: string };
+};
+
+/** One Settings > Agents gesture (`cmux.settings.agents.run`). */
+export type AgentsRun =
+  | { action: "refresh" }
+  | { action: "registry"; refresh?: boolean }
+  | {
+      action: "add";
+      registry?: string;
+      id?: string;
+      displayName?: string;
+      command?: string;
+      args?: string[];
+      protocol?: "acp" | "terminal";
+      envKeys?: string[];
+    }
+  | { action: "remove"; id: string }
+  | { action: "restore"; backup?: string }
+  | { action: "doctor"; id: string; noPrompt?: boolean };
 /** One acpmux harness of Settings > Agents > Harnesses (`cmux.settings.harnesses.state`). */
 export type HarnessRow = {
   id: string;
@@ -184,6 +254,10 @@ export type SettingsOps = {
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
   "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
+  /** Native: Settings > Agents, the harnesses acpmux knows and the last doctor answers. */
+  "cmux.settings.agents.state": [Record<string, never>, AgentsState];
+  /** Native: one Agents gesture; a daemon refusal rejects with `cmux.agents.<code>` and its text. */
+  "cmux.settings.agents.run": [AgentsRun, unknown];
   /** Native: acpmux's harnesses (Settings > Agents). */
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
@@ -219,6 +293,9 @@ export type SettingsStreams = {
   "cmux.settings.changed": { revision: number; keys: string[]; origin?: string };
   /** The Accounts part changed (the event carries the new state). */
   "cmux.settings.accounts.changed": AccountsState;
+  /** Settings > Agents changed (the event carries the new state); the host watches acpmux only
+   * while a page subscribes. */
+  "cmux.settings.agents.changed": AgentsState;
   /** The Harnesses part changed (the event carries the new state). */
   "cmux.settings.harnesses.changed": HarnessesState;
   /** The host lists changed (the event carries the new lists). */

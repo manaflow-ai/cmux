@@ -98,6 +98,8 @@ type Props = {
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
   onHarnessEnable?(folder: string, id: string): void;
+  /// The model picker's + (see ModelPickerProps.onAddAgent).
+  onAddAgent?(): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
@@ -124,6 +126,7 @@ export function ComposerPickers({
   onHarness,
   onHarnessHint,
   onHarnessEnable,
+  onAddAgent,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
@@ -338,6 +341,7 @@ export function ComposerPickers({
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
+          onAddAgent={onAddAgent}
           fastMode={fastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={

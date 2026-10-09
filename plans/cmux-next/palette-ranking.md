@@ -52,7 +52,7 @@ One scorer, match class first (`matchTier` in ranker.ts; 1000 points per unit, s
 | 3 | typo: every token matches strictly or is one edit (insert, delete, substitute, adjacent swap) from a title word or its start; 3-letter tokens allow only a swap. Looked for only when the strict pass finds fewer than 3 rows at tier 4 or better |
 | 2 | fuzzy: every token matches in order from a title word start, or is a keyword, subtitle or accessory substring |
 
-Letters scattered without a word-start anchor no longer match. The action id is no longer a keyword (it matched ordinary words: `newTab` is the id of New Workspace, 80 ids start with `palette.`); it is a separate field that only the whole id or an id-shaped start matches. Setting rows (`PaletteItem.isDemoted`) drop 3 units, so a setting ties a command one match class weaker, and inside a tier a command always comes before a setting (ten settings are titled "Color"; "color" now starts with Set Workspace Color…). Trade-off: "theme" now starts with Use Theme Color for Pane Borders, the Theme setting comes after the theme commands.
+Letters scattered without a word-start anchor no longer match. The action id is no longer a keyword (it matched ordinary words: `newTab` is the id of New Workspace, 80 ids start with `palette.`); it is a separate field that only the whole id or an id-shaped start matches. Setting rows (`PaletteItem.isDemoted`) drop 3 units, so a setting ties a command one match class weaker, and inside a tier a command always comes before a setting (ten settings are titled "Color"; "color" now starts with Set Workspace Color…). One exception: a setting whose whole title is the query, when it is the only such row, is an exact name and keeps the whole-title tier ("theme" starts with the Theme setting; the ten "Color" settings stay below Set Workspace Color…). Guard cases in cases.json keep both in the top 3.
 
 Score = tier x 1000 + quality (the existing contiguity and word-start score, a phrase bonus, a whole-initials bonus, minus a length penalty; 0..880; whole-title rows get the maximum so the provider order breaks their ties) + `rankBias` + the frecency boost (at most 60) + the learned pick boost (5.2, next step). Order: enabled rows first, then the tier, then commands before demoted rows, then the score; equal scores prefer a row with a shortcut (Split Right over Split Up; no score boost), then the provider order.
 
@@ -82,6 +82,7 @@ Eval: `bun scripts/palette-eval.ts` in webviews (fixture), and the same cases ag
 | 1 | eval set, fixture, live runner, `debug.palette.entries` (red commit with the step-2 floors: 60.0% / 69.1% / 0.651 on the reshaped fixture) | | | |
 | 2 | match tiers, id field, typo tier, setting demotion, shortcut bonus, one list while typing | 65.5% | 80.0% | 0.753 |
 | 2b | commands win same-tier ties with settings (demotion 3), a shortcut only breaks exact ties | 68.2% | 80.0% | 0.757 |
+| 2c | a unique exact setting name keeps the whole-title tier; guard cases theme and color (112 cases) | 69.6% | 81.3% | 0.768 |
 | 3 | learned picks per query prefix, Recent of any row kind, Suggested (catalog field, FREEZE token) | | | |
 | 4 | usage store in the daemon (CORE token) | | | |
 | 5 | pins, hidden, aliases in cmux.json (settings token) | | | |
