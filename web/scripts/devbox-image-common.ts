@@ -35,6 +35,8 @@ export const CMUX_TUI_STATE_IMAGE_PATH = "/var/lib/cmux/cmux-tui-state.ext4";
 export const CMUX_TUI_STATE_MOUNT_HELPER_PATH = "/usr/local/bin/cmux-tui-state-mount";
 export const CMUX_TUI_STATE_RESERVATION_MARKER_PATH = "/etc/cmux/cmux-tui-state-reservation";
 export const CMUX_TUI_STATE_RESERVATION_BYTES = 1024 * 1024 * 1024;
+/** The reserved filesystem may grow inside the existing VM disk as journals grow. */
+export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 
 /** Files the Dockerfile COPYs plus the Dockerfile itself; all must exist. */
 export const DEVBOX_TEMPLATE_FILES = [

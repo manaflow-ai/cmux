@@ -1,4 +1,8 @@
 {
+  "cloud.welcome.title.eyebrow": {
+    "class": "brand",
+    "source": "cmux cloud"
+  },
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
