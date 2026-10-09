@@ -47,14 +47,14 @@ pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
 mod prelude;
+pub(crate) mod projects;
+#[cfg(test)]
+mod projects_tests;
 pub(crate) mod room_delete;
 #[cfg(test)]
 mod room_delete_amendment_tests;
 #[cfg(test)]
 mod room_delete_tests;
-pub(crate) mod projects;
-#[cfg(test)]
-mod projects_tests;
 pub(crate) mod router;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
