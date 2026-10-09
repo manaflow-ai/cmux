@@ -1,8 +1,8 @@
 import { useReducer } from "react"
 import { useLocale } from "../lib/approval-strings"
 import { useLoad } from "../lib/hooks"
-import { exportTeamFiles, mutate, read } from "../lib/server"
 import { newKey, setSignedIn } from "../lib/session"
+import { useTeamApi } from "../lib/team-api"
 import { exportRequest, initialCardState, reduceCard, teamVmRequest, type TeamRole, type TeamVmView } from "../lib/team-vm"
 import { TeamVmCard } from "../lib/team-vm-card"
 import { teamVmText } from "../lib/team-vm-strings"
@@ -11,6 +11,8 @@ import { teamVmText } from "../lib/team-vm-strings"
 export function TeamVmSection({ role, team }: { readonly role: TeamRole | null; readonly team: string }) {
   const locale = useLocale()
   const [state, dispatch] = useReducer(reduceCard, initialCardState)
+  // The team in the URL (cx-5xew): status, the owner/admin ops and the export all act in it.
+  const { read, mutate, exportTeamFiles } = useTeamApi()
   const status = useLoad<TeamVmView>(`team-vm:${team}`, async () => {
     const r = await read({ data: { op: "team_vm.status", params: {} } })
     if (r.status === 401) setSignedIn(false)

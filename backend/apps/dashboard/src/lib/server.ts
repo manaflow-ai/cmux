@@ -1,5 +1,6 @@
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start"
 import { deleteCookie, getCookie, getRequestHeader, setCookie } from "@tanstack/react-start/server"
+import { teamHeaders } from "./team-scope"
 
 /**
  * Server functions. They call only the cmux API Worker and Stack Auth's client
@@ -116,12 +117,15 @@ export interface OpResponse {
 
 export type ApiResult<T> = { readonly status: number; readonly body: T }
 
-/** POSTs to the API with the cookie's access token; refreshes once on a missing token or a 401. */
-const postImpl = async <T,>(path: string, payload: unknown): Promise<ApiResult<T>> => {
+/**
+ * POSTs to the API with the cookie's access token; refreshes once on a missing token or a 401.
+ * `team` (cx-5xew) names the team to act in (x-cmux-team); the API checks the membership.
+ */
+const postImpl = async <T,>(path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
   const send = async (token: string) => {
     const res = await fetch(`${apiUrl()}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...teamHeaders(team) },
       body: JSON.stringify(payload)
     })
     return { status: res.status, body: (await res.json().catch(() => ({}))) as T }
@@ -140,10 +144,10 @@ const postImpl = async <T,>(path: string, payload: unknown): Promise<ApiResult<T
 export const post = createServerOnlyFn(postImpl)
 
 export const mutate = createServerFn({ method: "POST" })
-  .validator((d: { op: string; params: Record<string, unknown>; idempotency_key: string }) => d)
+  .validator((d: { op: string; params: Record<string, unknown>; idempotency_key: string; team?: string }) => d)
   .handler(async ({ data }) => {
     requireSameOrigin()
-    return post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" })
+    return post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" }, data.team)
   })
 
 /**
@@ -151,20 +155,20 @@ export const mutate = createServerFn({ method: "POST" })
  * download URL on the API origin (single use, 5 minutes) for the browser to open; null on failure.
  */
 export const exportTeamFiles = createServerFn({ method: "POST" })
-  .validator((d: { vm: string; idempotency_key: string }) => d)
+  .validator((d: { vm: string; idempotency_key: string; team?: string }) => d)
   .handler(async ({ data }) => {
     requireSameOrigin()
-    const r = await post<OpResponse>("/v1/ops", { op: "team_vm.retired.export", params: { vm: data.vm }, idempotency_key: data.idempotency_key, origin: "user" })
+    const r = await post<OpResponse>("/v1/ops", { op: "team_vm.retired.export", params: { vm: data.vm }, idempotency_key: data.idempotency_key, origin: "user" }, data.team)
     const value = r.body.ok && r.body.value && typeof r.body.value === "object" && !Array.isArray(r.body.value) ? r.body.value : null
     const path = value && typeof value.path === "string" && value.path.startsWith("/v1/team-vm/export/") ? value.path : null
     return { ...r, url: path ? `${apiUrl()}${path}` : null }
   })
 
 export const read = createServerFn({ method: "POST" })
-  .validator((d: { op: string; params: Record<string, unknown> }) => d)
+  .validator((d: { op: string; params: Record<string, unknown>; team?: string }) => d)
   .handler(async ({ data }) => {
     requireSameOrigin()
-    return post<{ op: string; value: Json; stream: string; revision: string }>("/v1/read", { op: data.op, params: data.params })
+    return post<{ op: string; value: Json; stream: string; revision: string }>("/v1/read", { op: data.op, params: data.params }, data.team)
   })
 
 /**

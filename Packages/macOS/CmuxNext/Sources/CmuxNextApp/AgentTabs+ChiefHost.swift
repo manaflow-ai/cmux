@@ -29,12 +29,20 @@ enum AgentPaneHostKind: Equatable {
 struct ChiefHomeAcpmux {
     let host: String
     let paneHost: any AgentPaneHostProviding
+    /// This Mac's tabs' host: a session the Chief host runs (an older subagent tab recorded
+    /// with this Mac's host) attaches to the Chief home's acpmux, any other to `local`.
+    let localRouter: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding
 
     init(home: ChiefHome) {
         host = Self.host(muxHome: home.muxHome)
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        paneHost = AcpmuxHost(environment: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
-                                                                      environment: ["ACPMUX_HOME": home.acpmuxHome.path]))
+        let environment = AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
+                                                    environment: ["ACPMUX_HOME": home.acpmuxHome.path])
+        let chief = AcpmuxHost(environment: environment)
+        paneHost = chief
+        // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
+        let tag = "optchat-chief:" + host.dropFirst("chief:".count)
+        localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
     }
 
     /// `chief:<home id>` of the Chief home `muxHome`. The id is optchat-chief

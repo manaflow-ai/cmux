@@ -1,0 +1,13 @@
+# Refactor log: lane refactor-config (cmux-tui/crates/cmux-tui/src/config.rs)
+
+Append-only. One line per landing: date, SHA, what moved where, old -> new lines, gates and minutes.
+Base 70bb57f3e77c: config.rs has 9,920 lines (383 KB). Incremental `cargo build -p cmux-tui` after one changed
+function in config.rs on a warm Testbox: 14.7 / 12.7 / 10.6 s.
+
+## Landings
+
+- 2026-10-09 050fb05af756 refactor-config: config.rs inline tests -> config/tests.rs (helpers) + 10 topic files in config/tests/; test re-exec path, cmux-tui.yml valgrind filters and the workflow security test name the new paths; config.rs 9920 -> 5967; 132 tests before and after; Testbox fmt, clippy, cmux-tui tests 2072 passed, Windows check, about 8 min.
+- 2026-10-09 L2 refactor-config: config.rs Ghostty defaults -> config/ghostty_config.rs (885, parse/themes/includes), config/ghostty_helper.rs (resolver child process, 264), config/ghostty_theme_mode.rs (system appearance, 371); private items + 2 methods + 3 fields -> pub(super), pub(crate) re-export of the 2 helper entry points; config.rs 5967 -> 4477; 132 config tests before and after; Testbox fmt, clippy, cmux-tui tests, Windows check, about 5 min.
+- 2026-10-09 L3 refactor-config: config.rs config file I/O (config_path, bounded reads, atomic plugin writes, parent dir sync) -> config/file_io.rs (306); re-exports keep config::{config_path, read_bounded_utf8_file, read_config_text, write_agent_plugin, write_sidebar_plugin}; config.rs 4477 -> 4166; 132 config tests before and after.
+- 2026-10-09 L4 refactor-config: config.rs Action enum + indexes -> config/action.rs (97), action catalog (definitions, macros, Action helpers) -> config/action_catalog.rs (398), test-only action metadata -> config/action_metadata.rs (519, cfg(test)); check-spec-inventory.py reads config.rs plus config/*.rs; config.rs 4166 -> 3169; 132 config tests before and after.
+- 2026-10-09 L5 refactor-config: config.rs key chords + Keys table -> config/keys.rs (482), load() + user command binding + raw file read -> config/load.rs (776), status bar options + segment resolution -> config/status_bar.rs (140); 3 Keys methods + Keys.bindings -> pub(super); config.rs 3169 -> 1790; 132 config tests before and after.

@@ -67,6 +67,7 @@ extension AgentTabStore {
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag))
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
+        tabs.localSessionHost = chief.localRouter(tabs.host)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return nil }

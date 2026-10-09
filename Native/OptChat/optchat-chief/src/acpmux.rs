@@ -607,8 +607,8 @@ pub(crate) fn is_output(kind: &str) -> bool {
 /// the harness sent it (`session/update`, or an acpmux event `dir: in`),
 /// else `Noted` (acpmux's own: the echo of our prompt or steer, a status).
 pub fn event_signal(method: &str, params: &Value) -> TurnSignal {
-    let from_agent = method == "session/update"
-        || params.get("dir").and_then(Value::as_str) == Some("in");
+    let from_agent =
+        method == "session/update" || params.get("dir").and_then(Value::as_str) == Some("in");
     if from_agent {
         TurnSignal::Changed
     } else {
