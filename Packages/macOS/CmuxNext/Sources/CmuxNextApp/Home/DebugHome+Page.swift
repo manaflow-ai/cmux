@@ -44,7 +44,7 @@ extension DebugHome {
                 ])
             }
         }
-        return .object([
+        let fields: [String: JSONValue] = [
             "online": .bool(store.isOnline),
             "me": store.me.map { .string($0.id.rawValue) } ?? .null,
             "shown": view?.shown.map { .string($0.rawValue) } ?? .null,
@@ -72,7 +72,7 @@ extension DebugHome {
                 ])
             } ?? .null,
             // Every window's Home sidebar: its width and divider (window points from the top-left).
-            "sidebar_windows": .array(services.windows.controllers.compactMap { controller in
+            "sidebar_windows": .array(services.windows.controllers.compactMap { controller -> JSONValue? in
                 guard let page = controller.topPages.views[.home] as? TopHomePageView else { return nil }
                 return .object([
                     "window": .string(controller.state.id),
@@ -80,12 +80,13 @@ extension DebugHome {
                     "divider": page.split.dividerFrameInWindow.map(Self.frame) ?? .null,
                 ])
             }),
-            "chiefs": .array(home.directory.chiefs.map { chief in
+            "chiefs": .array(home.directory.chiefs.map { chief -> JSONValue in
                 .object(["id": .string(chief.id), "name": .string(chief.name), "default": .bool(chief.isDefault),
                          "main_conversation": chief.mainConversation.map { .string($0) } ?? .null])
             }),
             "archived_chiefs": .array(home.directory.archivedChiefs.sorted().map { .string($0) }),
             "team_members": .number(Double(home.directory.teamMembers.count)),
-        ])
+        ]
+        return .object(fields)
     }
 }

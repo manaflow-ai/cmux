@@ -9,7 +9,7 @@ extension AppControl {
     func registerCloudMethods(_ services: AppServices) {
         service?.router.register([
             .mainActor("auth.status") { _ in
-                let cloud = services.cloud!
+                let cloud = services.cloud
                 let user = cloud.auth.user
                 return .value(.object([
                     "signed_in": .bool(cloud.isSignedIn),
