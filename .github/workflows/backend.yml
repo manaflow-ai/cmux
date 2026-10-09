@@ -297,7 +297,7 @@ jobs:
           echo "$out"
       # deploy-worker.sh records the serving version, deploys, smokes apps/api/release-smoke.json and
       # runs `wrangler rollback` on red (plans/cmux-next/release-rails.md).
-      - name: Deploy API Worker (smoke, rollback on red)
+      - name: Deploy API Worker (records the rollback target)
         id: deploy-api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -346,7 +346,7 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - name: Deploy API Worker (refuses if production lacks a migration; smoke, rollback on red)
+      - name: Deploy API Worker (refuses if production lacks a migration; records the rollback target)
         id: deploy-api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
