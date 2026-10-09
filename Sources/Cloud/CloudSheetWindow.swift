@@ -128,7 +128,13 @@ struct CloudSheetContent<Content: View>: View {
 
     var body: some View {
         content
-            .fixedSize(horizontal: false, vertical: true)
+            // Sheets in this wrapper all declare a natural width. Measuring
+            // horizontally as flexible lets an attached sheet's temporary
+            // 1-point proposal collapse the content to 1×0, so later model
+            // updates never produce a usable geometry report. Keep both axes
+            // intrinsic while the wrapper applies the measured size outside
+            // AppKit's layout pass.
+            .fixedSize(horizontal: true, vertical: true)
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
             } action: { size in
