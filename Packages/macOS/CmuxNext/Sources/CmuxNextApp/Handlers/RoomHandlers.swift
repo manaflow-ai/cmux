@@ -136,7 +136,7 @@ enum RoomHandlers {
     /// A new space with the next free color and its own first workspace.
     /// One path for the palette, menu, keyboard, CLI, `action.run` and the
     /// strip's New Space button: `enter` (Open Link in New Space) or
-    /// `WindowManager.startNewProfile`, which shows the space only when the
+    /// `startNewSpace`, which shows the space only when the
     /// run may change the view.
     static func create(invocation: ActionInvocation, _ context: AppActionContext, action: ActionID = "space.new",
                        enter: (@MainActor @Sendable (ProfileID, WindowState) -> Void)? = nil) throws {
@@ -164,13 +164,35 @@ enum RoomHandlers {
                 if let enter, let active, let state = services.windows.states[active.id] {
                     enter(id, state)
                 } else {
-                    try await services.windows.startNewProfile(id, from: active?.id)
+                    try await startNewSpace(id, from: active?.id, windows: services.windows)
                 }
                 return nil
             } catch {
                 return ActionWorkFailure(action.rawValue, error)
             }
         })
+    }
+
+    /// Gives the new, empty space `profile` its first workspace. A run that
+    /// may change the view shows the space in window `windowID`
+    /// (`switchProfile`, which creates the workspace there). Any other run
+    /// (a script, the CLI without `focus`) files the workspace, pinned to
+    /// `profile`, into that window without showing it: the window stays in
+    /// its space, which never lists the new workspace (cx-f8aw). With no
+    /// open window, a new window opens in the space (behind for a run
+    /// without view permission).
+    private static func startNewSpace(_ profile: ProfileID, from windowID: String?, windows: WindowManager) async throws {
+        if let windowID, let state = windows.states[windowID], windows.registry.value.window(windowID)?.isOpen == true {
+            if ActionRunScope.viewChangeAllowed() {
+                windows.switchProfile(profile, in: state)
+            } else {
+                _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile), into: windowID)
+            }
+            return
+        }
+        let newWindow = UUID().uuidString.lowercased()
+        windows.state(for: newWindow).enterProfile(profile)
+        _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile), into: newWindow)
     }
 
     private static func move(invocation: ActionInvocation, by delta: Int, _ context: AppActionContext) throws {
