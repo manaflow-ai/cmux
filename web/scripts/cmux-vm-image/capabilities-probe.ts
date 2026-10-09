@@ -44,4 +44,4 @@ export async function main(argv = process.argv): Promise<number> {
   return report.error ? 1 : 0;
 }
 
-if (import.meta.main) process.exit(await main());
+if ((import.meta as ImportMeta & { main?: boolean }).main) process.exit(await main());
