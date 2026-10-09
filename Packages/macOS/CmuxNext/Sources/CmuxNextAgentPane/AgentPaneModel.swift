@@ -116,8 +116,7 @@ public final class AgentPaneModel {
     /// the user picks; true when saved, false when the user cancelled. Nil
     /// leaves the page to copy the log instead.
     @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
-    /// Writes `agentPane.showContextUsage` (the composer's Hide or Show Context Usage). Nil: the
-    /// page keeps its own choice until it reloads.
+    /// Writes `agentPane.showContextUsage` (Hide or Show Context Usage); nil keeps the page's choice.
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
@@ -382,14 +381,7 @@ public final class AgentPaneModel {
         case .reply(let reply):
             return await respond(to: reply)
         case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
-        case .showContextUsage(let show):
-            guard let onShowContextUsage else { return AgentPaneReply.failure(code: "unsupported", message: "Settings are unavailable") }
-            do {
-                try await onShowContextUsage(show)
-                return AgentPaneReply.success()
-            } catch {
-                return AgentPaneReply.failure(code: "settings_write_failed", message: error.localizedDescription)
-            }
+        case .showContextUsage(let show): return await showContextUsage(show)
         case .unsupported(let method):
             return Self.unsupported(method)
         }
