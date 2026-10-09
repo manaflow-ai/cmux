@@ -32,7 +32,9 @@ final class AgentRenderWindows {
     /// there and activates it). True when it moved; false when the tab
     /// already has a window (a pane shows it, or it is parked).
     func keepRendering(tabID: String, chrome: NSView, webView: WKWebView?) -> Bool {
-        guard chrome.window == nil else { return false }
+        // A chrome its pane parked hidden (`PaneContentView+Parking`) is a
+        // background tab too.
+        guard chrome.window == nil || chrome.isHidden else { return false }
         parked.removeValue(forKey: tabID)?.finish()
         let panel = AgentRenderPanel(viewport: Self.viewport, screens: NSScreen.screens.map(\.frame))
         panel.onRelease = { [weak self, weak panel] in
@@ -107,6 +109,9 @@ final class AgentRenderPanel: NSPanel {
         chrome.autoresizingMask = [.width, .height]
         orderBack(nil)
         content.addSubview(chrome)
+        // Parked hidden in a pane until now: it shows here (a Chromium tab
+        // presents on unhide).
+        chrome.isHidden = false
         if let webView { makeFirstResponder(webView) }
         content.layoutSubtreeIfNeeded()
     }
