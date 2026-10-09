@@ -102,10 +102,10 @@ public actor CmuxTUIControl {
         serverInfo?.session ?? requestedSession ?? ""
     }
 
-    /// The server's `identify` result.
-    public var server: CmuxTUIServerInfo {
-        // Set by `open` before the control is returned.
-        serverInfo!
+    /// The server's `identify` result. `open` sets it before it returns the
+    /// control, so it is `nil` only on a control whose handshake did not finish.
+    public var server: CmuxTUIServerInfo? {
+        serverInfo
     }
 
     /// Closes the relay channel. Terminals keep running on the host.
