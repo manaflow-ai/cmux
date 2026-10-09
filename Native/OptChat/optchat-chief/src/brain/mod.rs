@@ -35,6 +35,7 @@ mod side;
 mod spawns;
 mod steer;
 mod turns;
+pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;

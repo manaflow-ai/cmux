@@ -210,6 +210,9 @@ pub mod method {
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// Read or replace the unsent composer text for one session.
+    pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
+    pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
