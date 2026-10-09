@@ -876,7 +876,6 @@ impl Selector {
     }
 }
 
-
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
         return false;
