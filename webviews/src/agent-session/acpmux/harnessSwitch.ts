@@ -2,6 +2,7 @@ import { errorMessage } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
+import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
@@ -499,6 +500,10 @@ export class HarnessSwitch {
   }
 
   private fail(intent: Intent, error: unknown): void {
+    // Trust is a separate binary decision in the pane. A pending or denied folder must return the
+    // queued prompt to the composer and let the trust ask own the next action, rather than leaving
+    // a generic "Couldn't start" card with a Retry button beside it.
+    const trustRefusal = isTrustRefusal(error);
     intent.phase = "failed";
     intent.error = errorText(error) || t("switch.unknownError");
     if (intent.queued.length) {
@@ -514,8 +519,12 @@ export class HarnessSwitch {
       for (const prompt of intent.queued) prompt.reject(reason);
       intent.queued = [];
     }
+    if (trustRefusal && this.intent === intent) {
+      this.intent = undefined;
+      intent.done.resolve(undefined);
+    }
     this.changed();
-    intent.done.resolve(undefined);
+    if (!trustRefusal) intent.done.resolve(undefined);
   }
 
   private changed(): void {

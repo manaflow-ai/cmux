@@ -133,17 +133,26 @@ import UniformTypeIdentifiers
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 420)
         sidebar.wantsLayer = true
         sidebar.appearance = scope.appearance
+        // An offscreen window (never ordered front) makes AppKit draw the
+        // rows' layer contents; detached views leave them empty.
+        let window = NSWindow(contentRect: sidebar.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = sidebar
         scope.root(sidebar)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         sidebar.list.setWindowVisible(true)
         sidebar.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
         sidebar.displayIfNeeded()
+        CATransaction.flush()
         scopes.append(scope)
+        windows.append(window)
         return sidebar
     }
 
     static var keep: [StatusIndicatorLayer] = []
+    static var windows: [NSWindow] = []
     static var scopes: [ThemeScope] = []
 
     /// Renders `layer` with the Core Animation compositor at `count` times,
@@ -288,5 +297,7 @@ import UniformTypeIdentifiers
         #expect(html.contains("image/gif"))
         Self.keep.removeAll()
         Self.scopes.removeAll()
+        Self.windows.forEach { $0.close() }
+        Self.windows.removeAll()
     }
 }

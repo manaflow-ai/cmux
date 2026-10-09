@@ -78,7 +78,7 @@
    "CmuxNextActions": 9,
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 1,
-   "CmuxNextApp": 68,
+   "CmuxNextApp": 67,
    "CmuxNextApps": 1,
    "CmuxNextBookmarks": 2,
    "CmuxNextBrowser": 11,
@@ -99,7 +99,7 @@
    "CmuxNextTabs": 4,
    "CmuxNextTerminal": 1,
    "MessagesLabHome": 47,
-   "MessagesLabSidebar": 16
+   "MessagesLabSidebar": 9
   },
   "iuo": {
    "CmuxNextAgentPane": 1,
@@ -114,6 +114,11 @@
   },
   "precondition": {
    "CmuxNextSidebar": 1
+  },
+  "render_font": {
+   "CmuxHomeRender": 4,
+   "MessagesLabHome": 23,
+   "MessagesLabSidebar": 4
   },
   "unchecked": {
    "CMUXAuthCore": 3,
@@ -150,7 +155,6 @@
    "MessagesLabSidebar": 2
   },
   "unowned": {
-   "CMUXMobileCore": 2,
    "CmuxNextApp": 63,
    "CmuxNextBrowser": 6,
    "CmuxNextPalette": 1,
