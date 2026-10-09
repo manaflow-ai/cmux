@@ -47,8 +47,8 @@
     },
     {
       "path": "AgentSessionSource.java",
-      "sha256": "44b120230e12830916a2c9cde78b0adf3c4d19223f21e37f6f8bfcb64d54984e",
-      "size": 4188
+      "sha256": "2da59b2dc3f90b8301fbfd97da007969f2cb541d9aea6d187c156f2193ba3ceb",
+      "size": 4275
     },
     {
       "path": "AgentSource.java",
@@ -1632,7 +1632,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9f5bba861cef47970c2fe30f11208ddbfec8c14b62d1e3a10f0ba6d9d169b659",
+      "sha256": "08de4797e5ea3db4016bfc24b09a07d0adcf7e6229d99be342f0d5b8ab86c928",
       "size": 5901
     },
     {
@@ -2812,7 +2812,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d",
+  "ir_sha256": "baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

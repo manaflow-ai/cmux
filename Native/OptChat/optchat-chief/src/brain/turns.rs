@@ -415,7 +415,7 @@ impl Brain {
                     Source::Message {
                         remote: Some(_),
                         ..
-                    }
+                    } | Source::Resume { remote: true, .. }
                 )
             });
         self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
@@ -437,7 +437,15 @@ impl Brain {
             .filter_map(super::images::TurnImage::block)
             .collect();
         self.describe_images(&images);
-        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // A resume note carries the cut messages' full text (never logged
+        // again) before the newer messages.
+        let texts: Vec<String> = items
+            .into_iter()
+            .map(|i| match &i.source {
+                Source::Resume { cut, .. } => super::recover::resume_prompt(cut),
+                _ => i.text,
+            })
+            .collect();
         // Per-turn state goes after the view, never in the system prompt:
         // the subagents at work now (the reference client's line), before
         // the new messages. Never logged.
@@ -520,11 +528,13 @@ impl Brain {
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
                 env: Default::default(),
+                fast: self.turn_fast(&engine, family),
             },
             blocks,
             system_prompt,
             key,
             limit: self.settings.turn_limit,
+            idle_limit: self.settings.turn_idle_limit,
         })
     }
 
@@ -581,6 +591,9 @@ impl Brain {
                 }
                 if let Source::Spawn(r) = &item.source {
                     next.spawn_logged(r);
+                }
+                if let Source::Resume { .. } = &item.source {
+                    next.resumes.retain(|r| r.conversation != item.conversation);
                 }
                 if let (Some(c), Source::Message { seq, id, .. }) =
                     (&item.conversation, &item.source)
@@ -818,6 +831,22 @@ impl Brain {
 
     /// This turn's engine: engine.json over the defaults. A harness acpmux
     /// does not know keeps the default harness, and says so.
+    /// Whether this turn runs at the fast tier: `speed` fast on a harness
+    /// that has it; on another one the turn runs at the default speed and
+    /// the log says why.
+    fn turn_fast(&self, engine: &crate::engine::TurnEngine, family: crate::acpmux::Family) -> bool {
+        let Some(speed) = engine.speed.as_deref() else {
+            return false;
+        };
+        match crate::engine::check_speed(speed, family) {
+            Ok(()) => crate::engine::is_fast(Some(speed)),
+            Err(reason) => {
+                (self.log)(&format!("{reason}; this turn runs at the default speed"));
+                false
+            }
+        }
+    }
+
     fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
         let (engine, unknown) = self.next_engine();
         if let Some(named) = unknown {
@@ -1022,8 +1051,8 @@ impl Brain {
         if let Some(hook) = &self.after_turn {
             hook(key);
         }
-        self.prewarm_next_turn();
         self.maybe_start_turn();
+        self.prewarm_next_turn();
     }
 }
 
@@ -1034,6 +1063,7 @@ fn source_name(source: &Source) -> &'static str {
         Source::Child { .. } => "child",
         Source::Spawn(_) => "subagents",
         Source::Note => "note",
+        Source::Resume { .. } => "resume",
     }
 }
 
@@ -1056,11 +1086,19 @@ fn with_images(
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq, id, .. } => Item {
+        Source::Message { seq, id, remote } => Item {
             seq: Some(*seq),
             images,
             conversation: queued.conversation.clone(),
             id: queued.conversation.as_ref().map(|_| id.clone()),
+            remote: remote.is_some(),
+            ..Item::default()
+        },
+        Source::Resume { remote, cut } => Item {
+            conversation: queued.conversation.clone(),
+            remote: *remote,
+            resume: true,
+            cut: cut.clone(),
             ..Item::default()
         },
         Source::Child { session_id, floor } => Item {

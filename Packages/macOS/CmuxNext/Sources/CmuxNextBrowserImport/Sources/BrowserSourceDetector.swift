@@ -105,7 +105,7 @@ public struct BrowserSourceDetector: Sendable {
     /// The cookie database of a Chromium profile (`Network/Cookies` since
     /// Chromium 96, `Cookies` before).
     public static func chromiumCookieFile(_ profile: URL) -> URL? {
-        #if CMUX_NO_BROWSER_DATA_IMPORT
+        #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_COOKIE_IMPORT
         return nil
         #else
         for name in ["Network/Cookies", "Cookies"] {

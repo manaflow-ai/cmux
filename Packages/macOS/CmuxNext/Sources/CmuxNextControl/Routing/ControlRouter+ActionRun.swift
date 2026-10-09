@@ -174,7 +174,7 @@ extension ControlRouter {
         var barrier = ControlSequenceBarrier(home: barriers[ControlCommandScope.localMachine] ?? 0)
         for (machine, sequence) in barriers where machine != ControlCommandScope.localMachine {
             guard let session = topology.sessions.first(where: { $0.machineID == machine && !$0.isHome }) else { continue }
-            barrier.sessions[session.id] = sequence
+            barrier.sessions.updateValue(sequence, forKey: session.id)
         }
         return barrier
     }
@@ -215,7 +215,7 @@ extension ControlRouter {
         var resolved = request
         if let target = request.target { resolved.target = try await resolver(target, deadline) }
         for (name, value) in request.arguments {
-            if case .target(let ref) = value { resolved.arguments[name] = .target(try await resolver(ref, deadline)) }
+            if case .target(let ref) = value { resolved.arguments.updateValue(.target(try await resolver(ref, deadline)), forKey: name) }
         }
         return resolved
     }

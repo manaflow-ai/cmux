@@ -61,6 +61,8 @@ const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(
 /** Stable public ids derived from the Stack identity, so routing needs no lookup. */
 export const userIdFor = (stackProjectId: string, stackUserId: string) => `user_${hex20(`stack:${stackProjectId}:${stackUserId}`)}`
 export const personalTeamIdFor = (userId: string) => `team_${hex20(`personal:${userId}`)}`
+/** A Stack (shared) team's cmux id (cx-3bi.43): the Stack webhook and x-cmux-team use it. */
+export const stackTeamIdFor = (stackProjectId: string, stackTeamId: string) => `team_${hex20(`stack-team:${stackProjectId}:${stackTeamId}`)}`
 
 /** RFC 7638 thumbprint of an EC P-256 JWK. */
 export const jwkThumbprint = (jwk: { crv: string; kty: string; x: string; y: string }) =>
@@ -243,7 +245,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           email: p.email ?? null,
           email_verified: p.email_verified === true,
           display_name: p.display_name ?? p.email?.split("@")[0] ?? "cmux user",
-          personal_team: p.team
+          // Derived from the user, never the request's team (x-cmux-team names a shared team; cx-3bi.43 review P1-1).
+          personal_team: personalTeamIdFor(p.user)
         }
         // A token minted before an email change still carries the old email until it expires
         // (minutes). Within EMAIL_REVERT_GUARD_MS of a change, a claim of the address just

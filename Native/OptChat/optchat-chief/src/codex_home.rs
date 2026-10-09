@@ -19,6 +19,36 @@ pub fn codex_cache_key(home: &Path, role: &str) -> String {
     format!("optchat-{}-{role}", home_id(home))
 }
 
+/// codex-acp's env for the codex binary it runs (else `codex` on PATH).
+pub const CODEX_PATH_ENV: &str = "CODEX_PATH";
+
+/// The Chief's own codex (the cmux codex fork, which reads
+/// `CODEX_PROMPT_CACHE_KEY`): `OPTCHAT_CODEX_PATH` when it names a file,
+/// else `paths.codex_bin` when installed, else the copy DEV and NIGHTLY
+/// app builds bundle next to this binary (`Resources/bin/chief-codex/codex`).
+/// None: codex-acp runs the PATH codex, which may be upstream codex (it
+/// ignores the key, so the view is never read back from the cache).
+pub fn chief_codex(paths: &Paths) -> Option<PathBuf> {
+    if let Some(path) = crate::cli::env("OPTCHAT_CODEX_PATH")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+    {
+        return Some(path);
+    }
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    chief_codex_in(paths, &exe_dir)
+}
+
+/// `chief_codex` without the env: the Chief home's copy, else the one
+/// bundled beside the binary in `exe_dir`.
+pub fn chief_codex_in(paths: &Paths, exe_dir: &Path) -> Option<PathBuf> {
+    if paths.codex_bin.is_file() {
+        return Some(paths.codex_bin.clone());
+    }
+    let bundled = exe_dir.join("chief-codex").join("codex");
+    bundled.is_file().then_some(bundled)
+}
+
 /// The private, empty HOME every codex compactor slot runs with (under
 /// `base`): codex finds user skills under `$HOME/.agents/skills` whatever
 /// CODEX_HOME and the slot config say (codex ext/skills host_roots.rs), and
@@ -47,13 +77,13 @@ pub fn user_codex_home() -> PathBuf {
 /// where its requests go (the team subrouter) and the model it asks for.
 /// Nothing else: no MCP servers, profiles, hooks, notify, projects,
 /// plugins or skills.
-pub const CODEX_KEPT_KEYS: [&str; 8] = [
+/// Not `service_tier`: a slot sets its own (`codex_compactor_config_at`).
+pub const CODEX_KEPT_KEYS: [&str; 7] = [
     "model",
     "model_provider",
     "model_providers",
     "openai_base_url",
     "chatgpt_base_url",
-    "service_tier",
     "model_reasoning_effort",
     "model_verbosity",
 ];
@@ -63,7 +93,20 @@ pub const CODEX_KEPT_KEYS: [&str; 8] = [
 /// skills (none loaded, none listed in the prompt), no apps, plugins,
 /// memories, hooks, subagents or code mode, no history file.
 pub fn codex_compactor_config(user: Option<&str>) -> Result<String, String> {
+    codex_compactor_config_at(user, false)
+}
+
+/// `codex_compactor_config` with the slot's own speed: `service_tier =
+/// "fast"` when `fast`, else no tier (the default), whatever the user's
+/// config says.
+pub fn codex_compactor_config_at(user: Option<&str>, fast: bool) -> Result<String, String> {
     let mut out = toml::Table::new();
+    if fast {
+        out.insert(
+            "service_tier".to_owned(),
+            toml::Value::String("fast".to_owned()),
+        );
+    }
     if let Some(text) = user {
         let table: toml::Table = text
             .parse()
@@ -173,12 +216,17 @@ pub fn prepare_turn_codex_home(paths: &Paths, user_home: &Path) -> Result<(), St
 /// writes auth.json in place, so a refresh through the link updates the
 /// user's own file.
 pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String> {
+    prepare_codex_homes_at(paths, user_home, false)
+}
+
+/// `prepare_codex_homes` with the slots' speed (`compactor_speed` fast).
+pub fn prepare_codex_homes_at(paths: &Paths, user_home: &Path, fast: bool) -> Result<(), String> {
     let user = match std::fs::read_to_string(user_home.join("config.toml")) {
         Ok(text) => Some(text),
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("reading {}: {e}", user_home.display())),
     };
-    let config = codex_compactor_config(user.as_deref())?;
+    let config = codex_compactor_config_at(user.as_deref(), fast)?;
     private_dir(&paths.compactor_codex)
         .map_err(|e| format!("creating {}: {e}", paths.compactor_codex.display()))?;
     let private_home = codex_private_home(&paths.compactor_codex);
@@ -187,7 +235,7 @@ pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String
         .map_err(|e| format!("preparing {}: {e}", private_home.display()))?;
     let id = chief_installation_id(&paths.compactor_codex)
         .map_err(|e| format!("the compactor's codex installation id: {e}"))?;
-    for k in 0..crate::compactor::COMPACTOR_SESSIONS {
+    for k in 0..crate::compactor::compactor_sessions() {
         let dir = codex_slot_home(&paths.compactor_codex, k);
         let made = private_dir(&dir)
             .and_then(|()| wipe_codex_home(&dir))

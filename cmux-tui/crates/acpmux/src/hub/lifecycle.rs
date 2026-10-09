@@ -324,6 +324,7 @@ impl Hub {
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
             let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
+            let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let mode = meta
                 .modes
                 .as_ref()
@@ -350,6 +351,7 @@ impl Hub {
                     mode: mode.clone(),
                     model: model.clone(),
                     effort: effort.clone(),
+                    fast,
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
@@ -368,6 +370,7 @@ impl Hub {
                     &model,
                     &effort,
                 );
+                *tr.fast.lock().await = fast;
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
@@ -753,7 +756,10 @@ impl Hub {
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
-        let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
+        // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
+        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+            .await
+            .unwrap_or_else(|_| std::env::temp_dir());
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;

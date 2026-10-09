@@ -441,6 +441,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         optchat_chief::compactor::Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     );
     let request = optchat_host::CompactRequest {
+        imported: false,
         node: optchat_host::NodeId::new(0, 0),
         system: "SYS".into(),
         context: "<chat>\n</chat>".into(),
@@ -874,4 +875,108 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
     // And its own marker is at or after the first turn's.
     let next = markers(&inner.prompts[1])[0];
     assert!(second[next].0 >= offset);
+}
+
+/// The Chief's own codex (the cmux codex fork, which reads the Chief's
+/// `CODEX_PROMPT_CACHE_KEY`; the user's PATH codex may be upstream, which
+/// ignores it and never reads the view back): installed at
+/// `paths.codex_bin`, it is the `CODEX_PATH` codex-acp runs in every codex
+/// turn and compactor session. Not installed: no CODEX_PATH, the PATH codex.
+#[test]
+fn codex_sessions_run_the_chiefs_own_codex_when_installed() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::compactor::compactor_presets;
+    use optchat_chief::host::turn_preset;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let turn = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert!(
+        !turn.env.contains_key("CODEX_PATH"),
+        "not installed: PATH codex"
+    );
+    std::fs::create_dir_all(paths.codex_bin.parent().unwrap()).unwrap();
+    std::fs::write(&paths.codex_bin, "#!/bin/sh\n").unwrap();
+    let want = paths.codex_bin.display().to_string();
+    let turn = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert_eq!(turn.env.get("CODEX_PATH"), Some(&want));
+    let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
+    assert_eq!(bare.env.get("CODEX_PATH"), Some(&want));
+    for slot in compactor_presets(&paths, &home, "codex", Family::Codex) {
+        assert_eq!(slot.env.get("CODEX_PATH"), Some(&want), "{}", slot.name);
+    }
+    let claude = turn_preset(&paths, &home, "claude-sr", Family::Claude, true, "SYS").unwrap();
+    assert!(!claude.env.contains_key("CODEX_PATH"));
+}
+
+/// Lawrence 2026-10-09: "ensure the subagents are the ACP subagents so it
+/// will be visible in the cmux UI". A Chief turn can start a subagent only
+/// with `spawn` (an acpmux session with its own workspace): Claude Code's
+/// Task/Agent tools are not offered, and an isolated codex turn runs with
+/// codex's native subagents off. This test fails if either comes back.
+#[test]
+fn a_chief_turn_starts_subagents_only_through_spawn() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::{TURN_TOOLS, turn_isolation_args, turn_preset};
+    for native in ["Task", "Agent"] {
+        assert!(
+            !TURN_TOOLS.contains(&native),
+            "{native} must stay out of TURN_TOOLS"
+        );
+    }
+    let args = turn_isolation_args();
+    let tools = args
+        .iter()
+        .position(|a| a == "--tools")
+        .and_then(|k| args.get(k + 1))
+        .expect("an isolated Claude turn passes an explicit tool allowlist");
+    assert!(
+        tools.split(',').all(|t| t != "Task" && t != "Agent"),
+        "{tools}"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert_eq!(
+        codex.env.get("CODEX_HOME").map(std::path::PathBuf::from),
+        Some(paths.turn_codex.clone()),
+        "an isolated codex turn runs on the Chief's own CODEX_HOME"
+    );
+    let config: toml::Table = optchat_chief::codex_home::codex_turn_config(None)
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        config["features"]["multi_agent"].as_bool(),
+        Some(false),
+        "codex native subagents stay off on Chief turns"
+    );
+}
+
+/// DEV and NIGHTLY app builds bundle the cmux codex fork next to the brain
+/// host (`Resources/bin/chief-codex/codex`): without a copy in the Chief
+/// home, the Chief runs the bundled one. The Chief home's copy wins.
+#[test]
+fn the_bundled_codex_is_the_fallback_for_the_chiefs_own_codex() {
+    use optchat_chief::codex_home::chief_codex_in;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    let exe_dir = dir.path().join("Resources").join("bin");
+    assert_eq!(
+        chief_codex_in(&paths, &exe_dir),
+        None,
+        "neither: PATH codex"
+    );
+    let bundled = exe_dir.join("chief-codex").join("codex");
+    std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+    std::fs::write(&bundled, "#!/bin/sh\n").unwrap();
+    assert_eq!(chief_codex_in(&paths, &exe_dir), Some(bundled));
+    std::fs::create_dir_all(paths.codex_bin.parent().unwrap()).unwrap();
+    std::fs::write(&paths.codex_bin, "#!/bin/sh\n").unwrap();
+    assert_eq!(
+        chief_codex_in(&paths, &exe_dir),
+        Some(paths.codex_bin.clone()),
+        "the Chief home's copy wins"
+    );
 }

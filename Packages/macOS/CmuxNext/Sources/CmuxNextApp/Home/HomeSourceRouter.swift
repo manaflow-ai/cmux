@@ -120,6 +120,17 @@ nonisolated final class HomeSourceRouter: HomeSource {
         try await cloud.resolve(contact)
     }
 
+    /// Attachments go to the owner of their conversation, like its ops. The
+    /// protocol default refuses ("attachments unsupported"), so without
+    /// these every photo sent to the local Chief failed "Not Delivered".
+    func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        try await source(for: file.conversation).upload(file)
+    }
+
+    func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
+        try await source(for: location.conversation).fetch(ref, at: location, variant: variant)
+    }
+
     /// A closed transcript goes to its owner; one no owner reported was
     /// never opened on the cloud, and the local owner ignores it.
     func close(_ conversation: ConversationID) {
@@ -191,8 +202,13 @@ nonisolated final class HomeSourceRouter: HomeSource {
         publish { state in
             switch event {
             case .connection(let connection):
+                let was = state.localConnection
                 state.localConnection = connection
-                return Self.mergedEvent(&state)
+                if let merged = Self.mergedEvent(&state) { return merged }
+                // The local owner came back while the cloud kept the merged
+                // connection online: a recovery, so the store resends what
+                // the owner did not answer now, not at its next backoff.
+                return connection == .online && was != .online ? .ownerRecovered : nil
             case .inbox(let snapshot):
                 return .inbox(merged(local: snapshot, cloud: cloud.currentInbox().conversations, &state))
             case .conversationChanged(let summary, _, _):

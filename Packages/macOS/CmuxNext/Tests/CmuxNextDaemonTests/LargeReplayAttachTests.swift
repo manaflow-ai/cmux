@@ -6,8 +6,7 @@ import Testing
 /// one JSON line of about 14 MB. The attach waits 10 s for its reply, which
 /// follows that line, so reading the line must stay linear in its size: a
 /// relaunch attaches every restored terminal while the machine is busy, and
-/// a missed deadline closes the view for good. `LineSplitterTests` checks the
-/// linear bound by counting the bytes searched; this test checks that the
+/// a missed deadline closes the view for good. This test checks that the
 /// whole replay reaches the attach, without a wall-clock limit that a busy
 /// machine fails (hosted run 37845131094: 3.02 s against 3 s).
 @Suite(.timeLimit(.minutes(2))) struct LargeReplayAttachTests {

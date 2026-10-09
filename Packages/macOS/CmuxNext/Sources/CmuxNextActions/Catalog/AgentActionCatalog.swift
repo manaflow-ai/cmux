@@ -45,7 +45,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             }(),
             ActionDescriptor(
                 id: "palette.addHarness",
-                title: String(localized: "action.palette.addHarness", defaultValue: "Add Harness…", bundle: .module),
+                title: String(localized: "action.palette.addHarness", defaultValue: "Integrate a Harness with an Agent…", bundle: .module),
                 keywords: ["agent", "harness", "integrate", "acp", "acpmux", "custom", "bring your own"],
                 category: .agents, symbol: "puzzlepiece.extension", surfaces: [.palette, .menu], mainMenu: .file,
                 // Opens a chat that walks the user through `cmux harness guide`. Agents and
@@ -69,6 +69,19 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane],
                 // The named CLI handoff is owned by acpmux. This action is the
                 // user-facing chooser that invokes that same frontend flow.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.switchModel",
+                title: String(localized: "action.agentPane.switchModel", defaultValue: "Switch Model…", bundle: .module),
+                keywords: ["agent", "chat", "model", "harness", "effort", "reasoning", "picker", "switch"],
+                // Ctrl-Cmd-M (Lawrence 2026-10-09): an app chord, so it works wherever the agent
+                // pane's keyboard is; the menu opens with the keyboard in its search field.
+                defaultShortcut: Shortcut("m", modifiers: [.control, .command]),
+                category: .agents, symbol: "cpu", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // A chooser for a person. Scripts set the model with `debug.agent_pane set_model`
+                // or the acpmux CLI, so the CLI/MCP surface is exempt like Continue in….
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
@@ -190,6 +203,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
                                    kind: .string, isRequired: false),
+                    ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
+                                   kind: .string, isRequired: false),
                 ],
                 // It starts the workspace's terminal: action.run waits the
                 // terminal start deadline, not 2 s, so the caller's run ends
@@ -203,6 +218,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.home.toggleChiefSettings", defaultValue: "Toggle Chief Settings", bundle: .module),
                 keywords: ["chief", "home", "engine", "model", "harness", "settings"], category: .agents,
                 symbol: "sidebar.right", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // Stops the Home Chief's running turn (chief.stop); the compose bar's
+            // stop button, Esc and Cmd-. in its field run this one action.
+            ActionDescriptor(
+                id: "home.stopChief",
+                title: String(localized: "action.home.stopChief", defaultValue: "Stop the Chief", bundle: .module),
+                keywords: ["chief", "home", "stop", "cancel", "interrupt", "turn"], category: .agents,
+                symbol: "stop.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // The local Chief's memory inspector (optchat-inspector.md): what the

@@ -35,7 +35,8 @@ export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()(
 
 export class Forbidden extends Schema.TaggedError<Forbidden>()(
   "Forbidden",
-  { code: Schema.Literal("auth.forbidden"), message: Schema.String },
+  // team.not_member (cx-5xew): x-cmux-team names a team the caller is not a member of now; auth.forbidden is every other refusal.
+  { code: Schema.Literals(["auth.forbidden", "team.not_member"]), message: Schema.String },
   { httpApiStatus: 403 }
 ) {}
 
@@ -65,7 +66,8 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization, { pr
     requiredForClient: true,
     security: { bearer: HttpApiSecurity.bearer },
     // OwnerUnreachable (503, retryable): the policy gate could not reach a TeamDO or UserDO (cx-44j.51).
-    error: [Unauthenticated, PolicyRefused, OwnerUnreachable]
+    // Forbidden: x-cmux-team names a team the session is not a member of (cx-3bi.43).
+    error: [Unauthenticated, Forbidden, PolicyRefused, OwnerUnreachable]
   }
 ) {}
 

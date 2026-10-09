@@ -10,20 +10,26 @@ import Testing
 /// page view; the old bridge, which has no gesture context, never edits.
 @MainActor
 @Suite struct AgentPaneEditTests {
-    @Test func theEditRequestDecodesOnlyTheFourCommands() {
+    @Test func thePageHostRunsOnlyTheFourCommands() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        var edits: [AgentPaneEditCommand] = []
+        provider.onEdit = { edits.append($0) }
+        let gesture = PageCallContext(page: "agent", userGesture: true)
         for command in ["cut", "copy", "paste", "pasteAsPlainText"] {
-            #expect(AgentPaneRequest(body: ["method": "pane.edit", "params": ["command": command]])
-                == .edit(AgentPaneEditCommand(rawValue: command)!))
+            _ = try await provider.call("cmux.agent.pane.edit", params: ["command": .string(command)], context: gesture)
         }
-        #expect(AgentPaneRequest(body: ["method": "pane.edit", "params": ["command": "selectAll"]]) == .unsupported("pane.edit"))
+        #expect(edits == [.cut, .copy, .paste, .pasteAsPlainText])
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.agent.pane.edit", params: ["command": "selectAll"], context: gesture)
+        }
+        #expect(edits.count == 4)
         #expect(AgentPageOps.all.contains("cmux.agent.pane.edit"))
     }
 
     @Test func anEditRunsOnlyOnTheUsersGesture() async throws {
-        let model = AgentPaneModel(host: MockAgentPaneHost())
+        let provider = AgentPageProvider { _ in nil }
         var edits: [AgentPaneEditCommand] = []
-        model.onEdit = { edits.append($0) }
-        let provider = AgentPageProvider { _ in model }
+        provider.onEdit = { edits.append($0) }
         do {
             _ = try await provider.call("cmux.agent.pane.edit", params: ["command": "paste"],
                                         context: PageCallContext(page: "agent"))
@@ -32,12 +38,17 @@ import Testing
             #expect(error.code == PageNativeOp.userOnlyCode)
         }
         #expect(edits.isEmpty)
-        _ = try await provider.call("cmux.agent.pane.edit", params: ["command": "pasteAsPlainText"],
-                                    context: PageCallContext(page: "agent", userGesture: true))
-        #expect(edits == [.pasteAsPlainText])
-        let reply = await model.respond(to: .edit(.copy))
-        #expect(reply["ok"] as? Bool == false)
-        #expect(edits == [.pasteAsPlainText])
+        // The old bridge has no edit: it reads `pane.edit` as an unsupported method.
+        #expect(AgentPaneRequest(body: ["method": "pane.edit", "params": ["command": "paste"]]) == .unsupported("pane.edit"))
+    }
+
+    @Test func thePageHostWiresEditsToItsPageView() throws {
+        let index = try #require(AgentPaneView.bundledPage)
+        let provider = AgentPageProvider { _ in nil }
+        let page = try #require(AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider,
+                                                           renderRate: .capped))
+        _ = page
+        #expect(provider.onEdit != nil)
     }
 
     @Test func eachCommandIsTheWebViewsOwnEditingAction() {

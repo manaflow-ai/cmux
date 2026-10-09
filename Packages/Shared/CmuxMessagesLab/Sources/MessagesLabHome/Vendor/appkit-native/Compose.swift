@@ -158,16 +158,20 @@ final class FieldTextView: NSTextView {
         DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
         return ok
     }
+    // cmux: block observers on queue: .main (inline for AppKit's post on main), not selectors:
+    // a selector into this main-actor view trapped on a post off main (crash program).
+    private var keyObservers: [NSObjectProtocol] = []
+    deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         let nc = NotificationCenter.default
-        nc.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
-        nc.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        keyObservers.forEach { nc.removeObserver($0) }  // cmux
+        keyObservers = []
         guard let window else { return }
-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didBecomeKeyNotification, object: window)
-        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didResignKeyNotification, object: window)
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {  // cmux
+            keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
+        }
     }
-    @objc private func keyChanged() { updateCaret() }
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateCaret(reset: false)

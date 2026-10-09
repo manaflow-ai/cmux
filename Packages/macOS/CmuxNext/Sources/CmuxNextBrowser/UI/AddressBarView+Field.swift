@@ -14,10 +14,17 @@ extension AddressBarView: OmnibarPopupSurface {
         panel.follow(below: self, pane: cardPane(in: window), in: window)
     }
 
-    /// The card is clipped to the browser pane (the chrome view), else to the window.
+    /// The card is clipped to the browser pane (the chrome view), or to the surface an omnibar row
+    /// sits on (`OmnibarToolbarView.cardClip`), else to the window.
     private func cardPane(in window: NSWindow) -> NSView {
-        let pane = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? BrowserChromeView }.first
-        return pane ?? window.contentView ?? self
+        cardClipView ?? window.contentView ?? self
+    }
+
+    /// What the card is clipped to, when not the whole window.
+    var cardClipView: NSView? {
+        let chain = sequence(first: superview, next: { $0?.superview })
+        if let row = chain.lazy.compactMap({ $0 as? OmnibarToolbarView }).first, let clip = row.cardClip { return clip }
+        return chain.lazy.compactMap { $0 as? BrowserChromeView }.first
     }
 
     func highlightRow(_ row: Int?) { panel.highlight(row) }

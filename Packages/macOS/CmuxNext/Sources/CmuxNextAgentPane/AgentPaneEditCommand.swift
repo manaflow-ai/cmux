@@ -3,8 +3,7 @@ public import AppKit
 /// An editing command from the composer's context menu (`pane.edit {command}`), run as the web
 /// view's own responder action so WebKit edits the field as its native menu did: the page never
 /// reads the pasteboard, and a paste carries files as a real paste does.
-/// Only ``AgentPageProvider`` runs one, on the user's gesture, through `AgentPaneModel.onEdit`;
-/// the model's own `respond` refuses it.
+/// Only ``AgentPageProvider`` runs one, on the user's gesture; the old bridge has no `pane.edit`.
 public nonisolated enum AgentPaneEditCommand: String, Equatable, Sendable {
     case cut, copy, paste, pasteAsPlainText
 

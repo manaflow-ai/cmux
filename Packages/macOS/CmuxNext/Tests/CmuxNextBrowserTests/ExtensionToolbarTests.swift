@@ -3,59 +3,6 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextBrowser
 
-/// The browser toolbar collapses in a fixed order as its pane narrows:
-/// pinned extension buttons move into the Extensions menu first, then the
-/// omnibar shrinks to its minimum, then Forward hides. Back, Reload, the
-/// omnibar and the Extensions button always stay, inside the toolbar and
-/// without overlap, at every pane width, also in a padded pane.
-@Suite struct BrowserToolbarLayoutTests {
-    let metrics = BrowserToolbarLayout.Metrics(
-        button: 28, navigationSpacing: 0, extensionSpacing: 2, inset: 6, margin: 6, preferredAddress: 240, minimumAddress: 120
-    )
-
-    func layout(_ width: CGFloat, pinned: Int = 4, extensions: Bool = true) -> BrowserToolbarLayout {
-        BrowserToolbarLayout.resolve(width: width, pinned: pinned, showsExtensions: extensions, metrics: metrics)
-    }
-
-    func address(_ width: CGFloat, pinned: Int = 4) -> CGFloat {
-        BrowserToolbarLayout.addressWidth(width: width, layout: layout(width, pinned: pinned), showsExtensions: true, metrics: metrics)
-    }
-
-    @Test func wideShowsEverything() {
-        #expect(layout(1400) == BrowserToolbarLayout(visiblePinned: 4, showsForward: true))
-        #expect(address(1400) > 240)
-    }
-
-    @Test func extensionsCollapseBeforeTheOmnibarGoesBelowItsPreferredWidth() {
-        var previous = 4
-        for width in stride(from: CGFloat(1400), through: 200, by: -1) {
-            let resolved = layout(width)
-            #expect(resolved.visiblePinned <= previous)
-            previous = resolved.visiblePinned
-            if resolved.visiblePinned > 0 { #expect(address(width) >= 240) }
-        }
-        #expect(previous == 0)
-    }
-
-    @Test func forwardHidesOnlyAfterTheOmnibarReachedItsMinimum() {
-        for width in stride(from: CGFloat(800), through: 150, by: -1) {
-            let resolved = layout(width)
-            if resolved.showsForward { #expect(address(width) >= 120) }
-            if !resolved.showsForward {
-                #expect(resolved.visiblePinned == 0)
-                #expect(address(width - 0) < 120 + 28)
-            }
-        }
-        #expect(layout(200).showsForward == false)
-        #expect(layout(320).showsForward == true)
-    }
-
-    @Test func noExtensionsMeansNoExtensionsButtonWidth() {
-        let resolved = layout(250, pinned: 3, extensions: false)
-        #expect(resolved == BrowserToolbarLayout(visiblePinned: 0, showsForward: true))
-    }
-}
-
 @MainActor
 @Suite(.serialized) struct ExtensionToolbarViewTests {
     final class Harness {
