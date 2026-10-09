@@ -88,6 +88,7 @@ mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
 pub(crate) mod terminal_archive;
+mod terminal_catalog_index;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
 use terminal_lifecycle_commit::commit_terminal_lifecycle;
@@ -11769,21 +11770,6 @@ impl Mux {
             let runtime = surface.terminal_runtime_id()?;
             self.reserved_in_process_terminals.lock().unwrap().get(&runtime).cloned()
         })
-    }
-
-    fn catalog_terminal_by_host(
-        &self,
-        state: &State,
-        terminal_id: &str,
-    ) -> anyhow::Result<Option<Arc<Surface>>> {
-        unique_terminal_match(
-            terminal_id,
-            state.terminal_catalog.values().filter_map(|surface| {
-                self.resource_terminal_host_identity(surface)
-                    .map(|identity| (surface.clone(), identity))
-            }),
-        )
-        .map(|matched| matched.map(|(surface, _)| surface))
     }
 
     pub(crate) fn kitty_image_limits_for_reconnect(
