@@ -76,6 +76,13 @@ extension Markdown {
         return MarkdownLayoutEngine.layout(doc, source: text, maxWidth: Metrics(width: width).maxTextWidth)
     }
 
+    /// The display string of a text part (what selection offsets index and Copy returns), or nil
+    /// when the part takes the plain path (then the source is the display string). Independent of
+    /// the width (only line breaks depend on it); thread safe; block layouts are cached.
+    static func displayText(_ text: String, message: ID?) -> String? {
+        layout(text, message: message, width: Fixture.windowWidth)?.plain
+    }
+
     /// Measure-key salt: a message shown as source is a new measurement.
     static func versionSalt(_ id: ID) -> Int { MarkdownStore.shared.showsSource(id) ? 0x5EED : 0 }
 }

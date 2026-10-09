@@ -90,6 +90,24 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         performWithTheme { writeScoped(text, style: style) }
     }
 
+    /// A density change sets the font in place, as a theme change recolors:
+    /// the field editor keeps its text, selection and marked text, the
+    /// resting text is written again. Writing the editor's text replaced it,
+    /// which dropped an input method's composition and moved the caret.
+    /// While editing this sets the font only: `text` and `style` apply to
+    /// the resting field, so a new text or style goes through `write`.
+    func restyle(_ text: String, style: OmnibarPresentation.Style) {
+        let font = self.font ?? OmnibarStyle.font
+        guard let editor = currentEditor() as? NSTextView else {
+            write(text, style: style)
+            return
+        }
+        if let storage = editor.textStorage {
+            storage.addAttribute(.font, value: font, range: NSRange(location: 0, length: storage.length))
+        }
+        editor.typingAttributes[.font] = font
+    }
+
     // theme-scoped: called only inside performWithTheme
     private func writeScoped(_ text: String, style: OmnibarPresentation.Style) {
         let font = font ?? OmnibarStyle.font
@@ -123,7 +141,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     // MARK: Paste and Go
 
     /// The field editor's context menu (the field is its delegate).
-    @objc func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+    @objc(textView:menu:forEvent:atIndex:) func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
         guard let title = pasteAndGoTitle?() else { return menu }
         let item = NSMenuItem(title: title, action: #selector(performPasteAndGo(_:)), keyEquivalent: "")
         item.target = self

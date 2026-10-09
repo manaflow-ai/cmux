@@ -24,6 +24,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// `collapsed` restores a group folded (undo of Ungroup).
     case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false)
     case renameGroup(GroupID, String)
+    /// The group's name editor closed (commit or cancel). The App removes a
+    /// group made with no member that is still empty (cx-rcby). No local change.
+    case groupEditorEnded(GroupID)
     case setGroupColor(GroupID, GroupColor)
     /// Dissolve a group, leaving its workspaces in place.
     case ungroup(GroupID)

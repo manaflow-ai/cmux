@@ -72,6 +72,7 @@ nonisolated struct OmnibarStep {
         state.lastEditKind = nil
         state.doubleClickWord = nil
         if retained.isEmpty {
+            state.editHasPaste = false
             state.phase = .focused
             state.elided = source != .keyboard && state.canElide
             state.edit = .init(selection: Self.all(state.fieldText))
@@ -162,6 +163,7 @@ nonisolated struct OmnibarStep {
         if here { state.pageURL = url }
         state.phase = .committing(display: state.pageURL)
         state.retainedText = nil
+        state.editHasPaste = false
         endSession()
         effects.append(.cancelQuery)
         effects.append(.ended(here ? .commit(url) : .open(url, disposition)))

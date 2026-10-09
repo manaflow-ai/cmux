@@ -21,6 +21,8 @@ extension PageWebView {
             return false
         }
         router.rebind(descriptor: descriptor, routes: routes)
+        // The new claim gets no gesture the person made for the previous one.
+        (webView as? PageWKWebView)?.forgetUserActivation()
         self.descriptor = descriptor
         self.dynamicResources = dynamicResources
         themeSurface = surface
@@ -33,6 +35,7 @@ extension PageWebView {
         guard let current = webView.url, Self.sameDocumentURL(current, target) else {
             noteLoadedClaim()
             loaded = false
+            paintedUptime = nil // the new document has not painted; a pane holds until it does
             webView.load(URLRequest(url: target))
             return true
         }
@@ -40,6 +43,7 @@ extension PageWebView {
             claimDocument(documentAttributes: documentAttributes)
         } else {
             noteLoadedClaim()
+            paintedUptime = nil
             reloadDocument()
         }
         return true
@@ -57,6 +61,7 @@ extension PageWebView {
     /// Clears the router before an untouched host is parked for another claim.
     func resetPooledPage() async {
         router.rebind(descriptor: descriptor, routes: [])
+        (webView as? PageWKWebView)?.forgetUserActivation()
         dynamicResources = nil
         route = nil
         countsTouches = false
