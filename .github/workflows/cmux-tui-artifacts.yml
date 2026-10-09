@@ -89,6 +89,7 @@ on:
       - "plans/cmux-next/action-surfaces.json"
       - "schemas/chief-home/vectors.json"
       - "schemas/agent-url-policy/vectors.json"
+      - "schemas/chief-cmux-target/vectors.json"
       - "schemas/automation-input/vectors.json"
       - "schemas/automation-lease/vectors.json"
       - "schemas/chief-home/vectors.json"
