@@ -146,6 +146,8 @@ pub enum SubStatus {
     /// Its session is being created.
     #[default]
     Starting,
+    /// It waits for a free slot (`subagents::MAX_LIVE` run at once).
+    Queued,
     /// A turn runs, or one ended and was not read yet.
     Running,
     /// It ended a turn; `report` holds its last reply, not logged yet.

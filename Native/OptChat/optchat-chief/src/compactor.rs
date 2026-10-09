@@ -1291,6 +1291,14 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
                     // No cmux agent tools (acpmux `agent_tools.rs`): a
                     // compactor session stays isolated.
                     ("ACPMUX_AGENT_TOOLS".to_owned(), "0".to_owned()),
+                    // No user skills (`$HOME/.agents/skills`): a private,
+                    // empty HOME (`codex_private_home`).
+                    (
+                        "HOME".to_owned(),
+                        crate::codex_home::codex_private_home(&paths.compactor_codex)
+                            .display()
+                            .to_string(),
+                    ),
                     (
                         "CODEX_HOME".to_owned(),
                         codex_slot_home(&paths.compactor_codex, k)

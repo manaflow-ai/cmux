@@ -343,7 +343,7 @@ extension NewTabPage {
             let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let url = request.search
                 ? resolver.searchEngine.searchURL(for: text)
-                : ChromiumInternalURL(typed: text)?.url ?? resolver.destination(for: request.text)?.url
+                : ChromiumInternalURL(typed: text)?.url ?? resolver.commitTypoFix(for: text) ?? resolver.destination(for: request.text)?.url
             let engine = BrowserEngineTag.engine(for: url)
             // A session-local browser tab is made and selected right away.
             if services.cache.browserTabs?.isAvailable() == true {
