@@ -111,6 +111,12 @@ pub enum Input {
         id: String,
         answer: Result<serde_json::Value, String>,
     },
+    /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
+    /// there is no such subagent or it has none yet.
+    SubSession {
+        id: String,
+        reply: Sender<Option<String>>,
+    },
     /// `tell(id, message)`.
     Tell {
         id: String,
@@ -588,6 +594,10 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::SubSession { id, reply } => {
+                let session = self.state.sub(&id).and_then(|(_, s)| s.session_id.clone());
+                let _ = reply.send(session);
+            }
             Input::Tell { id, message, reply } => {
                 let answer = self.tell(&id, &message);
                 let _ = reply.send(answer);

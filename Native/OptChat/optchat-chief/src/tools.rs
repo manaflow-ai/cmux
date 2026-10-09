@@ -46,6 +46,9 @@ pub trait Orchestrator: Send + Sync {
     fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String>;
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
+    /// Subagent `id`'s whole chat (`zoom("a<N>")`), one page from
+    /// character `at`.
+    fn agent_chat(&self, id: &str, at: u64) -> Result<String, String>;
 }
 
 /// What `chief zoom|date|spawn|tell WORDS` asks: the tool call, its usage
@@ -64,6 +67,10 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         return Ok(Command::Help(usage(tool)));
     }
     let call = match (tool, args) {
+        ("zoom", [id]) if agent_id(id) => Call::parse("zoom", &serde_json::json!({"id": id})),
+        ("zoom", [id, at]) if agent_id(id) => {
+            Call::parse("zoom", &serde_json::json!({"id": id, "at": at}))
+        }
         ("zoom", [id, n]) => Call::parse("zoom", &serde_json::json!({"id": id, "n": n})),
         ("date", [id]) => Call::parse("date", &serde_json::json!({"id": id})),
         ("spawn", ["--cwd", dir, tasks @ ..]) if !tasks.is_empty() => {
@@ -86,12 +93,17 @@ pub fn usage(tool: &str) -> String {
     format!(
         "usage: optchat-chief {tool} {}",
         match tool {
-            "zoom" => "ID N",
+            "zoom" => "ID N | SUBAGENT [AT]",
             "date" => "ID",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             _ => "ID \"message\"",
         }
     )
+}
+
+/// A subagent id (`a<N>`) where zoom takes a message id: it starts with a letter.
+pub fn agent_id(id: &str) -> bool {
+    id.trim().starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
 /// One tool call.
@@ -100,6 +112,11 @@ pub enum Call {
     Zoom {
         id: u64,
         n: u64,
+    },
+    /// `zoom("a<N>")`: a subagent's whole chat from character `at`.
+    ZoomAgent {
+        id: String,
+        at: u64,
     },
     Date {
         id: u64,
@@ -128,6 +145,16 @@ impl Call {
                 .ok_or_else(|| format!("{tool}: `{key}` must be a non-negative integer"))
         };
         match tool {
+            "zoom" if args.get("id").and_then(Value::as_str).is_some_and(agent_id) => {
+                Ok(Call::ZoomAgent {
+                    id: args["id"].as_str().unwrap_or_default().trim().to_owned(),
+                    at: if args.get("at").is_some() {
+                        num("at")?
+                    } else {
+                        0
+                    },
+                })
+            }
             "zoom" => Ok(Call::Zoom {
                 id: num("id")?,
                 n: num("n")?,
@@ -179,8 +206,8 @@ impl Call {
         match self {
             Call::Zoom { id, n } => memory.zoom(id, n),
             Call::Date { id } => memory.date(id),
-            Call::Spawn { .. } | Call::Tell { .. } => {
-                "spawn and tell are served by the Chief host".to_owned()
+            Call::Spawn { .. } | Call::Tell { .. } | Call::ZoomAgent { .. } => {
+                "spawn, tell and a subagent's zoom are served by the Chief host".to_owned()
             }
         }
     }
@@ -188,6 +215,7 @@ impl Call {
     fn to_json(&self) -> Value {
         match self {
             Call::Zoom { id, n } => json!({"tool": "zoom", "id": id, "n": n}),
+            Call::ZoomAgent { id, at } => json!({"tool": "zoom", "id": id, "at": at}),
             Call::Date { id } => json!({"tool": "date", "id": id}),
             Call::Spawn { tasks, cwd: None } => json!({"tool": "spawn", "tasks": tasks}),
             Call::Spawn {
@@ -379,6 +407,12 @@ fn connection(conn: UnixStream, served: &Served) {
                     },
                     Ok(Call::Tell { id, message }) => match &served.orchestrator {
                         Some(o) => o.tell(&id, &message),
+                        None => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    // A subagent may read another's chat too (the reference
+                    // client gives zoom to every agent).
+                    Ok(Call::ZoomAgent { id, at }) => match &served.orchestrator {
+                        Some(o) => o.agent_chat(&id, at),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     Ok(call) => Ok(call.answer(memory)),

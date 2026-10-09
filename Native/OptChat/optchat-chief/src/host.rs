@@ -362,6 +362,17 @@ fn start(
         ..Config::default()
     };
     let route = compact_route(env("OPTCHAT_COMPACTOR").as_deref(), &config)?;
+    if route == CompactRoute::Api {
+        // The same compactor model settings as the acpmux route.
+        if let Some(model) =
+            env("OPTCHAT_COMPACTOR_MODEL").or_else(|| engine_choice_file.compactor_model.clone())
+        {
+            config.model = model;
+        }
+        if let Some(effort) = env("OPTCHAT_COMPACTOR_EFFORT") {
+            config.effort = Some(effort);
+        }
+    }
     if engine_choice.as_deref() == Some("native") && route == CompactRoute::Api {
         // And the native turns' tools (never called), for the same entry.
         config.tools = Some(crate::native::Native::tools());
@@ -655,8 +666,8 @@ fn start(
                 .or_else(|| compactor_claude.then(|| config.model.clone()));
             let compactor_effort = env("OPTCHAT_COMPACTOR_EFFORT");
             let port: Arc<dyn AgentPort> = agents.clone();
-            // One gate: at most JOBS compactor sessions across both models.
-            let slots = Slots::new(optchat_core::JOBS);
+            // One gate: at most COMPACTOR_SESSIONS sessions across both models.
+            let slots = Slots::new(crate::compactor::COMPACTOR_SESSIONS);
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
             let build = |model: Option<&str>| {
                 let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
@@ -664,11 +675,9 @@ fn start(
                     effort: compactor_effort.clone().or(spec.effort.clone()),
                     ..spec
                 };
-                Arc::new(
-                    AcpmuxCompactor::new(port.clone(), spec, slots.clone())
-                        .with_log(compactor_log.clone())
-                        .with_trace(trace.clone()),
-                )
+                AcpmuxCompactor::new(port.clone(), spec, slots.clone())
+                    .with_log(compactor_log.clone())
+                    .with_trace(trace.clone())
             };
             let effort = compactor_effort
                 .clone()
@@ -684,8 +693,14 @@ fn start(
                 .fallback_model
                 .as_deref()
                 .filter(|_| compactor_claude)
-                .map(|m| build(Some(m)) as Arc<dyn CompactModel>);
-            let main = build(compactor_model.as_deref());
+                .map(|m| Arc::new(build(Some(m))) as Arc<dyn CompactModel>);
+            // An account without the compactor model (Haiku on some
+            // subscriptions) builds with the turn model instead, logged once.
+            let main = Arc::new(
+                build(compactor_model.as_deref())
+                    .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
+                    .with_warm(crate::compactor::WARM_SESSIONS),
+            );
             let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
             (
                 main as Arc<dyn CompactModel>,

@@ -279,9 +279,10 @@ impl Brain {
             .filter(|s| s.status == SubStatus::Done)
             .map(|s| {
                 let report = s.report.as_deref().unwrap_or("");
+                let footer = crate::agent_chat::footer(&s.id);
                 (
                     s.id.clone(),
-                    format!("[{}] {report}", s.id),
+                    format!("[{}] {report}\n{footer}", s.id),
                     s.floor,
                     s.stopped,
                 )

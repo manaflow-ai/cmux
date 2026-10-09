@@ -8,6 +8,7 @@
 
 pub mod acpmux;
 pub mod acpmux_daemon;
+pub mod agent_chat;
 pub mod agents;
 pub mod approval;
 pub mod backup;

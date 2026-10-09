@@ -20,6 +20,7 @@ struct CmdCommaSettingsTests {
     static let homeKey = "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a01"
     static let codeKey = "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a03"
     static let emptyKey = "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a05"
+    static let otherKey = "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a07"
 
     /// A store with the home workspace (Home stands for it) and a user workspace, each with one pane.
     static func tree() throws -> DaemonTree {
@@ -31,7 +32,10 @@ struct CmdCommaSettingsTests {
         {"active":false,"id":11,"key":"\(codeKey)","name":"code",
         "screens":[{"active":true,"id":12,"layout":{"pane":13,"type":"leaf"},"name":null,"panes":[{"active_tab":0,"id":13,"name":null,
         "tabs":[{"kind":"terminal","name":"","surface":14,"dead":false}]}]}]},
-        {"active":false,"id":21,"key":"\(emptyKey)","name":"empty","screens":[]}]}
+        {"active":false,"id":21,"key":"\(emptyKey)","name":"empty","screens":[]},
+        {"active":false,"id":31,"key":"\(otherKey)","name":"other",
+        "screens":[{"active":true,"id":32,"layout":{"pane":33,"type":"leaf"},"name":null,"panes":[{"active_tab":0,"id":33,"name":null,
+        "tabs":[{"kind":"terminal","name":"","surface":34,"dead":false}]}]}]}]}
         """
         return try JSONDecoder().decode(DaemonTree.self, from: Data(json.utf8))
     }
@@ -176,5 +180,31 @@ struct CmdCommaSettingsTests {
             failures.append("no cmux key window: the menu gate refuses Settings")
         }
         #expect(failures.isEmpty, "\(failures.joined(separator: "\n"))")
+    }
+
+    /// nxdog77-v1 live check: a window had a Settings tab in workspace W3,
+    /// and Cmd-, in workspace-12 opened a second Settings tab. The window's
+    /// one Settings tab comes back instead: its workspace is shown and the
+    /// tab selected.
+    @Test func commandCommaInAnotherWorkspaceShowsTheExistingSettingsTab() async throws {
+        let (services, window) = try await Self.world(workspaces: [Self.codeKey, Self.otherKey])
+        await BrowserTabTests.settle { window.content?.panes.isEmpty == false }
+        let shell = try #require(window.window)
+        #expect(services.keyRouter.interceptKeyDown(try Self.commandComma(), in: shell))
+        await BrowserTabTests.settle { Self.showsSettings(window, services) }
+        #expect(window.state.workspaceID == Self.codeKey)
+        #expect(Self.settingsSurfaceCount(services) == 1)
+
+        services.windows.select(Self.otherKey, in: window.state)
+        window.showWorkspace(requested: Self.otherKey)
+        await BrowserTabTests.settle { window.content?.workspace.id == Self.otherKey && window.content?.panes.isEmpty == false }
+        #expect(window.content?.workspace.id == Self.otherKey)
+        #expect(!Self.showsSettings(window, services))
+
+        #expect(services.keyRouter.interceptKeyDown(try Self.commandComma(), in: shell))
+        await BrowserTabTests.settle { Self.showsSettings(window, services) }
+        #expect(Self.showsSettings(window, services), "Settings is in front again")
+        #expect(window.state.workspaceID == Self.codeKey, "the workspace that holds the Settings tab is shown")
+        #expect(Self.settingsSurfaceCount(services) == 1, "no second Settings tab")
     }
 }
