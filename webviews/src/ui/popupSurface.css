@@ -5,7 +5,7 @@
 :root {
   --ui-popup-radius: 8px;
   --ui-popup-padding: 4px;
-  --ui-popup-shadow: 0 4px 14px color-mix(in srgb, black 16%, transparent);
+  --ui-popup-shadow: 0 2px 8px color-mix(in srgb, black 12%, transparent);
   --ui-row-height: 28px;
   --ui-row-radius: 5px;
   --ui-row-padding-inline: 8px;

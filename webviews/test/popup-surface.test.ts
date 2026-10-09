@@ -52,6 +52,11 @@ const rows: [file: string, selector: string][] = [
   ["agent-session/acpmux/changes/changes.css", ".acpmux-file-menu-item"],
 ];
 
+// Nested panels (the model picker's cascade) draw the same surface; they open with their parent.
+const panels: [file: string, selector: string][] = [
+  ["agent-session/acpmux/modelPicker.css", ".acpmux-mp-cascade .acpmux-mp-sub"],
+];
+
 describe("one popup surface", () => {
   test("the surface: 28 px rows, small radii, one subtle shadow and a short open", () => {
     const surface = css("ui/popupSurface.css");
@@ -88,6 +93,15 @@ describe("one popup surface", () => {
       // Reduce Motion: the open runs only under prefers-reduced-motion: no-preference.
       expect(body).not.toMatch(/animation:/);
       expect(opensWhenMotionAllowed(css(file), selector)).toBe(true);
+    });
+  }
+
+  for (const [file, selector] of panels) {
+    test(`${selector} draws the shared surface`, () => {
+      const body = rule(css(file), selector).replace(/\s+/g, " ").replace(/:\s+/g, ":");
+      expect(body).toContain("border-radius:var(--ui-popup-radius)");
+      expect(body).toContain("var(--ui-popup-shadow)");
+      expect(body).not.toMatch(/0 10px 30px/);
     });
   }
 
