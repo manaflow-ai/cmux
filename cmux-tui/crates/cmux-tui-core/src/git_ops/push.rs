@@ -65,7 +65,15 @@ pub(super) fn dispatch(
         };
         match push(repository, &git, &request.fields, &attempt) {
             Ok(value) => {
-                let reply = ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false)?;
+                let reply = ledger::commit(
+                    mux,
+                    &key,
+                    OPERATION,
+                    &fingerprint,
+                    &value,
+                    false,
+                    &request.actor,
+                )?;
                 journal.finish();
                 Ok(reply)
             }

@@ -129,7 +129,15 @@ pub(super) fn dispatch(
         if let Some(attempt) = journal.attempt::<Attempt>(&fingerprint) {
             if let Some(commit) = attempt.recovered(repository, head.as_deref()) {
                 let value = described(repository, &commit)?;
-                let reply = ledger::commit(mux, &key, OPERATION, &fingerprint, &value, true)?;
+                let reply = ledger::commit(
+                    mux,
+                    &key,
+                    OPERATION,
+                    &fingerprint,
+                    &value,
+                    true,
+                    &request.actor,
+                )?;
                 journal.finish();
                 return Ok(reply);
             }
@@ -189,7 +197,8 @@ pub(super) fn dispatch(
             return Err(refused(OPERATION, "git_failed", message, Value::Null));
         };
         let value = described(repository, &commit)?;
-        let reply = ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false)?;
+        let reply =
+            ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)?;
         journal.finish();
         Ok(reply)
     })
