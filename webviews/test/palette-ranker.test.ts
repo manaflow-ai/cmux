@@ -98,6 +98,38 @@ describe("shared palette ranker", () => {
     expect(rankedIDs(entries, "fold", frecency)[0]).toBe("folder");
   });
 
+  // Review of the tiered scorer: Search Tabs keeps URLs and cwds in keywords and Find in Directory
+  // keeps paths in subtitles; an infix of them must still find the row.
+  test("a keyword or subtitle substring still finds the row", () => {
+    const entries = [
+      entry("pr", "cmux pull requests", { keywords: ["https://github.com/manaflow-ai/cmux/pulls"] }),
+      entry("hit", "let model = makeModel()", { subtitle: "Sources/App/FooController.swift:12" }),
+      entry("other", "Open Folder"),
+    ];
+    expect(rankedIDs(entries, "hub")).toEqual(["pr"]);
+    expect(rankedIDs(entries, "ontroller")).toEqual(["hit"]);
+  });
+
+  // 80 catalog ids start with "palette.": a plain word must not lift that namespace, while the
+  // whole id, or a start written like an id, still finds its row.
+  test("only an id-shaped query matches action ids", () => {
+    const entries = [
+      entry("copy", "Copy Tab ID", { actionID: "palette.copySurfaceID" }),
+      entry("scope", "Open Palette Scope…", { actionID: "palette.open" }),
+      entry("terminal", "New Terminal Tab", { actionID: "newSurface" }),
+    ];
+    expect(rankedIDs(entries, "palette")).toEqual(["scope"]);
+    expect(rankedIDs(entries, "palette.copy")).toEqual(["copy"]);
+    expect(rankedIDs(entries, "newsurface")[0]).toBe("terminal");
+    expect(rankedIDs(entries, "newSur")[0]).toBe("terminal");
+  });
+
+  test("a mistyped word finds its row, below every real match", () => {
+    const entries = [entry("right", "Split Right"), entry("close", "Close Tab"), entry("pane", "Close Pane")];
+    expect(rankedIDs(entries, "spilt")).toEqual(["right"]);
+    expect(rankedIDs(entries, "clsoe tab")[0]).toBe("close");
+  });
+
   test("frecency decays by its half-life and orders recent keys", () => {
     const store: PaletteFrecency = { entries: { a: { score: 2, lastUsed: now } }, halfLife: 100 };
     const score = (at: number) => store.entries!.a.score * 2 ** (-(at - store.entries!.a.lastUsed) / store.halfLife!);

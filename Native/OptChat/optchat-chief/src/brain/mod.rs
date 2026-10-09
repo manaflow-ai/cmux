@@ -169,6 +169,12 @@ pub enum Input {
     Stop {
         reply: Sender<serde_json::Value>,
     },
+    /// chief.stop {name}: stops ONE subagent at work (or queued), the turn
+    /// and the other subagents going on; answers `{"stopped": bool, ...}`.
+    StopSubagent {
+        name: String,
+        reply: Sender<serde_json::Value>,
+    },
 }
 
 /// What chief.engine.get / chief.engine.set ask the brain.
@@ -693,6 +699,9 @@ impl Brain {
             }
             Input::Stop { reply } => {
                 let _ = reply.send(self.owner_stop());
+            }
+            Input::StopSubagent { name, reply } => {
+                let _ = reply.send(self.stop_subagent(&name));
             }
         }
     }
