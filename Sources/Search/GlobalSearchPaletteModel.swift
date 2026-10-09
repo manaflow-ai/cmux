@@ -187,6 +187,8 @@ struct GlobalSearchResultRow: Identifiable, Equatable {
 
     var systemImageName: String {
         switch hit.kind {
+        case .agentSession:
+            return "sparkles"
         case .browser:
             return "globe"
         case .markdown:

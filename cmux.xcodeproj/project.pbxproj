@@ -224,6 +224,9 @@
 		C8D49BF2BF83C58161EE2FF4 /* AgentSessionRecoveryAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1CDC8E5DB7360FFDF7A1E6 /* AgentSessionRecoveryAppTests.swift */; };
 		A9E02000000000000000000F /* AgentSessionRendererKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000F /* AgentSessionRendererKind.swift */; };
 		A9F200000000000000000010 /* AgentSessionRunningSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000010 /* AgentSessionRunningSession.swift */; };
+		A1153FEC62C5BD1DD7BBD4EE /* AgentSessionSearchTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9EE2CB43C29EC1217C64549 /* AgentSessionSearchTranscript.swift */; };
+		1C921738CEAE543EC0EECE03 /* AgentSessionSearchTranscripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6F8CE7FD298E6DFE5BA204 /* AgentSessionSearchTranscripts.swift */; };
+		91BEF70615F8F0582DE3C049 /* AgentSessionSearchTranscriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFE43C6DD8EB27A54A3BF08 /* AgentSessionSearchTranscriptTests.swift */; };
 		A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */; };
 		A9F200000000000000000011 /* AgentSessionStartedSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000011 /* AgentSessionStartedSession.swift */; };
 		A9E02000000000000000000A /* AgentSessionStreamAccumulators.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000A /* AgentSessionStreamAccumulators.swift */; };
@@ -4864,6 +4867,9 @@
 		4A1CDC8E5DB7360FFDF7A1E6 /* AgentSessionRecoveryAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSessionRecoveryAppTests.swift"; sourceTree = "<group>"; };
 		A9E01000000000000000000F /* AgentSessionRendererKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRendererKind.swift; sourceTree = "<group>"; };
 		A9F100000000000000000010 /* AgentSessionRunningSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionRunningSession.swift; sourceTree = "<group>"; };
+		D9EE2CB43C29EC1217C64549 /* AgentSessionSearchTranscript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/AgentSessionSearchTranscript.swift; sourceTree = "<group>"; };
+		DA6F8CE7FD298E6DFE5BA204 /* AgentSessionSearchTranscripts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/AgentSessionSearchTranscripts.swift; sourceTree = "<group>"; };
+		1BFE43C6DD8EB27A54A3BF08 /* AgentSessionSearchTranscriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSessionSearchTranscriptTests.swift"; sourceTree = "<group>"; };
 		A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionSocketSurfaceTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000011 /* AgentSessionStartedSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionStartedSession.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000A /* AgentSessionStreamAccumulators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionStreamAccumulators.swift; sourceTree = "<group>"; };
@@ -12096,6 +12102,8 @@
 				BB0F83C7F2A3610B47B436EF /* CoderouterGuidePanel.swift */,
 				7BA5AFE6CBE83A6E7435775B /* Workspace+CoderouterGuidePane.swift */,
 				96F5C2E8168AB230514B8A01 /* SearchIndexModels.swift */,
+				D9EE2CB43C29EC1217C64549 /* AgentSessionSearchTranscript.swift */,
+				DA6F8CE7FD298E6DFE5BA204 /* AgentSessionSearchTranscripts.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13640,6 +13648,7 @@
 				AF0EA0EDB1794309910E7A5B /* WorkspaceProgramStatusTests.swift */,
 				249F3EAF2C42B1E73A101D48 /* WorkspaceMergeDropTests.swift */,
 				41EF391F0FAAFC03BD398FF8 /* RapidSwitchTests.swift */,
+				1BFE43C6DD8EB27A54A3BF08 /* AgentSessionSearchTranscriptTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14594,6 +14603,8 @@
 				A6E5E0C00000000000000001 /* AgentSessionRecovery.swift in Sources */,
 				A9E02000000000000000000F /* AgentSessionRendererKind.swift in Sources */,
 				A9F200000000000000000010 /* AgentSessionRunningSession.swift in Sources */,
+				A1153FEC62C5BD1DD7BBD4EE /* AgentSessionSearchTranscript.swift in Sources */,
+				1C921738CEAE543EC0EECE03 /* AgentSessionSearchTranscripts.swift in Sources */,
 				A9F200000000000000000011 /* AgentSessionStartedSession.swift in Sources */,
 				A9E02000000000000000000A /* AgentSessionStreamAccumulators.swift in Sources */,
 				A9F200000000000000000012 /* AgentSessionWebHostGeometryState.swift in Sources */,
@@ -17554,6 +17565,7 @@
 				D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 				C8D49BF2BF83C58161EE2FF4 /* AgentSessionRecoveryAppTests.swift in Sources */,
+				91BEF70615F8F0582DE3C049 /* AgentSessionSearchTranscriptTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
 				FC23B4F0173B55B06DFE8DD4 /* AgentWakeVerificationTests.swift in Sources */,

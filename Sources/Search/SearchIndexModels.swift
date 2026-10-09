@@ -1,6 +1,7 @@
 import Foundation
 
 enum GlobalSearchKind: String, Codable, Sendable {
+    case agentSession
     case browser
     case markdown
     case terminal
@@ -8,6 +9,8 @@ enum GlobalSearchKind: String, Codable, Sendable {
 
     var localizedLabel: String {
         switch self {
+        case .agentSession:
+            return String(localized: "globalSearch.kind.agentSession", defaultValue: "Agent Session")
         case .browser:
             return String(localized: "globalSearch.kind.browser", defaultValue: "Browser")
         case .markdown:
