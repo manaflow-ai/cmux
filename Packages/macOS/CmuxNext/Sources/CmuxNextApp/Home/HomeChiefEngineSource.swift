@@ -41,7 +41,7 @@ nonisolated struct HomeChiefRemoteEngine: HomeChiefEngineSource {
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         guard let connection = await connection() else { throw .unreachable }
         do {
-            return snapshot(try await connection.chiefEngine())
+            return snapshot(try await ChiefControlClient(connection).chiefEngine())
         } catch let error as ChiefControlError {
             throw HomeChiefEngineError(error)
         } catch {
@@ -53,7 +53,7 @@ nonisolated struct HomeChiefRemoteEngine: HomeChiefEngineSource {
         guard let connection = await connection() else { throw .unreachable }
         let value = value ?? "default"
         do {
-            return snapshot(try await connection.setChiefEngine(harness: key == "harness" ? value : nil,
+            return snapshot(try await ChiefControlClient(connection).setChiefEngine(harness: key == "harness" ? value : nil,
                                                                 model: key == "model" ? value : nil,
                                                                 effort: key == "effort" ? value : nil))
         } catch let error as ChiefControlError {

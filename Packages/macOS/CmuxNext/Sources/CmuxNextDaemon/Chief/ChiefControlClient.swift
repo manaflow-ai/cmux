@@ -100,11 +100,20 @@ public enum ChiefControlError: Error, Sendable, Equatable {
     }
 }
 
-extension DaemonConnection {
+/// `chief.engine.get` / `chief.engine.set` / `chief.stop` on one daemon
+/// connection. Its own type, not a `DaemonConnection` extension (that
+/// type's line budget is frozen).
+public struct ChiefControlClient: Sendable {
+    public let connection: DaemonConnection
+
+    public init(_ connection: DaemonConnection) {
+        self.connection = connection
+    }
+
     /// `chief.engine.get`: the brain's engine report.
     public func chiefEngine() async throws(ChiefControlError) -> ChiefEngineReport {
         do {
-            return try await resourceRequest({ id in
+            return try await connection.resourceRequest({ id in
                 ResourceRequestEnvelope(id: id, operation: "chief.engine.get", params: [:])
             }, as: ChiefEngineReport.self)
         } catch {
@@ -120,7 +129,7 @@ extension DaemonConnection {
         let params = Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, JSONValue.string($0)) } })
         let key = "cmux-next-chief-engine-" + UUID().uuidString.lowercased()
         do {
-            return try await resourceRequest({ id in
+            return try await connection.resourceRequest({ id in
                 ResourceRequestEnvelope(id: id, operation: "chief.engine.set", params: params, idempotencyKey: key)
             }, as: ResourceMutationResult<ChiefEngineReport>.self).value
         } catch {
@@ -133,7 +142,7 @@ extension DaemonConnection {
         struct Stopped: Decodable, Sendable { var stopped: Bool }
         let key = "cmux-next-chief-stop-" + UUID().uuidString.lowercased()
         do {
-            return try await resourceRequest({ id in
+            return try await connection.resourceRequest({ id in
                 ResourceRequestEnvelope(id: id, operation: "chief.stop", params: [:], idempotencyKey: key)
             }, as: ResourceMutationResult<Stopped>.self).value.stopped
         } catch {

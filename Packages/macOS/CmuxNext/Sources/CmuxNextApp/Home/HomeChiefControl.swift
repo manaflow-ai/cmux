@@ -53,7 +53,7 @@ struct HomeChiefControl {
     func stop() async -> HomeChiefEngineError? {
         guard let connection else { return .unreachable }
         do {
-            let stopped = try await connection.stopChief()
+            let stopped = try await ChiefControlClient(connection).stopChief()
             Self.logger.info("home: chief.stop answered stopped=\(stopped, privacy: .public)")
             return nil
         } catch let error as ChiefControlError {
