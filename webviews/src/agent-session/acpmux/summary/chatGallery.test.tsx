@@ -64,12 +64,16 @@ const render = (id: string, input: unknown, extra: Partial<Tool> = {}): AcpmuxRo
     },
   ],
 });
+const prompt = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "user", text: "go" });
+const ended = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "turnSummary" });
 const rows: AcpmuxRow[] = [
+  prompt("u1"),
   reply("a", `First ![Light](${png("A")}).`),
   render("r1", { html: "<p>chart</p>", title: "Chart" }),
   render("r2", { html: "<p>failed</p>" }, { status: "failed" }),
   reply("b", `Again ![Light](${png("A")}) and ![Dark](${png("B")}).`),
   render("r3", { html: "<p>table</p>" }),
+  ended("s1"),
 ];
 
 test("the gallery is the chat's images and render calls in transcript order, each image once", () => {
@@ -80,6 +84,20 @@ test("the gallery is the chat's images and render calls in transcript order, eac
     { kind: "render", key: "r3", call: { html: "<p>table</p>" } },
   ]);
   expect(chatGallery([reply("x", "No pictures here.")])).toEqual([]);
+});
+
+test("a render shows once the transcript draws its card: in an ended turn, before its summary", () => {
+  const live = [prompt("u2"), render("r4", { html: "<p>live</p>" }), reply("c", `![Live](${png("C")})`)];
+  const late = [render("r5", { html: "<p>late</p>" })];
+  // The ended turn's render and images; the late call after its summary and the live turn's call
+  // stay plain tool rows in the transcript, so only the live turn's image joins.
+  expect(chatGallery([...rows, ...late, ...live]).map((item) => item.key)).toEqual([
+    png("A"),
+    "r1",
+    png("B"),
+    "r3",
+    png("C"),
+  ]);
 });
 
 test("a kind filter keeps only that kind; all keeps everything", () => {
