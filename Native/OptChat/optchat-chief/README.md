@@ -642,7 +642,9 @@ through it. Two rules keep that true:
   than 16 blocks (`MARK_REACH`) past the last turn's mark: the API looks back
   only 20 blocks from a mark, so a turn that added more than 80 view lines (a
   long tool run) would otherwise write the whole view again. Such a turn
-  writes the new lines once and the next turns catch up.
+  writes the new lines once and the next turns catch up. The last turn's
+  marked prefix (its size and hash) is saved in the host state with that
+  turn's messages, so a restart keeps the rule.
 - Every mark of one request has one TTL, since the API refuses a 1h mark
   after a 5m one. On the Claude Code path our mark is 1 hour by default
   (a human reply 5 to 60 minutes later still reads the view), and each turn

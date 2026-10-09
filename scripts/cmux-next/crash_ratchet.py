@@ -24,6 +24,11 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     objc_selector     a non-override @objc func with a labeled parameter and no explicit
                       @objc(selector:) (Swift infers `mouseEnteredWith:` for
                       `mouseEntered(with:)`, and AppKit raised "unrecognized selector")
+    render_font       in the background-render modules (RENDER_MODULES): an AppKit or Core
+                      Text font made in place (NSFont/UIFont factories, NSFont(name:/descriptor:),
+                      CTFontCreate*) outside a `static let`. Factories annotated nonnull return
+                      nil when threads make and drop the last instance at once (cx-qpqs); fonts
+                      come from a process-wide cache (HomeFonts) instead
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
@@ -65,7 +70,8 @@ SWIFT = {
     "fatal_error": re.compile(r"\bfatalError\("),
     "precondition": re.compile(r"\bprecondition(Failure)?\("),
     "assume_isolated": re.compile(r"\bassumeIsolated\b"),
-    "unowned": re.compile(r"\bunowned\b"),
+    # Not an enum case or member named `unowned` (`case unowned = 0`, `.unowned`).
+    "unowned": re.compile(r"(?<!\.)(?<!case )\bunowned\b"),
     # Declarations, parameters (`navigation: WKNavigation!`) and return types.
     "iuo": re.compile(r"(?:\b(?:var|let)\s+\w+|[(,]\s*(?:\w+\s+)?\w+)\s*:\s*[A-Z][\w\.]*(?:<[^>]*>)?!"
                       r"|->\s*[A-Z][\w\.]*(?:<[^>]*>)?!"),
@@ -74,7 +80,15 @@ SWIFT = {
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
 }
 # Counted by objc_selector_hits (needs the declaration, which may span two lines).
-SWIFT_KINDS = list(SWIFT) + ["objc_selector"]
+SWIFT_KINDS = list(SWIFT) + ["objc_selector", "render_font"]
+# Modules whose drawing runs on background threads (RowBitmaps, tile and measure queues,
+# the sidebar's concurrentPerform), and their font caches (allowlisted when banned).
+RENDER_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender"}
+RENDER_FONT = re.compile(
+    r"\b(?:UIFont|NSFont)\s*\.\s*(?:systemFont|boldSystemFont|monospacedSystemFont|monospacedDigitSystemFont|userFont|userFixedPitchFont)\("
+    r"|\b(?:UIFont|NSFont)\((?:name|descriptor):|\bCTFontCreate\w*\("
+    r"|(?<![\w.])\.(?:systemFont|boldSystemFont|monospacedSystemFont|monospacedDigitSystemFont)\(ofSize")
+STATIC_LET = re.compile(r"\bstatic\s+let\b")
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
 OBJC_FUNC = re.compile(r"\bfunc\s+[\w`]+\s*(?:<[^>]*>)?\s*\(")
 OTHER_DECL = re.compile(r"\b(protocol|class|struct|enum|extension|var|let|init|subscript|case)\b")
@@ -224,7 +238,7 @@ def objc_selector_hits(lines, index, code):
     return 0
 
 
-def swift_line_hits(lines, index):
+def swift_line_hits(lines, index, module=None):
     """{kind: hits} for one Swift line (comment lines and crash-allow are the caller's)."""
     line = lines[index]
     code = swift_code(line)
@@ -242,6 +256,10 @@ def swift_line_hits(lines, index):
         hits[kind] = found
     if objc_selector_hits(lines, index, code):
         hits["objc_selector"] = 1
+    if module in RENDER_MODULES and not STATIC_LET.search(code):
+        found = len(RENDER_FONT.findall(code))
+        if found:
+            hits["render_font"] = found
     return hits
 
 
@@ -261,7 +279,7 @@ def scan_swift(repo, counts, banned_files=None):
                 if line.lstrip().startswith("//"):
                     continue
                 is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index).items():
+                for kind, hits in swift_line_hits(lines, index, rel).items():
                     if kind in banned:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))

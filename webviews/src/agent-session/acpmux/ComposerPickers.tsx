@@ -277,6 +277,7 @@ export function ComposerPickers({
           harness={harness}
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}
+          switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
           efforts={efforts}
           effort={currentEffort}
           recents={recents}
