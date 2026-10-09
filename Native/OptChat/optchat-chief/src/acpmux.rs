@@ -744,6 +744,21 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("permission_respond: {e}"))
     }
 
+    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        // No timeout: acpmux answers when the harness reads the message, at
+        // its next tool boundary, however long the running tool takes.
+        let answer = self.client()?.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
+        );
+        match answer.recv() {
+            Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("steered") => Ok(()),
+            Ok(Ok(v)) => Err(format!("acpmux did not steer the message ({v})")),
+            Ok(Err(e)) => Err(format!("steer: {e}")),
+            Err(_) => Err("steer: the acpmux connection closed".into()),
+        }
+    }
+
     fn prewarm(
         &self,
         harness: &str,
