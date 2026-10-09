@@ -25,7 +25,8 @@ final class MessageCell: UICollectionViewCell {
     let translationLabel = UILabel()
     let failedBadge = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill"))
     let timeLabel = UILabel()
-    let replyArrow = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.fill"))
+    /// Swipe-to-reply indicator, parked behind the bubble (ChatKit's CKSwipeActionIndicator).
+    let replyIndicator = ReplySwipeIndicator()
     private(set) var imageViews: [UIImageView] = []
     /// Send-effect state (see MessageCell+Effects).
     let replayButton = UIButton(type: .system)
@@ -52,7 +53,7 @@ final class MessageCell: UICollectionViewCell {
     var timestampReveal: CGFloat = 0 { didSet { applyShifts() } }
     /// Points outgoing content travels at a full reveal (set per swipe).
     var timestampRevealDistance: CGFloat = 58 { didSet { applyShifts() } }
-    /// Swipe-right reply drag offset in points.
+    /// Swipe-right reply drag offset in points (the bubble's travel).
     var replyDrag: CGFloat = 0 { didSet { applyShifts() } }
     /// Select mode leading shift for incoming rows.
     var selectionShift: CGFloat = 0 { didSet { applyShifts() } }
@@ -83,19 +84,17 @@ final class MessageCell: UICollectionViewCell {
         timeLabel.font = ConversationTheme.timestampFont
         timeLabel.textColor = ConversationTheme.timestampText
         timeLabel.alpha = 0
-        replyArrow.tintColor = ConversationTheme.secondaryText
-        replyArrow.contentMode = .center
-        replyArrow.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
-        replyArrow.alpha = 0
         translationLabel.accessibilityIdentifier = "conversation.message.translation"
         for view in [senderLabel, quoteBubble, quoteLabel, bubble, textLabel, emojiLabel, avatar, reactionBadge, editedLabel, repliesLabel, translationLabel] {
             shiftable.addSubview(view)
         }
         shiftable.insertSubview(linkCard, belowSubview: reactionBadge)
         shiftable.bringSubviewToFront(reactionBadge)
-        for view in [footerLabel, failedBadge, timeLabel, replyArrow] {
+        for view in [footerLabel, failedBadge, timeLabel] {
             contentView.addSubview(view)
         }
+        // Behind the bubble: the bubble slides off it.
+        contentView.insertSubview(replyIndicator, at: 0)
         installEffectViews()
     }
 
@@ -110,6 +109,7 @@ final class MessageCell: UICollectionViewCell {
         imageRowID = nil
         timestampReveal = 0
         replyDrag = 0
+        replyIndicator.reset()
         contentView.alpha = 1
         shiftable.alpha = 1
         shiftable.subviews.forEach { $0.alpha = 1 }
@@ -347,7 +347,7 @@ final class MessageCell: UICollectionViewCell {
         timeLabel.sizeToFit()
         let anchor = cellLayout.contentFrame
         timeLabel.setUntransformedFrame(CGRect(x: contentView.bounds.width + 8, y: anchor.midY - timeLabel.bounds.height / 2, width: timeLabel.bounds.width, height: timeLabel.bounds.height))
-        replyArrow.frame = CGRect(x: 0, y: anchor.midY - 15, width: 30, height: 30)
+        replyIndicator.place(at: replyIndicatorCenter)
         applyShifts()
     }
 
@@ -447,11 +447,17 @@ final class MessageCell: UICollectionViewCell {
         // faster than the bubbles, and ends at the 16 pt margin.
         timeLabel.alpha = timestampReveal > 0 ? 1 : 0
         timeLabel.transform = CGAffineTransform(translationX: -Self.timeTravel(forTimeWidth: timeLabel.bounds.width) * timestampReveal, y: 0)
-        let replyProgress = min(1, replyDrag / 60)
-        replyArrow.alpha = replyProgress
-        let arrowX = model.isOutgoing ? max(0, layoutOrigin(model) - 34) : max(4, replyDrag - 34)
-        replyArrow.frame.origin.x = arrowX
-        replyArrow.transform = CGAffineTransform(scaleX: 0.5 + 0.5 * replyProgress, y: 0.5 + 0.5 * replyProgress)
+    }
+
+    /// ChatKit parks the indicator at the balloon's resting leading edge
+    /// (past the 6 pt tail for incoming), centered on the balloon view,
+    /// whose height includes the tail drop.
+    private var replyIndicatorCenter: CGPoint {
+        guard let model, let cellLayout else { return .zero }
+        let balloon = cellLayout.bubbleFrame ?? cellLayout.linkCardFrame ?? cellLayout.imageFrames.first ?? cellLayout.contentFrame
+        let height = balloon.height + (model.showsTail ? ConversationTheme.tailDrop : 0)
+        let minX = model.isOutgoing ? balloon.minX : balloon.minX + ReplySwipeIndicator.incomingTailWidth
+        return CGPoint(x: minX + ReplySwipeIndicator.size / 2, y: balloon.minY + height / 2)
     }
 
     /// Appearing: grows from its center on a critically damped spring
@@ -509,10 +515,6 @@ final class MessageCell: UICollectionViewCell {
     /// Bubble travel that clears the widest time by 17 pt (58 pt for "3:16 AM").
     static func timestampRevealDistance(forTimeWidth width: CGFloat) -> CGFloat { (width + 16).rounded() }
     var timeLabelWidth: CGFloat { timeLabel.bounds.width }
-
-    private func layoutOrigin(_ model: MessageRowModel) -> CGFloat {
-        (cellLayout?.contentFrame.minX ?? 0) + replyDrag
-    }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)

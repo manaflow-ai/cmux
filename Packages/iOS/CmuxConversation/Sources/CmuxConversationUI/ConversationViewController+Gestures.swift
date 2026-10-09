@@ -41,6 +41,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         if let pan = gestureRecognizer as? UIPanGestureRecognizer, pan.name == "conversation.horizontalPan" {
             guard !isSelecting, !touchBelongsToTextSelection(pan.location(in: collectionView)) else { return false }
             let velocity = pan.velocity(in: collectionView)
+            // Rightward is reply: only on a bubble, within 18 degrees of
+            // horizontal (ChatKit's CKSwipeToReplyRules).
+            if velocity.x > 0 { return replySwipeCell(at: pan.location(in: collectionView), velocity: velocity) != nil }
             // Only a clearly horizontal drag; vertical scrolling stays native.
             return abs(velocity.x) > abs(velocity.y) * 1.3
         }
@@ -69,7 +72,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         let translation = pan.translation(in: collectionView).x
         switch pan.state {
         case .began:
-            if translation > 0, let cell = messageCell(at: pan.location(in: collectionView), requireContentHit: false), let model = cell.model {
+            if translation > 0, let cell = replySwipeCell(at: pan.location(in: collectionView), velocity: pan.velocity(in: collectionView)), let model = cell.model {
                 replyDragRowID = model.rowID
                 replyHapticFired = false
             } else {
@@ -77,9 +80,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
                 beginTimestampReveal()
             }
             // Recognition already consumed some travel; apply it at once.
-            updateHorizontalPan(translation)
+            updateHorizontalPan(translation, velocity: pan.velocity(in: collectionView).x)
         case .changed:
-            updateHorizontalPan(translation)
+            updateHorizontalPan(translation, velocity: pan.velocity(in: collectionView).x)
         case .ended, .cancelled, .failed:
             endHorizontalPan(committed: pan.state == .ended)
         default:
@@ -87,22 +90,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         }
     }
 
-    private func updateHorizontalPan(_ translation: CGFloat) {
+    private func updateHorizontalPan(_ translation: CGFloat, velocity: CGFloat) {
         if let rowID = replyDragRowID {
-            let raw = max(0, translation)
-            // Rubber band beyond the commit threshold.
-            let threshold: CGFloat = 60
-            let offset = raw <= threshold ? raw : threshold + (raw - threshold) * 0.35
-            replyDragOffset = min(offset, 110)
-            if let indexPath = indexPath(for: rowID), let cell = collectionView.cellForItem(at: indexPath) as? MessageCell {
-                cell.replyDrag = replyDragOffset
-            }
-            if replyDragOffset >= threshold, !replyHapticFired {
-                replyHapticFired = true
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            } else if replyDragOffset < threshold {
-                replyHapticFired = false
-            }
+            updateReplySwipe(rowID: rowID, translation: translation, velocity: velocity)
         } else {
             // Messages: the transcript follows at 0.4x the finger past a short
             // dead zone and stops dead once the widest time is fully shown
@@ -115,17 +105,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
 
     private func endHorizontalPan(committed: Bool) {
         if let rowID = replyDragRowID {
-            let commit = replyDragOffset >= 60 && committed
-            let releasedAt = replyDragOffset
-            let cell = indexPath(for: rowID).flatMap { collectionView.cellForItem(at: $0) as? MessageCell }
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-                cell?.replyDrag = 0
-            }
-            replyDragRowID = nil
-            replyDragOffset = 0
-            if commit, case let .message(model)? = row(for: rowID) {
-                enterReplyMode(for: model.message, dragOffset: releasedAt)
-            }
+            endReplySwipe(rowID: rowID, ended: committed)
         } else {
             setTimestampReveal(0, animated: true)
         }
