@@ -11,6 +11,44 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct InProcessMachineCreateLauncherTests {
+    @Test(arguments: [false, true])
+    func upstreamFailureNeverReachesCreatePresentation(created: Bool) async throws {
+        let workspace = UUID()
+        let invocation = try #require(InProcessMachineCreateLauncher.parse(arguments: [
+            "vm", "new", "--workspace", workspace.uuidString, "--focus", "false"
+        ]))
+        let secret = "upstream-private-diagnostic-7b912"
+        let dependencies = InProcessMachineCreateLauncher.Dependencies(
+            create: { _, _ in
+                if !created { throw VMClientError.httpStatus(503, "{\"message\":\"\(secret)\"}") }
+                return VMSummary(id: "created-machine", provider: "freestyle", status: "running", image: "snapshot", createdAt: 1)
+            },
+            status: { _ in throw VMClientError.malformedResponse(secret) },
+            record: { _, _ in }, prepare: { _ in }, bind: { _, _ in },
+            connect: { _ in throw VMClientError.httpStatus(503, "{\"message\":\"\(secret)\"}") },
+            terminal: { _, _, _ in nil }
+        )
+        let completion = await InProcessMachineCreateLauncher.run(
+            invocation, operationID: UUID(), dependencies: dependencies, onOutput: { _ in }
+        )
+        #expect(!completion.succeeded)
+        #expect(!completion.output.contains(secret))
+        let coordinator = MachineCreateCoordinator(notifier: { notice in
+            #expect(!notice.body.contains(secret))
+        })
+        coordinator.start(MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(workspace)) { _, _, finish in
+            finish(completion)
+            return true
+        }
+        let finished = try #require(coordinator.lastFinished)
+        switch finished.outcome {
+        case .failed(let output), .createdButOpenFailed(_, let output):
+            #expect(!output.contains(secret))
+        case .created:
+            Issue.record("A failed create or attach must not be reported as ready")
+        }
+    }
+
     @Test func parsesTheAuthenticatedNewMachineSubset() throws {
         let workspace = UUID()
         let invocation = try #require(InProcessMachineCreateLauncher.parse(arguments: [
