@@ -118,8 +118,9 @@ fn an_inspector_in_the_environment_is_read_from_a_live_process() {
 }
 
 /// A DevTools endpoint is refused by what it answers, whatever opened it
-/// (`inspector.open()`, a renamed process title, chrome://inspect): a
-/// listener that answers `/json/version` like V8 or Chrome is refused.
+/// (`inspector.open()`, a renamed process title): a listener that answers
+/// `/json/version` like V8 is refused by the probe (the system check
+/// probes only node, bun and deno holders; this test's server is Python).
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn a_port_that_answers_like_devtools_is_refused() {
@@ -146,7 +147,7 @@ srv.serve_forever()
     let mut line = String::new();
     BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
     let port: u16 = line.trim().parse().unwrap();
-    let verdict = system_connected_check()(SocketAddr::from(([127, 0, 0, 1], port)));
+    let verdict = crate::egress_devtools::refusal(SocketAddr::from(([127, 0, 0, 1], port)), &[1]);
     let _ = child.kill();
     let _ = child.wait();
     let refused = verdict.expect("a DevTools endpoint is refused");

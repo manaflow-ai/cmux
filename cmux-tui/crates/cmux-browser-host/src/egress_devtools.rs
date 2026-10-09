@@ -29,6 +29,12 @@ pub(crate) fn answers_like_devtools(answer: &[u8]) -> bool {
     MARKERS.iter().any(|marker| text.contains(marker))
 }
 
+/// Whether a listener held by `holders` gets the probe (stub; red).
+#[allow(dead_code)]
+pub(crate) fn wants_probe(_holders: &[crate::egress_holders::Holder]) -> bool {
+    true
+}
+
 /// Why `addr` is refused as a DevTools endpoint, or `None`.
 /// `pids`: the processes that hold the listener.
 pub(crate) fn refusal(addr: SocketAddr, pids: &[i32]) -> Option<String> {

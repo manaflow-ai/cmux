@@ -207,3 +207,22 @@ fn bundles_with_a_v8_snapshot_in_a_framework_are_chromium_family() {
     assert!(family(&format!("{helper}/Browser Helper")));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Only an app's own executables (in some `X.app/Contents/MacOS/`) count as
+/// Chromium family: a non-V8 tool shipped in an Electron app's Resources
+/// (Rancher Desktop's port forwarder) does not.
+#[test]
+fn tools_in_an_electron_apps_resources_are_not_chromium_family() {
+    let root = std::env::temp_dir().join(format!("cmux-egress-rancher-{}", std::process::id()));
+    for rel in [
+        "Rancher.app/Contents/Frameworks/Electron Framework.framework",
+        "Rancher.app/Contents/Resources/resources/darwin/lima/bin",
+        "Rancher.app/Contents/MacOS",
+    ] {
+        std::fs::create_dir_all(root.join(rel)).unwrap();
+    }
+    let family = |rel: &str| bundle_is_chromium_family(&root.join(rel).display().to_string());
+    assert!(family("Rancher.app/Contents/MacOS/Rancher Desktop"));
+    assert!(!family("Rancher.app/Contents/Resources/resources/darwin/lima/bin/limactl"));
+    let _ = std::fs::remove_dir_all(&root);
+}
