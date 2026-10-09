@@ -52,7 +52,6 @@ function draftActionsChanged(): void {
 
 function draftActionsChangedAndFlush(): void {
   draftActionsChanged();
-  void flushDraftWrites();
 }
 
 /** Notifies the composer that the native action map was installed or replaced. */
@@ -102,8 +101,17 @@ async function flushDraftWrites(): Promise<void> {
     }
   } finally {
     flushingDraftWrites = false;
-    if (pendingDraftWrites.size && pageDraftAction("chat.writeDraft")) void flushDraftWrites();
   }
+}
+
+/** Flushes writes after the composer has completed its durable restore. */
+export function flushPendingDraftWrites(): void {
+  void flushDraftWrites();
+}
+
+/** Returns whether a queued write already owns the session's newest value. */
+export function hasPendingDraftWrite(sessionId: string | undefined): boolean {
+  return Boolean(sessionId && pendingDraftWrites.has(sessionId));
 }
 
 /// Reads the last unsent prompt from the page's synchronous remount cache.
@@ -131,7 +139,7 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
   // Keep only the newest value per session. This preserves clear-after-type ordering when a
   // connection is down, without dropping the final clear or sending stale keystrokes on repair.
   pendingDraftWrites.set(sessionId, { sessionId, text, sequence: ++draftWriteSequence });
-  void flushDraftWrites();
+  flushPendingDraftWrites();
 }
 
 /// Reads the daemon draft; a missing page action is expected in browser-only and test hosts.

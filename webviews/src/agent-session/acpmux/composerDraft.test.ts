@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   composerDraft,
+  flushPendingDraftWrites,
   notifyDraftActionsChanged,
   readDurableDraft,
   seededText,
@@ -78,6 +79,7 @@ describe("a chat opened from another tab", () => {
 
       fail = false;
       notifyDraftActionsChanged();
+      flushPendingDraftWrites();
       await new Promise((resolve) => setTimeout(resolve, 10));
       expect(attempts).toBe(2);
     } finally {

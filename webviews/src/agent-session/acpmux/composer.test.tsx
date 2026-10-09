@@ -675,7 +675,7 @@ describe("acpmux composer draft", () => {
 
   test("restores an unsent prompt for the same agent session after the page remounts", async () => {
     const sessionId = "session-with-a-draft";
-    writePersistedDraft(sessionId, "");
+    window.localStorage.removeItem(`cmux.acpmux.composer-draft.${encodeURIComponent(sessionId)}`);
     let root = createRoot(dom.window.document.getElementById("root")!);
     const sent: string[] = [];
     const render = async () => {
@@ -714,7 +714,7 @@ describe("acpmux composer draft", () => {
     const sessionId = "session-reconnected-draft";
     const previousActions = (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
     delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
-    writePersistedDraft(sessionId, "");
+    window.localStorage.removeItem(`cmux.acpmux.composer-draft.${encodeURIComponent(sessionId)}`);
     let root = createRoot(dom.window.document.getElementById("root")!);
     try {
       await act(async () =>
