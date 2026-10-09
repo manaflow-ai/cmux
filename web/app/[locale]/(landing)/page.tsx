@@ -8,11 +8,11 @@ import { FaqPlatformAnswer } from "@/app/[locale]/components/faq-platform-answer
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { BrandLogoLink } from "@/app/[locale]/components/brand-logo-link";
 import { remoteTmuxDocsLocales } from "@/i18n/locale-availability";
+import { testimonials } from "@/app/[locale]/testimonials-data";
 import {
-  testimonials,
   getTestimonialSubtitle,
   getTestimonialTranslation,
-} from "@/app/[locale]/testimonials";
+} from "@/app/[locale]/testimonials-utils";
 import { Link } from "@/i18n/navigation";
 import NextLink from "next/link";
 
