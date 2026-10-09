@@ -133,10 +133,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.extraFieldsJSON = extra.isEmpty ? nil : AnyJSON.object(extra).asJSONString
         let encodedIdleReminder = try c.decodeIfPresent(Bool.self, forKey: .isIdleReminder) ?? false
         self.isIdleReminder = encodedIdleReminder || (hookEventName == .notification
-            && ["notification_type", "reason"].contains { key in
-                guard case .string(let value) = extra[key] else { return false }
-                return value.caseInsensitiveCompare("idle_prompt") == .orderedSame
-            })
+            && Self.containsStructuredIdleReminder(in: extra))
         // tool_input can be any JSON shape (object, array, scalar, string).
         // We normalize to a string: incoming objects/arrays are re-serialized
         // via JSONSerialization; incoming strings are stored verbatim so
@@ -178,6 +175,19 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         if let toolInputJSON {
             let raw = AnyJSON(jsonString: toolInputJSON) ?? .string(toolInputJSON)
             try c.encode(raw, forKey: .toolInputJSON)
+        }
+    }
+
+    private static func containsStructuredIdleReminder(in extra: [String: AnyJSON]) -> Bool {
+        let candidates = [extra] + ["notification", "data", "extra"].compactMap { key in
+            guard case .object(let nested) = extra[key] else { return nil }
+            return nested
+        }
+        return candidates.contains { candidate in
+            ["notification_type", "notificationType", "reason"].contains { key in
+                guard case .string(let value) = candidate[key] else { return false }
+                return value.caseInsensitiveCompare("idle_prompt") == .orderedSame
+            }
         }
     }
 }

@@ -111,6 +111,22 @@ struct WorkstreamEventTests {
         }
     }
 
+    @Test("Decodes nested structured idle reminder markers")
+    func decodesNestedIdleReminderMarker() throws {
+        let json = """
+        {
+          "session_id": "claude-session",
+          "hook_event_name": "Notification",
+          "_source": "claude",
+          "notification": {"notificationType": "idle_prompt"},
+          "data": {"reason": "idle_prompt"}
+        }
+        """.data(using: .utf8)!
+
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: json)
+        #expect(event.isIdleReminder)
+    }
+
     @Test("Constructed idle reminder markers survive Codable round trips")
     func idleReminderMarkerRoundTrips() throws {
         let event = WorkstreamEvent(

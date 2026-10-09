@@ -39616,6 +39616,14 @@ export default {
             // lifecycle reducer. The notification body is intentionally not
             // copied into Feed telemetry, but these discriminator fields let
             // it distinguish an idle reminder from a real request.
+            if AgentHookNotificationClassifier.isStructuredIdleReminder(fallbackObject) {
+                // Some providers nest `notificationType` under `notification`,
+                // `data`, or `extra`. Keep one typed marker at the feed
+                // boundary so WorkstreamEvent and the mobile reducer do not
+                // need to recover provider-specific nesting after telemetry
+                // compaction.
+                event["_is_idle_reminder"] = true
+            }
             if let notificationType = firstString(
                 in: fallbackObject,
                 keys: ["notification_type", "notificationType"]
@@ -42118,6 +42126,12 @@ export default {
             transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"])
         ) {
             eventDict["context"] = context
+        }
+        if hookEventName == "Notification",
+           AgentHookNotificationClassifier.isStructuredIdleReminder(stdinObj) {
+            // Preserve nested provider markers after the feed payload is
+            // compacted to its common schema.
+            eventDict["_is_idle_reminder"] = true
         }
         enrichUserPromptSubmitFeedEvent(
             &eventDict,
