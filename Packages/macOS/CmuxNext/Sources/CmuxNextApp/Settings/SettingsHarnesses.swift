@@ -46,13 +46,40 @@ final class SettingsHarnesses {
 
     /// Reads the daemon's harnesses again.
     func refresh() async {
-        _ = (environment, fetch) // red
+        guard let environment = environment() else {
+            rows = []
+            problem = "unavailable"
+            return
+        }
+        loading = true
+        defer { loading = false }
+        do {
+            rows = try await fetch(environment)
+            problem = nil
+        } catch {
+            problem = "unreachable"
+        }
     }
 
     /// One page gesture (`cmux.settings.harnesses.run`): `refresh`, `signIn` / `check` with a
     /// listed harness `id`, or `registry`.
     func run(_ params: JSONValue) async throws -> JSONValue {
-        _ = openTerminal // red
+        let action = params["action"]?.stringValue ?? ""
+        switch action {
+        case "refresh":
+            await refresh()
+        case "signIn", "check":
+            guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id && $0.kind != "terminal" }) else {
+                throw PageError.invalidParams("id must be a listed harness")
+            }
+            guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
+            openTerminal(environment.shellLine(["harness", "login", id] + (action == "check" ? ["--status"] : [])))
+        case "registry":
+            guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
+            openTerminal(environment.shellLine(["harness", "registry"]))
+        default:
+            throw PageError.invalidParams("unknown harnesses action \(action)")
+        }
         return .object([:])
     }
 }
