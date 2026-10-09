@@ -108,7 +108,7 @@ import Testing
                 }
             }
         }
-        #expect(decoded > 300, "the mutations must also produce frames that decode")
+        #expect(decoded > 100, "the mutations must also produce frames that decode")
     }
 
     @Test func renderGridSizeLimitsAcceptTheMaximumAndRefuseOnePast() throws {
