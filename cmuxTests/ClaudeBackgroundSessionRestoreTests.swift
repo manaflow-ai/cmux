@@ -275,6 +275,27 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(!input.contains("--resume"), Comment(rawValue: input))
     }
 
+    @Test("A legacy Claude snapshot keeps its original restore admission", arguments: [true, false])
+    func missingPromptMarkerKeepsRestoreAdmission(wasAgentRunning: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            // Encoding omits the nil marker, as older snapshots did.
+            terminal.agent = agent(fixture)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = wasAgentRunning
+        }
+
+        if wasAgentRunning {
+            let input = try #require(restored.input)
+            #expect(input.contains(" restore claude "), Comment(rawValue: input))
+            #expect(!input.contains("--resume"), Comment(rawValue: input))
+        } else {
+            #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+        }
+    }
+
     @Test("A stale or missing Claude binding never synthesizes a resume")
     func staleOrMissingBindingStaysManual() throws {
         let fixture = try makeFixture()
