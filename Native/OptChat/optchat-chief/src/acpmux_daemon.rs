@@ -138,6 +138,13 @@ pub fn ensure_with(
         Action::Spawn => {
             let pid = spawn(socket, bin, log)?;
             seen_up.store(true, Ordering::SeqCst);
+            if let Some(bin) = bin {
+                let _ = STARTED.set(Started {
+                    bin: bin.into(),
+                    socket: socket.to_path_buf(),
+                    home: daemon_home(socket),
+                });
+            }
             Ok(Some(pid))
         }
     }
@@ -166,6 +173,82 @@ fn await_socket(socket: &Path, wait: Duration) -> Result<(), String> {
     }
 }
 
+/// `ACPMUX_HOME`, else the socket's directory.
+fn daemon_home(socket: &Path) -> PathBuf {
+    env("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(|| {
+        socket
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+    })
+}
+
+/// The daemon this process started (local mode): only that one is this
+/// host's to stop. One per process: the host never starts a second
+/// ([`decide`] refuses once it saw a daemon).
+struct Started {
+    bin: PathBuf,
+    socket: PathBuf,
+    home: PathBuf,
+}
+
+static STARTED: std::sync::OnceLock<Started> = std::sync::OnceLock::new();
+
+/// How long `acpmux daemon shutdown` may take (it ends every agent host,
+/// with its own SIGTERM-to-SIGKILL grace).
+const SHUTDOWN_LIMIT: Duration = Duration::from_secs(20);
+
+/// Stops the acpmux daemon this process started, and with it every agent
+/// host of its home (`acpmux daemon shutdown`, which ends the agents first
+/// and sweeps hosts left after the daemon's exit). A daemon this process
+/// found running belongs to the app or a supervisor and is left alone.
+/// Returns whether it stopped one.
+pub fn shutdown_started(log: &dyn Fn(&str)) -> bool {
+    let Some(started) = STARTED.get() else {
+        return false;
+    };
+    let mut command = Command::new(&started.bin);
+    command
+        .args(["daemon", "shutdown"])
+        .env("ACPMUX_HOME", &started.home)
+        .env("ACPMUX_SOCKET", &started.socket)
+        .current_dir(&started.home)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            log(&format!(
+                "stopping acpmux: starting {}: {e}",
+                started.bin.display()
+            ));
+            return false;
+        }
+    };
+    let deadline = Instant::now() + SHUTDOWN_LIMIT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                log(&format!("stopped the acpmux daemon it started ({status})"));
+                return true;
+            }
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                log("stopping acpmux: `daemon shutdown` did not finish in 20 s");
+                return false;
+            }
+            Err(e) => {
+                log(&format!("stopping acpmux: {e}"));
+                return false;
+            }
+        }
+    }
+}
+
 /// Starts `$ACPMUX_BIN daemon run` and waits for its socket (local mode).
 fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, String> {
     let Some(bin) = bin else {
@@ -174,11 +257,7 @@ fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, St
             socket.display()
         ));
     };
-    let home = env("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(|| {
-        socket
-            .parent()
-            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-    });
+    let home = daemon_home(socket);
     std::fs::create_dir_all(&home).map_err(|e| format!("creating {}: {e}", home.display()))?;
     let out = std::fs::OpenOptions::new()
         .create(true)

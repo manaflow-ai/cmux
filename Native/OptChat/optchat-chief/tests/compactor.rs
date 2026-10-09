@@ -68,6 +68,7 @@ fn compactor(agents: &Arc<FakeAgents>, dir: &std::path::Path) -> AcpmuxCompactor
 
 fn request(i: u64) -> CompactRequest {
     CompactRequest {
+        imported: false,
         node: NodeId::new(0, i),
         system: "SYS".into(),
         context: "<chat>\nuser: hi\n</chat>".into(),
@@ -211,6 +212,7 @@ fn request_blocks_keep_the_cache_shape() {
     }
     context.push_str("</chat>");
     let r = CompactRequest {
+        imported: false,
         context: context.clone(),
         ..request(0)
     };
@@ -685,6 +687,7 @@ fn with_system_prompt_support_the_system_text_is_the_slot_presets_prompt_and_one
     let context = chat_of(150);
     let pieces = optchat_core::block_pieces(&context);
     let r = CompactRequest {
+        imported: false,
         context: context.clone(),
         ..request(0)
     };
@@ -720,6 +723,7 @@ fn with_system_prompt_support_the_system_text_is_the_slot_presets_prompt_and_one
 fn the_marker_sits_on_the_last_whole_four_line_block() {
     // 9 lines: the header, two whole blocks, the marker on the second.
     let r = CompactRequest {
+        imported: false,
         context: chat_of(9),
         ..request(0)
     };
@@ -736,6 +740,7 @@ fn the_marker_sits_on_the_last_whole_four_line_block() {
     );
     // Without the marker the blocks are the same text.
     let r = CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(0)
     };
@@ -762,6 +767,7 @@ fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
         sink.lock().unwrap().push(l.to_owned())
     }));
     let r = CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(0)
     };
@@ -790,6 +796,7 @@ fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
     // Later nodes skip the marker instead of failing first.
     assert_eq!(run_node(&compactor, &request(1)).unwrap(), "user: a line");
     let r2 = CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(2)
     };
@@ -805,6 +812,7 @@ fn without_system_prompt_support_the_old_layout_stays() {
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
     let compactor = compactor(&agents, dir.path());
     let r = CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(0)
     };
@@ -880,6 +888,7 @@ fn a_codex_compactor_shares_one_working_directory_and_keeps_a_byte_stable_prefix
     ));
     agents.hold(true);
     let r = |i: u64| CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(i)
     };
@@ -1526,6 +1535,7 @@ fn each_node_takes_the_shared_cache_ttl_for_its_mark_and_its_slot_settings() {
         blocks[markers(blocks)[0]]["cache_control"].clone()
     };
     let r = |i| CompactRequest {
+        imported: false,
         context: chat_of(150),
         ..request(i)
     };
@@ -1568,6 +1578,7 @@ fn a_refused_marker_comes_back_after_ten_nodes() {
     }
     let compactor = compactor(&agents, dir.path());
     let r = |i| CompactRequest {
+        imported: false,
         context: chat_of(150),
         ..request(i)
     };
@@ -1722,6 +1733,7 @@ fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
             .unwrap()
     };
     let marked = CompactRequest {
+        imported: false,
         context: chat_of(150),
         ..request(0)
     };
@@ -1780,6 +1792,7 @@ fn size_retries_of_a_marked_node_reread_the_view_mark() {
     }
     context.push_str("</chat>");
     let request = CompactRequest {
+        imported: false,
         node: NodeId::new(0, 12),
         context,
         ..request(12)
@@ -2142,4 +2155,243 @@ fn the_probe_retries_through_a_stoppable_delay() {
     real.stop();
     assert!(!waiter.join().unwrap());
     assert!(started.elapsed() < Duration::from_secs(5));
+}
+/// Soak at 64d57f35a20f: during an import every compactor session is busy
+/// with imported nodes and dozens more wait; a new chat line's node waited
+/// behind them in an unordered queue. The reference client lets foreground
+/// work go first (its background calls yield). With all sessions busy on an
+/// import and imported nodes waiting, a chat node takes the first session
+/// that frees.
+#[test]
+fn a_chat_node_takes_the_next_free_session_before_waiting_import_nodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| answer(&format!("user: node {turn}"))));
+    agents.hold(true);
+    let compactor = Arc::new(compactor(&agents, dir.path()));
+    let node = |i: u64, imported: bool| CompactRequest {
+        node: NodeId::new(0, i),
+        imported,
+        ..request(i)
+    };
+    let spawn = |r: CompactRequest| {
+        let c = compactor.clone();
+        std::thread::spawn(move || run_node(&*c, &r))
+    };
+    let mut workers: Vec<_> = (0..COMPACTOR_SESSIONS as u64)
+        .map(|i| spawn(node(i, true)))
+        .collect();
+    agents.wait_prompts(COMPACTOR_SESSIONS);
+    workers.extend(
+        (COMPACTOR_SESSIONS as u64..2_000)
+            .take(48)
+            .map(|i| spawn(node(i, true))),
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    workers.push(spawn(node(2_000, false)));
+    std::thread::sleep(Duration::from_millis(300));
+    // One session frees.
+    agents.release();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while agents.inner.lock().unwrap().specs.len() <= COMPACTOR_SESSIONS {
+        assert!(std::time::Instant::now() < deadline, "no session started");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let next = agents.inner.lock().unwrap().specs[COMPACTOR_SESSIONS]
+        .name
+        .clone();
+    agents.hold(false);
+    agents.release();
+    for w in workers {
+        assert!(w.join().unwrap().is_ok());
+    }
+    assert_eq!(next, "optchat-compact-test-2000+1", "the chat node waited");
+}
+
+/// subp2 and subp3 on cmux-lawrence-2 (builds 20519f940be, 52112bf3c7d):
+/// compactor nodes failed with "A maximum of 4 blocks with cache_control may
+/// be provided. Found 5." Claude Code (2.1.287 and 2.1.295 alike) marks its
+/// two system blocks and its environment message, plus the last message of
+/// each request, and the previous request's last message too from a
+/// session's second request on; with DISABLE_PROMPT_CACHING in the session's
+/// settings it places none. Every compactor request, of every node shape
+/// (leaf, merge, fresh size retry, a refused mark's retry, the probe), stays
+/// within the API's 4 marks with Claude Code's own counted.
+#[test]
+fn every_compactor_request_stays_within_four_cache_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    // Turn 1 (a merge's first try) answers too long: a fresh size retry.
+    let agents = FakeAgents::new(Box::new(|turn, _| {
+        if turn == 1 {
+            answer(&format!("user: {}", "w".repeat(700)))
+        } else {
+            answer("user: a line")
+        }
+    }));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path());
+    let leaf = CompactRequest {
+        node: NodeId::new(0, 40),
+        context: chat_of(40),
+        ..request(40)
+    };
+    let merge = CompactRequest {
+        node: NodeId::new(2, 10),
+        context: chat_of(44),
+        step: "Compaction: merge lines 40+2 and 42+2".into(),
+        ..request(41)
+    };
+    run_node(&compactor, &leaf).unwrap();
+    run_node(&compactor, &merge).unwrap();
+    // A refused mark: the node runs again without it.
+    agents.inner.lock().unwrap().answer_error = Some(
+        "API Error: 400 A maximum of 4 blocks with cache_control may be provided. Found 5.".into(),
+    );
+    run_node(
+        &compactor,
+        &CompactRequest {
+            node: NodeId::new(0, 50),
+            ..leaf.clone()
+        },
+    )
+    .unwrap();
+    probe(&compactor, "SYS").unwrap();
+
+    let inner = agents.inner.lock().unwrap();
+    assert!(inner.prompts.len() >= 6, "{} prompts", inner.prompts.len());
+    let mut seen: std::collections::HashMap<&str, usize> = Default::default();
+    let mut ours_total = 0;
+    for (k, (blocks, session)) in inner.prompts.iter().zip(&inner.prompt_sessions).enumerate() {
+        let index: usize = session.trim_start_matches('s').parse().unwrap();
+        let settings = inner.session_settings[index - 1]
+            .clone()
+            .unwrap_or_default();
+        let earlier = seen.entry(session.as_str()).or_insert(0);
+        let ours = markers(blocks).len();
+        let claude = if settings.contains("DISABLE_PROMPT_CACHING") {
+            0
+        } else {
+            3 + 1 + usize::from(*earlier > 0)
+        };
+        *earlier += 1;
+        ours_total += ours;
+        assert!(
+            ours + claude <= 4,
+            "request {k} ({session}): {ours} marks of ours + {claude} of Claude Code's"
+        );
+    }
+    assert!(ours_total >= 3, "the marked shapes carried no mark of ours");
+}
+
+/// Import time is 5.7x the reference's; before changing the session count,
+/// each node's trace says where its time went: waiting for a session slot,
+/// starting the Claude Code sessions, and each prompt until its first
+/// output and until its answer (a fresh size retry adds its own).
+#[test]
+fn a_node_trace_splits_its_time_by_slot_wait_session_start_and_prompt() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|turn, _| {
+        if turn == 0 {
+            answer(&format!("user: {}", "w".repeat(700)))
+        } else {
+            answer("user: a line")
+        }
+    }));
+    let compactor = compactor(&agents, dir.path())
+        .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
+    run_node(&compactor, &request(7)).unwrap();
+    let mut nodes = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        nodes.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .filter(|e| e["ev"] == "node"),
+        );
+    }
+    assert_eq!(nodes.len(), 1, "{nodes:?}");
+    let timing = &nodes[0]["timing"];
+    assert_eq!(nodes[0]["prompts"], 2);
+    assert_eq!(timing["prompt_ms"].as_array().unwrap().len(), 2, "{timing}");
+    assert_eq!(timing["ttft_ms"].as_array().unwrap().len(), 2, "{timing}");
+    assert!(timing["slot_wait_ms"].is_u64(), "{timing}");
+    assert!(timing["session_start_ms"].is_u64(), "{timing}");
+}
+
+/// Soak at d6d36c6daf59: the first turn after a 2,020-message CLI import
+/// still waited 12 minutes (settle_ms 723,731), although settle no longer
+/// waits for imported lines: the brain checked again that no view line at
+/// all was unbuilt before it took the turn. A turn starts while imported
+/// lines are still being built.
+#[test]
+fn a_turn_starts_while_imported_lines_are_still_unbuilt() {
+    let dir = tempfile::tempdir().unwrap();
+    // Imported messages' nodes wait until the test ends.
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate = Arc::new(Mutex::new(gate));
+    struct Blocking(Arc<Mutex<std::sync::mpsc::Receiver<()>>>);
+    impl CompactModel for Blocking {
+        fn call(
+            &self,
+            request: &CompactRequest,
+            _: &[optchat_host::Followup],
+        ) -> Result<optchat_host::Reply, optchat_host::ModelError> {
+            if request.step.contains("imported ") {
+                let _ = self.0.lock().unwrap().recv();
+            }
+            Ok(optchat_host::Reply::text(format!(
+                "summary of {}",
+                request.node.name()
+            )))
+        }
+    }
+    let config = Config {
+        reporter: Arc::new(|_| {}),
+        ..Config::default()
+    };
+    let chat = Arc::new(
+        OptChat::open_with(
+            dir.path().join("chat"),
+            config,
+            Arc::new(Blocking(gate.clone())),
+            Arc::new(SystemClock),
+        )
+        .unwrap(),
+    );
+    for k in 0..100u64 {
+        let text = format!("imported {k}: {}", "words ".repeat(120));
+        chat.append_imported(Kind::Note, &text, None).unwrap();
+    }
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let settings = settings(dir.path());
+    let mut h = Harness::over_chat(
+        dir,
+        default_script(),
+        owner,
+        settings,
+        Arc::new(|_: &str| {}),
+        chat,
+    );
+    h.connect();
+    h.say("user_local", "Hi, a short question.");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no turn started: {:?}",
+            h.chat.status()
+        );
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(
+        h.chat.status().unbuilt > 0,
+        "the import was built meanwhile"
+    );
+    h.chat.shutdown();
+    drop(release);
 }

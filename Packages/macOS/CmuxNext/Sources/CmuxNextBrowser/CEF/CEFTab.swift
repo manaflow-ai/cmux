@@ -25,7 +25,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Permission use of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     /// Chrome's automatic-downloads rule for this page (CEFTab+Prompts).
-    @ObservationIgnored lazy var automaticDownloads = makeAutomaticDownloadGate()
+    @ObservationIgnored public internal(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?

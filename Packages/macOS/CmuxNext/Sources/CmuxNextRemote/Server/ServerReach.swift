@@ -72,6 +72,28 @@ public struct ServerReach: Hashable, Sendable {
         self.route = route
     }
 
+    /// The Chief owner daemon on this Mac, whose session holds the workspaces of the Chief's
+    /// subagents (a Chief that `cmux chief` started without the app puts them there). It shows
+    /// as a machine row like a paired server, reached at `socket` (route `unix`); `homeID` is
+    /// the Chief home id (8 lowercase hex, optchat-chief `paths::home_id`).
+    /// - Throws: ``Invalid`` when `homeID`, `socket` or `name` is not valid.
+    public static func localChief(homeID: String, socket: String, name: String) throws(Invalid) -> ServerReach {
+        guard homeID.count == 8, homeID.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "0123456789abcdef").contains($0) })
+        else { throw Invalid(field: "home") }
+        return try ServerReach(hostID: localChiefPrefix.host + homeID, installID: localChiefPrefix.install + homeID,
+                               name: name, route: .unix(socket))
+    }
+
+    /// The id prefixes of ``localChief(homeID:socket:name:)``.
+    static let localChiefPrefix = (host: "host_chief", install: "inst_chief")
+
+    /// Whether this is the local Chief owner (``localChief(homeID:socket:name:)``): both ids carry
+    /// the Chief prefix and the same home id, which a paired server's random ids never do.
+    public var isLocalChief: Bool {
+        hostID.hasPrefix(Self.localChiefPrefix.host) && installID.hasPrefix(Self.localChiefPrefix.install)
+            && hostID.dropFirst(Self.localChiefPrefix.host.count) == installID.dropFirst(Self.localChiefPrefix.install.count)
+    }
+
     /// The app's machine id for this server: stable per paired host, never
     /// `local`, an `ssh-…` or a Cloud `vm…` id.
     public var machineID: String { "server-" + hostID }
