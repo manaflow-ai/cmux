@@ -77,8 +77,14 @@ write_dev_cli_shim() {
   printf -v fallback_bin_literal '%q' "$fallback_bin"
   socket_probe_function="$(declare -f reload_socket_is_live)"
   socket_probe_function="${socket_probe_function/reload_socket_is_live/socket_is_live}"
-  mkdir -p "$(dirname "$target")"
-  cat > "$target" <<EOF
+  local temporary=""
+  # Render into a private sibling and rename it over the target only after a
+  # complete write, so a failed write (full disk, I/O error) never replaces a
+  # working shim. Each step fails closed: callers run this in `||` context,
+  # where bash ignores set -e.
+  mkdir -p "$(dirname "$target")" || return 1
+  temporary="$(mktemp "$(dirname "$target")/.cmux-dev-shim.XXXXXX")" || return 1
+  cat > "$temporary" <<EOF || { rm -f "$temporary"; return 1; }
 #!/usr/bin/env bash
 # cmux dev shim (managed by scripts/reload.sh)
 set -euo pipefail
@@ -237,14 +243,16 @@ fi
 echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
 exit 1
 EOF
-  chmod +x "$target"
+  chmod 0755 "$temporary" || { rm -f "$temporary"; return 1; }
+  mv -f "$temporary" "$target" || { rm -f "$temporary"; return 1; }
 }
 
 cmux_dev_shim_is_managed() {
   local target="$1" header
   [[ -f "$target" && ! -L "$target" ]] || return 1
   for header in "${CMUX_DEV_SHIM_HEADERS[@]}"; do
-    LC_ALL=C head -n 3 "$target" 2>/dev/null | grep -qF "$header" && return 0
+    # Only the exact header line counts, never the text inside other code.
+    LC_ALL=C head -n 3 "$target" 2>/dev/null | grep -qFx "# $header" && return 0
   done
   return 1
 }
@@ -263,9 +271,7 @@ cmux_dev_shim_main() {
   elif [[ "$mode" == refresh ]]; then
     return 0
   fi
-  local temporary="$target.cmux-dev-shim.$$"
-  write_dev_cli_shim "$temporary" "$CMUX_DEV_SHIM_FALLBACK" || { rm -f "$temporary"; return 1; }
-  mv -f "$temporary" "$target"
+  write_dev_cli_shim "$target" "$CMUX_DEV_SHIM_FALLBACK"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
