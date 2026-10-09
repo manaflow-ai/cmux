@@ -1044,6 +1044,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         )
     )
+#if DEBUG
+    func replaceMainWindowVisibilityControllerForTesting(_ controller: MainWindowVisibilityController) {
+        mainWindowVisibilityController = controller
+    }
+#endif
     private static let serviceErrorNoPath = NSString(string: String(localized: "error.clipboardFolderPath", defaultValue: "Could not load any folder path from the clipboard."))
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
         let targetClass: AnyClass = NSWindow.self
@@ -1668,8 +1673,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if mainWindowVisibilityController.showApplicationWindows(
             windows: mainWindowsForVisibilityController(),
-            reason: .applicationReopen,
-            activation: .none
+            reason: .applicationReopen
         ) == nil {
             _ = ensureInitialMainWindowIfNeeded()
         }
