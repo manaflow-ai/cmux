@@ -3127,7 +3127,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let fullPage = params["fullPage"] as? Bool ?? false
         let clip = params["clip"] as? [String: Any]
         let frameGate = self.frameGate
-        let image: CGImage = try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { webView, _ in
+        let sessionID = sessionID
+        // A policy set while the capture is taken refuses it (stale): its
+        // frames were judged and blanked under the old one.
+        let image: CGImage = try await frameGate.capturing(policyGeneration: { BrowserReplPolicyBoard.shared.generation(for: sessionID) }) {
+            try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { webView, _ in
             try await Self.withSecretMasks(masks, gate: frameGate, blockedChildFrames: .handToCapture, webView: webView) { blockedChildFrames in
                 // Frames the domain policy blocks (an ad or tracker under
                 // allowedDomains) are blanked, not the whole capture refused:
@@ -3142,6 +3146,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 }
             }
         } }
+        }
         let data = try BrowserReplCapture.encode(image, format: format, quality: quality)
         return ["base64": data.base64EncodedString(), "width": image.width, "height": image.height]
     }
@@ -3152,7 +3157,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // Refused here: printPDF falls back to a one-page PDF on any error.
         _ = try BrowserReplCapture.pdfLayout(options: params)
         let frameGate = self.frameGate
-        let data: Data = try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { [self] webView, _ in
+        let sessionID = sessionID
+        let data: Data = try await frameGate.capturing(policyGeneration: { BrowserReplPolicyBoard.shared.generation(for: sessionID) }) {
+            try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { [self] webView, _ in
             // A PDF cannot blank a frame: any frame whose marked document
             // the gate blocks (the policy, or a local file the session may
             // not read) refuses it, also one that navigated after
@@ -3167,6 +3174,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 }
             }
         } }
+        }
         return ["base64": data.base64EncodedString()]
     }
 

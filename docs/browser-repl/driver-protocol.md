@@ -990,7 +990,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   flight (its guards judged the frames under the old policy); an `input.drag`
   then ends with `dragend` and no drop. A frame script's result is judged
   under the policy in force when it returns, also when the session had no
-  policy when the script started. Then the guard comes off (an element the
+  policy when the script started; under a policy, the tab's authority, the
+  policy and the approved document are judged again in the main-actor turn
+  WebKit gets the script, so a script never runs after the tab moved out
+  of the session's workspace or the policy was set while the gate's checks
+  waited (`denied`, `blocked` or `stale`, nothing run). A screenshot or PDF
+  taken while the session set its policy again is not returned (`stale`).
+  Then the guard comes off (an element the
   page made inert itself stays inert), and the call fails with `blocked`
   when the page changed a guarded element's `inert` attribute meanwhile.
   Residual: `inert` is an attribute of the page's DOM, so the page sees it.

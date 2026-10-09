@@ -704,6 +704,23 @@ public final class BrowserReplFrameGate {
         throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) kept navigating; try again once it has loaded")
     }
 
+    /// Runs `capture` (a screenshot or PDF) and hands on its result only
+    /// when the session's policy is still the one it started under: the
+    /// gate's (``policyGeneration``) and the one the session published
+    /// (`policyGeneration()`, the ``BrowserReplPolicyBoard`` generation,
+    /// which changes at once, before the new policy's rules compile and
+    /// reach the gate). Its frames were judged and blanked under the old
+    /// policy, so a narrowed one could block what it shows (`stale`).
+    public func capturing<T>(policyGeneration published: () -> Int?, _ capture: () async throws -> T) async throws -> T {
+        let gateGeneration = policyGeneration
+        let start = published()
+        let value = try await capture()
+        guard policyGeneration == gateGeneration, published() == start else {
+            throw BrowserReplDriverError(code: "stale", message: "the session's domain policy changed while the capture was taken, so it was not returned; take it again")
+        }
+        return value
+    }
+
     /// Why a script checked against `document` under the policy of
     /// `generation` may not be dispatched now, or nil: the session may no
     /// longer use the tab (``checkTab(in:)``), its policy was set since, or
