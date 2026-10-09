@@ -1005,9 +1005,17 @@ function stringifyInput(raw: unknown): string | undefined {
   }
 }
 
-function applyToolContent(item: ToolItem, content: acp.ToolCallContent[] | undefined, rawInput: unknown, rawOutput: unknown): void {
+/**
+ * Maps ACP tool-call content into the item. Text, resources and diffs come from
+ * `content`; a `terminal` block carries no text (it points at a client-side
+ * terminal, which this host does not provide even when an agent sends one), so
+ * a command's output comes from `rawOutput` (stdout/stderr, or the agent's
+ * formatted output) and only falls back to a placeholder when there is none.
+ */
+export function applyToolContent(item: ToolItem, content: acp.ToolCallContent[] | undefined, rawInput: unknown, rawOutput: unknown): void {
   const input = stringifyInput(rawInput);
   if (input !== undefined && input !== "{}") item.input = input;
+  let terminalOnly = false;
   if (content && content.length > 0) {
     const texts: string[] = [];
     const diffs: { path: string; oldText?: string; newText: string }[] = [];
@@ -1019,23 +1027,42 @@ function applyToolContent(item: ToolItem, content: acp.ToolCallContent[] | undef
         else if (b.type === "resource" && "text" in b.resource) texts.push(String(b.resource.text));
         else if (b.type === "resource_link") texts.push(b.uri);
         else texts.push(`[${b.type}]`);
-      } else if (c.type === "terminal") texts.push("[terminal output]");
+      } else if (c.type === "terminal") terminalOnly = true;
     }
     if (diffs.length > 0) item.diff = diffs;
-    if (texts.length > 0) item.output = truncate(stripFences(texts.join("\n")), MAX_OUTPUT);
+    if (texts.length > 0) {
+      item.output = truncate(stripFences(texts.join("\n")), MAX_OUTPUT);
+      terminalOnly = false;
+    }
   }
-  if (item.output === undefined && rawOutput !== undefined && rawOutput !== null) {
-    const out = typeof rawOutput === "string" ? rawOutput : (() => {
-      const o = rawOutput as Record<string, unknown>;
-      if (typeof o.output === "string") return o.output;
-      if (typeof o.stdout === "string") return o.stdout + (typeof o.stderr === "string" && o.stderr ? `\n${o.stderr}` : "");
-      try {
-        return JSON.stringify(rawOutput, null, 2);
-      } catch {
-        return "";
-      }
-    })();
-    if (out) item.output = truncate(out, MAX_OUTPUT);
+  if (item.output === undefined || terminalOnly) {
+    const out = rawOutputText(rawOutput);
+    if (out) item.output = truncate(stripFences(out), MAX_OUTPUT);
+  }
+}
+
+/** Command output from an agent's `rawOutput`, in whatever shape it uses. */
+function rawOutputText(rawOutput: unknown): string | undefined {
+  if (rawOutput === undefined || rawOutput === null) return undefined;
+  if (typeof rawOutput === "string") return rawOutput;
+  if (typeof rawOutput !== "object") return String(rawOutput);
+  const o = rawOutput as Record<string, unknown>;
+  for (const key of ["formatted_output", "aggregated_output", "output"]) {
+    if (typeof o[key] === "string" && o[key]) return o[key] as string;
+  }
+  if (typeof o.stdout === "string" || typeof o.stderr === "string") {
+    const stdout = typeof o.stdout === "string" ? o.stdout : "";
+    const stderr = typeof o.stderr === "string" ? o.stderr : "";
+    const joined = stdout && stderr ? `${stdout}\n${stderr}` : stdout || stderr;
+    if (joined) return joined;
+    if (typeof o.exit_code === "number" || typeof o.exitCode === "number") return `exit ${o.exit_code ?? o.exitCode}`;
+    return undefined;
+  }
+  try {
+    const json = JSON.stringify(rawOutput, null, 2);
+    return json === "{}" ? undefined : json;
+  } catch {
+    return undefined;
   }
 }
 
