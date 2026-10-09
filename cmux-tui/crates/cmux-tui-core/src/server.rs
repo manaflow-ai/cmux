@@ -190,6 +190,7 @@ pub use socket_path::{
 };
 pub(crate) mod activity;
 mod browser_input;
+mod chief_control;
 mod chief_inspect;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
@@ -7319,6 +7320,7 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::StreamCancel
             | ResourceOperation::OriginConfirmationIssue
     ) || conversation_resource::handles(operation)
+        || chief_control::handles(operation)
 }
 
 fn handle_resource_session_shutdown(
@@ -7403,6 +7405,9 @@ fn handle_resource_connection_message(
     match operation {
         operation if conversation_resource::handles(operation) => {
             conversation_resource::handle(mux, client, request, writer)
+        }
+        operation if chief_control::handles(operation) => {
+            chief_control::handle(mux, client, request, writer)
         }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
@@ -20063,7 +20068,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 41);
+        assert_eq!(connection_operations, 44);
     }
 
     #[test]

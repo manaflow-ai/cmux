@@ -21,6 +21,7 @@ pub(super) struct Messages {
     pub unknown_command: &'static str,
     pub control_unsupported: &'static str,
     pub stop_idle: &'static str,
+    pub stop_sent: &'static str,
     pub thoughts_on: &'static str,
     pub thoughts_off: &'static str,
     pub attachment: &'static str,
@@ -30,7 +31,7 @@ pub(super) struct Messages {
 }
 
 static ENGLISH: Messages = Messages {
-    usage: "usage: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n\n  Talk to your Chief: the same conversation as Home, live in both.\n  On a terminal it opens the chat. With -p, or with text on stdin, it sends\n  one message, prints the Chief's reply and exits when the turn ends.\n\n  -p, --prompt TEXT    send TEXT (pipe mode)\n  --timeout SECONDS    pipe mode: give up after SECONDS (exit 124)\n  --history N          chat: show the last N messages first (default 20)\n  --json               pipe mode: print the reply messages as JSON lines",
+    usage: "usage: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--harness H] [--model M] [--effort E] | cmux chief stop\n\n  Talk to your Chief: the same conversation as Home, live in both.\n  On a terminal it opens the chat. With -p, or with text on stdin, it sends\n  one message, prints the Chief's reply and exits when the turn ends.\n\n  -p, --prompt TEXT    send TEXT (pipe mode)\n  --timeout SECONDS    pipe mode: give up after SECONDS (exit 124)\n  --history N          chat: show the last N messages first (default 20)\n  --json               pipe mode: print the reply messages as JSON lines\n  engine               show the Chief's engine, or set --harness, --model, --effort\n  stop                 stop the Chief's running turn",
     help: "Enter sends. Alt+Enter or Ctrl+J adds a line. Up and Down recall sent messages.\nCtrl+C stops the Chief's turn (or clears the input); Ctrl+D quits.\n/model [NAME]   show or set the Chief's model\n/effort [LEVEL] show or set the Chief's effort\n/thoughts       show or hide the Chief's thinking\n/help           this text\n/quit           leave (the Chief keeps working)",
     you: "You",
     chief: "Chief",
@@ -47,8 +48,9 @@ static ENGLISH: Messages = Messages {
     lost: "the session closed the connection",
     rejected: "the session refused the message: {reason}",
     unknown_command: "unknown command {command}; /help lists the commands",
-    control_unsupported: "this needs a newer cmux daemon (capability chief-control-v1); use the engine bar in Home for now",
+    control_unsupported: "this needs a newer cmux daemon (the chief.* operations); use the engine bar in Home for now",
     stop_idle: "the Chief is not working; Ctrl+D quits",
+    stop_sent: "stopping the Chief's turn",
     thoughts_on: "showing the Chief's thinking",
     thoughts_off: "hiding the Chief's thinking",
     attachment: "[attachment {name}]",
@@ -58,7 +60,7 @@ static ENGLISH: Messages = Messages {
 };
 
 static JAPANESE: Messages = Messages {
-    usage: "使い方: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n\n  Chief と話します。Home と同じ会話で、両方にすぐ表示されます。\n  端末ではチャットを開きます。-p または標準入力のテキストがあると、\n  メッセージを 1 件送り、Chief の返信を表示して、ターンの終わりに終了します。\n\n  -p, --prompt TEXT    TEXT を送信 (パイプモード)\n  --timeout SECONDS    パイプモード: SECONDS 秒で中止 (終了コード 124)\n  --history N          チャット: 最初に直近 N 件を表示 (既定 20)\n  --json               パイプモード: 返信を JSON Lines で出力",
+    usage: "使い方: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--harness H] [--model M] [--effort E] | cmux chief stop\n\n  Chief と話します。Home と同じ会話で、両方にすぐ表示されます。\n  端末ではチャットを開きます。-p または標準入力のテキストがあると、\n  メッセージを 1 件送り、Chief の返信を表示して、ターンの終わりに終了します。\n\n  -p, --prompt TEXT    TEXT を送信 (パイプモード)\n  --timeout SECONDS    パイプモード: SECONDS 秒で中止 (終了コード 124)\n  --history N          チャット: 最初に直近 N 件を表示 (既定 20)\n  --json               パイプモード: 返信を JSON Lines で出力\n  engine               Chief のエンジンを表示、または --harness、--model、--effort を設定\n  stop                 Chief の実行中のターンを停止",
     help: "Enter で送信。Alt+Enter または Ctrl+J で改行。上下キーで送信済みメッセージを呼び出します。\nCtrl+C で Chief のターンを停止 (または入力を消去)、Ctrl+D で終了します。\n/model [NAME]   Chief のモデルを表示または設定\n/effort [LEVEL] Chief の effort を表示または設定\n/thoughts       Chief の思考の表示を切り替え\n/help           このテキスト\n/quit           終了 (Chief は作業を続けます)",
     you: "あなた",
     chief: "Chief",
@@ -75,8 +77,9 @@ static JAPANESE: Messages = Messages {
     lost: "セッションが接続を閉じました",
     rejected: "セッションがメッセージを拒否しました: {reason}",
     unknown_command: "不明なコマンド {command} です。/help でコマンドを確認してください",
-    control_unsupported: "これには新しい cmux デーモン (chief-control-v1) が必要です。今は Home のエンジンバーを使ってください",
+    control_unsupported: "これには新しい cmux デーモン (chief.* 操作) が必要です。今は Home のエンジンバーを使ってください",
     stop_idle: "Chief は作業していません。Ctrl+D で終了します",
+    stop_sent: "Chief のターンを停止します",
     thoughts_on: "Chief の思考を表示します",
     thoughts_off: "Chief の思考を隠します",
     attachment: "[添付 {name}]",

@@ -11,6 +11,7 @@
 
 mod adapter;
 mod chat;
+mod control;
 mod editor;
 mod link;
 mod messages;
@@ -47,6 +48,8 @@ pub(super) struct Args {
     pub timeout_secs: Option<u64>,
     pub history: usize,
     pub help: bool,
+    /// `chief engine …` or `chief stop`.
+    pub control: Option<control::Control>,
 }
 
 /// `cmux [global options] chief …`; `None` when `args` names another scope.
@@ -65,6 +68,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (arg, None),
         };
+        let first = index == 0;
         let mut value = || -> Result<String, String> {
             if let Some(value) = inline.clone() {
                 return Ok(value);
@@ -73,6 +77,16 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             args.get(index).cloned().ok_or_else(|| format!("{flag} needs a value"))
         };
         match flag {
+            "engine" if first => parsed.control = Some(control::Control::Engine(Vec::new())),
+            "stop" if first => parsed.control = Some(control::Control::Stop),
+            "--harness" | "--model" | "--effort" => {
+                let key = flag.trim_start_matches("--").to_owned();
+                let value = value()?;
+                match &mut parsed.control {
+                    Some(control::Control::Engine(changes)) => changes.push((key, value)),
+                    _ => return Err(format!("{flag} goes with `cmux chief engine`")),
+                }
+            }
             "-h" | "--help" | "help" => parsed.help = true,
             "-p" | "--prompt" => parsed.prompt = Some(value()?),
             "--timeout" => {
@@ -105,6 +119,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     if args.help {
         println!("{}", m.usage);
         return 0;
+    }
+    if let Some(control) = &args.control {
+        return control::run(&global, control, global.output);
     }
     let stdin_tty = std::io::stdin().is_terminal();
     let pipe_mode = args.prompt.is_some() || !stdin_tty;

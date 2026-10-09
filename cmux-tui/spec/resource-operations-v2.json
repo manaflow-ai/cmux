@@ -8991,6 +8991,20 @@
         "Unknown is used only for an unrecognized type and retains that type plus the complete raw object.",
         "Committed items (message, message_updated, read_cursor, conversation) carry the conversation rev they produced; typing and draft items are ephemeral, carry no rev and are never replayed."
       ]
+    },
+    "ChiefStopResult": {
+      "kind": "object",
+      "fields": {
+        "stopped": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "false when no turn was running."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -10814,6 +10828,148 @@
         "selector.wrong_parent",
         "transport.closed",
         "validation.invalid"
+      ]
+    },
+    "chief.engine.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model}, choice, last_turn, recent}."
+      ]
+    },
+    "chief.engine.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "An acpmux harness; empty or default clears the choice."
+          },
+          "model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Empty or default clears the choice."
+          },
+          "effort": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "minimal, low, medium, high, xhigh or max; empty or default clears it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "An absent field is unchanged. The change applies from the Chief's next turn; a running turn finishes on its engine. The value is the engine report after the write. The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model}, choice, last_turn, recent}.",
+        "Setting the same values again changes nothing, so a retry is safe; replayed is always false."
+      ]
+    },
+    "chief.stop": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefStopResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "Stops the Chief's running turn as a newer message would: a running tool call finishes first, the turn posts its partial reply and then '(turn stopped)'. replayed is always false; a retry after the turn ended stops nothing (stopped false)."
       ]
     },
     "client.cell_pixels.set": {

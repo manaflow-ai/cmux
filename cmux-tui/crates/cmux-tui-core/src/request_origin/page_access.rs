@@ -254,6 +254,10 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
         | Op::WorkspaceStatusSet
+        // A page never controls the Chief.
+        | Op::ChiefEngineGet
+        | Op::ChiefEngineSet
+        | Op::ChiefStop
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
