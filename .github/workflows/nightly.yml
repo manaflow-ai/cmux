@@ -346,7 +346,9 @@ jobs:
                 bundleId: 'com.cmuxterm.app',
                 appName: 'cmux',
                 dmgPrefix: 'cmux-next-prodprobe-macos',
-                releaseTag: 'none',
+                // releaseTag stays nightly-next: the SSH daemon manifest is
+                // named after it. Publication is off (no_publish), so the tag
+                // is never written.
                 releaseName: 'Production-identity notary probe',
                 feedBase: '',
                 entitlements: 'cmux.release.entitlements',

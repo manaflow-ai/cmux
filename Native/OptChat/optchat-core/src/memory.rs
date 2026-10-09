@@ -508,15 +508,34 @@ impl Memory {
             let mut candidates = Vec::new();
             let mut i = self.low.first().copied().unwrap_or(0);
             let mut unbuilt = 0;
+            let mut last_leaf = self.t;
             while i < self.t && unbuilt < AHEAD {
                 let id = NodeId::new(0, i);
                 if !self.is_built(id) {
                     unbuilt += 1;
                     candidates.push(id);
+                    last_leaf = i;
                 }
                 i += 1;
             }
-            candidates.extend(self.ready.iter().copied());
+            if unbuilt < AHEAD {
+                last_leaf = self.t;
+            }
+            // The reference client's order: by position in the chat (a
+            // leaf at its message, a merge at its end), the higher level
+            // first at a tie, and no merge past the last leaf in reach.
+            // Early merges then go before far leaves, so the compaction view
+            // merges as an import is built instead of holding every leaf.
+            candidates.extend(
+                self.ready
+                    .iter()
+                    .copied()
+                    .filter(|id| id.end() <= last_leaf),
+            );
+            candidates.sort_by_key(|id| {
+                let ctx = if id.l == 0 { id.i } else { id.end() };
+                (ctx, std::cmp::Reverse(id.l))
+            });
             for id in candidates {
                 if self.busy.contains(&id) {
                     continue;
@@ -587,13 +606,17 @@ impl Memory {
         self.complete_in(node, text, &NoStore)
     }
 
-    /// `complete` for any memory. The store is not needed any more (building
-    /// a node never merges, spec 3.2); it stays for the hosts' signature.
+    /// `complete` for any memory. Building a node never merges the chat's
+    /// view (spec 3.2: it merges at messages, so a turn's cached prefix
+    /// holds), but it may merge the compaction view: an import appends every
+    /// message before any node is built, so no merge can happen then, and
+    /// the compaction view would grow without bound (the reference client
+    /// fits its views after each node it stores).
     pub fn complete_in(
         &mut self,
         node: NodeId,
         text: &str,
-        _store: &dyn Store,
+        store: &dyn Store,
     ) -> Result<(), NotRunning> {
         // Only a call `pump` started and that is still running may build its
         // node: a second complete, or one for a node nobody asked for, would
@@ -602,6 +625,13 @@ impl Memory {
             return Err(NotRunning(node));
         }
         self.build(node, text.len());
+        if self.compact_size > self.compact_high() {
+            self.compact_merging = true;
+        }
+        if self.compact_merging {
+            self.merge_down(Which::Compact, self.compact_low(), store);
+            self.compact_merging = self.compact_size > self.compact_low();
+        }
         Ok(())
     }
 
