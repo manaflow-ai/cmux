@@ -1109,13 +1109,25 @@ fn a_silent_last_report_turn_still_closes_the_message() {
     s.h.settle_posts();
     let replies = turn_replies(&s.h.owner);
     assert_eq!(replies.len(), 2, "{replies:?}");
-    assert_eq!(replies[1]["answers_pending"], json!([asked.id]), "a2 still works");
+    assert_eq!(
+        replies[1]["answers_pending"],
+        json!([asked.id]),
+        "a2 still works"
+    );
     finish(&mut s, "s3", "s1", "a2");
     s.h.settle_posts();
     let replies = turn_replies(&s.h.owner);
-    assert_eq!(replies.len(), 3, "the silent turn posts a marker: {replies:?}");
+    assert_eq!(
+        replies.len(),
+        3,
+        "the silent turn posts a marker: {replies:?}"
+    );
     assert_eq!(replies[2]["answers"], json!([asked.id]));
-    assert!(replies[2].get("answers_pending").is_none(), "{:?}", replies[2]);
+    assert!(
+        replies[2].get("answers_pending").is_none(),
+        "{:?}",
+        replies[2]
+    );
     assert_eq!(replies[2]["parts"][0]["type"], "work");
     assert_eq!(replies[2]["parts"][0]["status"], "done");
 }

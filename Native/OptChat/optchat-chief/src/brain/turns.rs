@@ -1033,11 +1033,47 @@ impl Brain {
             })
             .cloned()
             .collect();
+        // Work announced as pending that this turn closes: a silent turn
+        // still answers with a done marker.
+        let closes = !superseded
+            && answers
+                .iter()
+                .any(|id| self.state.open_answers.contains(id) && !pending.contains(id));
+        if !superseded {
+            self.state
+                .open_answers
+                .retain(|id| !answers.contains(id) || pending.contains(id));
+            if conversation.is_some() && (!text.is_empty() || closes) {
+                add_answers(&mut self.state.open_answers, pending.clone());
+            }
+        }
+        let session = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key)
+            .map(|t| t.session.clone())
+            .unwrap_or_default();
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 self.state
                     .outbox
                     .push(answer_entry(conversation, key, &text, answers, pending));
+            }
+            Some(conversation) if closes => {
+                (self.log)(&format!(
+                    "turn {key} said nothing; it closes its messages with a done marker"
+                ));
+                let mut entry = answer_entry(conversation, key, "", answers, pending);
+                if let cmux_conversation::Op::MessageSend { parts, .. } = &mut entry.op {
+                    *parts = vec![cmux_conversation::Part::Work {
+                        session,
+                        host: None,
+                        status: cmux_conversation::WorkStatus::Done,
+                        preview: None,
+                    }];
+                }
+                self.state.outbox.push(entry);
             }
             Some(_) => {}
             None => (self.log)(&format!(

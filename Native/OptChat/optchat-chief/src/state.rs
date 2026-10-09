@@ -70,6 +70,11 @@ pub struct HostState {
     /// answers it too.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub carry_answers: Vec<String>,
+    /// E22: ids a posted reply named in `answers_pending`: the turn that
+    /// ends their work answers them even when it says nothing (a done
+    /// marker), so a waiting `cmux chief -p` ends.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub open_answers: Vec<String>,
     /// Child sessions (acpmux session id) the Chief started.
     #[serde(default)]
     pub children: BTreeMap<String, ChildRecord>,
