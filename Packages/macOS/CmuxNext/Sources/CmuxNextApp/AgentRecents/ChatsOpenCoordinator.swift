@@ -5,27 +5,66 @@ import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
 
+/// The chat as Open Chat names it (the index's metadata).
+struct ChatOpenSubject: Equatable {
+    var title: String?
+    /// The index harness id (`claude-code`, `codex`, `opencode`, `pi`, ...).
+    var harness: String?
+    var sessionID: String?
+    var cwd: String?
+
+    /// The acpmux harness family a fresh agent chat for this chat starts on, nil for the default.
+    var acpHarness: String? {
+        switch harness {
+        case "claude-code": "claude"
+        case "codex", "opencode", "gemini", "pi": harness
+        case "cursor-agent": "cursor"
+        default: nil
+        }
+    }
+}
+
 /// What Open Chat does with a daemon plan (Lawrence 2026-10-09): one click on a chat shows it in a
-/// NEW WORKSPACE and focus moves there; a chat a tab already resumes shows that tab instead of a
-/// duplicate. Pure, so the decision is tested without windows.
+/// NEW WORKSPACE as the ACP agent pane, focus moving there, never a terminal; a chat a tab already
+/// resumes shows that tab instead of a duplicate. A chat acpmux cannot resume over ACP yet opens a
+/// fresh agent chat in its folder on its harness. A terminal only from Open in Terminal (`inTerminal`).
+/// Pure, so the decision is tested without windows.
 enum ChatOpenRoute: Equatable {
     /// The tab (`TabModel.id`) that already resumes this chat.
     case reveal(tab: String)
-    /// A new workspace named `name`: its first tab is the adopted agent chat (`seed`), or a
-    /// terminal that runs `command` (the harness's resume argv, shell-quoted) with `env`.
+    /// A new workspace named `name`: its first tab is the agent chat `seed`, or (Open in Terminal)
+    /// a terminal that runs `command` with `env`.
     case newWorkspace(name: String?, cwd: String?, seed: AgentPaneSeed?, command: String?, env: [String: String])
     case readOnly(path: String)
     case needsFolder(reason: String)
 
-    static func route(_ plan: AcpmuxChatOpenPlan, title: String?, openTab: (AgentPaneAdopt) -> String?) -> ChatOpenRoute {
+    static func route(_ plan: AcpmuxChatOpenPlan, chat: ChatOpenSubject, inTerminal: Bool = false,
+                      openTab: (AgentPaneAdopt) -> String?) -> ChatOpenRoute {
+        if inTerminal { return terminal(plan, chat: chat) }
         switch plan.action {
-        case .needsFolder(let reason): .needsFolder(reason: reason)
-        case .readOnly(let path): .readOnly(path: path)
+        case .needsFolder(let reason): return .needsFolder(reason: reason)
         case .adopt(let adopt, let cwd, _):
-            openTab(adopt).map { .reveal(tab: $0) }
-                ?? .newWorkspace(name: title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt), command: nil, env: [:])
+            return openTab(adopt).map { .reveal(tab: $0) }
+                ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt), command: nil, env: [:])
+        case .terminal(_, _, let cwd):
+            return .newWorkspace(name: chat.title, cwd: cwd ?? chat.cwd, seed: AgentPaneSeed(cwd: cwd ?? chat.cwd, harness: chat.acpHarness),
+                                 command: nil, env: [:])
+        case .readOnly:
+            return .newWorkspace(name: chat.title, cwd: chat.cwd, seed: AgentPaneSeed(cwd: chat.cwd, harness: chat.acpHarness),
+                                 command: nil, env: [:])
+        }
+    }
+
+    /// Open in Terminal (the row's menu): the harness's own resume command in a new workspace.
+    private static func terminal(_ plan: AcpmuxChatOpenPlan, chat: ChatOpenSubject) -> ChatOpenRoute {
+        switch plan.action {
+        case .needsFolder(let reason): return .needsFolder(reason: reason)
         case .terminal(let argv, let env, let cwd):
-            .newWorkspace(name: title, cwd: cwd, seed: nil, command: argv.map(AgentResume.shellQuoted).joined(separator: " "), env: env)
+            return .newWorkspace(name: chat.title, cwd: cwd, seed: nil, command: argv.map(AgentResume.shellQuoted).joined(separator: " "), env: env)
+        case .adopt(let adopt, let cwd, _):
+            let command = AgentResume.command(provider: chat.harness ?? adopt.harness, sessionID: adopt.agentSessionId)
+            return .newWorkspace(name: chat.title, cwd: cwd, seed: nil, command: command, env: [:])
+        case .readOnly(let path): return .readOnly(path: path)
         }
     }
 }
@@ -47,23 +86,28 @@ final class ChatsOpenCoordinator {
         }
     }
 
-    func open(_ key: String) {
+    /// Open in Terminal (the row's right-click menu): the harness's own resume command.
+    func openInTerminal(_ key: String) { open(key, inTerminal: true) }
+
+    func open(_ key: String, inTerminal: Bool = false) {
         guard let services, let environment = QuitAgents.environment(services) else { return }
         Task { [weak self] in
             guard let self else { return }
             do {
                 guard let plan = try await environment.chatOpenPlan(key: key) else { return }
-                await dispatch(plan, key: key, environment: environment)
+                await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal)
             } catch {
                 services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
             }
         }
     }
 
-    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment) async {
+    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false) async {
         guard let services else { return }
-        let title = services.chatsFeed?.chats.first { $0.id == key }?.title
-        switch ChatOpenRoute.route(plan, title: title, openTab: { services.agentTabs.tab(resuming: $0) }) {
+        let chat = services.chatsFeed?.chats.first { $0.id == key }
+        let title = chat?.title
+        let subject = ChatOpenSubject(title: title, harness: chat?.harness, sessionID: chat?.sessionID, cwd: chat?.cwd)
+        switch ChatOpenRoute.route(plan, chat: subject, inTerminal: inTerminal, openTab: { services.agentTabs.tab(resuming: $0) }) {
         case .needsFolder(let reason):
             // The chat opens (in its new workspace) and says why it has no folder, with Choose
             // Folder there (cx-nn3e.1), never a bare Open panel.

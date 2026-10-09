@@ -67,6 +67,19 @@ pub fn harness_choice(
     (turn, compactor)
 }
 
+/// The compactor's harness when none is set (Lawrence 2026-10-09: "just
+/// always use haiku for default compactor"): the turns' own when it is a
+/// Claude harness (claude-sr stays claude-sr), else `claude`, the Claude
+/// route acpmux has (the configured CodeRouter route, else the user's own
+/// login).
+pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> String {
+    if family == Family::Claude {
+        turn.to_owned()
+    } else {
+        claude.to_owned()
+    }
+}
+
 /// The default harness: acpmux's own Claude Code adapter (`claude_stdio`)
 /// running the user's own `claude` login. The subrouter pool (`claude-sr`)
 /// is only an explicit choice.
@@ -507,12 +520,16 @@ fn start(
         // else the user's own Claude login (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
-            if compactor_set.is_none() {
-                compactor_harness = harness.clone();
-            }
             if sub_set.is_none() {
                 sub_harness = harness.clone();
             }
+        }
+        // The compactor runs on a Claude route unless set otherwise, whatever
+        // the turns run on (engine.json may swap them to codex per turn).
+        if compactor_set.is_none() {
+            let turn_family = crate::harness_gate::plan(&answer, &harness).family;
+            compactor_harness =
+                default_compactor_harness(&harness, turn_family, default_harness(&answer));
         }
         let (turn, compactor, sub) = (
             plan(&harness, "turn"),
@@ -915,7 +932,13 @@ fn start(
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
     } else if let Some(app) = crate::workspaces::AppWorkspaces::from_env(daemon_socket) {
-        Some(Arc::new(app.with_home(home)))
+        // E17: the app while it runs, else the Chief's owner daemon.
+        Some(Arc::new(crate::workspaces::TargetWorkspaces::new(
+            app,
+            daemon_socket.into(),
+            home,
+            Some(sub_harness.clone()),
+        )))
     } else {
         cloud_install.map(|install| {
             Arc::new(crate::workspaces::DaemonWorkspaces {
@@ -1193,7 +1216,26 @@ fn spawn_probe(
         .name("optchat-compact-probe".into())
         .spawn(move || {
             let started = std::time::Instant::now();
-            match probe_models(&*model, fallback.as_deref(), &system) {
+            // A transient failure (the network, an exhausted route) is
+            // retried after a backoff, quietly; a real fault is posted once.
+            let mut attempt = 0;
+            let result = loop {
+                match probe_models(&*model, fallback.as_deref(), &system) {
+                    Err(e) => match probe_retry_wait(&e, attempt) {
+                        Some(wait) => {
+                            log(format!(
+                                "compactor probe: {e}; trying again in {} s",
+                                wait.as_secs()
+                            ));
+                            std::thread::sleep(wait);
+                            attempt += 1;
+                        }
+                        None => break Err(e),
+                    },
+                    ok => break ok,
+                }
+            };
+            match result {
                 Ok(line) => {
                     log(format!(
                         "compactor probe ({}{}) built a node in {} ms: {line}",
@@ -1226,11 +1268,36 @@ fn spawn_probe(
     }
 }
 
+/// How long the start-up probe waits before it tries again after `error`
+/// (its `attempt`-th failure, from 0); None: no retry (a real fault).
+pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration> {
+    use std::time::Duration;
+    const MAX: Duration = Duration::from_secs(120);
+    if let Some(wait) = optchat_host::capacity_wait(error) {
+        return Some(wait.min(MAX));
+    }
+    let lower = error.to_ascii_lowercase();
+    let transient = [
+        "network error",
+        "check your internet connection",
+        "connection was lost",
+        "connection refused",
+        "connection reset",
+        "timed out",
+        "did not answer within",
+        "overloaded",
+    ]
+    .iter()
+    .any(|t| lower.contains(t));
+    transient.then(|| Duration::from_secs(1u64 << attempt.min(16)).min(MAX))
+}
+
 /// The notice a failed start-up probe posts in the Chief conversation;
 /// None posts none (the failure is only logged).
 pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
-    // An exhausted route is a wait, not a fault: nothing to post.
-    if optchat_host::capacity_wait(error).is_some() {
+    // An exhausted route or a transient error is a wait, not a fault:
+    // nothing to post (the probe tries again).
+    if probe_retry_wait(error, 0).is_some() {
         return None;
     }
     let remedy = match route {
