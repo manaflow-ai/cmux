@@ -41,7 +41,9 @@ extension AppActionContext {
         guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines) else { return }
         let home = services.machines.local, key = WorkspaceKey(rawValue: qualified.key)
         let resource = home.store.personalStateID(session: qualified.session, key: key)
-        home.send("set-personal-workspace") {
+        let life = PersonalGroupLife(machines: services.machines), placement = PersonalSidebarPlanner.Placement(session: qualified.session, key: key, resource: resource)
+        // The group it leaves empty goes too (cx-rcby).
+        life.commit("set-personal-workspace", ending: life.emptied(by: [placement], into: nil), failed: {}) {
             try await $0.state.placePersonalWorkspace(session: qualified.session, key: key, resource: resource, group: .clear)
         }
     }

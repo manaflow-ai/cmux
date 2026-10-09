@@ -25,7 +25,9 @@ enum WorkspaceGroupHandlers {
         let home = context.services.machines.local
         registry.bind("newWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             let members = (try? context.workspace(invocation).model).map { [SidebarWorkspaceID($0.id)] } ?? []
-            try createGroup(named: invocation["name"]?.stringValue ?? "", members: members, context)
+            let name = invocation["name"]?.stringValue ?? ""
+            if members.isEmpty, invocation.origin == .user, name.isEmpty { return try context.sidebar().newEmptyGroup(name: name) }
+            try createGroup(named: name, members: members, context)
         })
         registry.bind("groupSelectedWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             var members = try context.sidebar().model.orderedSelection

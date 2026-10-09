@@ -19,7 +19,11 @@ enum RoomMenuHandlers {
                 guard invocation.origin == .user else { throw ActionFailure.invalidTarget(RoomMenuStrings.spaceNotShown) }
                 context.services.windows.switchProfile(room.id, in: state)
             }
-            try context.sidebar().handle(.createGroup(.make(), name: invocation["name"]?.stringValue ?? "", color: .grey, workspaces: []))
+            let name = invocation["name"]?.stringValue ?? ""
+            // A person gets the new group's name editor; the group goes if it
+            // is still empty when the editor closes (cx-rcby). Automation keeps it.
+            if invocation.origin == .user, name.isEmpty { return try context.sidebar().newEmptyGroup(name: name) }
+            try context.sidebar().handle(.createGroup(.make(), name: name, color: .grey, workspaces: []))
         })
         let targets = PaletteSourcesBridge.targetSource(context.services)
         registry.targetChoices = { [weak services = context.services] action, kind, target in

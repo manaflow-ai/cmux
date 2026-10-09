@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 
 // Sidebar organization intents when the home session serves personal state
@@ -23,23 +24,32 @@ extension SidebarBridge {
             model.apply(intent)
             placePersonal(ids, at: position, in: before)
         case .move(let ids, let group):
+            let id = WorkspaceGroupID(rawValue: group.rawValue), members = placements(ids)
+            // The groups these workspaces leave empty go too (cx-rcby).
+            let ending = life.emptied(by: members, into: id)
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            for workspace in placements(ids) {
-                personal("set-personal-workspace") {
-                    try await $0.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
-                                                        group: .set(id))
+            life.commit("set-personal-workspace", ending: ending, failed: resync) { connection in
+                for workspace in members {
+                    try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
+                                                                      group: .set(id))
                 }
             }
         case .createGroup(let group, let name, let color, let ids, _, let collapsed):
-            model.apply(intent)
             let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = placements(ids), v2 = statePersonal
+            // Workspaces that already are one whole group get no second group:
+            // its name editor opens instead (repeated New Group, cx-rcby).
+            if let whole = life.whole(members) {
+                editGroup(whole)
+                return true
+            }
+            let ending = life.emptied(by: members, into: nil)
+            model.apply(intent)
             // Mixed order: the new group's place where the model formed it,
             // set before members join so it never shows at the end first.
             let place = usesMixedOrder && v2 ? PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
                 : PersonalSidebar.GroupPlacement()
             let move = place.move, top = place.topIndex
-            personal("create-personal-group") { connection in
+            life.commit("create-personal-group", ending: ending, failed: resync) { connection in
                 // The v2 operation names the group itself.
                 let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
                     name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue, index: move).id)
@@ -50,6 +60,11 @@ extension SidebarBridge {
                                                                 group: .set(created))
                 }
             }
+        case .groupEditorEnded(let group):
+            // A group made with no member goes when its editor closes empty.
+            let id = WorkspaceGroupID(rawValue: group.rawValue)
+            guard groupEditor.explicit.remove(id) != nil else { return true }
+            life.deleteIfEmpty(id, failed: resync)
         case .renameGroup(let group, let name):
             model.apply(intent)
             let v2 = statePersonal
@@ -108,7 +123,9 @@ extension SidebarBridge {
         let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
         guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return resync() }
         let regroup = statePersonal ? plan.regroup : []
-        personal("set-personal-workspace") { connection in
+        // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
+        let ending = life.emptied(by: plan.steps.filter(\.moves).map(\.workspace), into: group)
+        life.commit("set-personal-workspace", ending: ending, failed: resync) { connection in
             for step in plan.steps {
                 try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                   resource: step.workspace.resource,
@@ -118,6 +135,42 @@ extension SidebarBridge {
             guard let first = plan.first else { return }
             for id in regroup { try await connection.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
         }
+    }
+
+    /// The group lifecycle rule (cx-rcby).
+    var life: PersonalGroupLife { PersonalGroupLife(machines: services.machines) }
+
+    /// A new group with no member, its name editor open; it goes when the
+    /// editor closes while it is still empty (`groupEditorEnded`).
+    func newEmptyGroup(name: String) {
+        guard let state else { return }
+        let room = state.profileID, v2 = statePersonal, home = services.machines.local, id = WorkspaceGroupID(rawValue: CmuxNextSidebar.GroupID.make().rawValue)
+        // The first palette color no group uses yet (never blue or grey, GroupColor.automatic).
+        let color = GroupColor.automatic(used: Set(home.store.personal.groups.compactMap(\.color))) ?? .grey
+        Task { [weak self] in
+            let created = await home.request("create-personal-group") { connection -> WorkspaceGroupID in
+                v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
+                    name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue).id)
+                    : try await connection.createPersonalGroup(name: SidebarGroup.named(name), id: id, room: room, color: color.rawValue).id
+            }
+            guard let self else { return }
+            guard let created else { return resync() }
+            groupEditor.explicit.insert(created)
+            editGroup(created)
+        }
+    }
+
+    /// Opens `group`'s name editor now, or once the sidebar shows it.
+    func editGroup(_ group: WorkspaceGroupID) {
+        groupEditor.pending = group
+        openPendingGroupEditor()
+    }
+
+    /// Called after each sidebar update: opens a waiting group editor.
+    func openPendingGroupEditor() {
+        guard let pending = groupEditor.pending, model.group(CmuxNextSidebar.GroupID(pending.rawValue)) != nil else { return }
+        groupEditor.pending = nil
+        container.beginRename(group: CmuxNextSidebar.GroupID(pending.rawValue))
     }
 
     /// The home session serves its personal groups as v2 state resources
