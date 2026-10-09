@@ -1,0 +1,46 @@
+{
+  "bulkFile" : {
+    "cpuMillisecondsPerMiB" : 45.75,
+    "cpuSeconds" : 7.043,
+    "megabitsPerSecond" : 321.9,
+    "priority" : "bulk",
+    "receivedBytes" : 161415168,
+    "recordBytes" : 65536,
+    "seconds" : 4.012
+  },
+  "carrier" : "webrtc-wg",
+  "conditions" : {
+    "loss" : 0,
+    "note" : "in-memory underlay: fixed one-way delay, independent datagram loss, no rate limit, 1200 B datagrams",
+    "rttMilliseconds" : 0,
+    "shaped" : true
+  },
+  "durationSeconds" : 8.079529292,
+  "errors" : [
+
+  ],
+  "machine" : {
+    "cores" : 14,
+    "cpu" : "Apple M4 Pro",
+    "loadAverage1m" : 25.06,
+    "model" : "Mac16,11",
+    "os" : "Version 27.0.1 (Build 26A434)"
+  },
+  "memory" : {
+    "baselineMaxResidentMiB" : 9.09375,
+    "finalFootprintMiB" : 11.625617980957031,
+    "finalMaxResidentMiB" : 21.9375
+  },
+  "rawTransport" : {
+    "cpuMillisecondsPerMiB" : 48.83,
+    "cpuSeconds" : 6.887,
+    "megabitsPerSecond" : 295.7,
+    "priority" : "bulk (raw transport)",
+    "receivedBytes" : 147914752,
+    "recordBytes" : 65536,
+    "seconds" : 4.001
+  },
+  "rig" : "v2-wg-in-memory",
+  "schema" : "cmux-link-bench\/1",
+  "startedAt" : "2026-10-07T07:53:21Z"
+}

@@ -1,0 +1,35 @@
+{
+  "description": "Golden stream-plane records (a0-rpc.md section 3). Header: u32 channel, u64 seq, u8 flags, little-endian, then the payload. Codecs decode `hex` to the listed fields and encode the fields back to exactly `hex`; JSON payloads are encoded canonically (sorted keys, no whitespace, no escaped slashes). `streams` are byte-stream carrier encodings (u32 LE length + record) that the deframer must split into `records` whatever the chunking. Invalid cases must be refused with the named error.",
+  "max_record": 1048576,
+  "records": [
+    { "name": "keystroke", "message": "terminal.input", "hex": "03000000010000000000000000006c730d", "channel": 3, "seq": 1, "flags": [], "payload": { "terminal_input": { "kind": "bytes", "data_hex": "6c730d" } } },
+    { "name": "paste", "message": "terminal.input", "hex": "03000000020000000000000000016563686f2068690a", "channel": 3, "seq": 2, "flags": [], "payload": { "terminal_input": { "kind": "paste", "data_hex": "6563686f2068690a" } } },
+    { "name": "output bytes", "message": "terminal.output", "hex": "030000000100000000000000000007000000004001000000000068690d0a", "channel": 3, "seq": 1, "flags": [], "payload": { "terminal_output": { "kind": "bytes", "generation": 7, "offset": 81920, "data_hex": "68690d0a" } } },
+    { "name": "snapshot ready keyframe", "message": "terminal.output", "hex": "030000000200000000000000010107000000fc3f010000000000010047484f5354534e50", "channel": 3, "seq": 2, "flags": ["keyframe"], "payload": { "terminal_output": { "kind": "snapshot_ready", "generation": 7, "offset": 81916, "snapshot_version": 1, "data_hex": "47484f5354534e50" } } },
+    { "name": "credit", "hex": "03000000000000000000000004020000000000000000000100", "channel": 3, "seq": 0, "flags": ["credit"], "payload": { "credit": { "ack_seq": 2, "grant_bytes": 65536 } } },
+    { "name": "terminal json message", "message": "terminal.viewport", "hex": "030000000300000000000000027b2274223a227465726d696e616c2e76696577706f7274222c2276696577706f7274223a7b22636f6c73223a39382c22726f7773223a31387d7d", "channel": 3, "seq": 3, "flags": ["json"], "payload": { "json": { "t": "terminal.viewport", "viewport": { "cols": 98, "rows": 18 } } } },
+    { "name": "upload end with fin", "message": "files.upload.end", "hex": "0b00000003000000000000000a7b22736861323536223a2239663836643038313838346337643635396132666561613063353561643031356133626634663162326230623832326364313564366331356230663030613038222c2274223a2266696c65732e75706c6f61642e656e64227d", "channel": 11, "seq": 3, "flags": ["json", "fin"], "payload": { "json": { "t": "files.upload.end", "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" } } },
+    { "name": "file chunk", "message": "files.chunk", "hex": "0b0000000100000000000000000000100000000000deadbeef", "channel": 11, "seq": 1, "flags": [], "payload": { "file_chunk": { "offset": 1048576, "data_hex": "deadbeef" } } },
+    { "name": "browser rd control", "message": "browser.rd", "hex": "07000000010000000000000000017b2274223a2272622e7669736962696c697479222c2276697369626c65223a66616c73657d", "channel": 7, "seq": 1, "flags": [], "payload": { "rd": { "type": 1, "data_hex": "7b2274223a2272622e7669736962696c697479222c2276697369626c65223a66616c73657d" } } },
+    { "name": "rd datagram", "message": "rd.frame", "hex": "0a00000005000000000000000002000102030405060708090a0b0c0d0e0f", "channel": 10, "seq": 5, "flags": [], "payload": { "rd": { "type": 2, "data_hex": "000102030405060708090a0b0c0d0e0f" } } },
+    {"name": "tcp forward bytes with fin", "message": "tcp.data", "hex": "0f000000020000000000000008474554202f20485454502f312e310d0a486f73743a206c6f63616c686f73743a353137330d0a0d0a", "channel": 15, "seq": 2, "flags": ["fin"], "payload": {"bytes": {"data_hex": "474554202f20485454502f312e310d0a486f73743a206c6f63616c686f73743a353137330d0a0d0a"}}},
+    {"name": "simulator rd control", "message": "simulator.rd", "hex": "11000000010000000000000000017b2274223a2272622e7669736962696c697479222c2276697369626c65223a747275657d", "channel": 17, "seq": 1, "flags": [], "payload": {"rd": {"type": 1, "data_hex": "7b2274223a2272622e7669736962696c697479222c2276697369626c65223a747275657d"}}},
+    { "name": "session hello.ok", "hex": "000000000100000000000000027b2263617073223a5b227465726d696e616c2d736e617073686f742d7631225d2c226d61785f6672616d65223a313034383537362c2270726f746f223a22636d75782e6d6f62696c652f31222c227365727665725f74696d65223a313739313333313230303030302c2274223a2268656c6c6f2e6f6b222c2276657273696f6e223a317d", "channel": 0, "seq": 1, "flags": ["json"], "payload": { "json": { "t": "hello.ok", "proto": "cmux.mobile/1", "version": 1, "caps": ["terminal-snapshot-v1"], "server_time": 1791331200000, "max_frame": 1048576 } } }
+  ],
+  "streams": [
+    { "name": "keystroke then credit", "hex": "1100000003000000010000000000000000006c730d1900000003000000000000000000000004020000000000000000000100", "records": ["03000000010000000000000000006c730d", "03000000000000000000000004020000000000000000000100"] }
+  ],
+  "invalid_records": [
+    { "name": "truncated header", "hex": "0300000001000000000000", "error": "truncated" },
+    { "name": "reserved flag bit", "hex": "0300000001000000000000001000", "error": "reserved_flags" },
+    { "name": "credit with a sequence", "hex": "03000000010000000000000004020000000000000000000100", "error": "bad_credit" },
+    { "name": "credit with a short payload", "hex": "030000000000000000000000040200", "error": "bad_credit" },
+    { "name": "credit combined with json", "hex": "03000000000000000000000006020000000000000000000100", "error": "bad_credit" },
+    { "name": "json payload that is not an object", "hex": "030000000100000000000000025b315d", "error": "bad_json" },
+    { "name": "data record with sequence 0", "hex": "03000000000000000000000000006c730d", "error": "bad_seq" }
+  ],
+  "invalid_streams": [
+    { "name": "length above max_record", "hex": "0100100000", "error": "too_large" },
+    { "name": "length below the header", "hex": "050000000300000001", "error": "bad_length" }
+  ]
+}

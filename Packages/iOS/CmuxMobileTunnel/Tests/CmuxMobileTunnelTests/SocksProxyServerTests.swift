@@ -13,6 +13,14 @@ import Testing
         #expect(SocksParse.greeting([0x04, 0x01, 0x00]) == .malformed)
     }
 
+    @Test func usernamePasswordAuthenticationParsesIncrementally() {
+        #expect(SocksParse.authentication([1]) == .needMoreData)
+        #expect(SocksParse.authentication([1, 3, 97]) == .needMoreData)
+        #expect(SocksParse.authentication([1, 3] + Array("bob".utf8) + [2, 112]) == .needMoreData)
+        #expect(SocksParse.authentication([1, 3] + Array("bob".utf8) + [2] + Array("pw".utf8))
+            == .authentication(username: "bob", password: "pw", consumed: 8))
+    }
+
     @Test func connectAddressTypes() {
         #expect(SocksParse.request([5, 1, 0, 1, 127, 0, 0, 1, 0x1F, 0x90]) == .connect(host: "127.0.0.1", port: 8080, consumed: 10))
         let name = Array("localhost".utf8)
@@ -107,6 +115,46 @@ import Testing
         }
     }
 
+    @Test(.timeLimit(.minutes(1))) func credentialedRouteRequiresAndChecksRfc1929Credentials() async throws {
+        let backend = ScriptedBackend()
+        let credential = SocksCredential(username: "route-user", password: "route-secret")
+        let proxy = try await SocksProxyServer.start(backend: backend, credential: credential)
+        let port = proxy.port
+        let fd = try RawClient.connect(port: port)
+        defer { close(fd) }
+
+        RawClient.send(fd, [5, 2, 0, 2])
+        #expect(RawClient.receive(fd, count: 2) == [5, 2])
+        let username = Array(credential.username.utf8)
+        let password = Array(credential.password.utf8)
+        RawClient.send(fd, [1, UInt8(username.count)] + username + [UInt8(password.count)] + password)
+        #expect(RawClient.receive(fd, count: 2) == [1, 0])
+        RawClient.send(fd, RawClient.socksConnect(host: "localhost", port: 80))
+        #expect(RawClient.receive(fd, count: 10).prefix(2) == [5, 0])
+        #expect(backend.opens.count == 1)
+        #expect(backend.opens.first?.0 == "localhost")
+        #expect(backend.opens.first?.1 == 80)
+        await proxy.stop()
+    }
+
+    @Test(.timeLimit(.minutes(1))) func credentialedRouteRejectsWrongCredentialsBeforeOpening() async throws {
+        let backend = ScriptedBackend()
+        let credential = SocksCredential(username: "route-user", password: "route-secret")
+        let proxy = try await SocksProxyServer.start(backend: backend, credential: credential)
+        let port = proxy.port
+        let fd = try RawClient.connect(port: port)
+        defer { close(fd) }
+
+        RawClient.send(fd, [5, 1, 2])
+        #expect(RawClient.receive(fd, count: 2) == [5, 2])
+        let username = Array("wrong".utf8)
+        let password = Array("secret".utf8)
+        RawClient.send(fd, [1, UInt8(username.count)] + username + [UInt8(password.count)] + password)
+        #expect(RawClient.receive(fd, count: 2) == [1, 1])
+        #expect(backend.opens.isEmpty)
+        await proxy.stop()
+    }
+
     @Test(.timeLimit(.minutes(1))) func unsupportedCommandsNeverReachTheBackend() async throws {
         let backend = ScriptedBackend()
         let proxy = try await SocksProxyServer.start(backend: backend)
@@ -148,6 +196,25 @@ import Testing
         #expect(rest.isEmpty)
         #expect(backend.exits.first?.closed == true)
         #expect(!proxy.isListening)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func stopClosesHandshakeBeforeItCanOpenBackend() async throws {
+        let backend = ScriptedBackend()
+        let proxy = try await SocksProxyServer.start(backend: backend)
+        let fd = try RawClient.connect(port: proxy.port)
+        defer { close(fd) }
+
+        // Leave this client between the greeting and CONNECT request. Closing
+        // only the listener would leave the accepted handshake alive, letting
+        // the request below open a backend after stop returned.
+        RawClient.send(fd, [5, 1, 0])
+        #expect(RawClient.receive(fd, count: 2) == [5, 0])
+        await proxy.stop()
+
+        RawClient.send(fd, RawClient.socksConnect(host: "localhost", port: 3000))
+        let rest = await Task.detached { RawClient.receiveAll(fd) }.value
+        #expect(rest.isEmpty)
+        #expect(backend.opens.isEmpty)
     }
 }
 

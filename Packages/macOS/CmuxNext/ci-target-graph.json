@@ -7,14 +7,26 @@
     "CmuxAgentCursor": "Packages/Shared/CmuxAgentCursor",
     "CmuxAgentQuestion": "Packages/Shared/CmuxAgentQuestion",
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
+    "CmuxBrowserStream": "Packages/Shared/CmuxBrowserStream",
+    "CmuxControlPlane": "Packages/Shared/CmuxControlPlane",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxInstallAuthCore": "Packages/Shared/CmuxInstallAuthCore",
     "CmuxIrxTransport": "Packages/Shared/CmuxIrxTransport",
+    "CmuxLink": "Packages/Shared/CmuxLink",
+    "CmuxLinkDirect": "Packages/Shared/CmuxLinkDirect",
+    "CmuxLinkWG": "Packages/Shared/CmuxLinkWG",
+    "CmuxLinkWebRTC": "Packages/Shared/CmuxLinkWebRTC",
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
+    "CmuxMobileConnect": "Packages/Shared/CmuxMobileConnect",
+    "CmuxMobileHost": "Packages/Shared/CmuxMobileHost",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
+    "CmuxMobileWire": "Packages/Shared/CmuxMobileWire",
+    "CmuxPairing": "Packages/Shared/CmuxPairing",
+    "CmuxRemoteDesktop": "Packages/Shared/CmuxRemoteDesktop",
+    "CmuxTerminalStream": "Packages/Shared/CmuxTerminalStream",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
     "CmuxUpdater": "Packages/macOS/CmuxUpdater"
   },
@@ -214,6 +226,8 @@
         "CmuxNextLayout",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
+        "CmuxNextMobileConnect",
+        "CmuxNextMobileHostUI",
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
@@ -239,8 +253,10 @@
         "CmuxAgentBrands",
         "CmuxAgentCursor",
         "CmuxAgentQuestion",
+        "CmuxBrowserStream",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxMobileHost"
       ]
     },
     "CmuxNextAppPermissions": {
@@ -699,6 +715,91 @@
         "CMUXMobileCore",
         "CmuxIrxTransport"
       ]
+    },
+    "CmuxNextMobileConnect": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileConnect",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextMobileLink",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxControlPlane",
+        "CmuxInstallAuthCore",
+        "CmuxLink",
+        "CmuxLinkDirect",
+        "CmuxLinkWG",
+        "CmuxLinkWebRTC",
+        "CmuxMobileConnect",
+        "CmuxMobileHost",
+        "CmuxMobileWire",
+        "CmuxPairing"
+      ]
+    },
+    "CmuxNextMobileConnectTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileConnectTests",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextMobileConnect",
+        "CmuxNextMobileLink"
+      ],
+      "packages": [
+        "CmuxInstallAuthCore",
+        "CmuxLinkWebRTC",
+        "CmuxMobileHost",
+        "CmuxMobileWire",
+        "CmuxPairing"
+      ],
+      "reads": []
+    },
+    "CmuxNextMobileHostUI": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHostUI",
+      "targets": [],
+      "packages": [
+        "CmuxBrowserStream",
+        "CmuxMobileHost",
+        "CmuxMobileWire",
+        "CmuxRemoteDesktop"
+      ]
+    },
+    "CmuxNextMobileHostUITests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileHostUITests",
+      "targets": [
+        "CmuxNextMobileHostUI"
+      ],
+      "packages": [
+        "CmuxBrowserStream"
+      ],
+      "reads": []
+    },
+    "CmuxNextMobileLink": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileLink",
+      "targets": [
+        "CmuxNextDaemon"
+      ],
+      "packages": [
+        "CmuxMobileHost",
+        "CmuxMobileWire",
+        "CmuxTerminalStream"
+      ]
+    },
+    "CmuxNextMobileLinkTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileLinkTests",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextMobileLink"
+      ],
+      "packages": [
+        "CmuxMobileHost",
+        "CmuxTerminalStream"
+      ],
+      "reads": []
     },
     "CmuxNextMobileTests": {
       "kind": "test",

@@ -127,3 +127,15 @@ Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksPaletteCatalog.swift:TasksPal
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksTunables.swift:TasksTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift:AppcastParser
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastSelector.swift:AppcastSelector
+ios/CmuxiOS/Sources/CmuxiOSApp/CmuxiOSApplication.swift:CmuxiOSApplication
+ios/CmuxiOS/Sources/CmuxiOSAuth/DogfoodReadinessReceipt.swift:DogfoodReadinessReceipt
+ios/CmuxiOS/Sources/CmuxiOSAuth/SignInScreen.swift:SignInScreen
+ios/CmuxiOS/Sources/CmuxiOSDesign/HomeMetrics.swift:HomeMetrics
+ios/CmuxiOS/Sources/CmuxiOSDesign/HomeMotion.swift:HomeMotion
+ios/CmuxiOS/Sources/CmuxiOSDesign/HomePalette.swift:HomePalette
+ios/CmuxiOS/Sources/CmuxiOSDesign/ShellMetrics.swift:ShellMetrics
+ios/CmuxiOS/Sources/CmuxiOSDesign/ShellPalette.swift:ShellPalette
+ios/CmuxiOS/Sources/CmuxiOSDesign/ShellTypography.swift:ShellTypography
+ios/CmuxiOS/Sources/CmuxiOSFeatureKit/Mock/MockFixtures.swift:MockFixtures
+ios/CmuxiOS/Sources/CmuxiOSOnboarding/Model/OnboardingDemoDevices.swift:OnboardingDemoDevices
+ios/CmuxiOS/Sources/CmuxiOSTerminal/Input/TerminalKeyEvent.swift:TerminalHIDUsage

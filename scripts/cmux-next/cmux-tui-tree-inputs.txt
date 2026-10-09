@@ -44,6 +44,7 @@ blob schemas/remote-tab/menu-token.json
 blob schemas/remote-tab/messages.json
 blob schemas/remote-tab/scroll-writer.json
 blob schemas/remote-tab/session.json
+blob schemas/remote-desktop/desktop.json
 blob schemas/terminal-sizing/fixtures.json
 blob scripts/cmux-next/cmux-tui.pin
 blob skills/cmux-browser/SKILL.md

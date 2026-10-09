@@ -1,0 +1,32 @@
+{
+  "family": "workspace",
+  "cases": [
+    { "phase": "state", "frame": { "t": "snapshot", "stream": "workspace:h_mac1A2b", "seq": 120, "epoch": "ep_1791331200000_a1b2c3d4", "decided": [{ "idempotency_key": "01JB7Q2W8M0000WSNEW001", "ok": true, "sequence": 118 }], "state": { "host": "h_mac1A2b", "workspaces": [
+      { "id": "ws_main01", "name": "cmux", "color": "#7a7a7a", "icon": "hammer.fill", "pinned": true, "order": 0, "group": { "id": "grp_app", "name": "App", "order": 0 }, "activity_at": 1791331200000, "panes": [
+        { "id": "pane_p01", "tabs": [
+          { "id": "tab_t01", "kind": "terminal", "title": "zsh", "terminal": "term_t01", "status": "running", "unread": 0, "preview": "42 tests passed" },
+          { "id": "tab_b01", "kind": "browser", "title": "Docs", "url": "https://cmux.com/docs" }
+        ] }
+      ] }
+    ], "groups": [{ "id": "grp_app", "name": "App", "order": 0 }] } } },
+    { "message": "workspace.upsert", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 121, "tx": "tx_10", "op": "workspace.upsert", "params": { "workspace": { "id": "ws_new02", "name": "scratch", "order": 1, "panes": [{ "id": "pane_p02", "tabs": [{ "id": "tab_t02", "kind": "terminal", "title": "zsh", "terminal": "term_t02" }] }] } }, "actor": { "identity": "in_phone01" }, "origin": "remote", "at": 1791331201000 } },
+    { "message": "workspace.remove", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 122, "tx": "tx_11", "op": "workspace.remove", "params": { "workspace": "ws_new02" }, "actor": { "identity": "in_mac01" }, "origin": "user", "at": 1791331202000 } },
+    { "message": "workspace.tab.upsert", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 123, "tx": "tx_12", "op": "workspace.tab.upsert", "params": { "workspace": "ws_main01", "pane": "pane_p01", "index": 2, "tab": { "id": "tab_a01", "kind": "agent", "title": "Fix tests", "status": "needs_input", "unread": 1 } }, "actor": { "identity": "in_mac01" }, "origin": "cli", "at": 1791331203000 } },
+    { "message": "workspace.tab.remove", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 124, "tx": "tx_13", "op": "workspace.tab.remove", "params": { "tab": "tab_b01" }, "actor": { "identity": "in_mac01" }, "origin": "user", "at": 1791331204000 } },
+    { "message": "workspace.status.set", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 125, "tx": "tx_14", "op": "workspace.status.set", "params": { "tab": "tab_t01", "status": "idle", "unread": 3 }, "actor": { "identity": "host:h_mac1A2b" }, "origin": "remote", "at": 1791331205000 } },
+    { "message": "workspace.preview.set", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 126, "epoch": "ep_1791331200000_a1b2c3d4", "tx": "tx_17", "op": "workspace.preview.set", "params": { "tab": "tab_t01", "preview": "Compiling (12/40)" }, "actor": { "identity": "host:h_mac1A2b" }, "origin": "remote", "at": 1791331206000 } },
+    { "message": "workspace.create", "frame": { "t": "op", "op": "workspace.create", "params": { "host": "h_mac1A2b", "name": "scratch", "cwd": "~/src" }, "idempotency_key": "01JB7Q2W8M0000WSNEW002", "origin": "user", "stream": "workspace:h_mac1A2b" } },
+    { "message": "workspace.create", "phase": "result", "frame": { "t": "result", "tx": "tx_15", "idempotency_key": "01JB7Q2W8M0000WSNEW002", "value": { "workspace": "ws_new03" }, "revision": "126", "replayed": false } },
+    { "message": "workspace.rename", "frame": { "t": "op", "op": "workspace.rename", "params": { "workspace": "ws_main01", "name": "cmux main" }, "idempotency_key": "01JB7Q2W8M0000WSREN001", "origin": "user", "expected_revision": "126" } },
+    { "message": "workspace.tab.create", "frame": { "t": "op", "op": "workspace.tab.create", "params": { "workspace": "ws_main01", "pane": "pane_p01", "kind": "terminal", "cwd": "~/src/cmux" }, "idempotency_key": "01JB7Q2W8M0000TABNEW01", "origin": "user" } },
+    { "message": "workspace.tab.create", "phase": "result", "frame": { "t": "result", "tx": "tx_16", "idempotency_key": "01JB7Q2W8M0000TABNEW01", "value": { "tab": "tab_t03", "terminal": "term_t03" }, "revision": "127", "replayed": true } },
+    { "message": "workspace.tab.close", "frame": { "t": "op", "op": "workspace.tab.close", "params": { "tab": "tab_t03" }, "idempotency_key": "01JB7Q2W8M0000TABCLS01", "origin": "user" } },
+    { "message": "workspace.close", "frame": { "t": "op", "op": "workspace.close", "params": { "workspace": "ws_main01" }, "idempotency_key": "01JB7Q2W8M0000WSCLS001", "origin": "user", "stream": "workspace:h_mac1A2b" } },
+    { "message": "workspace.read", "frame": { "t": "op", "op": "workspace.read", "params": { "workspace": "ws_main01" }, "idempotency_key": "01JB7Q2W8M0000WSRED001", "origin": "user", "stream": "workspace:h_mac1A2b" } },
+    { "message": "workspace.groups.set", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 127, "tx": "tx_18", "op": "workspace.groups.set", "params": { "groups": [{ "id": "grp_app", "name": "App", "order": 0 }, { "id": "grp_ops", "name": "Ops", "order": 1 }] }, "actor": { "identity": "in_mac01" }, "origin": "user", "at": 1791331207000 } },
+    { "message": "workspace.move", "frame": { "t": "op", "op": "workspace.move", "params": { "workspace": "ws_main01", "group": "grp_ops", "index": 0 }, "idempotency_key": "01JB7Q2W8M0000WSMOV001", "origin": "user", "stream": "workspace:h_mac1A2b" } },
+    { "message": "workspace.move", "frame": { "t": "op", "op": "workspace.move", "params": { "workspace": "ws_main01", "group": null, "index": 2 }, "idempotency_key": "01JB7Q2W8M0000WSMOV002", "origin": "user", "stream": "workspace:h_mac1A2b" } },
+    { "message": "workspace.group.rename", "frame": { "t": "op", "op": "workspace.group.rename", "params": { "group": "grp_app", "name": "Apps" }, "idempotency_key": "01JB7Q2W8M0000GRREN001", "origin": "user", "stream": "workspace:h_mac1A2b" } },
+    { "message": "workspace.customize", "frame": { "t": "op", "op": "workspace.customize", "params": { "workspace": "ws_main01", "color": "blue", "icon": null }, "idempotency_key": "01JB7Q2W8M0000WSCUS001", "origin": "user", "stream": "workspace:h_mac1A2b" } }
+  ]
+}

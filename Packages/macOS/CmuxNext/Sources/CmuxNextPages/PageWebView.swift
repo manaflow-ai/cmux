@@ -239,7 +239,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Keeps first-party pages proportional to native chrome as the live
     /// interface scale changes.
-    private func applyUIScale() {
+    func applyUIScale() {
         webView.pageZoom = Double(DesignSettings.shared.uiScale)
     }
 
@@ -359,41 +359,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
         WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
                  surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
-    }
-
-    // MARK: WKNavigationDelegate
-
-    public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
-        let url = action.request.url
-        switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
-                                     mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
-        case .allow:
-            return .allow
-        case .openExternal:
-            if let url { onOpenExternal?(url) }
-            return .cancel
-        case .cancel:
-            return .cancel
-        }
-    }
-
-    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
-        // A new document: the old one's subscriptions and host calls end with it, and it has not
-        // painted yet.
-        router.reset()
-        _ = claimState.end()
-        loaded = false
-        paintedUptime = nil
-        let bridge = bridge
-        router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
-    }
-
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-        loaded = true
-        applyUIScale()
-        applyTheme(force: true)
-        applyLiveDocumentAttributes()
-        resumeLoadWaiters()
     }
 
 }

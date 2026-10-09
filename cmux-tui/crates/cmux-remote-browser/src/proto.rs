@@ -203,6 +203,20 @@ pub enum Disposition {
     Popup,
 }
 
+/// Why a host refused `rb.navigate` (cap `navigate`, c2-browser-stream.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NavigateRefusal {
+    /// Not an http or https URL.
+    Scheme,
+    /// Not a URL, or no host.
+    Invalid,
+    /// The viewer's session may not act (revoked).
+    NotAllowed,
+    /// The page owner failed to start the load.
+    Failed,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceKind {
@@ -268,8 +282,14 @@ pub enum Control {
     #[serde(rename = "rb.history")]
     History { op: HistoryOp },
     /// The viewer's omnibar or an opened tab: load `url` in the page.
+    /// Legacy viewers omit `request`; newer viewers use it to correlate
+    /// `rb.navigate.result` when the host supports the `navigate` capability.
     #[serde(rename = "rb.navigate")]
-    Navigate { url: String },
+    Navigate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request: Option<u64>,
+        url: String,
+    },
     #[serde(rename = "rb.key_unhandled")]
     KeyUnhandled { input_seq: u32 },
     #[serde(rename = "rb.cursor")]
@@ -339,6 +359,8 @@ pub enum Control {
     OpenTab { request: u64, url: String, disposition: Disposition, user_gesture: bool },
     #[serde(rename = "rb.open_tab.result")]
     OpenTabResult { request: u64, tab: Option<String>, refused: Option<String> },
+    #[serde(rename = "rb.navigate.result")]
+    NavigateResult { request: u64, refused: Option<NavigateRefusal> },
     #[serde(rename = "rb.surface.show")]
     SurfaceShow {
         surface: u32,

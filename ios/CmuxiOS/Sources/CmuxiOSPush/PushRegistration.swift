@@ -39,14 +39,39 @@ public final class PushRegistration {
     }
 
     /// After sign-in of `user`: categories, permission, then an APNs token.
-    public func start(for user: String) async {
+    /// With `requestPermission` false an undetermined permission is left for
+    /// onboarding's priming screen, which calls `authorizationChanged()`.
+    public func start(for user: String, requestPermission: Bool = true) async {
         owner = user
         await retryPendingRemovals()
         let center = UNUserNotificationCenter.current()
         center.setNotificationCategories(FeedPushCategory.notificationCategories)
-        let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
-        guard granted else { state = .denied; return }
+        switch await Self.authorizationStatus() {
+        case .notDetermined:
+            guard requestPermission else { state = .idle; return }
+            let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+            guard granted else { state = .denied; return }
+        case .denied:
+            state = .denied
+            return
+        default:
+            break
+        }
         UIApplication.shared.registerForRemoteNotifications()
+    }
+
+    /// Permission was answered elsewhere (onboarding): register when granted.
+    public func authorizationChanged() async {
+        guard owner != nil else { return }
+        switch await Self.authorizationStatus() {
+        case .notDetermined: return
+        case .denied: state = .denied
+        default: UIApplication.shared.registerForRemoteNotifications()
+        }
+    }
+
+    private nonisolated static func authorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
     /// APNs answered with this install's token.

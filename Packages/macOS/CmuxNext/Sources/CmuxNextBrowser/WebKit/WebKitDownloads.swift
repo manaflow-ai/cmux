@@ -38,8 +38,14 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
         items.removeValue(forKey: ObjectIdentifier(download))?.complete(status)
     }
 
-    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
-                  suggestedFilename: String) async -> URL? {
+    // Completion-handler form: Xcode 26.6's compiler crashes emitting the ObjC
+    // thunk for async delegate methods.
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String,
+                  completionHandler: @escaping @MainActor @Sendable (URL?) -> Void) {
+        completionHandler(destination(for: download, suggestedFilename: suggestedFilename))
+    }
+
+    private func destination(for download: WKDownload, suggestedFilename: String) -> URL? {
         let chosen = chosenDestinations.removeValue(forKey: ObjectIdentifier(download))
         let directory = tab?.downloadsDirectory ?? DownloadDestination.defaultDirectory
         // The chosen file (the save panel already asked before replacing

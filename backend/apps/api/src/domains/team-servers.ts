@@ -1,3 +1,4 @@
+import { guestOf } from "./team-guests.ts"
 import type { ReduceContext } from "@cmux/ownership"
 import { ServerRevoke, type Host } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
@@ -122,6 +123,38 @@ const refuseEnrollment = (state: TeamState, ctx: ReduceContext, v: { install: st
 export const serverPlacementActive = (state: TeamState, rows: RowReader | undefined, host: string, install: string): boolean => {
   const h = hostOf(state, rows, host)
   return h?.kind === "server" && h.enrolled_by === install && !h.orphaned && !state.server_revocations?.[install]
+}
+
+/** A HostDO control socket's role (b1-control-do.md 2), resolved from this team's directory. */
+export interface HostAccess {
+  readonly role: "host" | "device"
+  readonly host: { readonly id: string; readonly name: string; readonly platform: string; readonly owner_user: string; readonly enrolled_by: string }
+}
+
+/**
+ * `host` for the install that enrolled the host (never a session or a chief token), `device` for
+ * any member of this team (a personal team has only its user: same account), null otherwise.
+ */
+export const hostAccessFor = (state: TeamState, rows: RowReader | undefined, host: string, p: { user?: string; install?: string; kind?: string; agent?: string }): HostAccess | null => {
+  const h = hostOf(state, rows, host)
+  if (!h || !p.user || state.server_revocations?.[h.enrolled_by]) return null
+  const summary = { id: h.id, name: h.name, platform: h.platform, owner_user: h.owner_user, enrolled_by: h.enrolled_by }
+  // A guest device the host owner accepted (b6-pairing.md 4.2): admitted as a device, never as a chief.
+  const guest = guestOf(state, host, p.install)
+  if (!memberOf(state, rows, p.user)) return guest && guest.user === p.user && p.kind === "install" && !p.agent ? { role: "device", host: summary } : null
+  if (p.kind === "install" && !p.agent && p.install === h.enrolled_by) return { role: "host", host: summary }
+  return p.agent ? null : { role: "device", host: summary }
+}
+
+type HostPrincipal = { user?: string; install?: string; kind?: string; agent?: string; install_kind?: string }
+type CloudHostAccess = (role: "host" | "device") => Promise<HostAccess | null>
+
+/** Resolves ordinary hosts locally and delegates VM hosts to CloudDO. */
+export const teamHostAccess = async (state: TeamState, rows: RowReader | undefined, host: string, p: HostPrincipal, cloud: CloudHostAccess): Promise<HostAccess | null> => {
+  if (p.install_kind === "vm") return p.agent === undefined ? cloud("host") : null
+  const ordinary = hostAccessFor(state, rows, host, p)
+  if (ordinary) return ordinary
+  return p.user && p.agent === undefined && memberOf(state, rows, p.user) ? cloud("device") : null
 }
 
 /** Removes a server host; the Worker then revokes its install key in the owner's UserDO. */

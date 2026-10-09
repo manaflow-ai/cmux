@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextMobileConnect
 import Observation
 
 extension AppServices {
@@ -35,6 +36,7 @@ extension AppServices {
     func startCloud() -> Task<Void, Never> {
         cloud.start()
         let cloud = cloud, machines = machines
+        AppMobileLinkServices.configure(self, cloud: cloud, apiBaseURL: feed.apiBaseURL, launch: environment.launch)
         return Task { [weak self] in
             var account: String?
             for await state in Observations({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {

@@ -11,9 +11,10 @@ import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, 
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
 import { reduceRunsSynced, type RunSyncState } from "./team-run-sync.ts"
 import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
+import { reduceHostGuest, type HostGuestsState } from "./team-guests.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
-export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
+export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps, HostGuestsState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   /** Members and hosts are rows (team-members.ts); the head keeps their counts. */
   readonly member_count?: number
@@ -186,6 +187,11 @@ export const teamDomain: Domain<TeamState> = {
       case "server.enrolled": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
         return reduceServerEnrolled(state, params, ctx)
+      }
+      case "host.guest.set":
+      case "host.guest.remove": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return reduceHostGuest(state, op, params, ctx, (host) => hostOf(state, ctx.rows, host) !== undefined)
       }
       case "server.install_revoked": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")

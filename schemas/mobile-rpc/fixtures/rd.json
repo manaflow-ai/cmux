@@ -1,0 +1,125 @@
+{
+  "family": "rd",
+  "cases": [
+    {
+      "message": "rd",
+      "frame": {
+        "t": "channel.open",
+        "channel": 9,
+        "kind": "rd",
+        "class": "interactive",
+        "window": 1048576,
+        "params": {
+          "service": "desktop",
+          "display": 0
+        }
+      }
+    },
+    {
+      "message": "rd",
+      "phase": "opened",
+      "frame": {
+        "t": "channel.opened",
+        "channel": 9,
+        "window": 1048576,
+        "params": {
+          "media": "webrtc_track",
+          "media_track": "rd-video-0"
+        },
+        "resumed": false
+      }
+    },
+    {
+      "message": "rd",
+      "frame": {
+        "t": "channel.open",
+        "channel": 11,
+        "kind": "rd",
+        "class": "interactive",
+        "window": 1048576,
+        "params": {
+          "service": "desktop",
+          "target": {
+            "kind": "vnc",
+            "host": "10.0.0.12",
+            "port": 5901,
+            "name": "build-vm"
+          },
+          "mode": "control",
+          "screen": {
+            "pixel_width": 1179,
+            "pixel_height": 2556,
+            "scale": 3.0
+          },
+          "codecs": [
+            "h264"
+          ],
+          "datagram_lane": true
+        }
+      }
+    },
+    {
+      "message": "rd",
+      "phase": "opened",
+      "frame": {
+        "t": "channel.opened",
+        "channel": 11,
+        "window": 1048576,
+        "params": {
+          "media": "rd_datagrams",
+          "datagram_channel": 11,
+          "encoder": "h264",
+          "target": {
+            "kind": "display",
+            "width": 3024,
+            "height": 1964,
+            "scale": 2.0,
+            "name": "Built-in Retina Display"
+          },
+          "view": {
+            "seq": 0,
+            "x": 0,
+            "y": 0,
+            "width": 3024,
+            "height": 1964,
+            "pixel_width": 1178,
+            "pixel_height": 764
+          },
+          "displays": [
+            {
+              "id": 1,
+              "name": "Built-in Retina Display",
+              "width": 3024,
+              "height": 1964,
+              "scale": 2.0,
+              "main": true
+            }
+          ],
+          "mode": "control",
+          "cursor": "local",
+          "caps": [
+            "view",
+            "clipboard",
+            "displays",
+            "windows"
+          ]
+        },
+        "resumed": false
+      }
+    },
+    {
+      "message": "rd",
+      "phase": "refused",
+      "frame": {
+        "t": "channel.refused",
+        "channel": 13,
+        "code": "rd.permission_denied",
+        "message": "Screen Recording is off for cmux on this Mac",
+        "retryable": false,
+        "details": {
+          "permission": "screen_recording"
+        }
+      }
+    }
+  ]
+}

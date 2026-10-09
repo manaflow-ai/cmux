@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/task.schema.json",
+  "title": "cmux.mobile/1 task family (control; owner the target host's task runner, receipts mirrored by HostDO; stream task:<host>)",
+  "$defs": {
+    "AgentModel": {
+      "type": "object", "additionalProperties": false, "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "label": { "type": "string", "maxLength": 128 },
+        "efforts": { "type": "array", "items": { "enum": ["low", "medium", "high", "xhigh", "max"] } },
+        "default_effort": { "enum": ["low", "medium", "high", "xhigh", "max"] }
+      }
+    },
+    "Agent": {
+      "type": "object", "additionalProperties": false, "required": ["id", "name", "models"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 128 },
+        "models": { "type": "array", "items": { "$ref": "#/$defs/AgentModel" } },
+        "default_model": { "type": "string", "maxLength": 128 },
+        "unavailable": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "TaskStreamState": {
+      "type": "object", "additionalProperties": false, "required": ["agents", "tasks"],
+      "properties": {
+        "agents": { "type": "array", "items": { "$ref": "#/$defs/Agent" } },
+        "tasks": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/Task" } }
+      }
+    },
+    "Task": {
+      "type": "object", "additionalProperties": false, "required": ["id", "host", "agent", "state", "created_at"],
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/TaskId" },
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" },
+        "tab": { "$ref": "../common.schema.json#/$defs/TabId" },
+        "agent": { "type": "string", "maxLength": 64 },
+        "state": { "$ref": "../common.schema.json#/$defs/TaskState" },
+        "title": { "type": "string", "maxLength": 200 },
+        "created_at": { "$ref": "../common.schema.json#/$defs/Timestamp" }
+      }
+    },
+    "task.dispatch": {
+      "type": "object", "additionalProperties": false, "required": ["host", "agent", "prompt"],
+      "properties": {
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" },
+        "agent": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "model": { "type": "string", "maxLength": 128 },
+        "effort": { "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "attachments": { "type": "array", "maxItems": 32, "items": { "type": "string", "pattern": "^up_[A-Za-z0-9]{2,64}$" } },
+        "template": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "task.dispatch:result": {
+      "type": "object", "additionalProperties": false, "required": ["task", "workspace", "tab"],
+      "properties": { "task": { "$ref": "../common.schema.json#/$defs/TaskId" }, "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" }, "tab": { "$ref": "../common.schema.json#/$defs/TabId" } }
+    },
+    "task.cancel": { "type": "object", "additionalProperties": false, "required": ["task"], "properties": { "task": { "$ref": "../common.schema.json#/$defs/TaskId" } } },
+    "task.list": {
+      "type": "object", "additionalProperties": false, "required": ["host"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "state": { "$ref": "../common.schema.json#/$defs/TaskState" }, "limit": { "type": "integer", "minimum": 1, "maximum": 500 } }
+    },
+    "task.list:result": { "type": "object", "additionalProperties": false, "required": ["tasks"], "properties": { "tasks": { "type": "array", "items": { "$ref": "#/$defs/Task" } } } },
+    "task.state.set": {
+      "type": "object", "additionalProperties": false, "required": ["task", "state", "at"],
+      "properties": {
+        "task": { "$ref": "../common.schema.json#/$defs/TaskId" },
+        "state": { "$ref": "../common.schema.json#/$defs/TaskState" },
+        "tab": { "$ref": "../common.schema.json#/$defs/TabId" },
+        "message": { "type": "string", "maxLength": 400 },
+        "at": { "$ref": "../common.schema.json#/$defs/Timestamp" }
+      }
+    }
+  }
+}

@@ -71,6 +71,19 @@ final class TerminalStreamPipeline: @unchecked Sendable {
         run { pipeline, surface in pipeline.decodeAndReceive(frame, surface) }
     }
 
+    /// One decoded frame (sources that decode the channel themselves).
+    @MainActor func receive(frame: TerminalFrame) {
+        run { pipeline, surface in
+            pipeline.stats.frames += 1
+            return pipeline.receiveDecoded(frame, surface)
+        }
+    }
+
+    /// `.local` authority: raw PTY output, parsed as it arrives (no viewer rules).
+    @MainActor func feed(_ bytes: Data) {
+        run { _, _ in [.feed(bytes)] }
+    }
+
     /// The host's grid from size-state.
     @MainActor func grid(cols: Int, rows: Int, generation: UInt32) {
         run { _, surface in
@@ -134,7 +147,11 @@ final class TerminalStreamPipeline: @unchecked Sendable {
             stats.undecodableFrames += 1
             return []
         }
-        return viewer.receive(frame, localDigest: {
+        return receiveDecoded(frame, surface)
+    }
+
+    private func receiveDecoded(_ frame: TerminalFrame, _ surface: any TerminalOutputSurface) -> [TerminalViewerAction] {
+        viewer.receive(frame, localDigest: {
             stats.digestChecks += 1
             return surface.encode(.ready).map { Data(SHA256.hash(data: $0)) }
         })

@@ -65,11 +65,20 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
 
     init(model: AgentActivityModel, source: any AgentActivitySource) { self.model = model; self.source = source }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
+    // Completion-handler form: Xcode 26.6's compiler crashes emitting the ObjC
+    // thunk for async delegate methods.
+    @MainActor
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
+                               replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         guard let body = message.body as? [String: Any], let method = body["method"] as? String else {
-            return (["ok": false, "error": ["userMessage": "Invalid Activity request"]], nil)
+            replyHandler(["ok": false, "error": ["userMessage": "Invalid Activity request"]], nil)
+            return
         }
-        return await reply(to: method, params: body["params"] as? [String: Any] ?? [:])
+        let params = body["params"] as? [String: Any] ?? [:]
+        Task { @MainActor in
+            let (value, error) = await reply(to: method, params: params)
+            replyHandler(value, error)
+        }
     }
 
     @MainActor

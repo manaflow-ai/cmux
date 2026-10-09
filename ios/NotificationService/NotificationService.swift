@@ -1,3 +1,4 @@
+import CmuxFeedPushCore
 import CmuxPhonePush
 import Foundation
 import OSLog
@@ -23,6 +24,8 @@ final class NotificationService: UNNotificationServiceExtension {
         deliveredContent = content
         guard let cmux = request.content.userInfo["cmux"] as? [String: Any],
               let raw = cmux["encryptedPayloads"] as? [[String: Any]] else {
+            // Feed pushes from the cmux-next owner (c7-notify.md section 5).
+            if FeedPushPayload(userInfo: request.content.userInfo) != nil { Self.presentFeed(content) }
             finish(content)
             return
         }
@@ -85,6 +88,33 @@ final class NotificationService: UNNotificationServiceExtension {
         finish(content)
     }
 
+    /// Category assignment, this device's preferences, expiry and preview
+    /// shortening, decided by `PushPresentation` (pure, tested in
+    /// CmuxFeedPushCore). Without the filtering entitlement nothing is
+    /// dropped: a kind turned off or an expired item arrives passive and silent.
+    private static func presentFeed(_ content: UNMutableNotificationContent) {
+        let share = NotificationPreferencesShare(
+            read: { Bundle.main.phonePushSharedStateStorage.data(forKey: NotificationPreferencesShare.key) }, write: { _ in })
+        let decision = PushPresentation(
+            content: PushContent(title: content.title, subtitle: content.subtitle, body: content.body,
+                                 category: content.categoryIdentifier, level: PushInterruptionLevel(content.interruptionLevel),
+                                 sound: content.sound != nil),
+            userInfo: content.userInfo,
+            preferences: share.load(),
+            now: Date(),
+            expiredBody: String(localized: "notificationService.expired", defaultValue: "No longer needs you"))
+        let result = decision.content
+        content.title = result.title
+        content.subtitle = result.subtitle
+        content.body = result.body
+        content.categoryIdentifier = result.category
+        content.interruptionLevel = result.level.notificationLevel
+        if !result.sound { content.sound = nil }
+        if decision.outcome != .shown {
+            notificationServiceLog.info("feed push quieted: \(String(describing: decision.outcome), privacy: .public)")
+        }
+    }
+
     override func serviceExtensionTimeWillExpire() {
         if suppressOnExpiration {
             finishSuppressed(deliveredContent ?? UNMutableNotificationContent(), reason: "time_expired")
@@ -138,5 +168,25 @@ final class NotificationService: UNNotificationServiceExtension {
         }
         result["cmux"] = cmux
         return result
+    }
+}
+
+private extension PushInterruptionLevel {
+    init(_ level: UNNotificationInterruptionLevel) {
+        switch level {
+        case .passive: self = .passive
+        case .timeSensitive: self = .timeSensitive
+        case .critical: self = .critical
+        default: self = .active
+        }
+    }
+
+    var notificationLevel: UNNotificationInterruptionLevel {
+        switch self {
+        case .passive: .passive
+        case .active: .active
+        case .timeSensitive: .timeSensitive
+        case .critical: .critical
+        }
     }
 }

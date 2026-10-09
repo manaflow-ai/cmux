@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/files.schema.json",
+  "title": "cmux.mobile/1 files family (stream; owner the Mac)",
+  "description": "Chunks are binary records: u64 offset + bytes (fixtures/binary.json). A download's last chunk carries the fin flag. Paths are scoped by the Mac (ios-next/c4-files.md section 3).",
+  "$defs": {
+    "files.upload": {
+      "type": "object", "additionalProperties": false, "required": ["name", "size", "mime", "sha256", "dest"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "size": { "type": "integer", "minimum": 0 },
+        "mime": { "type": "string", "maxLength": 255 },
+        "sha256": { "$ref": "../common.schema.json#/$defs/Sha256" },
+        "dest": {
+          "type": "object", "additionalProperties": false, "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["terminal", "composer", "path"] },
+            "terminal": { "$ref": "../common.schema.json#/$defs/TerminalId" },
+            "path": { "type": "string", "maxLength": 4096 }
+          }
+        }
+      }
+    },
+    "files.upload:opened": {
+      "type": "object", "additionalProperties": false, "required": ["upload", "offset"],
+      "properties": { "upload": { "type": "string", "pattern": "^up_[A-Za-z0-9]{2,64}$" }, "offset": { "type": "integer", "minimum": 0 } }
+    },
+    "files.download": { "type": "object", "additionalProperties": false, "required": ["path"], "properties": { "path": { "type": "string", "minLength": 1, "maxLength": 4096 }, "offset": { "type": "integer", "minimum": 0 } } },
+    "files.download:opened": {
+      "type": "object", "additionalProperties": false, "required": ["size", "mime", "sha256"],
+      "properties": { "size": { "type": "integer", "minimum": 0 }, "mime": { "type": "string", "maxLength": 255 }, "sha256": { "$ref": "../common.schema.json#/$defs/Sha256" } }
+    },
+    "files.upload.end": {
+      "type": "object", "additionalProperties": false, "required": ["t", "sha256"],
+      "properties": { "t": { "const": "files.upload.end" }, "sha256": { "$ref": "../common.schema.json#/$defs/Sha256" } }
+    },
+    "files.upload.done": {
+      "type": "object", "additionalProperties": false, "required": ["t", "upload", "path", "size"],
+      "properties": { "t": { "const": "files.upload.done" }, "upload": { "type": "string", "pattern": "^up_[A-Za-z0-9]{2,64}$" }, "path": { "type": "string", "maxLength": 4096 }, "size": { "type": "integer", "minimum": 0 } }
+    },
+    "files.list": {
+      "type": "object", "additionalProperties": false, "required": ["path"],
+      "properties": { "path": { "type": "string", "minLength": 1, "maxLength": 4096 }, "after": { "type": "string", "maxLength": 255 }, "limit": { "type": "integer", "minimum": 1, "maximum": 1000 } }
+    },
+    "files.roots": { "type": "object", "additionalProperties": false, "properties": {} },
+    "files.roots:result": {
+      "type": "object", "additionalProperties": false, "required": ["roots"],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "name", "path", "writable"],
+            "properties": { "id": { "type": "string", "maxLength": 64 }, "name": { "type": "string", "maxLength": 255 }, "path": { "type": "string", "maxLength": 4096 }, "writable": { "type": "boolean" } }
+          }
+        }
+      }
+    },
+    "files.list:result": {
+      "type": "object", "additionalProperties": false, "required": ["entries"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name", "kind", "size", "modified_at"],
+            "properties": { "name": { "type": "string", "maxLength": 255 }, "kind": { "enum": ["file", "dir", "symlink"] }, "size": { "type": "integer", "minimum": 0 }, "modified_at": { "$ref": "../common.schema.json#/$defs/Timestamp" } }
+          }
+        },
+        "next": { "type": "string", "maxLength": 255 }
+      }
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "bulkFile" : {
+    "cpuMillisecondsPerMiB" : 272.95,
+    "cpuSeconds" : 11.259,
+    "megabitsPerSecond" : 86.1,
+    "priority" : "bulk",
+    "receivedBytes" : 43253760,
+    "recordBytes" : 65536,
+    "seconds" : 4.017
+  },
+  "carrier" : "webrtc-wg",
+  "conditions" : {
+    "loss" : 0,
+    "note" : "real sockets on loopback; shape with the dnctl recipe in d2-bakeoff.md",
+    "rttMilliseconds" : 0,
+    "shaped" : false
+  },
+  "durationSeconds" : 8.243714375,
+  "errors" : [
+
+  ],
+  "machine" : {
+    "cores" : 14,
+    "cpu" : "Apple M4 Pro",
+    "loadAverage1m" : 26.29,
+    "model" : "Mac16,11",
+    "os" : "Version 27.0.1 (Build 26A434)"
+  },
+  "memory" : {
+    "baselineMaxResidentMiB" : 9.09375,
+    "finalFootprintMiB" : 14.766242980957031,
+    "finalMaxResidentMiB" : 30.921875
+  },
+  "rawTransport" : {
+    "cpuMillisecondsPerMiB" : 244.8,
+    "cpuSeconds" : 11.567,
+    "megabitsPerSecond" : 98.9,
+    "priority" : "bulk (raw transport)",
+    "receivedBytes" : 49545216,
+    "recordBytes" : 65536,
+    "seconds" : 4.009
+  },
+  "rig" : "v2-wg-over-webrtc-loopback",
+  "schema" : "cmux-link-bench\/1",
+  "startedAt" : "2026-10-07T07:53:13Z"
+}

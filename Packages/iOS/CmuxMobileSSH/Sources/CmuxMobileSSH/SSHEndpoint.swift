@@ -43,4 +43,6 @@ public enum SSHConnectionError: Error, Equatable, Sendable {
     case channelRequestRejected(String)
     /// The connection closed.
     case closed
+    /// A command exceeded the bounded stdout/stderr transcript.
+    case outputLimitExceeded
 }

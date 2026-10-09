@@ -66,6 +66,7 @@ on:
       - webviews/reactCompiler.mjs
       - webviews/vite.config.ts
       - Resources/markdown-viewer/marked.min.js
+      - Resources/bin/**
       - scripts/build-webviews-app.sh
       - scripts/check-webviews-bun-version.sh
       - scripts/cmux-next/build-agent-pane-web.sh

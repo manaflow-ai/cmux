@@ -55,6 +55,18 @@ describe("team sign-in policy (P17-4)", { timeout: 60_000 }, () => {
     expect(ssoRefusal({ ...p!, team: "team_t" }, rules)?.code).toBe("auth.sso_required")
   })
 
+  it("isolates Stack sessions without exposing the raw refresh-token id to owners", async () => {
+    const first = await sessionToken("session-isolation", { refresh_token_id: "refresh-a" })
+    const second = await sessionToken("session-isolation", { refresh_token_id: "refresh-b" })
+    const a = await authenticate(env as never, first)
+    const b = await authenticate(env as never, second)
+    expect(a?.identity).toMatch(/^session:[^:]+:[0-9a-f]{32}$/)
+    expect(b?.identity).toMatch(/^session:[^:]+:[0-9a-f]{32}$/)
+    expect(a?.identity).not.toBe(b?.identity)
+    expect(a?.identity).not.toContain("refresh-a")
+    expect(b?.identity).not.toContain("refresh-b")
+  })
+
   it("normalizes email domains the way domain claims are keyed", () => {
     expect(emailDomainOf("A@Acme.COM")).toBe("acme.com")
     expect(emailDomainOf("a@acme.com.")).toBe("acme.com")
@@ -109,4 +121,3 @@ describe("team sign-in policy (P17-4)", { timeout: 60_000 }, () => {
 
   })
 })
-

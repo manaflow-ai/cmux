@@ -2,6 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Capture source provenance before any dependency or build preparation runs.
+# Fleet preparation may create generated files in this checkout; those files
+# are not source edits and must not make a tagged Mac bundle disagree with the
+# clean iOS archive built from the same commit.
+CMUX_SOURCE_GIT_SHA="$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || true)"
+CMUX_SOURCE_GIT_DIRTY=""
+if [[ -n "$CMUX_SOURCE_GIT_SHA" ]]; then
+  CMUX_SOURCE_GIT_DIRTY="$(git -C "$SCRIPT_DIR/.." status --porcelain 2>/dev/null || true)"
+fi
 RELOAD_ORIGINAL_ARGS=("$@")
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
@@ -1377,6 +1386,20 @@ if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   export CMUX_NEXT_TUI_MODE=tree
 fi
 
+# Keep the tagged Mac bundle provenance-compatible with the iOS reload. Debug
+# builds carry the checked-out commit's short SHA (with a dirty marker for local
+# uncommitted changes) and the original tag. Exact-ref fleet builds suppress the
+# marker because their preparation may create generated checkout files.
+# Release/TestFlight builds intentionally retain the blank project defaults.
+CMUX_GIT_SHA_VALUE=""
+if [[ "$BUILD_CONFIGURATION" == Debug ]]; then
+  CMUX_GIT_SHA_VALUE="$CMUX_SOURCE_GIT_SHA"
+  if [[ -n "$CMUX_GIT_SHA_VALUE" && -n "$CMUX_SOURCE_GIT_DIRTY" \
+      && -z "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
+    CMUX_GIT_SHA_VALUE="${CMUX_GIT_SHA_VALUE}+"
+  fi
+fi
+
 # Tagged builds normally compile the base product name and stage a distinct
 # tag-named bundle. An explicit base-name override removes that staging
 # boundary, so build-only would overwrite the bundle a running tagged process
@@ -1753,6 +1776,12 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+if [[ "$BUILD_CONFIGURATION" == Debug ]]; then
+  XCODEBUILD_ARGS+=(
+    CMUX_GIT_SHA="$CMUX_GIT_SHA_VALUE"
+    CMUX_DEV_TAG="$TAG"
+  )
+fi
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
 fi

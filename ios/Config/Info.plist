@@ -71,7 +71,7 @@
 	<string>Scan cmux pairing QR codes from your Mac terminal.</string>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_cmux-iroh._udp</string>
+		<string>_cmux._tcp</string>
 	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>cmux uses Face ID to confirm that you want to lower the protection for texts to Chief.</string>
@@ -102,6 +102,9 @@
 		<dict/>
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<!-- Live Activities for running agents (C7), updated by push. -->
+	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>

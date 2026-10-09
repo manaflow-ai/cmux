@@ -1,0 +1,11 @@
+{
+  "family": "simulator",
+  "cases": [
+    { "message": "simulator", "frame": { "t": "channel.open", "channel": 17, "kind": "simulator", "class": "interactive", "window": 1048576, "params": { "udid": "4E7B2C1A-9D3F-4B8E-A1C2-0F5D6E7A8B9C", "service": "rb/1", "screen": { "css_width": 393, "css_height": 852, "scale": 3.0, "refresh_hz": 60 }, "codecs": ["h264"], "datagram_lane": true } } },
+    { "message": "simulator", "phase": "opened", "frame": { "t": "channel.opened", "channel": 17, "window": 1048576, "params": { "media": "rd_datagrams", "datagram_channel": 17, "encoder": "h264", "width": 1178, "height": 2556, "page": { "css_width": 393, "css_height": 852 }, "caps": ["clipboard"] }, "resumed": false } },
+    { "message": "simulator.list", "frame": { "t": "read", "id": 7, "op": "simulator.list", "params": {} } },
+    { "message": "simulator.list", "phase": "result", "frame": { "t": "read.result", "id": 7, "revision": "0", "value": { "simulators": [
+      { "udid": "4E7B2C1A-9D3F-4B8E-A1C2-0F5D6E7A8B9C", "name": "iPhone 17 Pro", "runtime": "iOS 27.0", "state": "booted" }
+    ] } } }
+  ]
+}

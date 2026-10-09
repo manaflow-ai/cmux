@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextDaemon
+import CmuxNextMobileHostUI
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextBrowserImport

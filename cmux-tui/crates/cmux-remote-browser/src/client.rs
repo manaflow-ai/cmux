@@ -178,7 +178,7 @@ impl Client {
                 self.screen_seq = self.screen_seq.saturating_add(1);
                 Ok(send(Control::Screen { seq: self.screen_seq, screen }))
             }
-            ClientInput::Navigate { url } => Ok(send(Control::Navigate { url })),
+            ClientInput::Navigate { url } => Ok(send(Control::Navigate { request: None, url })),
             ClientInput::TabOpened { request, tab, refused } => {
                 Ok(if self.pending_tabs.remove(&request) {
                     send(Control::OpenTabResult { request, tab, refused })

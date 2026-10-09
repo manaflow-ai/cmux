@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/pairing.schema.json",
+  "title": "cmux.mobile/1 pairing family (control; UserDO on /v1/wire/user, offers in PairingDO; stream trust:<user>)",
+  "description": "B6 pairing wire (plans/cmux-next/ios-next/b6-pairing.md sections 4 and 6). Ops run on the user socket; every trust write is a system op on the trust:<user> stream. No private key, token or offer code ever enters the stream: requests carry only offer_id.",
+  "$defs": {
+    "UserId": { "type": "string", "pattern": "^[A-Za-z0-9_]{3,80}$" },
+    "TeamId": { "type": "string", "pattern": "^[A-Za-z0-9_]{3,80}$" },
+    "Key": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$", "description": "32 bytes, base64url without padding" },
+    "OfferId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$", "description": "base64url SHA-256 of the offer code" },
+    "OfferCode": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$", "description": "16 random bytes as 26 Crockford base32 symbols" },
+    "DevicePlatform": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "PublicJwk": {
+      "type": "object", "additionalProperties": false, "required": ["kty", "crv", "x", "y"],
+      "properties": { "kty": { "const": "EC" }, "crv": { "const": "P-256" }, "x": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }, "y": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" } }
+    },
+    "LinkCertificate": {
+      "type": "object", "additionalProperties": false, "required": ["purpose", "user", "install", "key", "issued_at", "expires_at", "signature"],
+      "properties": {
+        "purpose": { "enum": ["direct", "wg", "dtls"] },
+        "user": { "$ref": "#/$defs/UserId" },
+        "install": { "$ref": "../common.schema.json#/$defs/InstallId" },
+        "key": { "$ref": "#/$defs/Key" },
+        "issued_at": { "$ref": "../common.schema.json#/$defs/Timestamp" },
+        "expires_at": { "$ref": "../common.schema.json#/$defs/Timestamp" },
+        "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{40,120}$", "description": "ES256 raw r||s, base64url" }
+      }
+    },
+    "pairing.hosts": { "type": "object", "additionalProperties": false, "properties": {} },
+    "pairing.hosts:result": {
+      "type": "object", "additionalProperties": false, "required": ["hosts"],
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["host", "name", "install", "trust", "owner", "key"],
+            "properties": {
+              "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+              "name": { "$ref": "../common.schema.json#/$defs/Name" },
+              "install": { "$ref": "../common.schema.json#/$defs/InstallId" },
+              "trust": { "const": "trusted" },
+              "owner": { "type": "string", "pattern": "^(self|[A-Za-z0-9_]{3,80})$", "description": "\"self\" for this account's Macs, else the owning user id" },
+              "key": { "$ref": "#/$defs/Key" }
+            }
+          }
+        }
+      }
+    },
+    "trust.key.publish": {
+      "type": "object", "additionalProperties": false, "required": ["cert"],
+      "properties": { "cert": { "$ref": "#/$defs/LinkCertificate" }, "host": { "$ref": "../common.schema.json#/$defs/HostId" } }
+    },
+    "trust.key.publish:result": {
+      "type": "object", "additionalProperties": false, "required": ["install", "purpose"],
+      "properties": { "install": { "$ref": "../common.schema.json#/$defs/InstallId" }, "purpose": { "enum": ["direct", "wg"] } }
+    },
+    "pairing.offer": {
+      "type": "object", "additionalProperties": false, "required": ["host", "team"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "team": { "$ref": "#/$defs/TeamId" } }
+    },
+    "pairing.offer:result": {
+      "type": "object", "additionalProperties": false, "required": ["offer", "offer_id", "expires_at", "link"],
+      "properties": {
+        "offer": { "$ref": "#/$defs/OfferCode" },
+        "offer_id": { "$ref": "#/$defs/OfferId" },
+        "expires_at": { "$ref": "../common.schema.json#/$defs/Timestamp" },
+        "link": { "type": "string", "pattern": "^cmux://pair/1\\?", "maxLength": 1024 }
+      }
+    },
+    "pairing.claim": {
+      "type": "object", "additionalProperties": false, "required": ["offer", "host", "host_key"],
+      "properties": { "offer": { "$ref": "#/$defs/OfferCode" }, "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "host_key": { "$ref": "#/$defs/Key" } }
+    },
+    "pairing.claim:result": {
+      "type": "object", "additionalProperties": false, "required": ["status", "offer_id", "host", "team", "name", "owner_user", "host_install", "host_jwk", "host_cert"],
+      "properties": {
+        "status": { "enum": ["trusted", "pending"] },
+        "offer_id": { "$ref": "#/$defs/OfferId" },
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "team": { "$ref": "#/$defs/TeamId" },
+        "name": { "$ref": "../common.schema.json#/$defs/Name" },
+        "owner_user": { "$ref": "#/$defs/UserId" },
+        "host_install": { "$ref": "../common.schema.json#/$defs/InstallId" },
+        "host_jwk": { "$ref": "#/$defs/PublicJwk" },
+        "host_cert": { "$ref": "#/$defs/LinkCertificate" }
+      }
+    },
+    "trust.request.accept": { "type": "object", "additionalProperties": false, "required": ["offer_id"], "properties": { "offer_id": { "$ref": "#/$defs/OfferId" } } },
+    "trust.request.accept:result": {
+      "type": "object", "additionalProperties": false, "required": ["host", "install"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "install": { "$ref": "../common.schema.json#/$defs/InstallId" } }
+    },
+    "trust.request.decline": { "type": "object", "additionalProperties": false, "required": ["offer_id"], "properties": { "offer_id": { "$ref": "#/$defs/OfferId" } } },
+    "trust.request.decline:result": { "type": "object", "additionalProperties": false, "required": ["offer_id"], "properties": { "offer_id": { "$ref": "#/$defs/OfferId" } } },
+    "pairing.revoke": {
+      "type": "object", "additionalProperties": false, "required": ["host", "install"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "install": { "$ref": "../common.schema.json#/$defs/InstallId" } }
+    },
+    "pairing.revoke:result": {
+      "type": "object", "additionalProperties": false, "required": ["host", "install"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "install": { "$ref": "../common.schema.json#/$defs/InstallId" } }
+    },
+    "trust.key.set": {
+      "type": "object", "additionalProperties": false, "required": ["cert", "kind", "name", "platform", "public_jwk"],
+      "properties": {
+        "cert": { "$ref": "#/$defs/LinkCertificate" },
+        "kind": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "name": { "$ref": "../common.schema.json#/$defs/Name" },
+        "platform": { "$ref": "#/$defs/DevicePlatform" },
+        "public_jwk": { "$ref": "#/$defs/PublicJwk" },
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" }
+      }
+    },
+    "trust.install.revoked": {
+      "type": "object", "additionalProperties": false, "required": ["install"],
+      "properties": { "install": { "$ref": "../common.schema.json#/$defs/InstallId" } }
+    },
+    "trust.request.add": {
+      "type": "object", "additionalProperties": false,
+      "required": ["install", "user", "user_name", "name", "platform", "public_jwk", "cert", "offer_id", "host", "host_name", "team", "expires_at"],
+      "properties": {
+        "install": { "$ref": "../common.schema.json#/$defs/InstallId" },
+        "user": { "$ref": "#/$defs/UserId" },
+        "user_name": { "$ref": "../common.schema.json#/$defs/Name" },
+        "name": { "$ref": "../common.schema.json#/$defs/Name" },
+        "platform": { "$ref": "#/$defs/DevicePlatform" },
+        "public_jwk": { "$ref": "#/$defs/PublicJwk" },
+        "cert": { "$ref": "#/$defs/LinkCertificate" },
+        "offer_id": { "$ref": "#/$defs/OfferId" },
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "host_name": { "$ref": "../common.schema.json#/$defs/Name" },
+        "team": { "$ref": "#/$defs/TeamId" },
+        "expires_at": { "$ref": "../common.schema.json#/$defs/Timestamp" }
+      }
+    },
+    "trust.request.remove": { "type": "object", "additionalProperties": false, "required": ["offer_id"], "properties": { "offer_id": { "$ref": "#/$defs/OfferId" } } },
+    "trust.guest.add": {
+      "type": "object", "additionalProperties": false,
+      "required": ["install", "user", "user_name", "name", "platform", "public_jwk", "cert", "offer_id", "host", "team"],
+      "properties": {
+        "install": { "$ref": "../common.schema.json#/$defs/InstallId" },
+        "user": { "$ref": "#/$defs/UserId" },
+        "user_name": { "$ref": "../common.schema.json#/$defs/Name" },
+        "name": { "$ref": "../common.schema.json#/$defs/Name" },
+        "platform": { "$ref": "#/$defs/DevicePlatform" },
+        "public_jwk": { "$ref": "#/$defs/PublicJwk" },
+        "cert": { "$ref": "#/$defs/LinkCertificate" },
+        "offer_id": { "$ref": "#/$defs/OfferId" },
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "team": { "$ref": "#/$defs/TeamId" }
+      }
+    },
+    "trust.guest.remove": {
+      "type": "object", "additionalProperties": false, "required": ["host", "install"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "install": { "$ref": "../common.schema.json#/$defs/InstallId" } }
+    },
+    "trust.remote.add": {
+      "type": "object", "additionalProperties": false,
+      "required": ["host", "team", "owner_user", "name", "host_install", "public_jwk", "cert", "install", "offer_id"],
+      "properties": {
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "team": { "$ref": "#/$defs/TeamId" },
+        "owner_user": { "$ref": "#/$defs/UserId" },
+        "name": { "$ref": "../common.schema.json#/$defs/Name" },
+        "host_install": { "$ref": "../common.schema.json#/$defs/InstallId" },
+        "public_jwk": { "$ref": "#/$defs/PublicJwk" },
+        "cert": { "$ref": "#/$defs/LinkCertificate" },
+        "install": { "$ref": "../common.schema.json#/$defs/InstallId" },
+        "offer_id": { "$ref": "#/$defs/OfferId" }
+      }
+    },
+    "trust.remote.remove": {
+      "type": "object", "additionalProperties": false, "required": ["host", "install"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "install": { "$ref": "../common.schema.json#/$defs/InstallId" } }
+    }
+  }
+}

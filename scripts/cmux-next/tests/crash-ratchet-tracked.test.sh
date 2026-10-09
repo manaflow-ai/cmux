@@ -10,6 +10,9 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 g() { git -C "$tmp" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
 mkdir -p "$tmp/scripts/cmux-next" "$tmp/cmux-tui/crates/x/src" "$tmp/Packages/macOS/CmuxNext/Sources/M"
 cp "$here/crash_ratchet.py" "$tmp/scripts/cmux-next/"
+# Keep the scanner sidecar available in the isolated fixture.  The production
+# script enumerates mobile roots from this file before scanning tracked files.
+cp "$here/mobile-scan-roots.txt" "$tmp/scripts/cmux-next/"
 printf 'pub fn f() {}\n' > "$tmp/cmux-tui/crates/x/src/lib.rs"
 printf 'let a = 1\n' > "$tmp/Packages/macOS/CmuxNext/Sources/M/A.swift"
 printf 'cmux-tui/crates/x/src/gen/\nPackages/macOS/CmuxNext/Sources/M/Gen/\n' > "$tmp/.gitignore"

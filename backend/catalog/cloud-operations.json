@@ -14,6 +14,101 @@
     "connection"
   ],
   "types": {
+    "ActivityId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^act_[A-Za-z0-9]{2,64}$",
+      "description": "A Live Activity, named by the device that started it."
+    },
+    "ActivitySubject": {
+      "kind": "object",
+      "fields": {
+        "host": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "task": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "terminal": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
+      },
+      "description": "What a Live Activity follows: a task or a terminal on one host."
+    },
+    "ActivityTarget": {
+      "kind": "object",
+      "fields": {
+        "activity": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ActivityId"
+          }
+        },
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "push_token": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "PushToken"
+          }
+        },
+        "subject": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ActivitySubject"
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 80
+          }
+        },
+        "started_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "registered_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "One Live Activity's push-to-update registration."
+    },
     "AddressId": {
       "kind": "primitive",
       "name": "string",
@@ -4117,6 +4212,42 @@
         }
       },
       "description": "ES256 (P-256) public key of an install."
+    },
+    "PushPrefs": {
+      "kind": "object",
+      "fields": {
+        "kinds": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "enum",
+              "values": [
+                "permission",
+                "question",
+                "planApproval",
+                "finished",
+                "terminalAlert"
+              ]
+            }
+          }
+        },
+        "sound": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "time_sensitive": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "description": "One device's push preferences."
     },
     "PushTarget": {
       "kind": "object",
@@ -42741,6 +42872,375 @@
         "$defs": {}
       }
     },
+    "notify.activity.end": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "push_target",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "activity": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ActivityId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "activity": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ActivityId"
+                }
+              },
+              "ended": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "The Live Activity ended on the device: stop updating it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "activity": {
+            "$ref": "#/$defs/ActivityId"
+          }
+        },
+        "required": [
+          "activity"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ActivityId": {
+            "type": "string",
+            "pattern": "^act_[A-Za-z0-9]{2,64}$",
+            "description": "A Live Activity, named by the device that started it."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "activity": {
+            "$ref": "#/$defs/ActivityId"
+          },
+          "ended": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "activity",
+          "ended"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ActivityId": {
+            "type": "string",
+            "pattern": "^act_[A-Za-z0-9]{2,64}$",
+            "description": "A Live Activity, named by the device that started it."
+          }
+        }
+      }
+    },
+    "notify.activity.register": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "push_target",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "activity": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ActivityId"
+            }
+          },
+          "push_token": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "PushToken"
+            }
+          },
+          "subject": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ActivitySubject"
+            }
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 80
+            }
+          },
+          "started_at": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ActivityTarget"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Register a Live Activity's push token (a new token for the same activity replaces the old one).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "activity": {
+            "$ref": "#/$defs/ActivityId"
+          },
+          "push_token": {
+            "$ref": "#/$defs/PushToken"
+          },
+          "subject": {
+            "$ref": "#/$defs/ActivitySubject"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "started_at": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "activity",
+          "push_token",
+          "subject"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ActivityId": {
+            "type": "string",
+            "pattern": "^act_[A-Za-z0-9]{2,64}$",
+            "description": "A Live Activity, named by the device that started it."
+          },
+          "PushToken": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32,200}$",
+            "description": "An APNs device token (hex)."
+          },
+          "ActivitySubject": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "task": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "terminal": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "host"
+            ],
+            "additionalProperties": true,
+            "description": "What a Live Activity follows: a task or a terminal on one host."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/ActivityTarget",
+        "$defs": {
+          "ActivityId": {
+            "type": "string",
+            "pattern": "^act_[A-Za-z0-9]{2,64}$",
+            "description": "A Live Activity, named by the device that started it."
+          },
+          "PushToken": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32,200}$",
+            "description": "An APNs device token (hex)."
+          },
+          "ActivitySubject": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "task": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "terminal": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "host"
+            ],
+            "additionalProperties": true,
+            "description": "What a Live Activity follows: a task or a terminal on one host."
+          },
+          "ActivityTarget": {
+            "type": "object",
+            "properties": {
+              "activity": {
+                "$ref": "#/$defs/ActivityId"
+              },
+              "install": {
+                "type": "string"
+              },
+              "push_token": {
+                "$ref": "#/$defs/PushToken"
+              },
+              "subject": {
+                "$ref": "#/$defs/ActivitySubject"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "started_at": {
+                "type": "integer"
+              },
+              "registered_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "activity",
+              "install",
+              "push_token",
+              "subject",
+              "title",
+              "started_at",
+              "registered_at"
+            ],
+            "additionalProperties": true,
+            "description": "One Live Activity's push-to-update registration."
+          }
+        }
+      }
+    },
     "participants.add": {
       "class": "mutation",
       "idempotency": "required",
@@ -43064,6 +43564,143 @@
             ],
             "additionalProperties": true,
             "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
+    "push.prefs.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "push_target",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PushPrefs"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Set the calling iPhone or iPad install's push preferences (kinds, sound, time-sensitive); the feed owner filters by them.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "$ref": "#/$defs/PushPrefs",
+        "$defs": {
+          "PushPrefs": {
+            "type": "object",
+            "properties": {
+              "kinds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "permission",
+                    "question",
+                    "planApproval",
+                    "finished",
+                    "terminalAlert"
+                  ]
+                },
+                "maxItems": 5
+              },
+              "sound": {
+                "type": "boolean"
+              },
+              "time_sensitive": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kinds",
+              "sound",
+              "time_sensitive"
+            ],
+            "additionalProperties": true,
+            "description": "One device's push preferences."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/PushPrefs",
+        "$defs": {
+          "PushPrefs": {
+            "type": "object",
+            "properties": {
+              "kinds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "permission",
+                    "question",
+                    "planApproval",
+                    "finished",
+                    "terminalAlert"
+                  ]
+                },
+                "maxItems": 5
+              },
+              "sound": {
+                "type": "boolean"
+              },
+              "time_sensitive": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kinds",
+              "sound",
+              "time_sensitive"
+            ],
+            "additionalProperties": true,
+            "description": "One device's push preferences."
           }
         }
       }

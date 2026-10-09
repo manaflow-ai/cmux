@@ -6,8 +6,8 @@ import Testing
     @Test func categoriesMatchTheOwnersNames() {
         // backend apnsPayload: FEED_<KIND upper, non-alnum -> _> for requests, FEED_NOTICE for notices.
         #expect(FeedPushCategory(rawValue: "FEED_SIGN_IN") == .signIn)
-        #expect(FeedPushCategory.allCases.count == 8)
-        #expect(Set(FeedPushCategory.allCases.map(\.rawValue)).count == 8)
+        #expect(Set(FeedPushCategory.allCases.map(\.rawValue)).count == FeedPushCategory.allCases.count)
+        #expect(Set(FeedPushAction.allCases.map(\.rawValue)).count == FeedPushAction.allCases.count)
     }
 
     @Test func macOnlyKindsOfferOnlyOpenOnMac() {
@@ -16,7 +16,7 @@ import Testing
             #expect(category.actions.allSatisfy { FeedAnswer(action: $0) == nil })
         }
         #expect(FeedPushCategory.choice.actions.isEmpty)
-        #expect(FeedPushCategory.notice.actions.isEmpty)
+        #expect(FeedPushCategory.notice.actions == [.markRead])
     }
 
     @Test func answersHaveTheOwnersShape() throws {
@@ -39,7 +39,7 @@ import Testing
                                         "cmux": ["feed_item": "fi_1", "kind": "approve", "type": "request"]]
         #expect(FeedPushPayload(userInfo: info) == FeedPushPayload(item: "fi_1", kind: "approve", type: "request", category: .approve))
         #expect(FeedPushPayload(userInfo: ["aps": ["alert": "x"]]) == nil)
-        #expect(FeedPushPayload(userInfo: ["cmux": ["feed_item": "fi_2"], "aps": ["category": "FEED_REVIEW"]])?.category == nil)
+        #expect(FeedPushPayload(userInfo: ["cmux": ["feed_item": "fi_2"], "aps": ["category": "FEED_UNKNOWN"]])?.category == nil)
     }
 
     @Test func opBodiesMatchTheContract() throws {
@@ -68,9 +68,9 @@ import Testing
         let first = FeedPushResponse(actionIdentifier: "FEED_ALLOW", userText: nil, userInfo: info)
         let again = FeedPushResponse(actionIdentifier: "FEED_ALLOW", userText: nil, userInfo: info)
         #expect(first == again)
-        guard case .send(let key) = first else { Issue.record("expected send"); return }
-        #expect(key.idempotencyKey == "feed-answer-fi_9-FEED_ALLOW")
-        #expect(key.answer == .decision(allow: true, scope: nil))
+        guard case .perform(let intent) = first else { Issue.record("expected perform"); return }
+        #expect(intent.idempotencyKey == "feed-push-fi_9-FEED_ALLOW")
+        #expect(intent.change == .answer(.decision(allow: true, scope: nil)))
     }
 
     @Test func tapsAndMacOnlyActionsOpenTheItem() {
@@ -104,9 +104,9 @@ import Testing
 
     @Test func differentRepliesGetDifferentKeys() {
         let info: [AnyHashable: Any] = ["aps": ["category": "FEED_QUESTION"], "cmux": ["feed_item": "fi_q"]]
-        guard case .send(let a) = FeedPushResponse(actionIdentifier: "FEED_REPLY", userText: "yes", userInfo: info),
-              case .send(let b) = FeedPushResponse(actionIdentifier: "FEED_REPLY", userText: "no", userInfo: info) else {
-            Issue.record("expected sends"); return
+        guard case .perform(let a) = FeedPushResponse(actionIdentifier: "FEED_REPLY", userText: "yes", userInfo: info),
+              case .perform(let b) = FeedPushResponse(actionIdentifier: "FEED_REPLY", userText: "no", userInfo: info) else {
+            Issue.record("expected performs"); return
         }
         #expect(a.idempotencyKey != b.idempotencyKey)
     }

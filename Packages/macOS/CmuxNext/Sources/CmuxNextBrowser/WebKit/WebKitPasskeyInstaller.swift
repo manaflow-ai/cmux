@@ -41,10 +41,20 @@ final class WeakPasskeyReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
 
     init(_ tab: WebKitTab) { self.tab = tab }
 
+    // Completion-handler form: Xcode 26.6's compiler crashes emitting the ObjC
+    // thunk for async delegate methods.
     @MainActor
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
-        guard let tab else { return (WebKitPasskeyAuthorization.State.notDetermined.rawValue, nil) }
-        let answer = await WebKitPasskeyInstaller.answer(tab, frameOrigin: message.frameInfo.securityOrigin, isMainFrame: message.frameInfo.isMainFrame)
-        return (answer, nil)
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
+                               replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
+        guard let tab else {
+            replyHandler(WebKitPasskeyAuthorization.State.notDetermined.rawValue, nil)
+            return
+        }
+        let frameOrigin = message.frameInfo.securityOrigin
+        let isMainFrame = message.frameInfo.isMainFrame
+        Task { @MainActor in
+            let answer = await WebKitPasskeyInstaller.answer(tab, frameOrigin: frameOrigin, isMainFrame: isMainFrame)
+            replyHandler(answer, nil)
+        }
     }
 }

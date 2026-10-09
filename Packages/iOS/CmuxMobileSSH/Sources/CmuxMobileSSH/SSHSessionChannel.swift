@@ -78,6 +78,12 @@ public final class SSHSessionChannel: Sendable {
 /// Pipeline handler that turns SSH channel traffic into ``SSHSessionEvent``s
 /// and resolves channel request replies in order.
 final class SSHSessionChannelHandler: ChannelDuplexHandler, @unchecked Sendable {
+    /// Maximum number of output events retained while the session consumer is
+    /// stalled. Oldest-first buffering preserves terminal byte order; once the
+    /// queue is full the session is refused and closed rather than dropping
+    /// output silently.
+    static let eventBufferLimit = 256
+
     typealias InboundIn = SSHChannelData
     typealias OutboundIn = SSHChannelData
     typealias OutboundOut = SSHChannelData
@@ -85,6 +91,7 @@ final class SSHSessionChannelHandler: ChannelDuplexHandler, @unchecked Sendable 
     private let continuation: AsyncStream<SSHSessionEvent>.Continuation
     private var pendingReplies: [EventLoopPromise<Void>] = []
     private var finished = false
+    private var overflowed = false
 
     init(continuation: AsyncStream<SSHSessionEvent>.Continuation) {
         self.continuation = continuation
@@ -115,8 +122,8 @@ final class SSHSessionChannelHandler: ChannelDuplexHandler, @unchecked Sendable 
         guard case .byteBuffer(var buffer) = message.data,
               let bytes = buffer.readBytes(length: buffer.readableBytes) else { return }
         switch message.type {
-        case .channel: continuation.yield(.stdout(Data(bytes)))
-        case .stdErr: continuation.yield(.stderr(Data(bytes)))
+        case .channel: emit(.stdout(Data(bytes)), context: context)
+        case .stdErr: emit(.stderr(Data(bytes)), context: context)
         default: break
         }
     }
@@ -128,9 +135,9 @@ final class SSHSessionChannelHandler: ChannelDuplexHandler, @unchecked Sendable 
         case is ChannelFailureEvent:
             if !pendingReplies.isEmpty { pendingReplies.removeFirst().fail(ChannelFailureMarker()) }
         case let status as SSHChannelRequestEvent.ExitStatus:
-            continuation.yield(.exitStatus(status.exitStatus))
+            emit(.exitStatus(status.exitStatus), context: context)
         case let signal as SSHChannelRequestEvent.ExitSignal:
-            continuation.yield(.exitSignal(signal.signalName))
+            emit(.exitSignal(signal.signalName), context: context)
         case ChannelEvent.inputClosed:
             break
         default:
@@ -151,12 +158,33 @@ final class SSHSessionChannelHandler: ChannelDuplexHandler, @unchecked Sendable 
         finish()
     }
 
+    private func emit(_ event: SSHSessionEvent, context: ChannelHandlerContext) {
+        guard !finished, !overflowed else { return }
+        switch continuation.yield(event) {
+        case .enqueued:
+            break
+        case .dropped:
+            // Oldest-first buffering intentionally refuses a session whose
+            // consumer cannot keep up. Closing the channel applies transport
+            // backpressure without silently losing terminal bytes.
+            overflowed = true
+            continuation.finish()
+            context.close(promise: nil)
+        case .terminated:
+            context.close(promise: nil)
+        @unknown default:
+            context.close(promise: nil)
+        }
+    }
+
     private func finish() {
         guard !finished else { return }
         finished = true
         for promise in pendingReplies { promise.fail(SSHConnectionError.closed) }
         pendingReplies.removeAll()
-        continuation.yield(.closed)
+        // A full queue has already terminated without a synthetic `.closed`
+        // marker; adding one could itself be dropped and obscure the refusal.
+        if !overflowed { continuation.yield(.closed) }
         continuation.finish()
     }
 }

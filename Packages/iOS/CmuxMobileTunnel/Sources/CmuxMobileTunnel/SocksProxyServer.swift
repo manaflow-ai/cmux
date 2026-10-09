@@ -5,19 +5,23 @@ import NIOTransportServices
 /// A SOCKS5 proxy on the phone's loopback whose connections are opened by a
 /// `SocksConnectBackend` at its exit point (an SSH server, a paired Mac).
 ///
-/// Implements RFC 1928 with the no-authentication method and `CONNECT`
-/// only (IPv4, IPv6, and domain-name address types). The host is passed to
-/// the backend as sent, so domain names resolve at the exit.
+/// Implements RFC 1928 with `CONNECT` only (IPv4, IPv6, and domain-name
+/// address types). By default it offers no authentication; callers that bind
+/// on a shared loopback must pass a ``SocksCredential`` to require RFC 1929
+/// username/password authentication. The host is passed to the backend as
+/// sent, so domain names resolve at the exit.
 public final class SocksProxyServer: Sendable {
     /// The bound loopback port.
     public let port: Int
     private let listener: any Channel
     private let relays: TunnelTaskSet
+    private let lifecycle: SocksProxyLifecycle
 
-    private init(port: Int, listener: any Channel, relays: TunnelTaskSet) {
+    private init(port: Int, listener: any Channel, relays: TunnelTaskSet, lifecycle: SocksProxyLifecycle) {
         self.port = port
         self.listener = listener
         self.relays = relays
+        self.lifecycle = lifecycle
     }
 
     /// Starts the proxy on `127.0.0.1:<port>` (`0` picks a free port).
@@ -28,14 +32,22 @@ public final class SocksProxyServer: Sendable {
         backend: any SocksConnectBackend,
         port: Int = 0,
         maximumConnections: Int = 256,
+        credential: SocksCredential? = nil,
         onConnect: (@Sendable (String, Int) -> Void)? = nil
     ) async throws -> SocksProxyServer {
         let relays = TunnelTaskSet(limit: maximumConnections)
+        let lifecycle = SocksProxyLifecycle()
         let listener = try await NIOTSListenerBootstrap(group: NIOTSEventLoopGroup.singleton)
             .childChannelInitializer { inbound in
-                inbound.eventLoop.makeCompletedFuture {
+                guard lifecycle.register(inbound) else {
+                    return inbound.eventLoop.makeCompletedFuture {
+                        inbound.close(promise: nil)
+                    }
+                }
+                return inbound.eventLoop.makeCompletedFuture {
                     try inbound.pipeline.syncOperations.addHandler(
-                        SocksHandshakeHandler(backend: backend, relays: relays, onConnect: onConnect)
+                        SocksHandshakeHandler(backend: backend, relays: relays, lifecycle: lifecycle,
+                                             credential: credential, onConnect: onConnect)
                     )
                 }
             }
@@ -47,7 +59,7 @@ public final class SocksProxyServer: Sendable {
             try? await listener.close()
             throw TunnelOpenError.generalFailure
         }
-        return SocksProxyServer(port: bound, listener: listener, relays: relays)
+        return SocksProxyServer(port: bound, listener: listener, relays: relays, lifecycle: lifecycle)
     }
 
     /// Whether the listener still accepts (iOS can invalidate listeners of a
@@ -61,8 +73,68 @@ public final class SocksProxyServer: Sendable {
 
     /// Stops accepting and aborts every open tunnel.
     public func stop() async {
+        await lifecycle.stop()
         try? await listener.close()
         await relays.cancelAll()
+    }
+}
+
+/// Shared lifecycle state for a proxy listener and all of its child channels.
+///
+/// The listener can be closed while an accepted channel is still in the
+/// SOCKS handshake. Keep those channels in the same stop domain so stopping a
+/// route cannot leave a handshake alive long enough to open a new backend
+/// connection. This is deliberately lock-based: child-channel initialization
+/// happens on an NIO event loop while `stop()` runs from an async caller.
+final class SocksProxyLifecycle: @unchecked Sendable {
+    // lint:allow: the NIO event loop and async stop caller share this small lifecycle gate.
+    private let lock = NSLock()
+    private var stopped = false
+    private var channels: [ObjectIdentifier: any Channel] = [:]
+
+    /// Registers an accepted child. Returns false when stop has already begun.
+    @discardableResult
+    func register(_ channel: any Channel) -> Bool {
+        lock.lock()
+        guard !stopped else {
+            lock.unlock()
+            channel.close(promise: nil)
+            return false
+        }
+        channels[ObjectIdentifier(channel)] = channel
+        lock.unlock()
+        return true
+    }
+
+    func unregister(_ channel: any Channel) {
+        lock.lock()
+        channels[ObjectIdentifier(channel)] = nil
+        lock.unlock()
+    }
+
+    var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    /// Marks the listener stopped and closes every handshake channel that was
+    /// accepted before the stop. New child channels are rejected by register.
+    func stop() async {
+        let channels = takeStopChannels()
+
+        for channel in channels {
+            try? await channel.close().get()
+        }
+    }
+
+    private func takeStopChannels() -> [any Channel] {
+        lock.lock()
+        stopped = true
+        let channels = Array(self.channels.values)
+        self.channels.removeAll()
+        lock.unlock()
+        return channels
     }
 }
 
@@ -73,17 +145,23 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
-    private enum State { case greeting, request, connecting, done }
+    private enum State { case greeting, authentication, request, connecting, done }
 
     private let backend: any SocksConnectBackend
     private let relays: TunnelTaskSet
+    private let lifecycle: SocksProxyLifecycle
+    private let credential: SocksCredential?
     private let onConnect: (@Sendable (String, Int) -> Void)?
     private var state = State.greeting
     private var pending: [UInt8] = []
 
-    init(backend: any SocksConnectBackend, relays: TunnelTaskSet, onConnect: (@Sendable (String, Int) -> Void)?) {
+    init(backend: any SocksConnectBackend, relays: TunnelTaskSet, lifecycle: SocksProxyLifecycle,
+         credential: SocksCredential?,
+         onConnect: (@Sendable (String, Int) -> Void)?) {
         self.backend = backend
         self.relays = relays
+        self.lifecycle = lifecycle
+        self.credential = credential
         self.onConnect = onConnect
     }
 
@@ -105,7 +183,12 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
 
     func channelReadComplete(context: ChannelHandlerContext) {
         // Keep pulling until the request is complete.
-        if state == .greeting || state == .request { context.read() }
+        if state == .greeting || state == .authentication || state == .request { context.read() }
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        lifecycle.unregister(context.channel)
+        context.fireChannelInactive()
     }
 
     private func advance(context: ChannelHandlerContext) {
@@ -115,11 +198,44 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
             case .needMoreData:
                 return
             case .greeting(let acceptsNoAuth, let consumed):
+                let offeredMethods = pendingGreetingMethods(consumed: consumed)
                 pending.removeFirst(consumed)
                 var reply = context.channel.allocator.buffer(capacity: 2)
-                // 0xFF: no acceptable method (only no-auth is offered).
-                reply.writeBytes([0x05, acceptsNoAuth ? 0x00 : 0xFF])
-                guard acceptsNoAuth else {
+                // A credentialed route must not silently downgrade to
+                // unauthenticated SOCKS. Select RFC 1929 (0x02) when the
+                // client offered it; no-auth routes retain the old 0x00 path.
+                let method: UInt8
+                if credential != nil {
+                    let offeredUserPassword = offeredMethods.contains(0x02)
+                    method = offeredUserPassword ? 0x02 : 0xFF
+                    if offeredUserPassword { state = .authentication }
+                } else {
+                    method = acceptsNoAuth ? 0x00 : 0xFF
+                    if method == 0x00 { state = .request }
+                }
+                reply.writeBytes([0x05, method])
+                guard method != 0xFF else {
+                    state = .done
+                    let channel = context.channel
+                    context.writeAndFlush(wrapOutboundOut(reply)).whenComplete { _ in channel.close(promise: nil) }
+                    return
+                }
+                context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+                advance(context: context)
+            default:
+                state = .done
+                context.close(promise: nil)
+            }
+        case .authentication:
+            switch SocksParse.authentication(pending) {
+            case .needMoreData:
+                return
+            case .authentication(let username, let password, let consumed):
+                pending.removeFirst(consumed)
+                let accepted = credential?.matches(username: username, password: password) == true
+                var reply = context.channel.allocator.buffer(capacity: 2)
+                reply.writeBytes([0x01, accepted ? 0x00 : 0x01])
+                guard accepted else {
                     state = .done
                     let channel = context.channel
                     context.writeAndFlush(wrapOutboundOut(reply)).whenComplete { _ in channel.close(promise: nil) }
@@ -156,8 +272,13 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
         let channel = context.channel
         let backend = backend
         let relays = relays
+        let lifecycle = lifecycle
         let handler = UncheckedSendableBox(self)
         let body: @Sendable () async -> Void = { [pendingAtOpen = pending] in
+            guard !lifecycle.isStopped else {
+                try? await channel.close().get()
+                return
+            }
             let exit: any TunnelByteStream
             do {
                 exit = try await backend.open(host: host, port: port)
@@ -166,15 +287,24 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
                 _ = try? await channel.eventLoop.submit { handler.value.fail(reply, channel: channel) }.get()
                 return
             }
+            guard !lifecycle.isStopped else {
+                await exit.close()
+                try? await channel.close().get()
+                return
+            }
             // Reply, then swap the handshake handler for the byte adapter;
             // the success reply is queued ahead of any relayed byte.
             let inbound: NIOChannelByteStream
             do {
                 inbound = try await channel.eventLoop.submit { () throws -> NIOChannelByteStream in
+                    guard !lifecycle.isStopped, channel.isActive else {
+                        throw TunnelOpenError.unavailable
+                    }
                     handler.value.state = .done
                     let reply = SocksReply.succeeded.message(allocator: channel.allocator)
                     channel.writeAndFlush(reply, promise: nil)
                     let stream = try NIOChannelByteStream.installSync(on: channel, leftover: pendingAtOpen)
+                    lifecycle.unregister(channel)
                     channel.pipeline.removeHandler(handler.value, promise: nil)
                     return stream
                 }.get()
@@ -201,6 +331,14 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
 
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
         context.close(promise: nil)
+    }
+
+    /// `SocksParse.greeting` returns only whether no-auth was offered. Keep
+    /// the raw method list locally so a credentialed listener can select 0x02
+    /// without changing the public parse result used by existing callers.
+    private func pendingGreetingMethods(consumed: Int) -> ArraySlice<UInt8> {
+        guard consumed >= 2, pending.count >= consumed else { return [] }
+        return pending[2..<consumed]
     }
 }
 

@@ -17,6 +17,9 @@
          location = "group:CmuxAgentCursor">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentQuestion">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
@@ -24,6 +27,12 @@
       </FileRef>
       <FileRef
          location = "group:CmuxAuthRuntime">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxBrowserStream">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxControlPlane">
       </FileRef>
       <FileRef
          location = "group:CmuxFeedPushCore">
@@ -47,7 +56,46 @@
          location = "group:CmuxIrxTransport">
       </FileRef>
       <FileRef
+         location = "group:CmuxLink">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxLinkBench">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxLinkDirect">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxLinkWebRTC">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxLinkWG">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMessagesLab">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileConnect">
+      </FileRef>
+      <FileRef
          location = "group:CMUXMobileCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileFiles">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileHost">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileLink">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileWire">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxPairing">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxRemoteDesktop">
       </FileRef>
       <FileRef
          location = "group:CmuxSentryTelemetry">
@@ -57,6 +105,12 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalClient">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalLink">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalRenderCore">
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalSizing">

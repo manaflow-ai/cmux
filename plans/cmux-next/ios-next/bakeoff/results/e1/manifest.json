@@ -1,0 +1,65 @@
+{
+  "schema": "cmux-link-bench-manifest/1",
+  "name": "e1-backpressure",
+  "sourceCommit": "2aebd498cad8d5ed63df5c0f48026d0028e93234",
+  "recordedAt": "2026-10-07",
+  "description": "E1 bounded-ingress measurements used by the D2 back-pressure note.",
+  "results": [
+    {
+      "path": "v1-webrtc.json",
+      "group": "v1-webrtc-e1",
+      "role": "full-session"
+    },
+    {
+      "path": "v1-raw-r1.json",
+      "group": "v1-raw-e1",
+      "run": 1,
+      "role": "raw-transport"
+    },
+    {
+      "path": "v1-raw-r2.json",
+      "group": "v1-raw-e1",
+      "run": 2,
+      "role": "raw-transport"
+    },
+    {
+      "path": "v1-raw-r3.json",
+      "group": "v1-raw-e1",
+      "run": 3,
+      "role": "raw-transport"
+    },
+    {
+      "path": "v1-raw-inbox-only-r1.json",
+      "group": "v1-raw-inbox-only-e1",
+      "run": 1,
+      "role": "raw-transport-inbox-only"
+    },
+    {
+      "path": "v1-raw-inbox-only-r2.json",
+      "group": "v1-raw-inbox-only-e1",
+      "run": 2,
+      "role": "raw-transport-inbox-only"
+    },
+    {
+      "path": "v1-raw-inbox-only-r3.json",
+      "group": "v1-raw-inbox-only-e1",
+      "run": 3,
+      "role": "raw-transport-inbox-only"
+    },
+    {
+      "path": "v2-webrtc-raw-bulk.json",
+      "group": "v2-webrtc-raw-e1",
+      "role": "raw-transport"
+    },
+    {
+      "path": "v2-mem-raw-bulk.json",
+      "group": "v2-mem-raw-e1",
+      "role": "raw-transport"
+    },
+    {
+      "path": "v3-direct-raw-bulk.json",
+      "group": "v3-direct-raw-e1",
+      "role": "raw-transport"
+    }
+  ]
+}

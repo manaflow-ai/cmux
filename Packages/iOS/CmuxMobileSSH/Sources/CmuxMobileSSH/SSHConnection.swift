@@ -49,12 +49,15 @@ public actor SSHConnection {
     /// - Parameters:
     ///   - via: an already-open connection to tunnel through (jump host).
     ///   - connectTimeout: TCP + handshake budget.
+    ///   - keepalive: kernel TCP keepalive for a direct transport; ignored
+    ///     when tunneling through `via` (the jump's transport carries it).
     public static func connect(
         to endpoint: SSHEndpoint,
         credentials: [SSHCredential],
         hostKeyVerifier: any SSHHostKeyVerifier,
         via jump: SSHConnection? = nil,
-        connectTimeout: TimeAmount = .seconds(15)
+        connectTimeout: TimeAmount = .seconds(15),
+        keepalive: SSHKeepalive? = nil
     ) async throws -> SSHConnection {
         let authDelegate = SSHCredentialAuthDelegate(username: endpoint.username, credentials: credentials)
 
@@ -91,9 +94,17 @@ public actor SSHConnection {
                     child.pipeline.addHandler(SSHChannelDataUnwrapper()).flatMap { installSSH(child) }
                 }
             } else {
-                channel = try await NIOTSConnectionBootstrap(group: eventLoop)
+                var bootstrap = NIOTSConnectionBootstrap(group: eventLoop)
                     .connectTimeout(connectTimeout)
                     .channelOption(NIOTSChannelOptions.waitForActivity, value: false)
+                if let keepalive {
+                    bootstrap = bootstrap
+                        .channelOption(ChannelOptions.socketOption(.so_keepalive), value: 1)
+                        .channelOption(ChannelOptions.Types.SocketOption(level: IPPROTO_TCP, name: TCP_KEEPALIVE), value: Int32(keepalive.idleSeconds))
+                        .channelOption(ChannelOptions.Types.SocketOption(level: IPPROTO_TCP, name: TCP_KEEPINTVL), value: Int32(keepalive.intervalSeconds))
+                        .channelOption(ChannelOptions.Types.SocketOption(level: IPPROTO_TCP, name: TCP_KEEPCNT), value: Int32(keepalive.probeCount))
+                }
+                channel = try await bootstrap
                     .channelInitializer(installSSH)
                     .connect(host: endpoint.host, port: endpoint.port)
                     .get()
@@ -137,7 +148,12 @@ public actor SSHConnection {
         environment: [String: String] = [:],
         start: SSHSessionStart
     ) async throws -> SSHSessionChannel {
-        let (stream, continuation) = AsyncStream<SSHSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        // Session output is network ingress. Keep a finite oldest-first queue so a
+        // stalled reader cannot retain an unbounded transcript. The channel handler
+        // closes the session when this queue fills instead of dropping bytes.
+        let (stream, continuation) = AsyncStream<SSHSessionEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(SSHSessionChannelHandler.eventBufferLimit)
+        )
         let sessionHandler = SSHSessionChannelHandler(continuation: continuation)
         let child = try await createChannel(type: .session) { child in
             child.pipeline.addHandler(sessionHandler)
@@ -194,16 +210,44 @@ public actor SSHConnection {
             try await session.sendEOF()
         }
         var result = SSHExecResult(stdout: Data(), stderr: Data(), exitStatus: nil)
+        var closed = false
         for await event in session.events {
             switch event {
-            case .stdout(let data): result.stdout.append(data)
-            case .stderr(let data): result.stderr.append(data)
+            case .stdout(let data):
+                do {
+                    try Self.append(data, to: &result.stdout)
+                } catch {
+                    await session.close()
+                    throw error
+                }
+            case .stderr(let data):
+                do {
+                    try Self.append(data, to: &result.stderr)
+                } catch {
+                    await session.close()
+                    throw error
+                }
             case .exitStatus(let status): result.exitStatus = status
             case .exitSignal: result.exitStatus = result.exitStatus ?? -1
-            case .closed: break
+            case .closed: closed = true
             }
         }
+        // A bounded ingress refusal finishes without the normal close marker.
+        // Never return a partial command result as if the remote command ended.
+        guard closed else { throw SSHConnectionError.closed }
         return result
+    }
+
+    /// Commands are used for discovery and small control operations. Keep a
+    /// finite transcript even when the consumer drains promptly, so a hostile
+    /// command cannot grow memory without bound.
+    private static let maximumExecOutputBytes = 4 * 1024 * 1024
+
+    private static func append(_ data: Data, to output: inout Data) throws {
+        guard data.count <= maximumExecOutputBytes - output.count else {
+            throw SSHConnectionError.outputLimitExceeded
+        }
+        output.append(data)
     }
 
     // MARK: - Forwarding

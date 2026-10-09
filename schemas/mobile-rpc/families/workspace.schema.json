@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/workspace.schema.json",
+  "title": "cmux.mobile/1 workspace family (control; owner the Mac workspace store, mirrored by HostDO; stream workspace:<host>)",
+  "description": "Arrangement only. Selection, focus and scroll are client view state and never on the wire.",
+  "$defs": {
+    "workspace:state": {
+      "type": "object", "additionalProperties": false, "required": ["host", "workspaces"],
+      "properties": {
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "workspaces": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/Workspace" } },
+        "groups": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/WorkspaceGroup" } }
+      }
+    },
+    "workspace.upsert": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/Workspace" } } },
+    "workspace.remove": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } },
+    "workspace.tab.upsert": {
+      "type": "object", "additionalProperties": false, "required": ["workspace", "pane", "index", "tab"],
+      "properties": {
+        "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" },
+        "pane": { "$ref": "../common.schema.json#/$defs/PaneId" },
+        "index": { "type": "integer", "minimum": 0 },
+        "tab": { "$ref": "../common.schema.json#/$defs/Tab" }
+      }
+    },
+    "workspace.tab.remove": { "type": "object", "additionalProperties": false, "required": ["tab"], "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" } } },
+    "workspace.status.set": {
+      "type": "object", "additionalProperties": false, "required": ["tab", "status", "unread"],
+      "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" }, "status": { "$ref": "../common.schema.json#/$defs/TabStatus" }, "unread": { "type": "integer", "minimum": 0 } }
+    },
+    "workspace.create": {
+      "type": "object", "additionalProperties": false, "required": ["host"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "name": { "$ref": "../common.schema.json#/$defs/Name" }, "cwd": { "type": "string", "maxLength": 4096 } }
+    },
+    "workspace.create:result": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } },
+    "workspace.rename": {
+      "type": "object", "additionalProperties": false, "required": ["workspace", "name"],
+      "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" }, "name": { "$ref": "../common.schema.json#/$defs/Name" } }
+    },
+    "workspace.tab.create": {
+      "type": "object", "additionalProperties": false, "required": ["workspace", "kind"],
+      "properties": {
+        "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" },
+        "pane": { "$ref": "../common.schema.json#/$defs/PaneId" },
+        "kind": { "enum": ["terminal", "browser"] },
+        "cwd": { "type": "string", "maxLength": 4096 },
+        "url": { "type": "string", "maxLength": 4096 }
+      }
+    },
+    "workspace.tab.create:result": { "type": "object", "additionalProperties": false, "required": ["tab"], "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" }, "terminal": { "$ref": "../common.schema.json#/$defs/TerminalId" } } },
+    "workspace.tab.close": { "type": "object", "additionalProperties": false, "required": ["tab"], "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" } } },
+    "workspace.preview.set": {
+      "type": "object", "additionalProperties": false, "required": ["tab", "preview"],
+      "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" }, "preview": { "type": "string", "maxLength": 400 } }
+    },
+    "workspace.close": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } },
+    "workspace.read": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } },
+    "workspace.groups.set": {
+      "type": "object", "additionalProperties": false, "required": ["groups"],
+      "properties": { "groups": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/WorkspaceGroup" } } }
+    },
+    "workspace.move": {
+      "type": "object", "additionalProperties": false, "required": ["workspace", "index"],
+      "description": "group absent keeps the workspace's group, null ungroups; index is the final position among the destination section's other members (clamped)",
+      "properties": {
+        "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" },
+        "group": { "oneOf": [{ "$ref": "../common.schema.json#/$defs/WorkspaceGroupId" }, { "type": "null" }] },
+        "index": { "type": "integer", "minimum": 0, "maximum": 100000 }
+      }
+    },
+    "workspace.group.rename": {
+      "type": "object", "additionalProperties": false, "required": ["group", "name"],
+      "properties": { "group": { "$ref": "../common.schema.json#/$defs/WorkspaceGroupId" }, "name": { "$ref": "../common.schema.json#/$defs/Name" } }
+    },
+    "workspace.customize": {
+      "type": "object", "additionalProperties": false, "required": ["workspace"],
+      "description": "absent leaves a field unchanged, null clears it; names change through workspace.rename",
+      "properties": {
+        "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" },
+        "color": { "oneOf": [{ "$ref": "../common.schema.json#/$defs/WorkspaceColor" }, { "type": "null" }] },
+        "icon": { "oneOf": [{ "$ref": "../common.schema.json#/$defs/WorkspaceIcon" }, { "type": "null" }] }
+      }
+    }
+  }
+}

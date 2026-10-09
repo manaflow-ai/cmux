@@ -1,0 +1,309 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "envelope.schema.json",
+  "title": "cmux.mobile/1 JSON frame",
+  "description": "Every JSON frame of cmux.mobile/1 (a0-rpc.md section 2). Control-plane frames are cmux.wire/1 (backend/packages/ownership/src/types.ts); hello, hello.ok, read, read.result, signal and channel.* are new. Params of op, read, event and channel frames are checked per message by families/<family>.schema.json. Stream-plane channel messages (JSON records with t = a catalog message name) are checked by their family schema only.",
+  "oneOf": [
+    { "$ref": "#/$defs/Hello" },
+    { "$ref": "#/$defs/HelloOk" },
+    { "$ref": "#/$defs/Welcome" },
+    { "$ref": "#/$defs/Subscribe" },
+    { "$ref": "#/$defs/Unsubscribe" },
+    { "$ref": "#/$defs/SnapshotRequest" },
+    { "$ref": "#/$defs/Op" },
+    { "$ref": "#/$defs/Read" },
+    { "$ref": "#/$defs/ReadResult" },
+    { "$ref": "#/$defs/Result" },
+    { "$ref": "#/$defs/Reject" },
+    { "$ref": "#/$defs/Settled" },
+    { "$ref": "#/$defs/Event" },
+    { "$ref": "#/$defs/Snapshot" },
+    { "$ref": "#/$defs/PresenceSet" },
+    { "$ref": "#/$defs/Signal" },
+    { "$ref": "#/$defs/Error" },
+    { "$ref": "#/$defs/ChannelOpen" },
+    { "$ref": "#/$defs/ChannelOpened" },
+    { "$ref": "#/$defs/ChannelRefused" },
+    { "$ref": "#/$defs/ChannelClose" },
+    { "$ref": "#/$defs/ChannelClosed" }
+  ],
+  "$defs": {
+    "Hello": {
+      "type": "object",
+      "required": ["t", "proto", "min", "max", "caps", "client"],
+      "properties": {
+        "t": { "const": "hello" },
+        "proto": { "const": "cmux.mobile/1" },
+        "min": { "type": "integer", "minimum": 1 },
+        "max": { "type": "integer", "minimum": 1 },
+        "caps": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/Capability" } },
+        "client": {
+          "type": "object",
+          "required": ["install", "platform", "app_version"],
+          "properties": {
+            "install": { "$ref": "common.schema.json#/$defs/InstallId" },
+            "platform": { "$ref": "common.schema.json#/$defs/Platform" },
+            "app_version": { "type": "string", "maxLength": 64 },
+            "build": { "type": "string", "maxLength": 64 }
+          }
+        },
+        "resume": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["stream", "seq"],
+            "properties": { "stream": { "$ref": "common.schema.json#/$defs/StreamId" }, "seq": { "$ref": "common.schema.json#/$defs/Seq" } }
+          }
+        }
+      }
+    },
+    "HelloOk": {
+      "type": "object",
+      "required": ["t", "proto", "version", "caps", "server_time", "max_frame"],
+      "properties": {
+        "t": { "const": "hello.ok" },
+        "proto": { "const": "cmux.mobile/1" },
+        "version": { "type": "integer", "minimum": 1 },
+        "caps": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/Capability" } },
+        "server_time": { "$ref": "common.schema.json#/$defs/Timestamp" },
+        "max_frame": { "type": "integer", "minimum": 1024 }
+      }
+    },
+    "Welcome": {
+      "type": "object",
+      "required": ["t", "principal", "server_time"],
+      "properties": {
+        "t": { "const": "welcome" },
+        "principal": { "type": "object", "properties": { "user": { "type": "string" }, "team": { "type": "string" }, "install": { "type": "string" } } },
+        "server_time": { "$ref": "common.schema.json#/$defs/Timestamp" },
+        "streams": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "Subscribe": {
+      "type": "object",
+      "required": ["t"],
+      "properties": {
+        "t": { "const": "subscribe" },
+        "stream": { "$ref": "common.schema.json#/$defs/StreamId" },
+        "after_seq": { "$ref": "common.schema.json#/$defs/Seq" },
+        "pending": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/IdempotencyKey" } },
+        "epoch": { "$ref": "common.schema.json#/$defs/Epoch" }
+      }
+    },
+    "Unsubscribe": {
+      "type": "object",
+      "required": ["t"],
+      "properties": { "t": { "const": "unsubscribe" }, "stream": { "$ref": "common.schema.json#/$defs/StreamId" } }
+    },
+    "SnapshotRequest": {
+      "type": "object",
+      "required": ["t"],
+      "properties": {
+        "t": { "const": "snapshot.request" },
+        "stream": { "$ref": "common.schema.json#/$defs/StreamId" },
+        "pending": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/IdempotencyKey" } }
+      }
+    },
+    "Op": {
+      "type": "object",
+      "required": ["t", "op", "params", "idempotency_key"],
+      "properties": {
+        "t": { "const": "op" },
+        "op": { "type": "string" },
+        "params": {},
+        "idempotency_key": { "$ref": "common.schema.json#/$defs/IdempotencyKey" },
+        "origin": { "$ref": "common.schema.json#/$defs/Origin" },
+        "expected_revision": { "$ref": "common.schema.json#/$defs/Revision" },
+        "stream": { "$ref": "common.schema.json#/$defs/StreamId" }
+      }
+    },
+    "Read": {
+      "type": "object",
+      "required": ["t", "id", "op", "params"],
+      "properties": {
+        "t": { "const": "read" },
+        "id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "op": { "type": "string" },
+        "params": {},
+        "stream": { "$ref": "common.schema.json#/$defs/StreamId" }
+      }
+    },
+    "ReadResult": {
+      "type": "object",
+      "required": ["t", "id", "value", "revision"],
+      "properties": {
+        "t": { "const": "read.result" },
+        "id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "value": {},
+        "revision": { "$ref": "common.schema.json#/$defs/Revision" }
+      }
+    },
+    "Result": {
+      "type": "object",
+      "required": ["t", "tx", "idempotency_key", "value", "revision", "replayed"],
+      "properties": {
+        "t": { "const": "result" },
+        "tx": { "type": "string" },
+        "idempotency_key": { "$ref": "common.schema.json#/$defs/IdempotencyKey" },
+        "value": {},
+        "revision": { "$ref": "common.schema.json#/$defs/Revision" },
+        "replayed": { "type": "boolean" }
+      }
+    },
+    "Reject": {
+      "type": "object",
+      "required": ["t", "tx", "idempotency_key", "code", "message", "retryable", "replayed"],
+      "properties": {
+        "t": { "const": "reject" },
+        "tx": { "type": "string" },
+        "idempotency_key": { "type": "string" },
+        "code": { "$ref": "common.schema.json#/$defs/ErrorCode" },
+        "message": { "type": "string" },
+        "details": {},
+        "retryable": { "type": "boolean" },
+        "replayed": { "type": "boolean" }
+      }
+    },
+    "Settled": {
+      "type": "object",
+      "required": ["t", "tx", "idempotency_key", "stream", "sequence", "ok"],
+      "properties": {
+        "t": { "const": "request-settled" },
+        "tx": { "type": "string" },
+        "idempotency_key": { "type": "string" },
+        "stream": { "type": "string" },
+        "sequence": { "$ref": "common.schema.json#/$defs/Seq" },
+        "ok": { "type": "boolean" }
+      }
+    },
+    "Event": {
+      "type": "object",
+      "required": ["t", "stream", "seq", "tx", "op", "params", "actor", "origin", "at"],
+      "properties": {
+        "t": { "const": "event" },
+        "stream": { "$ref": "common.schema.json#/$defs/StreamId" },
+        "seq": { "$ref": "common.schema.json#/$defs/Seq" },
+        "tx": { "type": "string" },
+        "op": { "type": "string" },
+        "params": {},
+        "actor": { "type": "object", "required": ["identity"], "properties": { "identity": { "type": "string" } } },
+        "origin": { "$ref": "common.schema.json#/$defs/Origin" },
+        "at": { "$ref": "common.schema.json#/$defs/Timestamp" },
+        "effects": {},
+        "epoch": { "$ref": "common.schema.json#/$defs/Epoch" }
+      }
+    },
+    "Snapshot": {
+      "type": "object",
+      "required": ["t", "stream", "seq", "state", "decided"],
+      "properties": {
+        "t": { "const": "snapshot" },
+        "stream": { "$ref": "common.schema.json#/$defs/StreamId" },
+        "seq": { "$ref": "common.schema.json#/$defs/Seq" },
+        "state": {},
+        "decided": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["idempotency_key", "ok", "sequence"],
+            "properties": { "idempotency_key": { "type": "string" }, "ok": { "type": "boolean" }, "sequence": { "$ref": "common.schema.json#/$defs/Seq" } }
+          }
+        },
+        "rows": {},
+        "epoch": { "$ref": "common.schema.json#/$defs/Epoch" }
+      }
+    },
+    "PresenceSet": {
+      "type": "object",
+      "required": ["t", "state"],
+      "properties": {
+        "t": { "const": "presence.set" },
+        "state": {
+          "type": "object",
+          "required": ["active", "client"],
+          "properties": { "active": { "type": "boolean" }, "client": { "type": "string", "maxLength": 16 } }
+        }
+      }
+    },
+    "Signal": {
+      "type": "object",
+      "required": ["t", "kind", "session", "to", "body"],
+      "properties": {
+        "t": { "const": "signal" },
+        "kind": { "enum": ["offer", "answer", "ice", "ice.end", "bye"] },
+        "session": { "$ref": "common.schema.json#/$defs/SignalSessionId" },
+        "to": { "type": "string", "pattern": "^(h|in)_[A-Za-z0-9]{2,64}$" },
+        "from": { "type": "string", "pattern": "^(h|in)_[A-Za-z0-9]{2,64}$" },
+        "body": { "type": "object" }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "required": ["t", "code", "message", "retryable"],
+      "properties": {
+        "t": { "const": "error" },
+        "id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "code": { "$ref": "common.schema.json#/$defs/ErrorCode" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "details": {}
+      }
+    },
+    "ChannelOpen": {
+      "type": "object",
+      "required": ["t", "channel", "kind", "class", "window", "params"],
+      "properties": {
+        "t": { "const": "channel.open" },
+        "channel": { "$ref": "common.schema.json#/$defs/ChannelId" },
+        "kind": { "$ref": "common.schema.json#/$defs/ChannelKind" },
+        "class": { "$ref": "common.schema.json#/$defs/ChannelClass" },
+        "window": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "params": { "type": "object" },
+        "resume": { "type": "object", "required": ["recv_seq"], "properties": { "recv_seq": { "$ref": "common.schema.json#/$defs/Seq" } } }
+      }
+    },
+    "ChannelOpened": {
+      "type": "object",
+      "required": ["t", "channel", "window", "params", "resumed"],
+      "properties": {
+        "t": { "const": "channel.opened" },
+        "channel": { "$ref": "common.schema.json#/$defs/ChannelId" },
+        "window": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "params": { "type": "object" },
+        "resumed": { "type": "boolean" }
+      }
+    },
+    "ChannelRefused": {
+      "type": "object",
+      "required": ["t", "channel", "code", "message", "retryable"],
+      "properties": {
+        "t": { "const": "channel.refused" },
+        "channel": { "$ref": "common.schema.json#/$defs/ChannelId" },
+        "code": { "$ref": "common.schema.json#/$defs/ErrorCode" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "details": {}
+      }
+    },
+    "ChannelClose": {
+      "type": "object",
+      "required": ["t", "channel"],
+      "properties": {
+        "t": { "const": "channel.close" },
+        "channel": { "$ref": "common.schema.json#/$defs/ChannelId" },
+        "code": { "$ref": "common.schema.json#/$defs/ErrorCode" },
+        "message": { "type": "string" }
+      }
+    },
+    "ChannelClosed": {
+      "type": "object",
+      "required": ["t", "channel"],
+      "properties": {
+        "t": { "const": "channel.closed" },
+        "channel": { "$ref": "common.schema.json#/$defs/ChannelId" },
+        "code": { "$ref": "common.schema.json#/$defs/ErrorCode" },
+        "message": { "type": "string" }
+      }
+    }
+  }
+}

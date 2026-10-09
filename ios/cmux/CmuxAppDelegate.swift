@@ -17,6 +17,12 @@ final class CmuxAppDelegate: UIResponder, UIApplicationDelegate {
         CmuxiOSApplication.didRegisterForRemoteNotifications(deviceToken: deviceToken)
     }
 
+    /// Background pushes from the feed owner (dismiss answered banners, badge).
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        await CmuxiOSApplication.didReceiveRemoteNotification(userInfo) ? .newData : .noData
+    }
+
     func application(
         _ application: UIApplication,
         configurationForConnecting connectingSceneSession: UISceneSession,
@@ -37,5 +43,17 @@ final class CmuxSceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = CmuxiOSApplication.makeRootViewController()
         window.makeKeyAndVisible()
         self.window = window
+        // Cold launch from a link or universal link; the router defers it
+        // until the account is ready.
+        for context in connectionOptions.urlContexts { CmuxiOSApplication.open(context.url) }
+        for activity in connectionOptions.userActivities { CmuxiOSApplication.continue(activity) }
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        for context in URLContexts { CmuxiOSApplication.open(context.url) }
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        CmuxiOSApplication.continue(userActivity)
     }
 }

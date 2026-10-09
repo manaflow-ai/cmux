@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/host.schema.json",
+  "title": "cmux.mobile/1 host family (control; HostDO, registry TeamDO; stream host:<host>)",
+  "$defs": {
+    "host.list": { "type": "object", "additionalProperties": false, "properties": { "team": { "type": "string" } } },
+    "host.list:result": { "type": "object", "additionalProperties": false, "required": ["hosts"], "properties": { "hosts": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/HostSummary" } } } },
+    "host.presence.set": {
+      "type": "object", "additionalProperties": false, "required": ["host", "presence", "at"],
+      "properties": {
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "presence": { "$ref": "../common.schema.json#/$defs/HostPresence" },
+        "viewers": { "type": "integer", "minimum": 0 },
+        "at": { "$ref": "../common.schema.json#/$defs/Timestamp" }
+      }
+    },
+    "host.caps.set": {
+      "type": "object", "additionalProperties": false, "required": ["host", "proto", "caps"],
+      "properties": {
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "proto": { "type": "object", "additionalProperties": false, "required": ["min", "max"], "properties": { "min": { "type": "integer", "minimum": 1 }, "max": { "type": "integer", "minimum": 1 } } },
+        "caps": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/Capability" } },
+        "cmux_version": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "HostDevice": {
+      "type": "object", "additionalProperties": false, "required": ["install", "platform", "app_version", "active", "since"],
+      "properties": {
+        "install": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "platform": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "app_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "active": { "type": "boolean" },
+        "since": { "$ref": "../common.schema.json#/$defs/Timestamp" }
+      }
+    },
+    "host:state": {
+      "type": "object", "additionalProperties": false, "required": ["host", "presence", "viewers", "devices", "caps", "at"],
+      "properties": {
+        "host": { "type": "string" },
+        "presence": { "$ref": "../common.schema.json#/$defs/HostPresence" },
+        "viewers": { "type": "integer", "minimum": 0 },
+        "devices": { "type": "array", "items": { "$ref": "#/$defs/HostDevice" } },
+        "caps": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "object", "additionalProperties": false, "required": ["proto", "caps"], "properties": { "proto": { "type": "object", "additionalProperties": false, "required": ["min", "max"], "properties": { "min": { "type": "integer", "minimum": 1 }, "max": { "type": "integer", "minimum": 1 } } }, "caps": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/Capability" } }, "cmux_version": { "type": "string", "maxLength": 64 } } }
+          ]
+        },
+        "at": { "$ref": "../common.schema.json#/$defs/Timestamp" }
+      }
+    },
+    "host.device.set": { "type": "object", "additionalProperties": false, "required": ["host", "device"], "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "device": { "$ref": "#/$defs/HostDevice" } } },
+    "host.device.remove": { "type": "object", "additionalProperties": false, "required": ["host", "install"], "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "install": { "type": "string", "minLength": 1, "maxLength": 128 } } },
+    "host.wake": { "type": "object", "additionalProperties": false, "required": ["host"], "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" } } },
+    "host.wake:result": { "type": "object", "additionalProperties": false, "required": ["presence"], "properties": { "presence": { "$ref": "../common.schema.json#/$defs/HostPresence" } } }
+  }
+}

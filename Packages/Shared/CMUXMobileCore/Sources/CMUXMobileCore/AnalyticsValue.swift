@@ -16,7 +16,7 @@ import Foundation
 ///     "is_first_pair": .bool(true),
 /// ]
 /// ```
-public enum AnalyticsValue: Sendable, Equatable {
+public enum AnalyticsValue: Sendable, Equatable, Encodable {
     /// A string value, used for enum-style discriminators (never free text).
     case string(String)
     /// An integer value, used for counts, sizes, and durations in milliseconds.
@@ -36,6 +36,16 @@ public enum AnalyticsValue: Sendable, Equatable {
         case let .int(value): return value
         case let .double(value): return value
         case let .bool(value): return value
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case let .string(value): try container.encode(value)
+        case let .int(value): try container.encode(value)
+        case let .double(value): try container.encode(value)
+        case let .bool(value): try container.encode(value)
         }
     }
 }

@@ -40,16 +40,52 @@
 #               containing class ... is not isolated to an actor". Debug
 #               builds and Xcode 27 accept it, so only the nightly fails.
 #
+# --mobile scans the cmux-next iOS tree instead (every root in
+# scripts/cmux-next/mobile-scan-roots.txt, repo-root argument): the
+# everywhere rules, task-group deadlines, isolated deinit and model checks.
+# The idle-wakeup, service-code and main-actor-module rules are the Mac app's
+# (idle-wakeups.md, state-audit.md and CmuxNext's module list) and do not
+# apply. Hits that predate the scan are counted per file and rule in
+# scripts/cmux-next/mobile-concurrency-baseline.json; a file may not gain one.
+# --update-baseline (with --mobile) rewrites that file; counts only go down.
+#
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
+#        scripts/cmux-next/check-concurrency.sh --mobile [--update-baseline] [repo-root]
 set -euo pipefail
-root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
-exec python3 - "$root" <<'PY'
+mode=macos
+update=0
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --mobile) mode=mobile ;;
+    --update-baseline) update=1 ;;
+    *) echo "check-concurrency: unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+if [[ "$mode" == mobile ]]; then
+  root="${1:-$(git rev-parse --show-toplevel)}"
+else
+  [[ "$update" == 0 ]] || { echo "check-concurrency: --update-baseline needs --mobile" >&2; exit 2; }
+  root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
+fi
+exec python3 - "$root" "$mode" "$update" <<'PY'
+import collections
+import json
 import os
 import re
 import sys
 
 root = sys.argv[1]
-sources = os.path.join(root, "Sources")
+MOBILE = sys.argv[2] == "mobile"
+UPDATE = sys.argv[3] == "1"
+if MOBILE:
+    entries = [line.strip() for line in open(os.path.join(root, "scripts/cmux-next/mobile-scan-roots.txt"), encoding="utf-8")]
+    package_roots = [os.path.join(root, entry) for entry in entries if entry and not entry.startswith("#")]
+    report_root = root
+else:
+    package_roots = [root]
+    report_root = root
+BASELINE_PATH = os.path.join(root, "scripts/cmux-next/mobile-concurrency-baseline.json")
 
 # Targets built with `.defaultIsolation(MainActor.self)` (Package.swift uiSwiftSettings).
 MAIN_ACTOR_MODULES = {
@@ -60,11 +96,13 @@ MAIN_ACTOR_MODULES = {
 
 EVERYWHERE = [
     ("DispatchQueue.main.sync", r"DispatchQueue\.main\.sync\b"),
-    ("blocking wait (semaphore/group/condition)", r"\.wait\((timeout:|wallTimeout:|until:)?[^)]*\)"),
+    # A receiver is required (`.wait(x)` alone is an enum case); `await x.wait()`
+    # is an async wait and is skipped below.
+    ("blocking wait (semaphore/group/condition)", r"(?<=[\w)\]])\.wait\((timeout:|wallTimeout:|until:)?[^)]*\)"),
     ("DispatchSemaphore", r"\bDispatchSemaphore\("),
     ("DispatchGroup (wait-capable)", r"\bDispatchGroup\(\)"),
     ("Thread.sleep", r"\bThread\.sleep\b"),
-    ("C sleep", r"(?<!await )(?<![.\w])(usleep|nanosleep|sleep)\("),
+    ("C sleep", r"(?<!await )(?<!func )(?<![.\w])(usleep|nanosleep|sleep)\("),
     ("Process.waitUntilExit", r"\bwaitUntilExit\("),
     ("NSLock (use Mutex; never hold a lock across IO or await)", r"\bNS(Recursive)?Lock\(|\bNSConditionLock\("),
     ("os_unfair_lock", r"\bos_unfair_lock"),
@@ -124,7 +162,8 @@ MAIN_ACTOR = [
 ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
 CLASS_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|open|internal|package|fileprivate|private|final)\s+)*class\s+\w+")
 # AppKit superclasses that are @MainActor in the SDK.
-MAIN_ACTOR_SUPERCLASS = re.compile(r"class\s+\w+(<[^>]*>)?\s*:\s*NS\w*(View|Window|Panel|Controller|Responder)\b")
+MAIN_ACTOR_SUPERCLASS = re.compile(r"class\s+\w+(<[^>]*>)?\s*:\s*(NS|UI)\w*(View|Window|Panel|Controller|Responder)\b")
+ASYNC_WAIT = re.compile(r"\bawait\s+[\w.]+(\(\))?\.wait\(")
 ATTRIBUTE_LINE = re.compile(r"^\s*@\w+")
 
 def deinit_class_lacks_main_actor(lines, index):
@@ -161,28 +200,38 @@ rules_wakeup = [(name, re.compile(rx)) for name, rx in WAKEUP_RULES]
 rules_main = [(name, re.compile(rx)) for name, rx in MAIN_ACTOR]
 
 failures = 0
-for dirpath, _, files in os.walk(sources):
+# (file relative to report_root, rule) -> [(line number, source line)]
+found = collections.defaultdict(list)
+
+def record(path, index, line, name):
+    found[(os.path.relpath(path, report_root), name)].append((index + 1, line.strip()))
+
+for package_root in package_roots:
+  sources = os.path.join(package_root, "Sources")
+  for dirpath, _, files in os.walk(sources):
     for filename in sorted(files):
         if not filename.endswith(".swift"):
             continue
         path = os.path.join(dirpath, filename)
         relative = os.path.relpath(path, sources)
         module = relative.split(os.sep)[0]
-        rules = rules_all + (rules_main if module in MAIN_ACTOR_MODULES else [])
-        is_service = module in SERVICE_MODULES or SERVICE_APP_FILE.match(relative.replace(os.sep, "/")) is not None
+        rules = rules_all + (rules_main if not MOBILE and module in MAIN_ACTOR_MODULES else [])
+        is_service = not MOBILE and (module in SERVICE_MODULES or SERVICE_APP_FILE.match(relative.replace(os.sep, "/")) is not None)
         with open(path, encoding="utf-8") as handle:
             lines = handle.read().split("\n")
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
             code = line.split("//", 1)[0] if "//" in line and '"' not in line else line
-            hits = [name for name, rx in rules if rx.search(code) and not allowed(lines, index)]
+            hits = [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
+                    and not (name.startswith("blocking wait") and ASYNC_WAIT.search(code))]
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):
                     hits.append("deadline raced in a task group (it waits for a loser that ignores cancellation; "
                                 "race with a continuation, as ControlDeadline does)")
-            if (module != WAKEUP_PRIMITIVES_MODULE and relative.replace(os.sep, "/") not in WAKEUP_PENDING_FILES
+            if (not MOBILE and module != WAKEUP_PRIMITIVES_MODULE
+                    and relative.replace(os.sep, "/") not in WAKEUP_PENDING_FILES
                     and not allowed(lines, index, WAKEUP_ALLOW)):
                 hits += [name for name, rx in rules_wakeup if rx.search(code)]
             if is_service and UNOWNED_TASK.search(code) and not allowed(lines, index, TASK_OWNER):
@@ -191,14 +240,14 @@ for dirpath, _, files in os.walk(sources):
                 hits.append("isolated deinit in a class without an explicit @MainActor (Release builds on "
                             "Xcode 26 reject it across modules; write @MainActor on the class)")
             for name in hits:
-                print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
-                print(f"    {line.strip()}")
-                failures += 1
+                record(path, index, line, name)
 
 # Model checks run off the main actor (see the header).
 SUITE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|internal|package|fileprivate|private|final)\s+)*(struct|final class|class|enum)\s+\w+ModelCheckTests\b")
-tests = os.path.join(root, "Tests")
-for dirpath, _, files in os.walk(tests):
+MODEL_CHECK = ("model check suite on the main actor (declare it `@Suite(.serialized) nonisolated struct`)")
+for package_root in package_roots:
+  tests = os.path.join(package_root, "Tests")
+  for dirpath, _, files in os.walk(tests):
     for filename in sorted(files):
         if not filename.endswith("ModelCheckTests.swift"):
             continue
@@ -207,10 +256,40 @@ for dirpath, _, files in os.walk(tests):
             lines = handle.read().split("\n")
         for index, line in enumerate(lines):
             if SUITE_DECL.match(line) and not re.search(r"\bnonisolated\b", line):
-                print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: model check suite on the main actor "
-                      "(declare it `@Suite(.serialized) nonisolated struct`)")
-                print(f"    {line.strip()}")
-                failures += 1
+                record(path, index, line, MODEL_CHECK)
+
+# The mobile scope's pre-existing hits, per file and rule; a file may not gain one.
+baseline = {}
+if MOBILE:
+    if UPDATE:
+        counts = collections.defaultdict(dict)
+        for (relative, name), hits in sorted(found.items()):
+            counts[relative][name] = len(hits)
+        with open(BASELINE_PATH, "w", encoding="utf-8") as out:
+            json.dump(counts, out, indent=1, sort_keys=True)
+            out.write("\n")
+        print(f"check-concurrency: baseline written ({sum(len(h) for h in found.values())} hits in {len(counts)} files)")
+        sys.exit(0)
+    if os.path.exists(BASELINE_PATH):
+        with open(BASELINE_PATH, encoding="utf-8") as handle:
+            baseline = json.load(handle)
+shrunk = 0
+for (relative, name), hits in sorted(found.items()):
+    known = baseline.get(relative, {}).get(name, 0)
+    if len(hits) < known:
+        shrunk += 1
+    if len(hits) <= known:
+        continue
+    for number, source in hits:
+        print(f"concurrency: {relative}:{number}: {name}")
+        print(f"    {source}")
+    if known:
+        print(f"    ({len(hits)} hits of this rule in the file, {known} in the baseline)")
+    failures += len(hits) - known
+for relative, rules in baseline.items():
+    for name, known in rules.items():
+        if len(found.get((relative, name), ())) < known:
+            shrunk += 1
 
 if failures:
     print(f"check-concurrency: {failures} violation(s). Fix the blocking call, or add a reviewed "
@@ -218,5 +297,7 @@ if failures:
           "Idle-wakeup hits need an event-driven wait or a reviewed `// wakeup-allow: <reason>` "
           "(plans/cmux-next/idle-wakeups.md).")
     sys.exit(1)
-print("check-concurrency: ok")
+note = (f"; {shrunk} baseline count(s) went down: run scripts/cmux-next/check-concurrency.sh --mobile --update-baseline"
+        if MOBILE and shrunk else "")
+print(f"check-concurrency: ok{note}")
 PY

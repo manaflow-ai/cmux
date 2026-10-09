@@ -54,6 +54,12 @@ public struct SFTPEntry: Sendable, Equatable {
     public var longname: String
     public var attributes: SFTPAttributes
 
+    public init(name: String, longname: String = "", attributes: SFTPAttributes) {
+        self.name = name
+        self.longname = longname
+        self.attributes = attributes
+    }
+
     public var isDirectory: Bool { attributes.isDirectory }
     public var isSymlink: Bool { attributes.isSymlink }
 }
@@ -63,4 +69,9 @@ public struct SFTPTransferProgress: Sendable, Equatable {
     public var bytesTransferred: UInt64
     /// Expected total, when known up front.
     public var totalBytes: UInt64?
+
+    public init(bytesTransferred: UInt64, totalBytes: UInt64?) {
+        self.bytesTransferred = bytesTransferred
+        self.totalBytes = totalBytes
+    }
 }

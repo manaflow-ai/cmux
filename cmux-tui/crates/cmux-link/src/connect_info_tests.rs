@@ -44,11 +44,12 @@ fn a_record_for_another_host_or_overlay_address_is_refused() {
 #[test]
 fn a_token_grant_is_scoped_and_never_printed() {
     let grant: LinkTokenGrant = serde_json::from_value(serde_json::json!({
-        "token": "secret-token", "expires_at": "2026-10-05T00:05:00Z",
+        "token": "secret-token", "expires_at": 1790000300000u64,
         "host": HOST, "epoch": 4, "services": ["ssh"]
     }))
     .unwrap();
     assert!(!format!("{grant:?}").contains("secret-token"));
+    assert_eq!(grant.expires_at, 1_790_000_300_000);
     assert!(grant.covers(HOST, Service::Ssh));
     assert!(!grant.covers(HOST, Service::Daemon));
     assert!(!grant.covers("host_other", Service::Ssh));

@@ -1,0 +1,8 @@
+{
+  "family": "ssh",
+  "cases": [
+    { "message": "ssh.host.upsert", "frame": { "t": "op", "op": "ssh.host.upsert", "params": { "host": { "id": "ssh_box01", "name": "devbox", "hostname": "devbox.example.com", "port": 22, "user": "me", "jump": "ssh_bast01", "key": "SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU" } }, "idempotency_key": "01JB7Q2W8M0000SSHUPS01", "origin": "user", "stream": "ssh:u_7f3a" } },
+    { "message": "ssh.host.remove", "frame": { "t": "op", "op": "ssh.host.remove", "params": { "id": "ssh_box01" }, "idempotency_key": "01JB7Q2W8M0000SSHRM001", "origin": "user" } },
+    { "message": "ssh.known_host.add", "frame": { "t": "op", "op": "ssh.known_host.add", "params": { "id": "ssh_box01", "key_type": "ssh-ed25519", "key": "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl", "fingerprint": "SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU" }, "idempotency_key": "01JB7Q2W8M0000SSHKH001", "origin": "user" } }
+  ]
+}

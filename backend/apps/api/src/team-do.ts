@@ -2,7 +2,7 @@ import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { teamRead, teamVmAccountsFence } from "./team-reads.ts"
 import { firstOwner, homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
@@ -14,7 +14,7 @@ import { ssoExternal } from "./team-sso-external.ts"
 import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
-import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
+import { mayEnrollServer, serverPlacementActive, teamHostAccess, type HostAccess, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
@@ -370,17 +370,15 @@ export class TeamDO extends OwnerDO<TeamState> {
     return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
   }
 
-  async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
-  /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
-  /** RPC from TeamVmDO's bind (vm-image.md 6b): the owner whose UserDO holds the team VM's install. */
-  async teamVmInstallOwner(entity: string): Promise<string | null> {
-    const state = this.bind(entity).currentState
-    return state.team?.id === entity ? (firstOwner(state, this.rows) ?? null) : null
-  }
+  /** RPC from the Worker before a HostDO control socket (b1-control-do.md 2). */
+  async hostAccess(entity: string, host: string, principal: Principal): Promise<HostAccess | null> { if (!this.isBound(entity)) return null; return teamHostAccess(this.bind(entity).currentState, this.rows, host, principal, (role) => (this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(entity)) as unknown as { cloudHostAccess(e: string, h: string, p: Principal, role: "host" | "device"): Promise<HostAccess | null> }).cloudHostAccess(entity, host, principal, role).catch(() => null)) }
 
-  async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
-    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(this.bind(entity).currentState, principal.user, this.rows)
-  }
+  /** RPC from UserDO pairing handlers; reducer admits these system-only host guest writes. */
+  async hostGuest(entity: string, op: "host.guest.set" | "host.guest.remove", params: unknown, key: string): Promise<SubmitResult> { this.bind(entity); return this.submitSystem(op, params, key) }
+
+  async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
+  async teamVmInstallOwner(entity: string): Promise<string | null> { const state = this.bind(entity).currentState; return state.team?.id === entity ? (firstOwner(state, this.rows) ?? null) : null }
+  async canEnrollServer(entity: string, principal: Principal): Promise<boolean> { return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(this.bind(entity).currentState, principal.user, this.rows) }
 
   /**
    * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2),

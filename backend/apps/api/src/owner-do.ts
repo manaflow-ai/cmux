@@ -7,18 +7,19 @@ import { boundEntityOf, createBinding, isBoundTo, refusalOnInitial } from "./own
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
 import { AlarmSerial } from "./alarm-serial.ts"
 import { earliest, recordWakeFailure } from "./owner-wake.ts"
+import { doSql } from "./owner-sql.ts"
 import { SnapshotBatcher } from "./snapshot-batcher.ts"
+import { answerHello, readFields, readReply, type MobileSession } from "./mobile-session.ts"
 
-/** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
-const doSql = (storage: DurableObjectStorage): SqlStore => ({
-  exec: <T>(q: string, ...params: Array<unknown>) => storage.sql.exec(q, ...params).toArray() as Array<T>,
-  transaction: <T>(fn: () => T): T => storage.transactionSync(fn)
-})
+/** cmux.mobile/1 caps every owner socket offers in `hello.ok`. */
+const OWNER_CAPS = ["read"]
 
 export interface Attachment {
   readonly principal: Principal
   /** Subscribed to this object's primary stream. */
   subscribed: boolean
+  /** cmux.mobile/1 session negotiated by `hello` (mobile-session.ts); absent for cmux.wire/1 clients. */
+  mobile?: MobileSession
   /** Secondary streams this socket subscribed to (for example `inbox`). */
   streams?: Array<string>
 }
@@ -36,11 +37,8 @@ export type ReadResult = { readonly ok: true; readonly value: unknown; readonly 
 const [MAX_BACKOFF_MS, RESYNC_BATCH_MS, PRUNE_SLACK_MS] = [5 * 60_000, 250, 60 * 60_000]
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
-const safeSend = (ws: WebSocket, text: string) => {
-  try {
-    ws.send(text)
-  } catch {}
-}
+const safeSend = (ws: WebSocket, text: string) => void sendText(ws, text)
+const sendText = (ws: WebSocket, text: string) => { try { ws.send(text) } catch {} }
 
 /**
  * The shared base of every cloud owner (spec 00-overview 7.1): one entity per
@@ -159,23 +157,17 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   })
 
   /** What a subscriber may see of the state in snapshots (default: all of it). */
-  protected subscriberView(state: S, _principal: Principal): unknown {
-    return state
-  }
+  protected subscriberView(state: S, _principal: Principal): unknown { return state }
 
   /**
    * Extra fields on a live event frame, computed after the commit (for example
    * FeedDO's changed items, so clients mirror owner-written records instead of
    * replaying the reducer). Resumed events from the log do not carry them.
    */
-  protected eventExtras(_event: EventFrame): Record<string, unknown> | undefined {
-    return undefined
-  }
+  protected eventExtras(_event: EventFrame): Record<string, unknown> | undefined { return undefined }
 
   /** Whether a subscriber receives a committed event (default: yes). */
-  protected mayReceive(_state: S, _event: EventFrame, _principal: Principal): boolean {
-    return true
-  }
+  protected mayReceive(_state: S, _event: EventFrame, _principal: Principal): boolean { return true }
 
   /**
    * What a subscriber may see of a snapshot: the state through `subscriberView`, and (row
@@ -211,9 +203,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * cron fire), from committed state only; null for never. The one DO alarm is
    * shared with the outbox drain: it fires at the earlier of the two.
    */
-  protected nextWakeAt(_state: S, _now: number): number | null {
-    return null
-  }
+  protected nextWakeAt(_state: S, _now: number): number | null { return null }
 
   /**
    * A frame type the base does not know (for example FeedDO's `presence.set`).
@@ -297,19 +287,13 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   protected async onWake(_now: number): Promise<void> {}
 
   /** The object's SQLite store, for subclasses that host secondary streams or side tables. */
-  protected get sqlStore(): SqlStore {
-    return this.store
-  }
+  protected get sqlStore(): SqlStore { return this.store }
 
   /** Moves the alarm earlier when a subclass committed outside the base paths (secondary streams). */
-  protected scheduleAlarm(): void {
-    this.afterCommit()
-  }
+  protected scheduleAlarm(): void { this.afterCommit() }
 
   /** The bound entity's engine, for subclasses that read state outside an op. */
-  protected get boundEngine(): OwnerEngine<S> | undefined {
-    return this.engine
-  }
+  protected get boundEngine(): OwnerEngine<S> | undefined { return this.engine }
 
   /**
    * Commits this owner's own op (alarm fires, Workflow reports) through the same
@@ -418,7 +402,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     try {
       frame = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message))
     } catch {
-      return safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: "frames are JSON" }))
+      return safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: "frames are JSON", retryable: false }))
     }
     if (this.routeFrame(ws, a, frame as { t?: string } & Record<string, unknown>)) return
     switch (frame.t) {
@@ -445,6 +429,16 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         a.subscribed = false
         ws.serializeAttachment(a)
         return
+      case "hello": {
+        const session = answerHello(ws, frame as Record<string, unknown>, OWNER_CAPS)
+        if (session) [(a.mobile = session), ws.serializeAttachment(a)]
+        return
+      }
+      case "read": {
+        const r = readFields(frame as Record<string, unknown>)
+        const ans = r.ok ? this.read(engine.currentState, r.op, r.params, a.principal) : undefined
+        return safeSend(ws, JSON.stringify(!r.ok ? r.error : readReply(r.id, ans!.ok ? { ...ans!, revision: String(engine.currentSeq) } : ans!)))
+      }
       case "op": {
         const frames: Array<OwnerFrame> = []
         engine.submit(a.principal, frame as OpFrame, (target, f) => (target === "all" ? this.broadcast(f) : (frames.push(f), safeSend(ws, JSON.stringify(f)))))
@@ -454,7 +448,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       }
       default:
         if (this.onFrame(ws, frame as { t?: string } & Record<string, unknown>)) return
-        safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: `unknown frame ${frame.t}` }))
+        safeSend(ws, JSON.stringify({ t: "error", code: "proto.unknown_frame", message: `unknown frame ${frame.t}`, retryable: false }))
     }
   }
 

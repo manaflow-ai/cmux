@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/simulator.schema.json",
+  "title": "cmux.mobile/1 simulator family (stream; owner the Mac simulator host)",
+  "description": "A simulator channel streams one booted iOS simulator of the Mac with the browser channel's records (cmux.rd/1 video datagrams and cmux.rb/1 control, optional datagram lane); touches are rb pointer events with pointer_type touch (ios-next/c14-web.md section 6).",
+  "$defs": {
+    "Udid": { "type": "string", "pattern": "^[0-9A-Fa-f-]{36}$" },
+    "simulator": {
+      "type": "object", "additionalProperties": false, "required": ["udid", "service", "screen"],
+      "properties": {
+        "udid": { "$ref": "#/$defs/Udid" },
+        "service": { "const": "rb/1" },
+        "screen": {
+          "type": "object", "additionalProperties": false, "required": ["css_width", "css_height", "scale"],
+          "properties": { "css_width": { "type": "integer", "minimum": 1 }, "css_height": { "type": "integer", "minimum": 1 }, "scale": { "type": "number", "minimum": 0.5, "maximum": 4 }, "refresh_hz": { "type": "integer", "minimum": 1 } }
+        },
+        "codecs": { "type": "array", "items": { "enum": ["h264", "hevc"] }, "maxItems": 4 },
+        "datagram_lane": { "type": "boolean" }
+      }
+    },
+    "simulator:opened": {
+      "type": "object", "additionalProperties": false, "required": ["media"],
+      "properties": {
+        "media": { "enum": ["rd_datagrams"] },
+        "datagram_channel": { "$ref": "../common.schema.json#/$defs/ChannelId" },
+        "encoder": { "enum": ["h264", "hevc"] },
+        "width": { "type": "integer", "minimum": 2 },
+        "height": { "type": "integer", "minimum": 2 },
+        "page": { "type": "object", "additionalProperties": false, "required": ["css_width", "css_height"], "properties": { "css_width": { "type": "number", "minimum": 1 }, "css_height": { "type": "number", "minimum": 1 } } },
+        "caps": { "type": "array", "items": { "type": "string", "maxLength": 32 }, "maxItems": 16 }
+      }
+    },
+    "simulator.list": { "type": "object", "additionalProperties": false, "properties": {} },
+    "simulator.list:result": {
+      "type": "object", "additionalProperties": false, "required": ["simulators"],
+      "properties": {
+        "simulators": {
+          "type": "array", "maxItems": 128,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["udid", "name", "runtime", "state"],
+            "properties": {
+              "udid": { "$ref": "#/$defs/Udid" },
+              "name": { "type": "string", "maxLength": 255 },
+              "runtime": { "type": "string", "maxLength": 128 },
+              "state": { "enum": ["booted", "shutdown"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}
