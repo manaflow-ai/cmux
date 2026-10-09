@@ -616,7 +616,8 @@ def event_names() -> set[str]:
     for module_source in server_module_sources():
         source = strip_rust_comments(module_source)
         module_tokens = rust_tokens(source)
-        module_constants = rust_string_constants(module_tokens)
+        # A moved module still names server.rs's constants (super::...).
+        module_constants = {**constants, **rust_string_constants(module_tokens)}
         names.update(json_macro_event_names(module_tokens, module_constants))
         names.update(inserted_event_names(module_tokens, module_constants))
         names.update(assigned_event_names(module_tokens, module_constants))

@@ -40,6 +40,8 @@
 # staging plus CMUX_VM_SERVICE_KEYS and CMUX_VM_SMOKE_SERVICE_KEY, and the
 # variables CMUX_VM_DEPLOY_ENABLED, CMUX_VM_PRODUCTION_URL and
 # CMUX_VM_SMOKE_SERVICE_TEAM. first_production_deploy=true only for the first.
+# Action smoke-production runs only the production route and service smoke
+# against the live version (no deploy, no rollback).
 #
 # Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 # Environment secrets (each environment): CMUX_VM_UPSTREAM_API_KEY,
@@ -80,7 +82,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -383,6 +385,17 @@ jobs:
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
       # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
       # on a cancel or timeout (always()).
+      # Pin the smoke host (scripts/cmux-next/release/pin-host.ts): DoH, IPv4 first, waits up to 300 s for a
+      # new domain's record. Runners have no IPv6 route and a fresh domain is NXDOMAIN at first (2026-10-09).
+      - name: Pin the smoke host's address
+        if: ${{ always() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
+        working-directory: .
+        env:
+          URL: ${{ vars.CMUX_VM_STAGING_URL }}
+        run: |
+          host="${URL:-https://vm-staging.cmux.dev}"; host="${host#https://}"; host="${host%%/*}"
+          line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 300)"
+          echo "$line" | sudo tee -a /etc/hosts
       - name: Smoke health and changed routes; roll back on red
         if: ${{ always() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
         env:
@@ -432,6 +445,17 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           bun-version: "1.4.2"
+      # Pin the smoke host (scripts/cmux-next/release/pin-host.ts): DoH, IPv4 first, waits up to 300 s for a
+      # new domain's record. Runners have no IPv6 route and a fresh domain is NXDOMAIN at first (2026-10-09).
+      - name: Pin the smoke host's address
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: .
+        env:
+          URL: ${{ vars.CMUX_VM_STAGING_URL }}
+        run: |
+          host="${URL:-https://vm-staging.cmux.dev}"; host="${host#https://}"; host="${host%%/*}"
+          line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 300)"
+          echo "$line" | sudo tee -a /etc/hosts
       - name: Smoke the staging Worker (create, exec, pause, delete by exact id)
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -522,6 +546,17 @@ jobs:
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
       # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
       # on a cancel or timeout (always()).
+      # Pin the smoke host (scripts/cmux-next/release/pin-host.ts): DoH, IPv4 first, waits up to 300 s for a
+      # new domain's record. Runners have no IPv6 route and a fresh domain is NXDOMAIN at first (2026-10-09).
+      - name: Pin the smoke host's address
+        if: ${{ always() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
+        working-directory: .
+        env:
+          URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
+        run: |
+          host="${URL:-https://vm.cmux.dev}"; host="${host#https://}"; host="${host%%/*}"
+          line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 300)"
+          echo "$line" | sudo tee -a /etc/hosts
       - name: Smoke health and changed routes; roll back on red
         if: ${{ always() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
         env:
@@ -536,7 +571,10 @@ jobs:
           --wrangler node_modules/.bin/wrangler
 
   smoke-production:
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && github.ref == 'refs/heads/feat-cmux-next'
+    # After deploy-production, or alone (action smoke-production: the live version, no deploy, no rollback).
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' &&
+      (inputs.action == 'smoke-production' || (inputs.action == 'deploy-production' && needs.deploy-production.result == 'success'))
     needs: deploy-production
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -570,6 +608,26 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           bun-version: "1.4.2"
+      # Pin the smoke host (scripts/cmux-next/release/pin-host.ts): DoH, IPv4 first, waits up to 300 s for a
+      # new domain's record. Runners have no IPv6 route and a fresh domain is NXDOMAIN at first (2026-10-09).
+      - name: Pin the smoke host's address
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: .
+        env:
+          URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
+        run: |
+          host="${URL:-https://vm.cmux.dev}"; host="${host#https://}"; host="${host%%/*}"
+          line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 300)"
+          echo "$line" | sudo tee -a /etc/hosts
+      # Smoke-only runs (and after a deploy, again): every route; no previous version is passed, so a red
+      # result fails the job and never rolls back.
+      - name: Smoke health and every route (no rollback)
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
+        run: >-
+          bun ../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-vm-production
+          --url "${URL:-https://vm.cmux.dev}" --routes release-smoke.json --source-dir .
       # Production has no tenant smoke key: the service leg alone, on a synthetic dev/test team
       # (DEV_TEST_TENANT_IDS), create, exec, pause and delete by exact id.
       - name: Smoke the production Worker (service key, dev/test team)

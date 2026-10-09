@@ -53,6 +53,9 @@ use crate::state::{HostState, OutboxEntry, StateFile};
 use crate::turn::{TurnOutcome, TurnStart};
 
 /// Everything the brain reacts to.
+/// The start of [`Brain::run`]'s answer when a signal asked the host to stop.
+pub const STOP_REQUESTED: &str = "stop requested";
+
 pub enum Input {
     Daemon(Box<DaemonEvent>),
     Agents(Box<AgentEvent>),
@@ -163,6 +166,11 @@ pub enum Input {
     Engine {
         request: EngineRequest,
         reply: Sender<serde_json::Value>,
+    },
+    /// SIGTERM, SIGINT or SIGHUP to the host: the brain stops taking input
+    /// and returns [`STOP_REQUESTED`] (E20).
+    Shutdown {
+        signal: i32,
     },
     /// chief.stop: stops the running turn as a newer message does;
     /// answers `{"stopped": bool}`.
@@ -340,8 +348,9 @@ enum Source {
     Note,
     /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
-    /// The note that resumes a turn a host stop cut (`HostState::resumes`).
-    Resume { remote: bool },
+    /// The note that resumes a turn a host stop cut (`HostState::resumes`),
+    /// with the cut messages' full text for the turn's prompt.
+    Resume { remote: bool, cut: Vec<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -542,6 +551,7 @@ impl Brain {
                 text: recover::RESUMED.to_owned(),
                 source: Source::Resume {
                     remote: resume.remote,
+                    cut: resume.messages,
                 },
                 images: Vec::new(),
                 conversation: resume.conversation,
@@ -720,6 +730,10 @@ impl Brain {
             }
             Input::Stop { reply } => {
                 let _ = reply.send(self.owner_stop());
+            }
+            Input::Shutdown { signal } => {
+                (self.log)(&format!("signal {signal}: stopping"));
+                self.fatal = Some(format!("{STOP_REQUESTED} (signal {signal})"));
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));

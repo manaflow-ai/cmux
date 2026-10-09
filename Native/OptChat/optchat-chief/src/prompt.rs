@@ -400,6 +400,30 @@ pub fn cached_layout_marked(
     }
 }
 
+/// A turn's cached layout: `cached_layout_marked`, and with `head_mark` the
+/// `<chat>` header carries the mark's TTL too, the system prompt's own
+/// entry (the reference client marks its system). A view that changed near
+/// its start (an import's merges) then still reads the system prompt. Two
+/// marks of ours; Claude Code places none while ours are on
+/// (DISABLE_PROMPT_CACHING).
+pub fn turn_layout(
+    system: &str,
+    context: &str,
+    tail: &str,
+    mark: Option<Mark>,
+    head_mark: bool,
+) -> CachedPrompt {
+    let mut layout = cached_layout_marked(system, context, tail, mark);
+    if let Some(m) = mark
+        && head_mark
+        && m.piece > 0
+        && let Some(head) = layout.blocks.first_mut()
+    {
+        head["cache_control"] = m.ttl.cache_control();
+    }
+    layout
+}
+
 /// The compactor's layout: the same as a turn's (spec 4: a compaction is a
 /// call like a turn, with its own view and its task).
 pub fn cached_layout_at_marks(

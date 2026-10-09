@@ -23,13 +23,23 @@ final class SurfaceInvariantMonitor {
     private(set) var checks = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.surfaces")
     private var occlusionObserver: (any NSObjectProtocol)?
+    /// Tab switch timeline marks (category "tab-switch", debug level).
+    nonisolated static let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
 
     /// Re-checks after any window's occlusion changes (AppServices wiring).
     func observeWindowOcclusion() {
         guard occlusionObserver == nil else { return }
         occlusionObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            // Tab switch timeline (cx-asb1): when a page child window's occlusion state lands.
+            let window = note.object as? NSWindow
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                guard let window else { return }
+                let child = window.parent != nil
+                let visible = window.occlusionState.contains(.visible)
+                Self.tabSwitchLog.debug("tab-switch occlusion-\(child ? "child" : "top", privacy: .public)-\(visible ? "visible" : "hidden", privacy: .public)-\(String(describing: type(of: window)).filter(\.isLetter), privacy: .public)\(window.identifier?.rawValue.filter(\.isLetter) ?? "", privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
+            }
             // task-owner: one main-actor hop per occlusion change; noteChange only arms the settle frames.
             Task { @MainActor in self?.noteChange() }
         }

@@ -15,6 +15,11 @@
  *       the config's env.ENV.vars with the plain-text and JSON vars of the version serving 100%
  *       (`wrangler versions view --json`; secrets and other bindings are not compared) and
  *       refuses (exit 1) on any added, removed or changed var, naming the vars, never their values.
+ *   bun worker-release.ts vars ... --base-config <wrangler.jsonc at the push's BEFORE commit>
+ *       The deployed vars must equal the BASE config's (else drift: refuse as above). Then the repo
+ *       is the source: a var the pushed commits change deploys, and each change is logged by name
+ *       with its plain string value (json vars by name only). Vars are plain text by contract
+ *       (secrets live in secrets, never in vars).
  *
  * Routes file: {"routes":[{"name","method","path","expect":[status...],"body"?,
  * "bodyIncludes"?,"sources"?:[glob relative to --source-dir],"expectByWorker"?:{worker:[status...]},"why"?}]}.
@@ -177,6 +182,18 @@ export const diffVars = (config: Record<string, unknown>, bindings: ReadonlyArra
   return { added, removed, changed, compared: want.size }
 }
 
+/** A config's vars as the bindings wrangler would upload (string -> plain_text, else json). */
+export const asBindings = (config: Record<string, unknown>): Array<Binding> =>
+  Object.entries(config).map(([name, v]) => (typeof v === "string" ? { type: "plain_text", name, text: v } : { type: "json", name, json: v }))
+
+const plainValue = (v: unknown): string => (v === undefined ? "(unset)" : typeof v === "string" ? (v.length > 200 ? `${v.slice(0, 200)}...` : v) : "(json value)")
+
+/** One line per var the push changes: `NAME: old -> new` (plain strings), json vars by name. */
+export const intendedChanges = (base: Record<string, unknown>, want: Record<string, unknown>): Array<string> => {
+  const d = diffVars(want, asBindings(base))
+  return [...d.added, ...d.removed, ...d.changed].sort().map((k) => `${k}: ${plainValue(base[k])} -> ${plainValue(want[k])}`)
+}
+
 /** The JSON object in wrangler's output (a banner or warning line may precede it). */
 const parseJsonOut = (out: string): unknown => {
   try {
@@ -325,7 +342,38 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
       io.error(`version ${id} of ${worker} answered no bindings (wrangler versions view exit ${view.status}: ${(view.stderr || "").trim().slice(0, 300)}); deploy refused`)
       return 1
     }
+    let base: Record<string, unknown> | undefined
+    const baseFile = value("--base-config")
+    if (baseFile) {
+      try {
+        base = envVars(readFileSync(baseFile, "utf8"), env)
+      } catch (e) {
+        io.error(`cannot read env.${env}.vars from the base config ${baseFile}: ${(e as Error).message}; deploy refused`)
+        return 1
+      }
+    }
     const d = diffVars(want, bindings as Array<Binding>)
+    if (base) {
+      const drift = diffVars(base, bindings as Array<Binding>)
+      const driftCount = drift.added.length + drift.removed.length + drift.changed.length
+      if (driftCount === 0) {
+        const changes = intendedChanges(base, want)
+        if (!changes.length) {
+          io.log(`vars unchanged: all ${d.compared} vars of env.${env} in ${configFile} match ${worker} version ${id} (secrets not compared, not sent)`)
+          return 0
+        }
+        io.log(`vars change in this push: ${worker} version ${id} matches the base config ${baseFile}, so the repo is the source; this deploy sets ${changes.length} var${changes.length === 1 ? "" : "s"}:`)
+        for (const c of changes) io.log(`  ${c}`)
+        return 0
+      }
+      if (d.added.length + d.removed.length + d.changed.length === 0) {
+        io.log(`vars unchanged: all ${d.compared} vars of env.${env} in ${configFile} already match ${worker} version ${id} (the base config differs; nothing to change)`)
+        return 0
+      }
+      const parts = [drift.added.length ? `added: ${drift.added.join(", ")}` : "", drift.removed.length ? `removed: ${drift.removed.join(", ")}` : "", drift.changed.length ? `changed: ${drift.changed.join(", ")}` : ""].filter(Boolean)
+      io.error(`vars drift between the base config ${baseFile} env.${env}.vars and ${worker} version ${id} (${parts.join("; ")}): a var was set out of band; deploy refused. Reconcile the vars with their owner first`)
+      return 1
+    }
     if (d.added.length + d.removed.length + d.changed.length === 0) {
       io.log(`vars unchanged: all ${d.compared} vars of env.${env} in ${configFile} match ${worker} version ${id} (secrets not compared, not sent)`)
       return 0

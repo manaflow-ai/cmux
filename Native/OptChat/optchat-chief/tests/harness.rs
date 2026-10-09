@@ -72,7 +72,10 @@ fn harness_with(settings: impl FnOnce(&std::path::Path) -> Settings) -> Harness 
 
 /// Spec 3.3 (gist 3c190e0): the view goes in blocks of 4 lines, one marker
 /// on the last whole block; the system prompt is the constant text alone, so
-/// turns and compactions send the same one.
+/// turns and compactions send the same one. A turn also marks the `<chat>`
+/// header (the system prompt's own entry, as the reference marks its
+/// system): soak at 80935c94f722, turns during an import read nothing at all,
+/// not even the system prompt, once the view changed near its start.
 #[test]
 fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     let mut h = harness_with(settings);
@@ -95,8 +98,14 @@ fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     assert_eq!(t[..t.len() - 1].concat(), view);
     assert_eq!(t.len(), pieces.len() + 1);
     assert_eq!(t.last().unwrap(), "where is project 7?");
-    // The last whole block: the piece before the incomplete one.
-    assert_eq!(markers(blocks), vec![t.len() - 3]);
+    // The header, then the last whole block (the piece before the
+    // incomplete one).
+    assert_eq!(markers(blocks), vec![0, t.len() - 3]);
+    assert_eq!(t[0], "<chat>\n");
+    assert_eq!(
+        blocks[0]["cache_control"],
+        json!({"type": "ephemeral", "ttl": "1h"})
+    );
     let marked = &t[t.len() - 3];
     assert_eq!(marked.lines().count(), optchat_core::BLOCK_LINES);
     // A 1-hour mark on the Claude Code path (tests/turn_cache.rs).
@@ -104,19 +113,18 @@ fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
         blocks[t.len() - 3]["cache_control"],
         json!({"type": "ephemeral", "ttl": "1h"})
     );
-    assert_eq!(
-        *blocks,
-        cached_layout_marked(
-            &claude_md(None),
-            &view,
-            "where is project 7?",
-            Some(Mark {
-                piece: t.len() - 3,
-                ttl: CacheTtl::OneHour
-            })
-        )
-        .blocks
-    );
+    let mut expected = cached_layout_marked(
+        &claude_md(None),
+        &view,
+        "where is project 7?",
+        Some(Mark {
+            piece: t.len() - 3,
+            ttl: CacheTtl::OneHour,
+        }),
+    )
+    .blocks;
+    expected[0]["cache_control"] = json!({"type": "ephemeral", "ttl": "1h"});
+    assert_eq!(*blocks, expected);
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
 
@@ -136,7 +144,7 @@ fn consecutive_claude_turns_find_the_last_turns_marker_within_the_lookback() {
     // The second turn has the first turn's marked block at the same place,
     // and its own marker at most 20 blocks later (the API's lookback).
     let (a, b) = (&inner.prompts[0], &inner.prompts[1]);
-    let (ma, mb) = (markers(a)[0], markers(b)[0]);
+    let (ma, mb) = (*markers(a).last().unwrap(), *markers(b).last().unwrap());
     assert_eq!(texts(a)[..=ma], texts(b)[..=ma]);
     assert!(mb >= ma && mb - ma <= 20, "markers {ma} then {mb}");
 }
@@ -233,7 +241,8 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
             2,
             "the refused prompt, then the same turn again"
         );
-        assert_eq!(markers(&inner.prompts[0]).len(), 1);
+        // The header's mark and the view's.
+        assert_eq!(markers(&inner.prompts[0]).len(), 2);
         assert!(markers(&inner.prompts[1]).is_empty());
         assert_eq!(texts(&inner.prompts[0]), texts(&inner.prompts[1]));
         assert_ne!(
@@ -441,6 +450,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         optchat_chief::compactor::Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     );
     let request = optchat_host::CompactRequest {
+        imported: false,
         node: optchat_host::NodeId::new(0, 0),
         system: "SYS".into(),
         context: "<chat>\n</chat>".into(),
@@ -855,8 +865,10 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
     };
     let first = &inner.prompts[0];
     let marked = markers(first);
-    assert_eq!(marked.len(), 1, "one marker of ours in a small view too");
-    let at = marked[0];
+    // The header's mark, then the view's.
+    assert_eq!(marked.len(), 2, "two markers of ours in a small view too");
+    assert_eq!(marked[0], 0);
+    let at = marked[1];
     assert!(
         at + 1 < first.len() - 1,
         "the marker leaves the view's newest lines out"
@@ -872,7 +884,7 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
         "the next turn has a block boundary at the marker with the same bytes before it"
     );
     // And its own marker is at or after the first turn's.
-    let next = markers(&inner.prompts[1])[0];
+    let next = *markers(&inner.prompts[1]).last().unwrap();
     assert!(second[next].0 >= offset);
 }
 
