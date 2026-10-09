@@ -214,7 +214,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
                 continuation.finish()
                 return
             }
-            observers[observerID] = continuation
+            observers.updateValue(continuation, forKey: observerID)
             if reachedOnline {
                 continuation.yield(.online)
             }
@@ -347,7 +347,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
                 restored = false
             }
         }
-        for addedURL in attempted.keys where previous[addedURL] == nil {
+        for addedURL in attempted.keys where previous.index(forKey: addedURL) == nil {
             do {
                 _ = try await driver.removeRelay(url: addedURL)
             } catch {
