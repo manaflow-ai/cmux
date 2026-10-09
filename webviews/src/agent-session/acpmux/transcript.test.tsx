@@ -3049,8 +3049,12 @@ describe("acpmux tool runs", () => {
       const summary = dom.window.document.querySelector<HTMLButtonElement>(".cv-tool.is-toggle")!;
       expect(texts()).toEqual(["Read files, ran a command"]);
       expect(summary.getAttribute("aria-expanded")).toBe("false");
+      expect(summary.getAttribute("aria-controls")).toBeNull();
       await act(async () => summary.click());
       expect(summary.getAttribute("aria-expanded")).toBe("true");
+      const detailsId = summary.getAttribute("aria-controls");
+      expect(detailsId).toBeTruthy();
+      expect(dom.window.document.getElementById(detailsId!)).not.toBeNull();
       expect(texts()).toEqual(["Read files, ran a command", "Read upload.ts", "Search for retry", "Run bun test"]);
     } finally {
       await act(async () => root.unmount());
@@ -3141,6 +3145,12 @@ describe("acpmux shell calls", () => {
       );
       const rows = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".cv-tool.is-toggle")];
       await act(async () => rows.forEach((row) => row.click()));
+      expect(
+        rows.every((row) => {
+          const id = row.getAttribute("aria-controls");
+          return Boolean(id && dom.window.document.getElementById(id));
+        }),
+      ).toBe(true);
       const shell = dom.window.document.querySelector(".cv-shell");
       expect(shell?.textContent).toBe("Shell$ bun test1 failExit code 1");
       expect(dom.window.document.querySelector(".cv-tool-output")?.textContent).toBe("{ apps: [] }");
@@ -3281,6 +3291,9 @@ describe("acpmux edit diffs", () => {
       expect(card?.querySelector(".cv-edit-diff__del")?.textContent).toBe("-1");
       expect(card?.querySelector(".cv-edit-diff__body")?.children.length).toBe(1);
       expect(toggles()[0]!.getAttribute("aria-expanded")).toBe("true");
+      const detailsId = toggles()[0]!.getAttribute("aria-controls");
+      expect(detailsId).toBeTruthy();
+      expect(document.getElementById(detailsId!)?.querySelector(".cv-edit-diff")).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
       restore();

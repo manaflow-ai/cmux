@@ -13,6 +13,14 @@ pub(crate) fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
     serde_json::from_slice(&bytes).ok()
 }
 
+/// Like `read_json`, for a file another program owns: at most `max` bytes.
+pub(crate) fn read_json_bounded<T: DeserializeOwned>(path: &Path, max: u64) -> Option<T> {
+    if fs::metadata(path).ok()?.len() > max {
+        return None;
+    }
+    read_json(path)
+}
+
 pub(crate) fn write_json_private<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;

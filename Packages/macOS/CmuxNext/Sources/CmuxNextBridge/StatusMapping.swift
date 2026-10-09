@@ -32,7 +32,7 @@ public struct StatusMapping {
             // The title only: `app` is a machine name, never the only label.
             reports.append(StatusReport(id: "program:\(tab.id)", source: .program, state: state, label: record.title))
         }
-        if let ref = tab.agentSession, let turn = turns.state(for: ref) {
+        if let ref = tab.agentSession, let turn = visibleTurn(tab) {
             reports.append(StatusReport(id: "acp:\(ref.session ?? tab.id)", source: .agent, state: state(turn), label: ref.harness))
         }
         return reports
@@ -50,6 +50,16 @@ public struct StatusMapping {
     func yieldsToProgram(_ agent: AgentStatus, _ records: [ProgramStatusRecord]) -> Bool {
         guard let source = agent.source, Self.detectorSources.contains(source) else { return false }
         return records.contains { ($0.updatedAtMs ?? .max) >= agent.updatedAtMs }
+    }
+
+    /// The turn state still to show: a completed turn the user has seen is
+    /// nothing (client seen state, like an OSC 7501 done).
+    public func visibleTurn(_ tab: TabModel) -> AgentTurnState? {
+        guard let turn = turn(tab) else { return nil }
+        if case .done(let id) = turn, let session = tab.agentSession?.session, seen.isTurnSeen(session: session, turn: id) {
+            return nil
+        }
+        return turn
     }
 
     /// The acpmux turn state of an agent chat tab, nil for every other tab.
@@ -82,7 +92,7 @@ public struct StatusMapping {
         case .done?: return .success
         default: break
         }
-        switch turn(tab) {
+        switch visibleTurn(tab) {
         case .failed?: return .failure
         case .done?: return .success
         default: return nil

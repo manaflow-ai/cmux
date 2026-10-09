@@ -664,7 +664,7 @@ fn the_compactor_has_its_own_isolated_configuration() {
         Family::Claude,
         Some("claude-sonnet-5-5"),
     );
-    assert_eq!(spec.effort.as_deref(), Some("high"));
+    assert_eq!(spec.effort.as_deref(), Some("medium"));
     assert_eq!(slot_preset(&spec.preset, 0), preset.name);
     assert!(spec.transcript_dirs.contains(&paths.compactor_config));
     assert!(
@@ -745,21 +745,21 @@ fn with_system_prompt_support_the_system_text_is_the_slot_presets_prompt_and_one
 
 #[test]
 fn the_marker_sits_on_the_last_whole_four_line_block() {
-    // 9 lines: two whole blocks, the marker on the second.
+    // 9 lines: the header, two whole blocks, the marker on the second.
     let r = CompactRequest {
         context: chat_of(9),
         ..request(0)
     };
     let p = cached_prompt(&r, true);
-    assert_eq!(markers(&p.blocks), vec![1]);
-    assert_eq!(texts(&p.blocks).len(), 4);
-    // Fewer than 4 lines: no whole block, no marker.
+    assert_eq!(markers(&p.blocks), vec![2]);
+    assert_eq!(texts(&p.blocks).len(), 5);
+    // Fewer than 4 lines: the header block takes the marker.
     let p = cached_prompt(&request(0), true);
     assert_eq!(p.system, "SYS");
-    assert!(markers(&p.blocks).is_empty());
+    assert_eq!(markers(&p.blocks), vec![0]);
     assert_eq!(
         texts(&p.blocks),
-        vec!["<chat>\nuser: hi\n</chat>", "STEP 0"]
+        vec!["<chat>\n", "user: hi\n</chat>", "STEP 0"]
     );
     // Without the marker the blocks are the same text.
     let r = CompactRequest {
@@ -1277,18 +1277,20 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
     assert!(error.message.contains("$imagegen"), "{error:?}");
 }
 
-/// hq-6d gap 3b: a Claude compactor runs Claude Haiku 5.5 at high effort,
-/// as the reference client does (Haiku overshoots the size limit more often;
-/// the ruler and the "Too long" retry handle it). acpmux maps `effort` onto
-/// Claude Code's `--effort` and codex's `reasoning_effort` (codex keeps
-/// medium: it is not Haiku); a harness of another family keeps its own.
+/// hq-6d (measured 2026-10-09, 33 node inputs on a subscription, Claude
+/// Code 2.1.287): Haiku 5.5 at medium effort costs 20% less per node and
+/// takes 36% less time (p50 4.2 s vs 6.6 s) than at high, with lines of
+/// the same quality; at low, 3 of 12 lines carried leaked reasoning and 2
+/// stayed over the size limit. acpmux maps `effort` onto Claude Code's
+/// `--effort` and codex's `reasoning_effort`; a harness of another family
+/// keeps its own. `OPTCHAT_COMPACTOR_EFFORT` picks another.
 #[test]
-fn a_claude_compactor_runs_haiku_at_high_effort() {
+fn a_claude_compactor_runs_haiku_at_medium_effort() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let paths = Paths::new(&home);
     for (harness, family, effort) in [
-        ("claude-sr", Family::Claude, Some("high")),
+        ("claude-sr", Family::Claude, Some("medium")),
         ("codex", Family::Codex, Some("medium")),
         ("opencode", Family::Other, None),
     ] {
@@ -1296,7 +1298,7 @@ fn a_claude_compactor_runs_haiku_at_high_effort() {
         assert_eq!(spec.effort.as_deref(), effort, "{harness}");
     }
     assert_eq!(Config::default().model, "claude-haiku-5-5");
-    assert_eq!(Config::default().effort.as_deref(), Some("high"));
+    assert_eq!(Config::default().effort.as_deref(), Some("medium"));
 }
 
 /// What Claude Code answers when the account cannot use the model.
@@ -1614,13 +1616,16 @@ fn a_refused_marker_comes_back_after_ten_nodes() {
     );
 }
 
-/// Claude Code without the model in its own table answers a failed call
-/// with "[claude-code:unrecognized_model]" (2.1.287 on claude-haiku-5-5):
-/// the compactor falls back to the turn model then too.
+/// Claude Code's "[claude-code:unrecognized_model]" is a warning (2.1.287
+/// prints it and runs claude-haiku-5-5): it never switches the compactor
+/// to the turn model; only a real refusal or API error does.
 #[test]
-fn an_unrecognized_model_counts_as_unavailable() {
-    assert!(optchat_chief::compactor::is_model_unavailable(
+fn the_unrecognized_model_warning_keeps_the_model() {
+    assert!(!optchat_chief::compactor::is_model_unavailable(
         r#"[claude-code:unrecognized_model] {"model":"claude-haiku-5-5","query_source":"sdk"}"#
+    ));
+    assert!(optchat_chief::compactor::is_model_unavailable(
+        "There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it."
     ));
     assert!(!optchat_chief::compactor::is_model_unavailable(
         "API Error: 529 overloaded"
@@ -1690,17 +1695,18 @@ fn a_compactor_slot_carries_the_users_settings_env() {
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
 }
 
-/// Claude Code 2.1.287 does not know `claude-haiku-5-5`
-/// ("[claude-code:unrecognized_model]") but takes the `haiku` alias, which
-/// it maps to its current Haiku. A Claude Code compactor asks for the
-/// alias; the Messages API route keeps the full id; another harness keeps
-/// its own default.
+/// A Claude Code compactor asks for the full id `claude-haiku-5-5`: Claude
+/// Code 2.1.287 only warns that it does not list it
+/// ("[claude-code:unrecognized_model]") and runs it, while its `haiku`
+/// alias is Haiku 4.5 (measured on a subscription: 52 s and no prompt
+/// caching for one node, against 1.3 s at effort low). Another harness
+/// keeps its own default.
 #[test]
 fn the_compactor_model_resolves_per_harness() {
     use optchat_chief::compactor::compactor_model_for;
     assert_eq!(
         compactor_model_for(Family::Claude).as_deref(),
-        Some("haiku")
+        Some("claude-haiku-5-5")
     );
     assert_eq!(compactor_model_for(Family::Codex), None);
     assert_eq!(compactor_model_for(Family::Other), None);
@@ -1729,7 +1735,8 @@ fn a_compactor_slots_settings_file_is_private() {
 /// The API takes at most 4 marks per request, and Claude Code marks its two
 /// system blocks plus the last two messages of every request after a
 /// session's first (a size-loop follow-up): a node that carries our mark
-/// runs Claude Code without its own; a node too short for one keeps them.
+/// (every node: a small context marks its header block) runs Claude Code
+/// without its own.
 #[test]
 fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
     let dir = tempfile::tempdir().unwrap();
@@ -1748,10 +1755,10 @@ fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
     run_node(&compactor, &marked).unwrap();
     assert_eq!(markers(&agents.inner.lock().unwrap().prompts[0]).len(), 1);
     assert_eq!(settings(0)["env"]["DISABLE_PROMPT_CACHING"], "1");
+    // A small context still carries our mark (on its header block).
     run_node(&compactor, &request(1)).unwrap();
-    assert!(markers(&agents.inner.lock().unwrap().prompts[1]).is_empty());
-    let s = settings(1);
-    assert!(s["env"].get("DISABLE_PROMPT_CACHING").is_none(), "{s}");
+    assert_eq!(markers(&agents.inner.lock().unwrap().prompts[1]), vec![0]);
+    assert_eq!(settings(1)["env"]["DISABLE_PROMPT_CACHING"], "1");
 }
 
 /// hq-6d dogfood (fb211f1670ad): a node's line was stored only after its
@@ -1781,4 +1788,63 @@ fn a_node_returns_before_its_slots_warm_session_starts() {
         assert!(std::time::Instant::now() < deadline, "no warm session");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// Dogfood fc34083d7bfa: a node whose first prompt carries our mark runs
+/// with Claude Code's own marks off (DISABLE_PROMPT_CACHING), so its "Too
+/// long" retries in the same session read nothing from the cache (node
+/// 32+8: 5 prompts, 13,808 uncached input tokens, $0.17). Each retry now
+/// ends with our own 5-minute mark, so it reads the previous
+/// request from the cache; the session never holds more than the API's 4
+/// marks (the view mark and at most 3 retry marks; a 4th retry reads the
+/// 3rd's entry unmarked).
+#[test]
+fn size_retries_of_a_marked_node_end_with_our_mark_and_stay_within_4() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = "x".repeat(700);
+    let agents = FakeAgents::new(Box::new(move |_, _| answer(&long)));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path());
+    // A view with whole 4-line blocks, so the first prompt carries our mark.
+    let mut context = String::from("<chat>\n");
+    for k in 0..12 {
+        context.push_str(&format!("{k}+1|user: line {k} {}\n", "y".repeat(80)));
+    }
+    context.push_str("</chat>");
+    let request = CompactRequest {
+        node: NodeId::new(0, 12),
+        context,
+        ..request(12)
+    };
+    run_node(&compactor, &request).unwrap();
+    let prompts = agents.inner.lock().unwrap().prompts.clone();
+    assert_eq!(prompts.len(), optchat_core::TRIES, "the size loop ran out");
+    let marks = |blocks: &[Value]| {
+        blocks
+            .iter()
+            .filter(|b| b.get("cache_control").is_some())
+            .count()
+    };
+    assert_eq!(marks(&prompts[0]), 1, "the view mark");
+    let mut total = 1;
+    for (k, p) in prompts.iter().enumerate().skip(1) {
+        let m = marks(p);
+        if k <= 3 {
+            assert_eq!(m, 1, "retry {k} ends with our mark: {p:?}");
+            assert!(
+                p.last().unwrap().get("cache_control").is_some(),
+                "on its last block"
+            );
+            // 5 minutes whatever the node's TTL: a retry chain lasts seconds,
+            // a 5m write costs 1.25x the input price against 2x for 1h, and
+            // the API takes a 5m mark after a 1h one (not the reverse).
+            assert_eq!(
+                p.last().unwrap()["cache_control"],
+                json!({"type": "ephemeral"}),
+                "a 5m retry mark"
+            );
+        }
+        total += m;
+    }
+    assert!(total <= 4, "{total} marks in one session");
 }

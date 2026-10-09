@@ -31,6 +31,8 @@ const doc = dom.window.document;
 
 const step = (fields: Partial<Parameters<typeof judgeStep>[0]> = {}) => ({
   step: "click",
+  action: "click" as const,
+  settleMs: 0,
   anchorMoves: [],
   layoutShift: 0,
   shifts: [],

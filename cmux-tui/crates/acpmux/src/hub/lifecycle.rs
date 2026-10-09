@@ -689,7 +689,12 @@ impl Hub {
                 .map(|(n, p)| (n.clone(), p.clone()))
                 .collect()
         };
-        let mut handles = Vec::new();
+        // Claude Code's and Codex's own lists, beside the ACP probes.
+        let live = {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.probe_live_models(wait).await })
+        };
+        let mut handles = vec![live];
         for (name, profile) in agents {
             let hub = self.clone();
             handles.push(tokio::spawn(async move {
