@@ -62,7 +62,7 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     exit              process::exit / process::abort
 
 BAN mode (crash-allowlist.json next to this script): a class named in "banned"
-("swift.<class>"; Rust classes are not bannable yet) is not in the baseline. Every hit fails, an inline
+("swift.<class>", or "swift.<class>@<Module>" for one module; Rust classes are not bannable yet) is not in the baseline. Every hit fails, an inline
 crash-allow does not waive it; only an "allow" entry {path, class, count, reason,
 reviewer} passes that many hits in that file. Flip a class to banned in the commit
 that brings it to zero (moving its reviewed crash-allow lines into the allowlist).
@@ -429,6 +429,7 @@ def scan_swift(repo, counts, banned_files=None):
     """Ratchet counts per module into COUNTS; hits of banned classes per file (crash-allow
     ignored) into BANNED_FILES {(kind, repo-relative path): hits}."""
     banned = banned_kinds("swift")
+    banned_modules = banned_in("swift")
     dictionaries = module_dictionaries(repo)
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
@@ -443,7 +444,7 @@ def scan_swift(repo, counts, banned_files=None):
                     continue
                 is_allowed = allowed(lines, index)
                 for kind, hits in swift_line_hits(lines, index, rel, dictionaries.get(rel, frozenset())).items():
-                    if kind in banned:
+                    if kind in banned or (kind, rel) in banned_modules:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))
                             banned_files[key] = banned_files.get(key, 0) + hits
@@ -464,7 +465,17 @@ def load_allowlist():
 
 
 def banned_kinds(lang):
-    return {entry.split(".", 1)[1] for entry in load_allowlist()["banned"] if entry.startswith(lang + ".")}
+    """Classes banned everywhere ("swift.<class>"); a "swift.<class>@<Module>" entry bans
+    the class in that module only (see banned_in)."""
+    return {entry.split(".", 1)[1] for entry in load_allowlist()["banned"]
+            if entry.startswith(lang + ".") and "@" not in entry}
+
+
+def banned_in(lang):
+    """{(class, module)} of per-module bans: a module that reached zero keeps zero while
+    the class stays a ratchet elsewhere."""
+    return {tuple(entry.split(".", 1)[1].split("@", 1)) for entry in load_allowlist()["banned"]
+            if entry.startswith(lang + ".") and "@" in entry}
 
 
 def module_of(path):
@@ -578,6 +589,7 @@ def main():
         for kind, files in baseline.get(lang, {}).items():
             if kind in banned_kinds(lang):
                 continue
+            files = {m: n for m, n in files.items() if (kind, m) not in banned_in(lang)}
             for rel, hits in files.items():
                 if counts[lang].get(kind, {}).get(rel, 0) < hits:
                     shrunk += 1

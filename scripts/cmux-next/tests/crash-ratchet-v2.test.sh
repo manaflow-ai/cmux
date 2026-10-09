@@ -217,4 +217,14 @@ SWIFT
 out="$(ratchet)" || fail "a block observer or an unrelated addObserver counted: $out"
 reset
 
+# 12. A per-module ban ("swift.<class>@<Module>"): that class fails in that module even with
+#    an inline crash-allow, and stays a ratchet class elsewhere.
+cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
+{"banned": ["swift.as_bang", "swift.objc_selector", "swift.index_subscript@MessagesLabHome"], "allow": []}
+JSON
+printf 'let a = rows[i] // crash-allow: x\n' > "$shared/Sources/MessagesLabHome/F.swift"
+if out="$(ratchet)"; then fail "a module-banned class passed: $out"; fi
+[[ "$out" == *"banned index_subscript in"* ]] || fail "the module ban is not reported: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
