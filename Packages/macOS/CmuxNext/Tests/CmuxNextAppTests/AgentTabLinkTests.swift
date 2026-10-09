@@ -24,7 +24,7 @@ import Testing
         #expect(store.tab(showing: "s-1") == nil)
     }
 
-    /// A link's session opens strict (its page refuses a session the daemon
+    /// Every tab's recorded session opens strict (its page refuses a session the daemon
     /// lacks) and its turn waits for the page: on the model once the view
     /// is made, handed over with the first handshake.
     @Test func aLinkedSessionTabIsStrictAndCarriesItsTurn() async throws {
@@ -36,14 +36,17 @@ import Testing
         store.revealTurn("t-3", in: key)
         #expect(store.pendingTurn(in: key) == "t-3")
         let view = try #require(store.view(for: key))
-        #expect(view.model.sessionMustExist)
         #expect(view.model.pendingRevealTurn == "t-3")
         let handshake = try #require(await view.model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(handshake["sessionMustExist"] as? Bool == true)
         #expect(handshake["revealTurn"] as? String == "t-3")
         #expect(store.pendingTurn(in: key) == nil)
-        // A tab opened any other way is not strict.
+        // A tab opened any other way (a restored or Chief subagent tab) is strict too: it never
+        // shows another session when its own is gone (P1 2026-10-09).
         let plain = try await fixture.open(session: "s-1")
-        #expect(try #require(store.view(for: plain)).model.sessionMustExist == false)
+        let plainView = try #require(store.view(for: plain))
+        let plainHandshake = try #require(await plainView.model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(plainHandshake["sessionMustExist"] as? Bool == true)
         #expect(store.session(of: try await fixture.open()) == nil)
     }
 

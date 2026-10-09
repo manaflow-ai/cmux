@@ -27,8 +27,8 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog",
-            "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
+            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.showContextUsage",
+            "pane.edit", "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
             "newTab.remember", "newTab.setTemplate", "newTab.inputReady", "newTab.touched", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.browse", "workspace.chooseFolder", "chat.folder.choose", "app.action", "chats.open",
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "pane.action", "pane.tabState",
@@ -70,6 +70,8 @@ public final class AgentPageProvider: PageProvider {
     /// The current state a new subscriber gets first (theme, shortcuts, preview, customization),
     /// as the old host pushed it again on every handshake.
     public var replay: (@MainActor () -> [AgentPageEvent])?
+    /// Runs a composer menu edit (`pane.edit`) in the page view; ``AgentPanePageHost`` sets it.
+    public var onEdit: (@MainActor (AgentPaneEditCommand) -> Void)?
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -99,6 +101,7 @@ public final class AgentPageProvider: PageProvider {
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
+        if method == "pane.edit" { return try edit(params, op: op, context: context) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

@@ -30,6 +30,7 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type Tab
 import { setDeviceChats } from "./newtab/deviceChats";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
+import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -142,6 +143,7 @@ type RowProps = {
   row: AcpmuxRow;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
+  controls?: string;
   onOpenDiff?: OpenDiff;
   githubRepository?: string;
 };
@@ -322,13 +324,14 @@ const ToolActivityRow = memo(
 
 /// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
 const WorkedRow = memo(
-  function WorkedRow({ row, onToggleActivity, expanded }: RowProps) {
-    return <WorkedFor row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  function WorkedRow({ row, onToggleActivity, expanded, controls }: RowProps) {
+    return <WorkedFor row={row} expanded={expanded} controls={controls} onToggle={() => onToggleActivity(row.id)} />;
   },
   (a, b) =>
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
+    a.controls === b.controls &&
     a.onToggleActivity === b.onToggleActivity,
 );
 
@@ -447,7 +450,7 @@ const defaultRegistry: NativeRegistry = {
 };
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
-type DrawnHeight = { version: number; width: number; height: number };
+type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
 /// Slides the thread from `step` px below to its place over 180 ms, so content that grew at the
@@ -469,6 +472,7 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
     const old = current.get(id);
     if (
       !old ||
+      old.sessionId !== entry.sessionId ||
       old.version !== entry.version ||
       old.width !== entry.width ||
       Math.abs(old.height - entry.height) >= 0.5
@@ -530,6 +534,7 @@ function RowFrame({
   return (
     <article
       ref={ref}
+      id={rowDomId(row.id)}
       data-row-id={row.id}
       className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
       aria-label={speaker(kind, t)}
@@ -551,6 +556,19 @@ const rowKind = (row: AcpmuxRow) =>
   row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
     ? "editedFiles"
     : row.kind;
+const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
+const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
+  const ids: string[] = [];
+  for (let index = after; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    // turnView marks every row copied under an open Worked-for disclosure as settled. This
+    // includes assistant commentary before the tool calls; stopping on kind alone left that
+    // first commentary row outside aria-controls and made the disclosure target incomplete.
+    if (!row.settled) break;
+    ids.push(rowDomId(row.id));
+  }
+  return ids.length > 0 ? ids.join(" ") : undefined;
+};
 const currentRegistry = (): NativeRegistry => ({
   ...defaultRegistry,
   ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
@@ -599,6 +617,15 @@ export function VirtualTranscript({
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
+  const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
+  const measurementSession = useRef(sessionId);
+  if (measurementSession.current !== sessionId) {
+    // Row ids and versions are local to an acpmux session. A new session can reuse both, so
+    // prepared markdown and DOM heights from the old transcript must never place the new one.
+    measurementSession.current = sessionId;
+    measurementCache.current.clear();
+    pendingDrawn.current.clear();
+  }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
   const rowWidthRef = useRef(transcriptRowWidth(width));
@@ -616,10 +643,19 @@ export function VirtualTranscript({
     if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
   }
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
-  const reportDrawn = useCallback<ReportDrawn>((id, version, drawnHeight) => {
-    // Zero is a row not laid out (hidden, or no layout at all), not a height.
-    if (drawnHeight > 0) pendingDrawn.current.set(id, { version, width: rowWidthRef.current, height: drawnHeight });
-  }, []);
+  const reportDrawn = useCallback<ReportDrawn>(
+    (id, version, drawnHeight) => {
+      // Zero is a row not laid out (hidden, or no layout at all), not a height.
+      if (drawnHeight > 0)
+        pendingDrawn.current.set(id, {
+          sessionId,
+          version,
+          width: rowWidthRef.current,
+          height: drawnHeight,
+        });
+    },
+    [sessionId],
+  );
   // All of a commit's reports land in one update, before the frame paints.
   const flushDrawn = useCallback(() => {
     if (!pendingDrawn.current.size) return;
@@ -631,6 +667,7 @@ export function VirtualTranscript({
         const old = current.get(id);
         if (
           old &&
+          old.sessionId === entry.sessionId &&
           old.version === entry.version &&
           old.width === entry.width &&
           Math.abs(old.height - entry.height) < 0.5
@@ -663,19 +700,21 @@ export function VirtualTranscript({
   );
   useEffect(() => () => observer?.disconnect(), [observer]);
   // Forget rows that left the transcript (a session switch, older history unloaded).
+  const previousRowIds = useRef<Set<string> | undefined>(undefined);
   useEffect(() => {
-    const cache = measurementCache.current;
-    if (cache.size <= rows.length && drawn.size <= rows.length) return;
     const ids = new Set(rows.map((row) => row.id));
+    const previous = previousRowIds.current;
+    previousRowIds.current = ids;
+    if (previous && previous.size === ids.size && [...ids].every((id) => previous.has(id))) return;
+    const cache = measurementCache.current;
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
     setDrawn((current) => {
       if ([...current.keys()].every((id) => ids.has(id))) return current;
       return new Map([...current].filter(([id]) => ids.has(id)));
     });
-  }, [rows, drawn]);
+  }, [rows]);
   useLayoutEffect(flushDrawn);
   const didOpenAtLatest = useRef(false);
-  const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -708,11 +747,14 @@ export function VirtualTranscript({
   // change an estimate.
   const estimated = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) =>
+    // Keep the session in this memo's inputs: its cache is cleared synchronously above even
+    // when a host reuses the same rows array for a newly selected chat.
+    const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
+    const layout = layoutConversation(rows, transcriptRowWidth(width), cache, (row, rowWidth) =>
       registry[rowKind(row)]?.measure?.(row, rowWidth),
     );
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, width, registry]);
+  }, [rows, registry, sessionId, width]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -722,12 +764,15 @@ export function VirtualTranscript({
         ? estimated.layout
         : placeRows(estimated.layout, (index) => {
             const known = drawn.get(rows[index].id);
-            return known && known.version === rows[index].version && known.width === rowWidth
+            return known &&
+              known.sessionId === sessionId &&
+              known.version === rows[index].version &&
+              known.width === rowWidth
               ? known.height
               : undefined;
           });
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, rows, width]);
+  }, [estimated, drawn, rows, sessionId, width]);
   const layout = measured.layout;
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
@@ -830,6 +875,8 @@ export function VirtualTranscript({
             const kind = rowKind(row);
             const Component = registry[kind] ?? NoticeRow;
             const isExpanded = expanded.has(row.id);
+            const controls =
+              row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
             return (
               <RowFrame
                 key={row.id}
@@ -850,6 +897,7 @@ export function VirtualTranscript({
                   onToggleActivity={onToggleActivity}
                   onOpenDiff={onOpenDiff}
                   expanded={isExpanded}
+                  controls={controls}
                   githubRepository={githubRepository}
                 />
               </RowFrame>
@@ -890,6 +938,9 @@ function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapshot; cwd?
   return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
 }
 
+/// The host closes a New Tab page (`AgentPaneView.discardUnsentChat`).
+const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
+
 function DefaultComposerChips({
   snapshot,
   cwd,
@@ -927,7 +978,7 @@ function DefaultComposerChips({
   }, [picker]);
   return (
     <ComposerPickers
-      snapshot={snapshot}
+      snapshot={startsChat ? newTabChipSnapshot(snapshot, picker.catalog) : snapshot}
       onModel={(modelId) => {
         start();
         void callNative("chat.model", { modelId });
@@ -947,6 +998,7 @@ function DefaultComposerChips({
       onAddAgent={() => void callNative("action.run", { id: "agent.harness.add" }).catch(() => undefined)}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
+      onShowContextUsage={(show) => void callNative("pane.showContextUsage", { show }).catch(() => undefined)}
       pickerCatalog={picker.catalog}
       catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
@@ -1642,6 +1694,10 @@ function AcpmuxPane() {
       },
     });
     let cancelled = false;
+    // The New Tab page closes (AgentPaneView.discardUnsentChat, cx-e2aa): a chat a chip pick started
+    // behind it, never sent, is discarded.
+    const discardUnsent = () => harnessSwitch.cancelDeferred();
+    window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     let retryTimer: number | undefined;
     let retryDelay = 250;
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
@@ -2095,6 +2151,7 @@ function AcpmuxPane() {
     void connectHost();
     return () => {
       cancelled = true;
+      window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
       harnessSwitch.disconnect();
       retryHost.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
@@ -2586,6 +2643,7 @@ function AcpmuxPane() {
           blocked={trustAsk.blocked}
           accessory={<DictationButton dictation={dictation} />}
           onImportFile={importFile}
+          onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
         />
       </ImageViewerContext.Provider>
     </>
@@ -2650,6 +2708,7 @@ function AcpmuxPane() {
                 )
               }
               chips={registryChips ?? NewTabComposerChips}
+              focusField={newTab.focusesField !== false}
               {...newTabScreenActions({
                 callNative,
                 cwd: newTab.cwd,

@@ -252,7 +252,7 @@ final class WindowManager {
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
-        services.dragSession.installWorkspaceHandoff(on: controller)
+        SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
         controllers.append(controller)
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window

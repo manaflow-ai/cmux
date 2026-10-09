@@ -64,6 +64,18 @@ describe("gallery play checks", () => {
     expect(verdict).toEqual({ status: "warn", problems: [] });
   });
 
+  test("an entry can gate action-to-settled latency with a written budget", () => {
+    const checks = {
+      settleMaxMs: { value: 250, reason: "Image viewer actions should settle within a quarter second." },
+    };
+    expect(judgeStep(step({ settleMs: 249.9 }), checks).status).toBe("pass");
+    expect(judgeStep(step({ settleMs: 250.1 }), checks)).toEqual({
+      status: "fail",
+      problems: ["settle latency 250.1 ms (limit 250 ms)"],
+    });
+    expect(checkReasons({ settleMaxMs: { value: 250, reason: "" } })).toHaveLength(1);
+  });
+
   test("an entry loosens a check with a value and a written reason", () => {
     const checks = { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compiles its grammar." } };
     expect(judgeStep(step({ frameSource: "long-animation-frame", longFrames: [40] }), checks).status).toBe("warn");

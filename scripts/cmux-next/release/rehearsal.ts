@@ -58,7 +58,9 @@ export const rehearseOnCopy = async (c: RehearsalContext): Promise<RehearsalOutc
     const owner = c.ownerPgRole ?? (await c.provider.roleUser(tree.database, tree.branches[target], tree.ownerRole))
     c.log(`copy ${name} lists roles: ${(await c.provider.roleNames(tree.database, name)).join(", ") || "none"}`)
     // In order: the owner's own login rewritten for the copy, the copy's own owner-role record, the copy's default role.
-    const copyLogin = c.ownerUrl ? await c.provider.copyUrl(tree.database, name, c.ownerUrl) : undefined
+    // Only a SQL owner keeps its password on the copy. A PlanetScale-role owner gets a new password there
+    // (live 2026-10-09: "password authentication failed"), so it resets its own copy record instead.
+    const copyLogin = c.ownerUrl && c.ownerPgRole ? await c.provider.copyUrl(tree.database, name, c.ownerUrl) : undefined
     // A SQL owner (no PlanetScale record) is reached only through its own login or SET ROLE; no other role's record.
     const asOwner = copyLogin ? { url: copyLogin, release: async () => {} } : c.ownerPgRole ? undefined : await c.provider.connectRole(tree.database, name, tree.ownerRole)
     const conn = asOwner ?? (await c.provider.connectDefault(tree.database, name))

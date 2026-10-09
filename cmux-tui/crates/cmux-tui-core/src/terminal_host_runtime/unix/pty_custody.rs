@@ -203,27 +203,6 @@ impl HostAttachment {
     }
 }
 
-/// The durable owner token a host record names.
-pub(crate) fn record_owner_token(record: &TerminalHostRecord) -> anyhow::Result<CapabilityToken> {
-    Ok(CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?))
-}
-
-/// The live host that replaced the dead host `dead` of the same terminal
-/// incarnation at `record_path`, if one is published.
-pub(crate) fn live_successor_record(
-    record_path: &Path,
-    dead: &TerminalHostRecord,
-) -> Option<TerminalHostRecord> {
-    let record: TerminalHostRecord = serde_json::from_slice(&fs::read(record_path).ok()?).ok()?;
-    let successor = record.terminal_id == dead.terminal_id
-        && record.incarnation == dead.incarnation
-        && record.owner_token == dead.owner_token
-        && record.host_start_nonce != dead.host_start_nonce
-        && terminal_host_record_liveness(record_path, &record).ok()
-            == Some(TerminalHostLiveness::Live);
-    successor.then_some(record)
-}
-
 /// An aligned control buffer for one descriptor.
 #[repr(C, align(8))]
 struct ControlBuffer([u8; 64]);

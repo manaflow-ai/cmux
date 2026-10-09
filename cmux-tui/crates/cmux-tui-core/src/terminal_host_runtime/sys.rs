@@ -98,6 +98,23 @@ mod windows_stubs {
         Err(unsupported().into())
     }
 
+    /// A host process started ahead of its terminal. None exist on Windows
+    /// until `sys/windows.rs`.
+    pub(crate) enum StandbyTerminalHost {}
+
+    /// Launching a terminal host fails until `sys/windows.rs`.
+    pub(crate) fn launch_terminal_host_from(
+        _options: &crate::surface::SurfaceOptions,
+        _root: &Path,
+        _default_colors: crate::surface::DefaultColors,
+        _cell_pixels: (u16, u16),
+        _kitty_graphics_limits: ghostty_vt::KittyGraphicsLimits,
+        _terminal_id: crate::terminal_host::TerminalId,
+        _standby: Option<StandbyTerminalHost>,
+    ) -> anyhow::Result<super::super::shared::attachment::HostAttachment> {
+        Err(unsupported().into())
+    }
+
     /// An adopted session id. Windows v1 adopts no session.
     pub(crate) enum SessionId {}
 
@@ -112,6 +129,10 @@ mod windows_stubs {
         pub(crate) fn wake(&self) {}
 
         pub(crate) fn drain(&self) {}
+
+        pub(crate) fn wait_readable(&self, _timeout: std::time::Duration) -> io::Result<bool> {
+            Err(unsupported())
+        }
     }
 
     impl super::super::shared::host_shared::HostShared {
@@ -153,6 +174,18 @@ mod windows_stubs {
 
     pub(crate) fn process_definitely_gone(_pid: u32) -> bool {
         false
+    }
+
+    pub(crate) fn kill_process_group(_pid: u32) -> anyhow::Result<bool> {
+        Err(unsupported().into())
+    }
+
+    pub(crate) fn lease_was_free(_file: &File) -> bool {
+        false
+    }
+
+    pub(crate) fn wait_lease_exclusive(_file: &File) -> io::Result<()> {
+        Err(unsupported())
     }
 
     pub(crate) fn remove_released_pty_lock(

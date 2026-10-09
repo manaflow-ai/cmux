@@ -927,3 +927,54 @@ fn an_import_keeps_compaction_prefixes_stable_between_calls() {
         "{written} of {total} context bytes are new to the cache over {calls} calls"
     );
 }
+
+/// Soak at d12ad2ce42e8: the first turn after a 2,020-message import saw a
+/// 400 KB view (the budget is 128 KB) and wrote 179k tokens to the cache.
+/// The chat's view merged only when a message came, and an import appends
+/// every message before any node is built. The reference client fits both
+/// views after each node it stores, in whole batches. During an import the
+/// chat's view stays near its budget, and it is within it once the import
+/// is built.
+#[test]
+fn an_import_keeps_the_chats_view_near_its_budget() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..2_000u64 {
+        store.push(Kind::Echo, format!("imported {k} {}", "x".repeat(900)));
+        memory.append();
+    }
+    let mut running: std::collections::VecDeque<NodeId> = Default::default();
+    let (mut largest, mut completions) = (0usize, 0usize);
+    loop {
+        for w in memory.pump(&store) {
+            match w {
+                Work::Free { node, text } => {
+                    store.nodes.borrow_mut().insert(node, text);
+                }
+                Work::Model { node } => running.push_back(node),
+            }
+        }
+        let Some(node) = running.pop_front() else {
+            break;
+        };
+        let text = fake_summary(node);
+        store.nodes.borrow_mut().insert(node, text.clone());
+        memory.complete_in(node, &text, &store).unwrap();
+        completions += 1;
+        // Past the first budget's worth of lines, as a turn would see it.
+        if completions > 600 {
+            largest = largest.max(memory.view_size());
+        }
+    }
+    assert!(memory.settled());
+    eprintln!("largest view {largest}, final {}", memory.view_size());
+    assert!(
+        memory.view_size() <= VIEW,
+        "the built import's view is {} bytes",
+        memory.view_size()
+    );
+    assert!(
+        largest <= 2 * VIEW,
+        "a view of {largest} bytes during the import"
+    );
+}
