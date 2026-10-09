@@ -15,7 +15,7 @@ extension AgentPaneView {
         "window.cmuxAcpmuxComposer?.(\(setting.pageValue.compactText));"
     }
 
-    /// Pushes ``composer`` to the page.
+    /// Pushes ``composer`` (`agentPane.showContextUsage`) to the page, as ``editedFiles`` is pushed.
     func applyComposer() {
         deliver([.composer(composer)], scripts: [Self.composerScript(composer)])
     }

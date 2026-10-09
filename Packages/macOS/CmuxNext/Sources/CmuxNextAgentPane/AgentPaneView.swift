@@ -45,7 +45,6 @@ public final class AgentPaneView: NSView {
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
-    /// `agentPane.showContextUsage`: pushed like ``editedFiles``.
     public var composer = AgentPaneComposerSetting.fallback {
         didSet { if composer != oldValue { applyComposer() } }
     }
