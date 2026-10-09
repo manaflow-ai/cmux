@@ -23,12 +23,12 @@ struct CloudVMResourcePoolTests {
         #expect(!pool.isExhausted)
     }
 
-    @Test
-    func catalogStandbyRowsDoNotSkipWakeTimePoolAdmission() throws {
-        let standby = SurfaceMachineInfo(
-            id: .cloud("standby"),
-            name: "standby",
-            status: "standby",
+    @Test(arguments: ["standby", "paused", "stopped", "PAUSED"])
+    func catalogInactiveRowsDoNotSkipWakeTimePoolAdmission(status: String) throws {
+        let inactive = SurfaceMachineInfo(
+            id: .cloud("inactive"),
+            name: "inactive",
+            status: status,
             hasDesktop: true,
             linkState: .connected
         )
@@ -40,7 +40,7 @@ struct CloudVMResourcePoolTests {
             linkState: .connected
         )
         let catalog = SurfaceCatalogSnapshot(
-            machines: [standby, running],
+            machines: [inactive, running],
             resources: [],
             projections: []
         )
