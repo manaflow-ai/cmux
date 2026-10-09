@@ -294,11 +294,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
-        let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
-        snapshot.recordsTerminalCommands = recordsCommands
-        if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
+        snapshot.parseTerminalCommandHistory(root)
         snapshot.parseNavigationHistory(root)
-        snapshot.commandRetentionDays = CommandRetentionSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)

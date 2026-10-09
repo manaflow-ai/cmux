@@ -22,3 +22,13 @@ public nonisolated enum CommandRetentionSetting {
         return days
     }
 }
+
+extension CmuxConfigSnapshot {
+    /// `history.terminalCommands` and `history.commandRetentionDays`.
+    mutating func parseTerminalCommandHistory(_ root: JSONValue) {
+        let (records, diagnostic) = TerminalCommandHistorySetting.parse(root)
+        recordsTerminalCommands = records
+        if let diagnostic { diagnostics.append(diagnostic) }
+        commandRetentionDays = CommandRetentionSetting.parse(root, diagnostics: &diagnostics)
+    }
+}

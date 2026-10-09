@@ -179,7 +179,7 @@ fn command_history_delete_zeroes_the_deleted_text_on_disk() {
         registry.append_terminal_commands(&[(terminal(), command(secret, NOW))], NOW).unwrap();
         assert_eq!(registry.delete_terminal_commands(&CommandDeletion::All).unwrap(), 1);
         assert!(registry.checkpoint_terminal_command_deletes().unwrap());
-        registry.database_path.clone().unwrap()
+        registry.session_journal_database_path().unwrap()
     };
     let mut bytes = std::fs::read(&path).unwrap();
     if let Ok(wal) = std::fs::read(path.with_extension("sqlite3-wal")) {

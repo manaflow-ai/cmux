@@ -66,7 +66,8 @@
             "key" : "settings.group.history",
             "rows" : [
               "navigation.historyScope",
-              "navigation.history.scope"
+              "navigation.history.scope",
+              "history.commandRetentionDays"
             ],
             "title" : {
               "key" : "settings.group.history",
@@ -1051,6 +1052,62 @@
       "title" : {
         "key" : "settings.navigation.historySteps",
         "text" : "Back and Forward Steps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        3650,
+        1825.5
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 30,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.history.commandRetentionDays.help",
+        "text" : "Each machine deletes recorded commands that are older."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "history.commandRetentionDays",
+      "keywords" : [
+        "history",
+        "commands",
+        "retention",
+        "delete",
+        "privacy",
+        "days"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "history",
+        "commandRetentionDays"
+      ],
+      "range" : {
+        "max" : 3650,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "days"
+      },
+      "refuses" : [
+        -3648,
+        7299,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.history.commandRetentionDays",
+        "text" : "Keep Terminal Commands For"
       },
       "validation" : "portable"
     },
@@ -17257,7 +17314,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "16e50b7a3e44eb34845b0914f30189865637bf9b413d31604481edd37500fd6c",
+  "schema_hash" : "783d94a0bac6a3240d1a0caa0a1bd33a598f775bb2d41d29b8a939f298a066b6",
   "sections" : [
     {
       "id" : "general",
