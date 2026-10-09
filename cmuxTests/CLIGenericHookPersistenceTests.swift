@@ -4364,7 +4364,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok Notification should not use the generic stop handler, saw \(notificationCommands)"
         )
         XCTAssertEqual(notificationTimeouts, [5])
-        XCTAssertEqual(preToolUseTimeouts, [120])
+        XCTAssertEqual(preToolUseTimeouts, [86_400])
         XCTAssertFalse(
             allCommands.contains { $0.contains("[ -n \"$CMUX_SURFACE_ID\" ]") },
             "Grok strips CMUX_* from hook subprocesses, so installed commands must not gate on CMUX_SURFACE_ID. Saw \(allCommands)"
