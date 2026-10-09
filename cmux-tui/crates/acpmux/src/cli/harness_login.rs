@@ -56,8 +56,40 @@ pub struct AuthMethod {
 
 /// The `authMethods` of an `initialize` result; unusable entries are left out.
 pub fn auth_methods(init: &Value) -> Vec<AuthMethod> {
-    let _ = init;
-    Vec::new() // red: no ACP sign-in yet
+    let text = |v: &Value| v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+    init["authMethods"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            let id = text(&m["id"])?;
+            let kind = text(&m["type"]).unwrap_or_else(|| "agent".into());
+            if !matches!(kind.as_str(), "agent" | "terminal" | "env_var") {
+                return None;
+            }
+            let args = m["args"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect())
+                .unwrap_or_default();
+            let env = m["env"]
+                .as_object()
+                .map(|o| {
+                    o.iter()
+                        .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(AuthMethod {
+                name: text(&m["name"]).unwrap_or_else(|| id.clone()),
+                description: text(&m["description"]),
+                var_name: text(&m["varName"]).or_else(|| (kind == "env_var").then(|| id.clone())),
+                id,
+                kind,
+                args,
+                env,
+            })
+        })
+        .collect()
 }
 
 /// Whether a harness is signed in.
@@ -168,18 +200,63 @@ fn not_acp(id: &str, profile: &HarnessProfile) -> Option<String> {
 
 /// Whether harness `id` is signed in.
 pub async fn auth_state(cfg: &Config, id: &str, timeout: Duration) -> Result<AuthState> {
-    let _ = (cfg, id, timeout, start, session_new, not_acp);
-    bail!("red: no ACP sign-in yet")
+    let profile = profile(cfg, id)?;
+    if let Some(hint) = not_acp(id, profile) {
+        return Ok(AuthState::NotAcp { hint });
+    }
+    let mut started = start(id, profile, timeout).await?;
+    let methods = auth_methods(&started.init);
+    Ok(match session_new(&mut started, timeout).await? {
+        Ok(()) => AuthState::SignedIn { methods },
+        Err(message) => AuthState::Required { methods, message },
+    })
 }
 
 /// Runs a terminal sign-in: `argv` with `env`, in this terminal; its exit code.
 pub type TerminalRunner<'a> = dyn Fn(&[String], &BTreeMap<String, String>) -> Result<i32> + 'a;
 
 /// Runs `argv` in this terminal (stdin, stdout and stderr inherited).
+/// The env hygiene of `agent::harness_command` (login env, no nested
+/// Claude markers, no `ACPMUX_*` context, no helper tokens), on a plain
+/// command that stays in this terminal's process group so Ctrl-C reaches it.
 pub fn run_in_this_terminal(argv: &[String], env: &BTreeMap<String, String>) -> Result<i32> {
     let (program, args) = argv.split_first().ok_or_else(|| anyhow!("empty command"))?;
-    let status = std::process::Command::new(program).args(args).envs(env).status()?;
+    let mut cmd = std::process::Command::new(program);
+    crate::login_env::apply_std(&mut cmd);
+    crate::config::scrub_nested_claude_env(&mut cmd);
+    for (k, _) in std::env::vars_os() {
+        if k.to_string_lossy().starts_with("ACPMUX_") {
+            cmd.env_remove(&k);
+        }
+    }
+    for key in crate::cua_socket::AGENT_SCRUBBED_ENV {
+        cmd.env_remove(key);
+    }
+    cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
+    let status = cmd
+        .args(args)
+        .envs(env)
+        .env_remove("CLAUDECODE")
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
+        .status()?;
     Ok(status.code().unwrap_or(1))
+}
+
+/// Merges a sign-in method's env under the profile's: a profile key (a
+/// Keychain secret, PATH) always wins, and loader keys never come from the
+/// agent.
+fn method_env(
+    profile: &BTreeMap<String, String>,
+    method: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut env = profile.clone();
+    for (k, v) in method {
+        if k == "PATH" || k.starts_with("LD_") || k.starts_with("DYLD_") {
+            continue;
+        }
+        env.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    env
 }
 
 /// Signs in to harness `id` with `method` (default: its first `agent`
@@ -192,8 +269,79 @@ pub async fn login(
     timeout: Duration,
     terminal: &TerminalRunner<'_>,
 ) -> Result<String> {
-    let _ = (cfg, id, method, timeout, terminal, resolved);
-    bail!("red: no ACP sign-in yet")
+    let profile = profile(cfg, id)?;
+    match profile.kind {
+        HarnessKind::Acp => {}
+        HarnessKind::ClaudeStdio if profile.argv.len() == 1 => {
+            let argv = vec![profile.argv[0].clone(), "auth".into(), "login".into()];
+            let env = resolved(profile)?.env;
+            let code = terminal(&argv, &env)?;
+            return if code == 0 {
+                Ok(format!("{id}: signed in"))
+            } else {
+                Err(anyhow!("`claude auth login` exited {code}"))
+            };
+        }
+        _ => bail!("{}", not_acp(id, profile).unwrap_or_default()),
+    }
+    let mut started = start(id, profile, timeout).await?;
+    let methods = auth_methods(&started.init);
+    let chosen = match method {
+        Some(m) => methods.iter().find(|x| x.id == m).ok_or_else(|| {
+            let ids: Vec<&str> = methods.iter().map(|x| x.id.as_str()).collect();
+            anyhow!("{id} has no sign-in method {m:?}; it offers: {}", ids.join(", "))
+        })?,
+        None => methods
+            .iter()
+            .find(|x| x.kind == "agent")
+            .or_else(|| methods.iter().find(|x| x.kind == "terminal"))
+            .ok_or_else(|| match methods.first() {
+                Some(_) => anyhow!(
+                    "{id} signs in only with an API key: see `cmux harness login {id} --list`"
+                ),
+                None => anyhow!(
+                    "{id} offers no ACP sign-in; sign in with its own command{}",
+                    cfg.profile_meta
+                        .get(id)
+                        .and_then(|m| m.auth.as_ref())
+                        .and_then(|a| a.login.as_ref())
+                        .map(|l| format!(" (`{l}`)"))
+                        .unwrap_or_default()
+                ),
+            })?,
+    };
+    match chosen.kind.as_str() {
+        "env_var" => {
+            let var = chosen.var_name.clone().unwrap_or_else(|| chosen.id.clone());
+            Ok(format!(
+                "{id} reads {var}: store it with `cmux harness secret set {id} {var}` and add \
+                 `{var} = {{ keychain = \"cmux-harness/{id}/{var}\" }}` to the profile's [env]"
+            ))
+        }
+        "terminal" => {
+            let spawn = resolved(profile)?;
+            // The harness's own command line plus the method's arguments
+            // (ACP terminal sign-in), as t3code runs it.
+            let mut argv = spawn.argv.clone();
+            argv.extend(chosen.args.iter().cloned());
+            let env = method_env(&spawn.env, &chosen.env);
+            drop(started);
+            let code = terminal(&argv, &env)?;
+            if code != 0 {
+                bail!("{} exited {code}", chosen.name);
+            }
+            Ok(format!("{id}: signed in with {}", chosen.name))
+        }
+        _ => {
+            eprintln!("waiting for the {} sign-in (up to 5 min; Ctrl-C stops it)", chosen.name);
+            let params = json!({"methodId": chosen.id});
+            started.wire.call("authenticate", params, timeout).await.map_err(|e| anyhow!(e))?;
+            match session_new(&mut started, timeout).await? {
+                Ok(()) => Ok(format!("{id}: signed in with {}", chosen.name)),
+                Err(e) => Err(anyhow!("{id}: still not signed in after {}: {e}", chosen.name)),
+            }
+        }
+    }
 }
 
 pub async fn run_cmd(
@@ -206,7 +354,11 @@ pub async fn run_cmd(
     let cfg = Config::load()?;
     let timeout = Duration::from_secs(300);
     if list || status {
-        let state = auth_state(&cfg, id, Duration::from_secs(60)).await?;
+        // Ctrl-C drops the started harness, which stops its process group.
+        let state = tokio::select! {
+            state = auth_state(&cfg, id, Duration::from_secs(60)) => state?,
+            _ = tokio::signal::ctrl_c() => bail!("stopped"),
+        };
         if json_out {
             println!("{}", serde_json::to_string_pretty(&state)?);
             return Ok(());
@@ -223,7 +375,10 @@ pub async fn run_cmd(
         }
         return Ok(());
     }
-    let outcome = login(&cfg, id, method.as_deref(), timeout, &run_in_this_terminal).await?;
+    let outcome = tokio::select! {
+        outcome = login(&cfg, id, method.as_deref(), timeout, &run_in_this_terminal) => outcome?,
+        _ = tokio::signal::ctrl_c() => bail!("stopped"),
+    };
     if json_out {
         println!("{}", json!({"id": id, "result": outcome}));
     } else {

@@ -100,3 +100,18 @@ async fn claude_code_signs_in_with_claude_auth_login() {
     );
     assert!(matches!(auth_state(&cfg, "claude", T).await.unwrap(), AuthState::NotAcp { .. }));
 }
+
+#[test]
+fn the_profile_env_wins_over_a_method_s_and_loader_keys_never_come_from_the_agent() {
+    let profile = BTreeMap::from([("TOKEN".to_owned(), "mine".to_owned())]);
+    let method = BTreeMap::from([
+        ("TOKEN".to_owned(), "theirs".to_owned()),
+        ("PATH".to_owned(), "/evil".to_owned()),
+        ("DYLD_INSERT_LIBRARIES".to_owned(), "/x".to_owned()),
+        ("LOGIN_MODE".to_owned(), "device".to_owned()),
+    ]);
+    let env = method_env(&profile, &method);
+    assert_eq!(env.get("TOKEN").map(String::as_str), Some("mine"));
+    assert_eq!(env.get("LOGIN_MODE").map(String::as_str), Some("device"));
+    assert!(!env.contains_key("PATH") && !env.contains_key("DYLD_INSERT_LIBRARIES"));
+}

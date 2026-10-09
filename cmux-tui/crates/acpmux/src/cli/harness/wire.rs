@@ -56,7 +56,7 @@ impl Wire {
                     self.send(json!({"jsonrpc": "2.0", "id": rid, "result": answer})).await?;
                 }
                 (Some(rid), Some(_)) => {
-                    let error = json!({"code": -32601, "message": "cmux harness doctor does not serve this method"});
+                    let error = json!({"code": -32601, "message": "cmux harness doctor and login do not serve this method"});
                     self.send(json!({"jsonrpc": "2.0", "id": rid, "error": error})).await?;
                 }
                 (None, Some("session/update")) => {
