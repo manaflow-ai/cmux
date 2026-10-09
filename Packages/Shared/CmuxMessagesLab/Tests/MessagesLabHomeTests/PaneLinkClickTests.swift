@@ -21,7 +21,7 @@ import Testing
             Fixture2.item(3, Fixture2.them, "Image: ![chart](https://example.com/chart.png)"),
         ]
         p.apply(items: items, summary: Fixture2.summary(lastSeq: 3), typing: [], hasOlder: false)
-        c.host.layoutSubtreeIfNeeded(); c.demo.layoutIfNeeded(); c.demo.collection.layoutIfNeeded()
+        c.host.layoutSubtreeIfNeeded(); c.demo!.layoutIfNeeded(); c.demo!.collection.layoutIfNeeded()
         var opened = Set<String>()
         let b = c.host.bounds
         for y in stride(from: b.minY, to: b.maxY, by: 3) {

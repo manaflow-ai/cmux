@@ -349,15 +349,15 @@ impl ScreenDetectTracker {
         {
             deadlines.push(now + Duration::from_millis(PENDING_IDLE_RECHECK_MS));
         }
-        if entry.evaluated_revision != Some(entry.revision) {
-            if let Some(quiet) = entry.quiet_since {
-                deadlines.push(quiet + Duration::from_millis(QUIESCENCE_DEBOUNCE_MS));
-            }
+        if entry.evaluated_revision != Some(entry.revision)
+            && let Some(quiet) = entry.quiet_since
+        {
+            deadlines.push(quiet + Duration::from_millis(QUIESCENCE_DEBOUNCE_MS));
         }
-        if entry.evaluated_with_activity {
-            if let Some(output) = entry.last_output_at {
-                deadlines.push(output + Duration::from_millis(WORKING_ACTIVITY_WINDOW_MS + 1));
-            }
+        if entry.evaluated_with_activity
+            && let Some(output) = entry.last_output_at
+        {
+            deadlines.push(output + Duration::from_millis(WORKING_ACTIVITY_WINDOW_MS + 1));
         }
         if entry.pending_idle.active() {
             deadlines.push(now + Duration::from_millis(PENDING_IDLE_RECHECK_MS));

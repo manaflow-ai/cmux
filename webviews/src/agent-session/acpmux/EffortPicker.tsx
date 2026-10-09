@@ -6,7 +6,7 @@ import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
-import { usePopoverTrigger } from "./popoverTrigger";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
 /// title, the model under it (a default level says "Reasoning" on the chip), and a stepped slider with one stop per level the agent offers.

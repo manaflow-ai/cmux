@@ -13,7 +13,7 @@ extension SidebarListView {
     }
     /// Per-key callbacks, set on every dequeue so recycled views never keep
     /// a previous row's target.
-    private func wire(_ view: SidebarRowView, key: SidebarRowKey) {
+    func wire(_ view: SidebarRowView, key: SidebarRowKey) {
         switch (key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             view.onClose = { [weak self] in self?.model.send(.close([id])) }
@@ -24,12 +24,8 @@ extension SidebarListView {
                 self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))
             }
         case let (.group(id), view as GroupHeaderRowView):
-            guard let row = displayed.row(for: .group(id)) else { return }
-            view.onAdd = { [weak self] in
-                guard let self, case let .machine(machine) = self.sections[row.section]?.kind else { return }
-                self.model.send(.newWorkspace(machine: machine.id, group: id))
-            }
-            view.onEdit = { [weak self] in self?.inlineRename.begin(.group(id)) }
+            view.onMore = { [weak self] in self?.groupEditing.open(id) }
+            view.isEditing = groupEditor.shownGroup == id
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true

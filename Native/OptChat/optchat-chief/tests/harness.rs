@@ -601,6 +601,14 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
     assert_eq!(codex.name, format!("optchat-chief-codex-{id}"));
     assert_eq!(codex.env["CODEX_PROMPT_CACHE_KEY"], key);
+    // An isolated codex turn runs on the Chief's own CODEX_HOME, whose config
+    // turns codex's native subagents off: the Chief's subagents are `chief
+    // spawn` sessions (live proof subp3: a codex Chief answered "use spawn"
+    // with its own spawn_agent, and no cmux subagent started).
+    assert_eq!(
+        codex.env.get("CODEX_HOME").map(std::path::PathBuf::from),
+        Some(paths.turn_codex.clone())
+    );
     assert!(
         codex.args.is_empty(),
         "the preset args allowlist is untouched"
@@ -755,6 +763,37 @@ fn the_session_settings_carry_the_users_settings_env() {
         format!("{}:/ours", paths.bin.display()),
         "the session's own env wins"
     );
+}
+
+/// The session's project settings may hold the user's settings env (an
+/// API token among it): both settings files are the user's alone (0600);
+/// the copy happens only on a macOS host (the user's own Mac, never a Linux
+/// VM or dev backend image) and `OPTCHAT_COPY_USER_ENV=0` turns it off.
+#[test]
+fn the_session_settings_files_are_private_and_the_copy_is_gated() {
+    use optchat_chief::prompt::Tools;
+    use optchat_chief::session_dir::{SessionSetup, copy_user_env_allowed, write};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    paths.create().unwrap();
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        cmux_mcp: None,
+        env: Default::default(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+    };
+    write(&paths, &setup).unwrap();
+    for name in ["settings.json", "settings.local.json"] {
+        let file = paths.session.join(".claude").join(name);
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{name}: {mode:o}");
+    }
+    assert!(!copy_user_env_allowed(Some("0")));
+    assert_eq!(copy_user_env_allowed(None), cfg!(target_os = "macos"));
+    assert_eq!(copy_user_env_allowed(Some("1")), cfg!(target_os = "macos"));
 }
 
 /// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run

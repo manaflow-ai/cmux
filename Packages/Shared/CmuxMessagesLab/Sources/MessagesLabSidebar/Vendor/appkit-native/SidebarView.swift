@@ -70,11 +70,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// width it is designed for (to verify against Messages' default).
     var minimumWidth: CGFloat { SidebarMetrics.minimumWidth }
     var preferredWidth: CGFloat? { SidebarMetrics.preferredWidth }
-    private var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua)!)
+    private var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()) // cmux: no force unwrap
     private var generation = 0
     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
     private let cache = SidebarBitmapCache()
-    private let avatars = SidebarAvatarCache()
+    let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
     private let textCache = SidebarTextCache()
     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
     private var bellSecondary: CGImage?, bellSelected: CGImage?
@@ -82,7 +82,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private var pending: Set<SidebarBitmapKey> = []
     private var rowLayers: [Int: SidebarRowLayer] = [:]
     private var pool: [SidebarRowLayer] = []
-    private var tileLayers: [SidebarRowLayer] = []
+    // cmux: readable by the pin drag (Cmux/SidebarPinDragging.swift).
+    private(set) var tileLayers: [SidebarRowLayer] = []
+    // cmux: the pin drag in progress (Cmux/SidebarPinDrag.swift).
+    let pinDragState = SidebarPinDragState()
     private let hoverLayer = CALayer()
     private let menuRing = CALayer()
     private var hovered: Hit?
@@ -238,6 +241,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         layoutDocument()
         tile(force: true)
         updateAccessibility()
+        pinDragDidReload() // cmux: a drag follows the new data; a drop lands
     }
 
     // MARK: Geometry
@@ -342,7 +346,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     @objc private func clipMoved() { tile(force: false) }
 
-    private var renderContext: SidebarRenderContext {
+    var renderContext: SidebarRenderContext { // cmux: internal, the pin drag draws its tile
         SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
                              space: document.window?.screen?.colorSpace?.cgColorSpace ?? SidebarDraw.p3, generation: generation,
                              bellSecondary: bellSecondary, bellSelected: bellSelected, now: Date())
@@ -426,11 +430,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
 
     /// Renders a row's time and text from values only (any thread).
-    private func rowJob() -> (ConversationSummary, SidebarBitmapKey, CGImage?) -> (time: CGImage, text: CGImage) {
+    /// cmux: nil when a bitmap cannot be allocated; the row then waits undrawn (no trap).
+    private func rowJob() -> (ConversationSummary, SidebarBitmapKey, CGImage?) -> (time: CGImage, text: CGImage)? {
         let ctx = renderContext, time = timeFormatter, text = textCache
         return { c, k, cachedTime in
-            let t = cachedTime ?? SidebarDraw.rowTime(c, emphasized: k.emphasized, ctx: ctx, time: time)
-            let x = SidebarDraw.rowText(c, emphasized: k.emphasized, ctx: ctx, timeWidth: SidebarDraw.rowTimeWidth(t, scale: ctx.scale), text: text)
+            guard let t = cachedTime ?? SidebarDraw.rowTime(c, emphasized: k.emphasized, ctx: ctx, time: time),
+                  let x = SidebarDraw.rowText(c, emphasized: k.emphasized, ctx: ctx, timeWidth: SidebarDraw.rowTimeWidth(t, scale: ctx.scale), text: text)
+            else { return nil }
             return (t, x)
         }
     }
@@ -513,8 +519,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             // Drawn with the other visible rows of this pass, in parallel (flushBatch).
             l.shownKey = nil
             batch.append((l, k, c))
-        } else if sync {
-            let r = rowJob()(c, k, cache.image(timeKey(k)))
+        } else if sync, let r = rowJob()(c, k, cache.image(timeKey(k))) { // cmux: an unallocated row stays undrawn
             stats.syncRenders += 1
             cache.insert(timeKey(k), r.time); cache.insert(k, r.text)
             show(l, k, time: r.time, text: r.text)
@@ -534,6 +539,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.pending.remove(k)
+                guard let r else { return } // cmux: an unallocated row stays undrawn
                 guard k.generation == self.generation, k.width == self.metrics.width else { return }
                 self.stats.asyncRenders += 1
                 self.cache.insert(self.timeKey(k), r.time)
@@ -614,13 +620,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         return (name, bubble)
     }
     /// Renders one tile part for its key (any thread).
-    static func tilePart(_ k: SidebarBitmapKey, _ c: ConversationSummary, _ ctx: SidebarRenderContext) -> CGImage {
+    static func tilePart(_ k: SidebarBitmapKey, _ c: ConversationSummary, _ ctx: SidebarRenderContext) -> CGImage? { // cmux: nil when unallocated
         k.kind == .tileBubble ? SidebarDraw.tileBubbleImage(c, keyWidth: k.width, ctx: ctx)
             : SidebarDraw.tileNameImage(c, emphasized: k.emphasized, keyWidth: k.width, ctx: ctx)
     }
-    private func tileImage(_ k: SidebarBitmapKey, _ c: ConversationSummary) -> CGImage {
+    private func tileImage(_ k: SidebarBitmapKey, _ c: ConversationSummary) -> CGImage? {
         if let img = cache.image(k) { return img }
-        let img = SidebarController.tilePart(k, c, renderContext)
+        guard let img = SidebarController.tilePart(k, c, renderContext) else { return nil } // cmux
         stats.tiles += 1
         cache.insert(k, img)
         return img
@@ -660,14 +666,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         } else {
             let keys = tileKeys(i)
             let name = tileImage(keys.name, c)
-            let nw = CGFloat(name.width) / s
+            let nw = CGFloat(name?.width ?? 0) / s // cmux: an unallocated name shows nothing
             l.content.isHidden = false
             l.content.contents = name
             l.content.frame = CGRect(x: ((f.width - nw) / 2).rounded(), y: ar.maxY + SidebarMetrics.pinNameGap, width: nw, height: SidebarMetrics.pinNameHeight)
-            if let bk = keys.bubble {
+            if let bk = keys.bubble, let b = tileImage(bk, c) { // cmux: an unallocated bubble is not shown
                 // The newest unread message over the avatar's top (the typing bubble, a layer,
                 // takes its place while someone types).
-                let b = tileImage(bk, c)
                 let bw = CGFloat(b.width) / s, bh = CGFloat(b.height) / s
                 let bottom = ar.minY + ar.height * 0.30
                 l.time.isHidden = false
@@ -922,7 +927,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         case #selector(NSResponder.moveDown(_:)): moveSelection(1); return true
         case #selector(NSResponder.moveUp(_:)): moveSelection(-1); return true
         case #selector(NSResponder.insertNewline(_:)):
-            if highlightID == nil || position(of: highlightID!) == nil { moveSelection(1) }
+            if highlightID.map({ position(of: $0) == nil }) ?? true { moveSelection(1) } // cmux: no force unwrap
             view.window?.makeFirstResponder(document)
             return true
         case #selector(NSResponder.cancelOperation(_:)):
@@ -1183,6 +1188,7 @@ final class SidebarDocumentView: NSView {
         window?.makeFirstResponder(self)
         guard let c = controller, let h = c.hit(point(event)) else { return }
         c.highlight(c.snapshot.items[c.item(h)].id, reveal: false)
+        c.trackPinDrag(from: event, in: self) // cmux: press and drag a tile or row (Cmux/SidebarPinDragging.swift)
     }
     override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
     override func keyDown(with event: NSEvent) {
@@ -1192,6 +1198,7 @@ final class SidebarDocumentView: NSView {
         default: interpretKeyEvents([event])
         }
     }
+    override func cancelOperation(_ sender: Any?) { controller?.cancelPinDrag() } // cmux: Escape reaching the list ends a pin drag
     override func moveDown(_ sender: Any?) { controller?.moveSelection(1) }
     override func moveUp(_ sender: Any?) { controller?.moveSelection(-1) }
     /// Typing a letter in the list starts a search (as a source list's type-select would).
