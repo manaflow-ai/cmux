@@ -1366,12 +1366,18 @@ describe("in-VM cmux shim: agent primitives", () => {
       // Anything after the agent's own first token is the agent's, untouched.
       expect((await runStateful(dir, ["agent", "claude", "--resume", "--wait"])).stdout).toBe("--resume --wait\n");
       expect((await runStateful(dir, ["agent", "claude", "--timeout", "nope", "x"])).status).toBe(2);
-      const hasTimeout = (await runChild("sh", ["-c", "command -v timeout || command -v gtimeout"])).status === 0;
-      if (hasTimeout) {
-        const slow = await runStateful(dir, ["agent", "claude", "--timeout", "0.5", "--", "x"], { SLOW: "1" });
-        expect(slow.status).toBe(1);
-        expect(slow.stderr).toContain("agent claude timed out after 0.5s");
-      }
+      // Make the timeout branch deterministic on hosts (such as macOS) that
+      // do not ship timeout(1). The compatibility path must invoke this
+      // binary on older images that have no /etc/cmux/agent-config.sh.
+      const timeout = join(dir, "timeout");
+      writeFileSync(
+        timeout,
+        '#!/bin/sh\nif [ "$1" = "-k" ]; then shift 2; fi\nduration="$1"; shift\n[ "$duration" = "0.5" ] && exit 124\nexec "$@"\n',
+      );
+      chmodSync(timeout, 0o755);
+      const slow = await runStateful(dir, ["agent", "claude", "--timeout", "0.5", "--", "x"], { SLOW: "1" });
+      expect(slow.status).toBe(1);
+      expect(slow.stderr).toContain("agent claude timed out after 0.5s");
     });
   });
 
