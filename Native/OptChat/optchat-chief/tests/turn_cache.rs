@@ -522,6 +522,7 @@ fn claude_code_marks(settings: &Value, later: bool) -> usize {
 /// keeps Claude Code's.
 #[test]
 fn every_turn_request_shape_stays_within_four_cache_marks() {
+    use optchat_chief::prompt::CacheTtl;
     for (lines, marked) in [(0, false), (1_200, true)] {
         let mut h = claude_harness(None);
         fill(&h.chat, 0, lines);
@@ -542,11 +543,12 @@ fn every_turn_request_shape_stays_within_four_cache_marks() {
                 if later { "a later" } else { "the first" }
             );
         }
-        if !marked {
-            assert!(
-                settings["env"].get("DISABLE_PROMPT_CACHING").is_none(),
-                "an unmarked turn keeps Claude Code's own cache: {settings}"
-            );
-        }
     }
+    // A session without our mark keeps Claude Code's own cache marks.
+    let dir = tempfile::tempdir().unwrap();
+    optchat_chief::session_dir::set_session_cache(dir.path(), CacheTtl::OneHour, true).unwrap();
+    optchat_chief::session_dir::set_session_cache(dir.path(), CacheTtl::OneHour, false).unwrap();
+    let path = dir.path().join(".claude").join("settings.json");
+    let s: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert!(s["env"].get("DISABLE_PROMPT_CACHING").is_none(), "{s}");
 }
