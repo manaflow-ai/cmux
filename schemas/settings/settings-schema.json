@@ -2064,6 +2064,7 @@
     },
     {
       "accepts" : [
+        "system",
         "auto",
         "always",
         "off"
@@ -2071,6 +2072,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.stripScrollbarSystem",
+            "text" : "Follow System"
+          },
+          "value" : "system"
+        },
         {
           "title" : {
             "key" : "settings.choice.stripScrollbarAuto",
@@ -2096,7 +2104,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "auto",
+      "default" : "system",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -17249,7 +17257,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "ca9712b43f21228a383ac519859772006b2056cb5d12f4b7bba39398cefe378f",
+  "schema_hash" : "16e50b7a3e44eb34845b0914f30189865637bf9b413d31604481edd37500fd6c",
   "sections" : [
     {
       "id" : "general",
