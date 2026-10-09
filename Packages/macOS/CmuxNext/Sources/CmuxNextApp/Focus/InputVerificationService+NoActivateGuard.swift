@@ -23,16 +23,16 @@ extension InputVerificationService {
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             guard let pid = app?.processIdentifier, pid != me else { return }
-            MainActor.assumeIsolated { guardian.otherAppActivated(pid) }
+            MainActor.assumeIsolated { guardian.otherAppActivated(pid) } // main-proof: observer on queue: .main
         })
         keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidBecomeActive() }
+            MainActor.assumeIsolated { guardian.appDidBecomeActive() } // main-proof: observer on queue: .main
         })
         keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidResignActive() }
+            MainActor.assumeIsolated { guardian.appDidResignActive() } // main-proof: observer on queue: .main
         })
         keyboardGuardObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.windowDidBecomeKey() }
+            MainActor.assumeIsolated { guardian.windowDidBecomeKey() } // main-proof: observer on queue: .main
         })
         let application = NSApp as? CmuxApplication
         let journalObserver = application?.inputObserver

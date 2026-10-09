@@ -1,4 +1,10 @@
 import Carbon.HIToolbox
+import os
+
+/// Faults from the Carbon event handler (a C callback, so no captured logger).
+nonisolated enum CarbonHotKeyFaults {
+    static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hotkeys")
+}
 
 /// `RegisterEventHotKey`-backed registrar. Carbon hot keys fire while
 /// another app is frontmost and need no Accessibility or Input Monitoring
@@ -49,7 +55,12 @@ final class CarbonHotKeyRegistrar: GlobalHotKeyRegistrar {
                 return OSStatus(eventNotHandledErr)
             }
             let number = hotKeyID.id
-            MainActor.assumeIsolated { CarbonHotKeyRegistrar.active?.onPress?(number) }
+            // The application event target dispatches on the main thread; anywhere else, refuse the press.
+            guard Thread.isMainThread else {
+                CarbonHotKeyFaults.logger.fault("Carbon hot key event off the main thread; not handled")
+                return OSStatus(eventNotHandledErr)
+            }
+            MainActor.assumeIsolated { CarbonHotKeyRegistrar.active?.onPress?(number) } // main-proof: guarded by Thread.isMainThread above
             return noErr
         }, 1, &spec, nil, &handler)
     }

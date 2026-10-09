@@ -206,7 +206,7 @@ public final class HomeNativeTranscriptView: NSView {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {
             observers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.windowStateChanged() }
+                MainActor.assumeIsolated { self?.windowStateChanged() } // main-proof: observer on queue: .main
             })
         }
         windowStateChanged()
