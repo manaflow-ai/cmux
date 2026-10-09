@@ -36,8 +36,6 @@ test("header tools gallery scripts exercise keyboard navigation and focus return
     focus: async (target: PlayTarget) => {
       calls.push(`focus:${JSON.stringify(target)}`);
     },
-    scroll: async () => undefined,
-    selectText: async () => undefined,
     type: async () => undefined,
     press: async (key: string) => {
       calls.push(`press:${key}`);
