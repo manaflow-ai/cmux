@@ -92,8 +92,8 @@ struct TextLayout: Hashable {
         var y: CGFloat = 0
         let ns = text as NSString
         let hardAdvance = hard
-        for j in 1..<max(1, i + 1) where j < lines.count {
-            let loc = lines[j].range.location
+        for line in lines.prefix(max(1, i + 1)).dropFirst() { // cmux: no index math
+            let loc = line.range.location
             let hard = loc > 0 && loc <= ns.length && ns.character(at: loc - 1) == 10
             y += hard ? hardAdvance : Fixture.lineHeight
         }
@@ -103,13 +103,13 @@ struct TextLayout: Hashable {
 
     /// The link at a point relative to the text origin (first line top).
     func link(at p: CGPoint) -> String? {
-        let i = Int(floor(p.y / Fixture.lineHeight))
-        guard i >= 0, i < lines.count else { return nil }
+        let i = CrashGuard.int(floor(p.y / Fixture.lineHeight), in: CrashGuard.countRange) // cmux: no trap on NaN
+        guard i >= 0, i < lines.count, let lineRange = lines[checked: i]?.range else { return nil } // cmux: checked
         let attr = attributed(color: .white, linkColor: .white)
         // cmux: lines measured for another text (stale during an edit or a streamed reply) are not read past the end.
-        guard Self.range(lines[i].range.location, lines[i].range.length, in: attr.length) != nil else { return nil }
-        let line = CTLineCreateWithAttributedString(attr.attributedSubstring(from: lines[i].range))
-        let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: p.x, y: 0)) + lines[i].range.location
+        guard Self.range(lineRange.location, lineRange.length, in: attr.length) != nil else { return nil }
+        let line = CTLineCreateWithAttributedString(attr.attributedSubstring(from: lineRange))
+        let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: p.x, y: 0)) + lineRange.location
         return runs.first { $0.link != nil && idx >= $0.start && idx < $0.start + $0.length }?.link
     }
 }
@@ -416,8 +416,8 @@ enum VectorAsset {
 
     private static func attr(_ tag: String, _ name: String) -> String? {
         guard let r = tag.range(of: name + "=\"") else { return nil }
-        let rest = tag[r.upperBound...]
-        return rest.firstIndex(of: "\"").map { String(rest[..<$0]) }
+        let rest = tag.suffix(from: r.upperBound) // cmux: no range subscripts
+        return rest.firstIndex(of: "\"").map { String(rest.prefix(upTo: $0)) }
     }
 
     private static func color(_ hex: String?) -> UIColor {
@@ -431,8 +431,8 @@ enum VectorAsset {
         var shapes: [(CGPath, UIColor)] = []
         var rest = Substring(text)
         while let r = rest.range(of: "<") {
-            let tag = String(rest[r.lowerBound...].prefix(while: { $0 != ">" }))
-            rest = rest[r.upperBound...]
+            let tag = String(rest.suffix(from: r.lowerBound).prefix(while: { $0 != ">" })) // cmux: no range subscripts
+            rest = rest.suffix(from: r.upperBound)
             if tag.hasPrefix("<rect") {
                 let v = ["x", "y", "width", "height"].map { attr(tag, $0).flatMap(Double.init) ?? 0 }
                 shapes.append((CGPath(rect: CGRect(x: v[0], y: v[1], width: v[2], height: v[3]), transform: nil), color(attr(tag, "fill"))))
@@ -453,11 +453,13 @@ enum VectorAsset {
             case "M": if nums.count >= 2 { p.move(to: CGPoint(x: nums[0], y: nums[1])) }
             case "L": if nums.count >= 2 { p.addLine(to: CGPoint(x: nums[0], y: nums[1])) }
             case "C":
-                var i = 0
-                while i + 5 < nums.count {
-                    p.addCurve(to: CGPoint(x: nums[i + 4], y: nums[i + 5]), control1: CGPoint(x: nums[i], y: nums[i + 1]),
-                               control2: CGPoint(x: nums[i + 2], y: nums[i + 3]))
-                    i += 6
+                var rest = ArraySlice(nums) // cmux: six numbers at a time, no index math
+                while rest.count >= 6 {
+                    let n = Array(rest.prefix(6))
+                    if case let [x1, y1, x2, y2, x, y] = n {
+                        p.addCurve(to: CGPoint(x: x, y: y), control1: CGPoint(x: x1, y: y1), control2: CGPoint(x: x2, y: y2))
+                    }
+                    rest = rest.dropFirst(6)
                 }
             case "Z": p.closeSubpath()
             default: break
@@ -522,36 +524,38 @@ final class MeasureCache: @unchecked Sendable {
     /// Text: it scales a measurement taken at another width (no text layout;
     /// the row is re-measured before it draws). Exact misses measure now.
     func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false) -> Value {
+        // cmux: a part index from another version of the message measures nothing (no trap).
+        guard let part = m.parts[checked: pi] else { return Value(size: .zero, text: nil, width: width) }
         // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
-        if case let .text(t, _) = m.parts[pi], LongText.isLong(t) {
+        if case let .text(t, _) = part, LongText.isLong(t) { // cmux: checked part
             return Value(size: LongTextStore.shared.size(t, width: width, message: m.id), text: nil, width: width)
         }
         // Custom rows: their own cache, estimates for main-only providers (CustomRows.swift).
-        if case let .custom(c) = m.parts[pi] {
+        if case let .custom(c) = part { // cmux
             let (s, tl, est) = CustomRows.measure(c, message: m.id, part: pi, width: width)
             return Value(size: s, text: tl, width: width, estimated: est)
         }
-        let version = MeasureCache.version(m) &+ MeasureCache.partVersion(m.parts[pi]) &+ Markdown.versionSalt(m.id)
+        let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
         let k = Key(id: m.id, part: pi, version: version, width: width)
         lock.lock()
         if let v = store[k] { hits += 1; lock.unlock(); return v }
         if estimate, let old = latest[PartKey(id: m.id, part: pi, version: version)] {
             estimates += 1
             lock.unlock()
-            return MeasureCache.scale(old, to: width, part: m.parts[pi])
+            return MeasureCache.scale(old, to: width, part: part) // cmux
         }
         misses += 1
         lock.unlock()
         var v: Value
-        if case let .text(t, _) = m.parts[pi], let md = Markdown.layout(t, message: m.id, width: width) {
+        if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, width: width) {
             v = Value(size: md.size, text: md.proxy, width: width, markdown: md)
         } else {
-            let (size, tl) = Sizing.size(of: m.parts[pi], width: width)
+            let (size, tl) = Sizing.size(of: part, width: width) // cmux
             v = Value(size: size, text: tl, width: width)
         }
         lock.lock()
-        store[k] = v
-        latest[PartKey(id: m.id, part: pi, version: version)] = v
+        store.updateValue(v, forKey: k) // cmux: dictionary writes
+        latest.updateValue(v, forKey: PartKey(id: m.id, part: pi, version: version))
         lock.unlock()
         return v
     }
@@ -570,7 +574,7 @@ final class MeasureCache: @unchecked Sendable {
         }
         let col = Metrics(width: width).maxTextWidth
         let total = tl.lines.reduce(0) { $0 + $1.width }
-        let lines = max(1, Int((total / col).rounded(.up)))
+        let lines = max(1, CrashGuard.int((total / col).rounded(.up), in: CrashGuard.countRange)) // cmux: no trap on NaN
         let w = min(col, max(tl.width, total / CGFloat(lines))) + 2 * Fixture.bubblePadX
         return Value(size: CGSize(width: w, height: CGFloat(lines) * Fixture.lineHeight + 2 * Fixture.bubblePadY),
                      text: nil, width: width, estimated: true)
@@ -608,7 +612,7 @@ enum RowBuilder {
         var rows: [RowSpec] = []
         let receipts = receiptTargets(messages, me: me)
         // Thread counts (roots with 2+ replies get a label).
-        let span = range ?? 0..<messages.count
+        let span = (range ?? 0..<messages.count).clamped(to: 0..<messages.count) // cmux: a range from an older window stays inside
         var replyCount: [ID: Int] = [:]
         if !threadMode {
             for idx in span {
@@ -620,14 +624,10 @@ enum RowBuilder {
         }
         // The message above the range: the nearest one that is not deleted.
         var prevIndex = span.lowerBound - 1
-        while prevIndex >= 0, messages[prevIndex].deletedAt != nil { prevIndex -= 1 }
-        var prev: Message? = prevIndex >= 0 ? messages[prevIndex] : nil
-        for idx in span {
-            let m = messages[idx]
+        var prev: Message? = messages.prefix(max(0, span.lowerBound)).last { $0.deletedAt == nil } // cmux: no index math
+        for (idx, m) in zip(span, messages.dropFirst(span.lowerBound)) { // cmux
             if m.deletedAt != nil { continue }
-            var nextIndex = idx + 1
-            while nextIndex < messages.count, messages[nextIndex].deletedAt != nil { nextIndex += 1 }
-            let next = nextIndex < messages.count ? messages[nextIndex] : nil
+            let next = messages.dropFirst(idx + 1).first { $0.deletedAt == nil } // cmux
             let outgoing = m.senderId == me
             var gap: CGFloat
             var connector: String?
@@ -687,10 +687,10 @@ enum RowBuilder {
                     // Link card then text: 3.5 pt (measured in the recording);
                     // every other pair in a group is 3 pt (macOS 26 references).
                     if g == 3, isText(part) {
-                        let before: Part? = pi > 0 ? m.parts[pi - 1] : (gap == 3 ? prev?.parts.last : nil)
+                        let before: Part? = pi > 0 ? m.parts[checked: pi - 1] : (gap == 3 ? prev?.parts.last : nil) // cmux
                         if case .link = before { g = 3.5 }
                     }
-                    if pi > 0, case .text = m.parts[pi - 1], !isText(part) { g = 3 }
+                    if pi > 0, case .text = m.parts[checked: pi - 1], !isText(part) { g = 3 } // cmux
                     // A tapback badge: 27.5 pt over the part, and a sender change above it is 27 pt,
                     // not 32 (macOS 27, lossless takes: a heart on an incoming bubble in a group moves
                     // the rows above by 27.5 pt, tapback-menu-heart; one on my bubble under Instinct's,
@@ -730,15 +730,15 @@ enum RowBuilder {
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
         }
-        for i in rows.indices { rows[i].width = width }
+        for i in rows.indices { rows[i].width = width } // crash-allow: (cmux) i from rows.indices
         return rows
     }
 
     /// The message id of a row key ("kind:messageID[:part]"), without allocating.
     static func owner(_ key: String) -> Substring? {
         guard let a = key.firstIndex(of: ":") else { return nil }
-        let rest = key[key.index(after: a)...]
-        return rest.firstIndex(of: ":").map { rest[..<$0] } ?? rest
+        let rest = key.suffix(from: key.index(after: a)) // cmux: no range subscripts
+        return rest.firstIndex(of: ":").map { rest.prefix(upTo: $0) } ?? rest
     }
 
     /// Whether a row key belongs to a message (keys are "kind:messageID[:part]").
@@ -756,9 +756,7 @@ enum RowBuilder {
         var lastDelivered: (Int, Message)?
         // From the newest message back to my newest read one (a delivered one older than it
         // shows nothing): O(tail), not O(loaded window), per derive.
-        var i = messages.count - 1
-        scan: while i >= 0 {
-            let m = messages[i]
+        scan: for (i, m) in zip(messages.indices.reversed(), messages.reversed()) { // cmux: no index math (lazy, still O(tail))
             if m.senderId == me && m.retractedAt == nil && m.deletedAt == nil {
                 switch m.status {
                 case let .read(at): lastRead = (i, m, at); break scan
@@ -766,7 +764,6 @@ enum RowBuilder {
                 default: break
                 }
             }
-            i -= 1
         }
         var out: [ID: (String, String)] = [:]
         if let r = lastRead { out[r.1.id] = (Strings.read, "\u{00A0}" + Format.time(Instant.parse(r.2))) }
@@ -812,8 +809,8 @@ enum Format {
         if days < 7 { return weekday.string(from: d) }
         return days < 300 ? monthDay.string(from: d) : monthDayYear.string(from: d)
     }
-    static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
-    static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
+    static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(clamping: n), countStyle: .file) } // cmux
+    static func duration(_ s: Double) -> String { let t = CrashGuard.int(s); return String(format: "%d:%02d", t / 60, t % 60) } // cmux: no trap on NaN
 }
 
 /// cmux: `bundle: .module` (the catalog is the package's, not the app's).
