@@ -28,8 +28,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let engineOptions: PageEngineOptions
     public let router: PageRouter
     let webView: PageWKWebView
-    /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
-    /// router and the bridge instead.
     public var webKitView: WKWebView { webView }
     /// Whether the document can take typing yet (the dispatcher's type-ahead).
     public let inputReadiness: PageInputReadiness

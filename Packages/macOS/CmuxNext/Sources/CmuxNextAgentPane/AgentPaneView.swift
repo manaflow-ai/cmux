@@ -23,30 +23,23 @@ public final class AgentPaneView: NSView {
 
     /// The page this pane shows; navigation and the handshake trust only it.
     public let source: AgentPaneSource
-    /// The user's `agent-pane` files, pushed to the page when they change,
-    /// after each load, and when the page asks for the handshake.
     public var customization = AgentPaneCustomization() {
         didSet {
             if customization != oldValue { applyCustomization() }
         }
     }
-    /// The app shortcuts the page shows (``AgentPaneShortcuts``), pushed
-    /// when a rebind changes them, after each load, and on the handshake.
     public var shortcuts = AgentPaneShortcuts() {
         didSet {
             if shortcuts != oldValue { applyShortcuts() }
         }
     }
-    /// `labs.previewFeatures`: pushed like ``shortcuts``.
     public var previewFeatures = false {
         didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
     }
-    /// `agentPane.editedFiles.*`: pushed like ``previewFeatures``.
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
     private let navigation = AgentPaneNavigation()
-    /// The composer's mic; nothing runs until the user starts it.
     let dictation: AgentPaneDictation
     var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.

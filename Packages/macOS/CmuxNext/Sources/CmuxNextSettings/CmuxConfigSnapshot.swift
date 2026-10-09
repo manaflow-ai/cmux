@@ -47,7 +47,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
     public var agentPaneEditedFiles = AgentPaneEditedFilesSetting.fallback
     public var agentPaneZoom: Double = AgentPaneZoomSetting.fallback
-    /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
