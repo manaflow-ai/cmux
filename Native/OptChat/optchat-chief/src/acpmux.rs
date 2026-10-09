@@ -323,6 +323,19 @@ impl Acpmux {
                 let Some(map) = set.as_object_mut() else {
                     break result;
                 };
+                // A daemon older than the isolation args: keep the args it
+                // knows (`--tools ""` and the rest), drop only those.
+                if key == "args"
+                    && let Some(args) = map.get_mut("args").and_then(Value::as_array_mut)
+                    && let Some(kept) = without_isolation_args(args)
+                {
+                    *args = kept;
+                    log(&format!(
+                        "acpmux refused the isolation args of preset {} ({text}); installed without --setting-sources and --disable-slash-commands",
+                        preset.name
+                    ));
+                    continue;
+                }
                 if map.remove(key).is_none() {
                     break result;
                 }
@@ -476,6 +489,25 @@ impl Acpmux {
             }
         }
     }
+}
+
+/// `args` without `--setting-sources <value>` and `--disable-slash-commands`
+/// (newer preset allowlist words); None when it has neither.
+pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
+    let mut kept = Vec::new();
+    let mut dropped = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            Some("--setting-sources") => {
+                words.next();
+                dropped = true;
+            }
+            Some("--disable-slash-commands") => dropped = true,
+            _ => kept.push(word.clone()),
+        }
+    }
+    dropped.then_some(kept)
 }
 
 /// Sends a notification to the turn that owns its session, or to the brain.

@@ -41,6 +41,24 @@ pub struct SessionSetup {
     pub instructions: Option<String>,
     /// How the turn reaches its memory tools (the harness family).
     pub tools: crate::prompt::Tools,
+    /// The `env` of the user's Claude Code settings (`user_settings_env`):
+    /// a session that loads no user setting source still gets it (the
+    /// user's API route, for one), under the session's own env.
+    pub user_env: BTreeMap<String, String>,
+}
+
+/// The `env` block of the user's Claude Code settings file
+/// (`<Claude home>/settings.json`), string values only; empty when the
+/// file is missing or unreadable.
+pub fn user_settings_env(claude_home: &Path) -> BTreeMap<String, String> {
+    std::fs::read(claude_home.join("settings.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v.get("env").and_then(Value::as_object).cloned())
+        .into_iter()
+        .flatten()
+        .filter_map(|(k, v)| v.as_str().map(|v| (k, v.to_owned())))
+        .collect()
 }
 
 pub fn shell_quote(value: &str) -> String {
@@ -93,9 +111,12 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Valu
     if setup.cmux_mcp.is_some() {
         names.push("cmux");
     }
+    // The user's settings env first (a session that loads no user setting
+    // source keeps the user's API route), the session's own over it.
     let mut env: serde_json::Map<String, Value> = setup
-        .env
+        .user_env
         .iter()
+        .chain(setup.env.iter())
         .map(|(k, v)| (k.clone(), Value::String(v.clone())))
         .collect();
     let path = setup
@@ -390,6 +411,7 @@ mod tests {
         env.insert("MUX_HOME".to_string(), "/h".to_string());
         env.insert("PATH".to_string(), "/usr/bin".to_string());
         SessionSetup {
+            user_env: Default::default(),
             exe: "/x/optchat-chief".into(),
             cmux_mcp: Some("/x/cmux".into()),
             env,

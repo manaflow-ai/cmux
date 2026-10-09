@@ -56,8 +56,9 @@ struct TextLayout: Hashable {
                 }
             }
             if r.mention != nil { traits.insert(.traitBold) }
-            if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
-                a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
+            // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
+            if !traits.isEmpty, let f = HomeFonts.font(Fixture.bodyFont, adding: traits) {
+                a.addAttribute(.font, value: f, range: range)
             }
             // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
             // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
