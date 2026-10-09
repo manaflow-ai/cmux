@@ -122,7 +122,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - The opener follows the E17 rule (schemas/chief-cmux-target) at each
   open: the app while its control socket and daemon exist, else the
   Chief's own owner daemon (a Chief that `cmux chief` started without the
-  app), so the app shows the workspace when it connects. Every subagent
+  app). The app shows that owner daemon as a machine row named after the
+  Chief, on the paired-server path (`ServerReach.localChief`, route `unix`
+  to the owner's socket), signed in or not, so the workspaces appear when
+  the app opens. Every subagent
   tab's host is `chief:<home id>`: the app attaches it to the Chief home's
   acpmux. A Chief turn starts subagents only with `spawn`: Claude Code's
   Task/Agent tools are not in `TURN_TOOLS`, and codex turns run with

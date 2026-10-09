@@ -667,3 +667,42 @@ test("the shim installer refreshes a managed shim of either header and keeps a u
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a failed shim write leaves the old shim untouched and exits nonzero", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-shim-write-fail-"));
+  try {
+    const old = "#!/usr/bin/env bash\n# cmux dev shim (managed by reload-cloud.sh)\necho old\n";
+    const target = path.join(root, "cmux");
+    writeExecutable(target, old);
+    // A file-size limit with SIGXFSZ ignored makes every write past 4 KiB
+    // fail with EFBIG while the installer keeps running, like a full disk.
+    const result = spawnSync(
+      "bash",
+      ["-c", 'trap "" XFSZ; ulimit -f 4; exec bash "$0" refresh "$1"', shimInstaller, target],
+      { cwd: repoRoot, encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0, "a failed write must exit nonzero");
+    assert.equal(fs.readFileSync(target, "utf8"), old, "the old shim must stay as it was");
+    assert.deepEqual(fs.readdirSync(root), ["cmux"], "no temporary file may stay");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("only the exact managed header line marks a shim as managed", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-shim-header-"));
+  try {
+    for (const [name, contents] of [
+      ["trailing", "#!/bin/sh\necho mine # cmux dev shim (managed by reload-cloud.sh)\n"],
+      ["indented", "#!/bin/sh\n  # cmux dev shim (managed by scripts/reload.sh) and more\n"],
+    ]) {
+      const target = path.join(root, name);
+      writeExecutable(target, contents);
+      const result = runInstaller(["refresh", target]);
+      assert.equal(result.status, 3, `${name}: ${result.stderr}`);
+      assert.equal(fs.readFileSync(target, "utf8"), contents, `${name} must stay as it was`);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

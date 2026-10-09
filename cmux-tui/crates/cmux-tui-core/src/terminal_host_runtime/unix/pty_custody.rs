@@ -57,7 +57,7 @@ pub(super) fn decode_pty_custody(payload: &[u8]) -> anyhow::Result<(u32, u32)> {
 }
 
 /// Host side: answer an authenticated `FLAG_PTY_CUSTODY` hello, then close.
-pub(super) fn serve(
+pub(crate) fn serve(
     host: &HostShared,
     mut stream: UnixStream,
     hello_frame: &Frame,

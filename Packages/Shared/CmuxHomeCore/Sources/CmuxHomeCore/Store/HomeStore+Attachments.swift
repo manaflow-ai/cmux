@@ -53,13 +53,15 @@ extension HomeStore {
     /// count and poster first (the first upload of a hash wins). An upload
     /// failure leaves the row "Not Delivered" (retry uploads only what is
     /// missing); a disconnect keeps it sending and resumes on reconnect
-    /// (`HomeSendState.pendingResend`); `cancelSend` stops it
+    /// (`HomeSendState.pendingResend`), and so does a send made while
+    /// offline, which fails "Not Delivered" only past `offlineSendDeadline`
+    /// like a text send; `cancelSend` stops it
     /// (`CancellationError`). Throws like `perform`, and
     /// `HomeAttachmentError` (nothing logged) for a file the owner would
     /// refuse.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
                      key: IdempotencyKey = .make()) async throws {
-        guard isOnline else { throw HomeRejection.ownerUnreachable }
+        guard !stopped else { throw HomeRejection.ownerUnreachable }
         // The owner's spelling and ranges, also for refs built outside prepare.
         let attachments = attachments.map { attachment -> LocalAttachment in
             var attachment = attachment
@@ -92,6 +94,7 @@ extension HomeStore {
         uploads[key] = UploadJob(conversation: conversation, attachments: unique)
         enqueueSend(key, in: conversation)
         afterLogChange(op)
+        guard isOnline else { try queueUploadWhileOffline(key) }
         try await uploadAndSubmit(key)
     }
 

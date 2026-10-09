@@ -9,9 +9,10 @@ public struct BrowserCookieImportOffer {
     public var detail: String
     public var importTitle: String
     public var notNowTitle: String
-    public var neverTitle: String
+    /// A quiet third answer (Don't Show Again); nil shows only Not Now and Import.
+    public var neverTitle: String?
 
-    public init(icons: [NSImage], title: String, detail: String, importTitle: String, notNowTitle: String, neverTitle: String) {
+    public init(icons: [NSImage], title: String, detail: String, importTitle: String, notNowTitle: String, neverTitle: String? = nil) {
         self.icons = icons
         self.title = title
         self.detail = detail

@@ -25,13 +25,13 @@ import Testing
         defer { harness.stop() }
         let updater = harness.services.updater, model = harness.window.sidebar.model
         updater.debugShowTip("commandPalette")
-        for _ in 0..<200 where model.tipCard == nil { await Task.yield() }
-        let tip = try #require(model.tipCard)
-        #expect(tip.title == TipCatalog.all[0].title && tip.eyebrow == UpdaterService.tipEyebrow)
+        for _ in 0..<200 where model.noticeCard == nil { await Task.yield() }
+        let tip = try #require(model.noticeCard)
+        #expect(tip.title == TipCatalog.all[0].title && tip.eyebrow == UpdaterService.tipEyebrow && tip.id == SidebarCardFeed.tipPrefix + "commandPalette")
         #expect(tip.shortcut == harness.services.registry.shortcutDisplay(for: "commandPalette"))
         updater.debugIndicatorPhase = .ready(version: "2")
-        for _ in 0..<200 where model.tipCard != nil { await Task.yield() }
-        #expect(model.tipCard == nil && model.updateCard != nil, "one card at a time")
+        for _ in 0..<200 where model.noticeCard != nil { await Task.yield() }
+        #expect(model.noticeCard == nil && model.updateCard != nil, "one card at a time")
     }
 
     /// A CLI run of a tip's feature does not count as used; Try It runs the
@@ -55,7 +55,7 @@ import Testing
         #expect(ran.contains { $0.0 == "splitRight" && $0.1 == .cli })
         #expect(!updater.tipState.usedActions.contains("splitRight"), "automation is not the user using the feature")
         updater.debugShowTip("splitRight")
-        harness.window.sidebar.handle(.tryTip("splitRight"))
+        harness.window.sidebar.handle(.noticeAction(card: SidebarCardFeed.tipPrefix + "splitRight", action: SidebarCardFeed.tryActionID))
         #expect(ran.contains { $0.0 == "splitRight" && $0.1 == .user })
         #expect(updater.tipState.usedActions.contains("splitRight"))
         #expect(updater.tip == nil)
@@ -78,6 +78,6 @@ import Testing
         for _ in 0..<200 where updater.tipsEnabled { try await Task.sleep(for: .milliseconds(25)) }
         #expect(!updater.tipsEnabled)
         #expect(updater.tip == nil)
-        #expect(harness.window.sidebar.model.tipCard == nil)
+        #expect(harness.window.sidebar.model.noticeCard == nil)
     }
 }

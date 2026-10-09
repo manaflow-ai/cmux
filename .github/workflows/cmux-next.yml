@@ -108,6 +108,9 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/gen-protected-folders.py
+      - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
@@ -222,6 +225,9 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/gen-protected-folders.py
+      - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
@@ -707,6 +713,13 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE"
 
+      # LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
+      # protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
+      - name: Protected-folder copies
+        id: protected-folders
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-protected-folders.py --check
+
       - name: Stale scheme PCM cleanup
         id: stale-pcm-cleanup
         continue-on-error: true
@@ -741,10 +754,12 @@ jobs:
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
           bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
           bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
+          bash scripts/cmux-next/tests/cargo-test-selected.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
+          node --test scripts/lib/reload-shim.test.mjs
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
@@ -876,6 +891,7 @@ jobs:
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars follow macOS
+            ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
