@@ -177,6 +177,15 @@ final class OnboardingService {
         land(firstRun: firstRun)
     }
 
+    /// A launch that gave the tree its first workspace (`FirstWorkspace`)
+    /// shows it on its New Tab page at once, not the Home page: nothing
+    /// was chosen yet, and no window opens before it (Lawrence 2026-10-09:
+    /// "drop user into main screen asap").
+    func landOnFirstWorkspace() {
+        guard let fresh = freshWorkspaceID, services.machines.workspace(id: fresh) != nil else { return }
+        _ = services.windows.reveal(workspaceID: fresh)
+    }
+
     /// D3 (cx-aha.2): Skip and Done of the first run (also when Continue
     /// Setup reopened it) land on a New Tab page, one path for both
     /// buttons (`OnboardingLanding`). Selecting a workspace only changes
