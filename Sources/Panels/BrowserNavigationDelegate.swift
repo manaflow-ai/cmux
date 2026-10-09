@@ -396,6 +396,20 @@ import WebKit
             return
         }
 
+        // A main-frame load of a file a browser REPL session governs, also
+        // one WebKit starts itself (back/forward, a reload, a restored
+        // page, a link), is checked now, before the browser opens the file,
+        // and its response commits only while the file is still where this
+        // check found it (BrowserReplPinnedFileLoads).
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           url.isFileURL,
+           let owner,
+           !BrowserReplNavigationGuard.shared.pinsFileNavigation(panelID: owner.id, url: url, in: webView) {
+            decisionHandler(.cancel)
+            return
+        }
+
         // A browser REPL session's domain policy: a tab the session created
         // never loads a page the policy blocks (links, redirects, scripts).
         if navigationAction.targetFrame?.isMainFrame == true,
@@ -985,10 +999,14 @@ import WebKit
         // A browser REPL session's file load commits only while the file
         // is still where the session's check found it: before macOS 27,
         // WebKit follows a link swapped in after the check into the user's
-        // temporary and cache directories (BrowserReplPinnedFileLoads).
+        // temporary and cache directories (BrowserReplPinnedFileLoads). A
+        // governed file response no check pinned is refused.
         if !BrowserReplPinnedFileLoads.shared.admitsResponse(
             navigationResponse.response,
             isForMainFrame: navigationResponse.isForMainFrame,
+            governed: owner.map {
+                BrowserReplNavigationGuard.shared.governsFileLoad(panelID: $0.id, url: navigationResponse.response.url)
+            } ?? false,
             in: webView
         ) {
             decisionHandler(.cancel)

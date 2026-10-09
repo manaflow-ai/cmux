@@ -525,6 +525,7 @@ public struct BrowserReplFileSandbox: Sendable {
             }
             return try load(BrowserReplPinnedFileLoad(
                 root: root,
+                path: path,
                 renameCount: renames.count,
                 directories: directories(toward: path, from: root.path)
             ))

@@ -83,7 +83,7 @@ struct BrowserReplPinnedFileAccessTests {
         let roots = [BrowserReplFileRoot(path: scratch.root)]
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         func load(_ path: String) async throws {
-            let waiter = FileLoadWaiter()
+            let waiter = FileLoadWaiter(roots: roots)
             webView.navigationDelegate = waiter
             let url = URL(fileURLWithPath: scratch.root + path)
             _ = try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: roots, in: webView) { readAccess in
@@ -92,7 +92,7 @@ struct BrowserReplPinnedFileAccessTests {
             await waiter.wait()
         }
         func replay(_ start: (WKWebView) -> WKNavigation?) async -> String? {
-            let waiter = FileLoadWaiter()
+            let waiter = FileLoadWaiter(roots: roots)
             webView.navigationDelegate = waiter
             if start(webView) != nil { await waiter.wait() }
             return try? await webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
@@ -231,11 +231,20 @@ struct BrowserReplPinnedFileAccessTests {
     }
 }
 
-/// Resumes once the main frame's load finished or failed.
+/// Resumes once the main frame's load finished, failed or was refused.
+/// With `roots`, it governs the web view's file loads as the app's
+/// navigation delegate does for a tab a session created: every main-frame
+/// file navigation is pinned when it is decided, and refused when the
+/// check refuses it.
 @MainActor
 final class FileLoadWaiter: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Never>?
     private var done = false
+    private let roots: [BrowserReplFileRoot]?
+
+    init(roots: [BrowserReplFileRoot]? = nil) {
+        self.roots = roots
+    }
 
     func wait() async {
         if done { return }
@@ -248,6 +257,27 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
         continuation = nil
     }
 
+    /// Pins a main frame's file navigation as the app's navigation
+    /// delegate does (``BrowserReplPinnedFileLoads/pinNavigation(to:roots:in:)``).
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let roots, navigationAction.targetFrame?.isMainFrame == true,
+              let url = navigationAction.request.url, url.isFileURL else {
+            decisionHandler(.allow)
+            return
+        }
+        do {
+            try BrowserReplPinnedFileLoads.shared.pinNavigation(to: url, roots: roots, in: webView)
+            decisionHandler(.allow)
+        } catch {
+            decisionHandler(.cancel)
+            finish()
+        }
+    }
+
     /// Admits a main frame's response as the app's navigation delegate
     /// does (``BrowserReplPinnedFileLoads``).
     func webView(
@@ -258,6 +288,7 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
         let admitted = BrowserReplPinnedFileLoads.shared.admitsResponse(
             navigationResponse.response,
             isForMainFrame: navigationResponse.isForMainFrame,
+            governed: roots != nil,
             in: webView
         )
         decisionHandler(admitted ? .allow : .cancel)

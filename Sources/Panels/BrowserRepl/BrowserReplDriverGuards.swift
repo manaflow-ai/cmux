@@ -70,6 +70,37 @@ final class BrowserReplNavigationGuard {
         return true
     }
 
+    /// Checks and pins a main-frame navigation of `panelID` to the local
+    /// file `url` when a session governs the tab's loads of it
+    /// (``BrowserReplTabAttachments/fileLoadSession(panelID:url:)``), as
+    /// WebKit decides it, whoever started it: the driver, a history item
+    /// (back, forward), a reload, a restored page, a link
+    /// (``BrowserReplPolicyBoard/pinNavigation(to:sessionID:in:)``). Whether
+    /// it may go on; a refused one is reported to the sessions as
+    /// `navigation.blocked`.
+    func pinsFileNavigation(panelID: UUID, url: URL, in webView: WKWebView) -> Bool {
+        guard url.isFileURL,
+              let sessionID = BrowserReplTabAttachments.shared.fileLoadSession(panelID: panelID, url: url) else { return true }
+        do {
+            try board.pinNavigation(to: url, sessionID: sessionID, in: webView)
+            return true
+        } catch {
+            if let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID) {
+                let reason = (error as? BrowserReplDriverError)?.message ?? String(describing: error)
+                attachment.emit(.navigationBlocked, ["url": attachment.pageURL(url.absoluteString), "reason": reason])
+            }
+            return false
+        }
+    }
+
+    /// Whether a session governs `panelID`'s loads of the local file `url`:
+    /// its main-frame response then commits only under a pin
+    /// (``BrowserReplPinnedFileLoads/admitsResponse(_:isForMainFrame:governed:in:)``).
+    func governsFileLoad(panelID: UUID, url: URL?) -> Bool {
+        guard let url, url.isFileURL else { return false }
+        return BrowserReplTabAttachments.shared.fileLoadSession(panelID: panelID, url: url) != nil
+    }
+
     /// What a navigation of `panelID` waits for before it is judged.
     enum Hold {
         /// Judge it now.

@@ -772,7 +772,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   created for any file (the creating session's directories), in a user's
   tab for a file inside an attached session's directories; a refused one
   loads nothing, and such a file is never restored from WebKit's saved
-  session state, whose replay would grant the directory it recorded. A file
+  session state, whose replay would grant the directory it recorded. Every
+  main-frame navigation of a governed tab to such a file, also one WebKit
+  replays itself (back/forward, a reload of a history item), is checked
+  again when WebKit decides it, before it opens the file, and pinned the
+  same way: a refused one is cancelled and reported as `navigation.blocked`,
+  and a governed file response no such check pinned is cancelled. A file
   navigation in a workspace whose browser waits for a remote proxy is
   refused rather than started later outside that check. In a tab the
   session created, and its popups, the same rule holds for what the page
