@@ -40,10 +40,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
-    /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
-    @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
-    /// The new tab page's template dots picked a template.
-    @ObservationIgnored public var onSetNewTabTemplate: ((String) -> Void)?
+    /// The new tab page's "default: X" toggle and template dots (`tab.setDefaultKind`, `newTab.setTemplate`).
+    @ObservationIgnored public var onNewTabSetting: ((AgentPaneNewTabSetting) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
     @ObservationIgnored public var onRunAction: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
@@ -298,14 +296,8 @@ public final class AgentPaneModel {
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
             onJump(target, id)
             return AgentPaneReply.success()
-        case .setDefaultKind(let kind):
-            guard newTab != nil, let onSetDefaultKind else { return Self.unsupported("tab.setDefaultKind") }
-            onSetDefaultKind(kind)
-            return AgentPaneReply.success()
-        case .setNewTabTemplate(let template):
-            guard newTab != nil, let onSetNewTabTemplate else { return Self.unsupported("newTab.setTemplate") }
-            onSetNewTabTemplate(template)
-            return AgentPaneReply.success()
+        case .setDefaultKind(let kind): return write(.defaultKind(kind), method: "tab.setDefaultKind")
+        case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
         case .chooseFolder:
             return await chooseFolder()
         case .browseProject:

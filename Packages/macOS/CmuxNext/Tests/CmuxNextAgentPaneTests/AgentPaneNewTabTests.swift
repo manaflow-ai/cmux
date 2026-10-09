@@ -268,7 +268,7 @@ import Testing
         let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
         #expect((value["newTab"] as? [String: Any])?["defaultKind"] as? String == "same-kind")
         var picked: [String] = []
-        model.onSetDefaultKind = { picked.append($0) }
+        model.onNewTabSetting = { if case .defaultKind(let kind) = $0 { picked.append(kind) } }
         #expect(await model.respond(to: .setDefaultKind("agent"))["ok"] as? Bool == true)
         _ = await model.respond(to: .persistSession("s-1"))
         #expect(await model.respond(to: .setDefaultKind("page"))["ok"] as? Bool == false)
@@ -282,7 +282,7 @@ import Testing
         let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
         #expect((value["newTab"] as? [String: Any])?["template"] as? String == "console")
         var picked: [String] = []
-        model.onSetNewTabTemplate = { picked.append($0) }
+        model.onNewTabSetting = { if case .template(let template) = $0 { picked.append(template) } }
         #expect(await model.respond(to: .setNewTabTemplate("threads"))["ok"] as? Bool == true)
         _ = await model.respond(to: .persistSession("s-1"))
         #expect(await model.respond(to: .setNewTabTemplate("terminal"))["ok"] as? Bool == false)

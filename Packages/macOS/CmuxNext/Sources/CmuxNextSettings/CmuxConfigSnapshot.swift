@@ -126,8 +126,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
     public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
-    /// `tabs.newTabTemplate`; nil when unset or invalid.
-    public var newTabTemplate: NewTabTemplate?
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
@@ -278,9 +276,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
-        let (newTabTemplate, newTabTemplateDiagnostic) = NewTabTemplate.parse(root)
-        snapshot.newTabTemplate = newTabTemplate
-        if let newTabTemplateDiagnostic { snapshot.diagnostics.append(newTabTemplateDiagnostic) }
+        if let newTabTemplateDiagnostic = NewTabTemplate.parse(root).1 { snapshot.diagnostics.append(newTabTemplateDiagnostic) }
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }

@@ -40,6 +40,14 @@ struct NewTabPageHandler {
     var importAndSync: () -> Void = {}
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
+
+    /// The page's setting writes (`AgentPaneModel.onNewTabSetting`).
+    func write(_ setting: AgentPaneNewTabSetting) {
+        switch setting {
+        case .defaultKind(let kind): setDefaultKind(kind)
+        case .template(let template): setTemplate(template)
+        }
+    }
 }
 
 enum NewTabPage {

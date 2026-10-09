@@ -30,3 +30,8 @@ nonisolated extension NewTabTemplate {
         return (template, nil)
     }
 }
+
+extension CmuxConfigSnapshot {
+    /// `tabs.newTabTemplate`; nil when unset or invalid (the diagnostic is in `diagnostics`).
+    public var newTabTemplate: NewTabTemplate? { NewTabTemplate.parse(root).0 }
+}
