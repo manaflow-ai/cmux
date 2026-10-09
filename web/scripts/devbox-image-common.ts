@@ -30,6 +30,14 @@ export const repoRoot = path.resolve(webRoot, "..");
 export const devboxDir = path.join(webRoot, "services/vms/images/devbox");
 export const devboxDockerfilePath = path.join(devboxDir, "Dockerfile");
 
+/** The daemon state reservation is inside the existing guest disk, not a VM resize. */
+export const CMUX_TUI_STATE_IMAGE_PATH = "/var/lib/cmux/cmux-tui-state.ext4";
+export const CMUX_TUI_STATE_MOUNT_HELPER_PATH = "/usr/local/bin/cmux-tui-state-mount";
+export const CMUX_TUI_STATE_RESERVATION_MARKER_PATH = "/etc/cmux/cmux-tui-state-reservation";
+export const CMUX_TUI_STATE_RESERVATION_BYTES = 1024 * 1024 * 1024;
+/** The reserved filesystem may grow inside the existing VM disk as journals grow. */
+export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
+
 /** Files the Dockerfile COPYs plus the Dockerfile itself; all must exist. */
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
@@ -38,6 +46,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
+  "cmux-tui-state-mount",
   "cmux-motd",
   "cmux-prompt.bash",
   "cmux-python-completion.bash",

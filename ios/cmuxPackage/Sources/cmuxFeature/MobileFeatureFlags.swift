@@ -11,6 +11,10 @@ import Observation
 @MainActor
 @Observable
 public final class MobileFeatureFlags {
+    public static let feedPerformanceFlag = ClientConfigFlag<Bool>.iosFeedPerformanceRelease
+    @ObservationIgnored private let onFeedPerformanceChanged: (@MainActor (Bool) -> Void)?
+    private static var feedPerformanceCacheKey: String { "cmux.mobile.flags.remote." + feedPerformanceFlag.key }
+
     public static let terminalLatencyFlag = ClientConfigFlag<Bool>.iosTerminalLatencyEnabled
     @ObservationIgnored private let onTerminalLatencyChanged: (@MainActor (Bool) -> Void)?
     private static let terminalLatencyCacheKey = "cmux.mobile.flags.remote.ios-terminal-latency-enabled"
@@ -70,8 +74,11 @@ public final class MobileFeatureFlags {
         request: ClientConfigRequest,
         defaults: UserDefaults = .standard,
         refreshClock: any Clock<Duration> = ContinuousClock(),
-        onTerminalLatencyChanged: (@MainActor (Bool) -> Void)? = nil
+        onTerminalLatencyChanged: (@MainActor (Bool) -> Void)? = nil,
+        onFeedPerformanceChanged: (@MainActor (Bool) -> Void)? = nil
     ) {
+        self.onFeedPerformanceChanged = onFeedPerformanceChanged
+        onFeedPerformanceChanged?(Self.storedBool(forKey: Self.feedPerformanceCacheKey, defaults: defaults) ?? Self.feedPerformanceFlag.defaultValue)
         self.onTerminalLatencyChanged = onTerminalLatencyChanged
         onTerminalLatencyChanged?(Self.storedBool(forKey: Self.terminalLatencyCacheKey, defaults: defaults) ?? Self.terminalLatencyFlag.defaultValue)
         self.loader = loader
@@ -169,6 +176,10 @@ public final class MobileFeatureFlags {
               let config,
               !Task.isCancelled,
               !config.errorsWhileComputingFlags else { return }
+
+        let feedEnabled = config.value(Self.feedPerformanceFlag)
+        defaults.set(feedEnabled, forKey: Self.feedPerformanceCacheKey)
+        onFeedPerformanceChanged?(feedEnabled)
 
         let latencyEnabled = config.value(Self.terminalLatencyFlag)
         defaults.set(latencyEnabled, forKey: Self.terminalLatencyCacheKey)

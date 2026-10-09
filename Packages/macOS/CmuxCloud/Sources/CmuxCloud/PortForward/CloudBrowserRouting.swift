@@ -68,10 +68,16 @@ public struct CloudBrowserRouting: Sendable {
                     group.addTask { try await probe() }
                     group.addTask {
                         try await clock.sleep(for: timeout)
-                        connection.cancel()
                         return nil
                     }
-                    defer { group.cancelAll() }
+                    // Let the timeout task publish `.unknown` before
+                    // cancelling the probe. Cancelling the connection first
+                    // can wake `responseStatus` with an empty response, which
+                    // would otherwise race the timeout and look unreachable.
+                    defer {
+                        group.cancelAll()
+                        connection.cancel()
+                    }
                     return try await group.next()! ?? .unknown
                 }
             } onCancel: {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CmuxSettings
 import OSLog
@@ -5,7 +6,7 @@ import OSLog
 /// Coordinates cmux's mirroring of remote tmux servers.
 ///
 /// Owns one ``RemoteTmuxSSHTransport`` per endpoint (keyed by
-/// ``RemoteTmuxHost/connectionHash`` — destination + port + identity) and
+/// ``RemoteTmuxHost/connectionHash`` — destination + port + identity + transport) and
 /// is the entry point the socket/CLI layer and (later) the UI call into. It is
 /// `@MainActor` because it will own sidebar/workspace state as the feature
 /// grows; today it performs discovery by delegating to the per-host transport
@@ -30,6 +31,25 @@ final class RemoteTmuxController {
     /// the same endpoint+session reuse the existing connection.
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
+    /// Per-session channels scoping a shared multiplexed view connection down to a
+    /// single tmux session, keyed like ``connectionsByHostSession``. Non-private so
+    /// the ``RemoteTmuxController+Multiplexer`` extension (a separate file) can wire
+    /// and tear them down.
+    var channelsByHostSession: [String: RemoteTmuxSessionChannel] = [:]
+
+    /// Hosts whose stream was last seen waiting for credentials, keyed by connection hash.
+    ///
+    /// Lives on the controller so it outlives the view. A stream that parks on a passcode is
+    /// torn down by `onEnded` -> `teardownMultiplexedHost`, which removes the view from
+    /// `multiplexedViewsByHost`, so a reader at give-up time can find neither the connection
+    /// nor the view. Latching on either of those was the original bug relocated, not fixed.
+    /// (Declared here rather than in the multiplexer extension because extensions cannot hold
+    /// stored properties; the ledger type stays next to its users.)
+    var hostAuth = HostAuthLedger()
+
+    /// How long a shared connection's attach may stay quiet in each phase before it is
+    /// called stalled. Given to each new view; a test shortens these.
+    var attachQuietLimits = RemoteTmuxAttachProgress.QuietLimits.standard
 
     init() {}
 
@@ -96,6 +116,7 @@ final class RemoteTmuxController {
         sessionName: String,
         createIfMissing: Bool = false
     ) throws -> RemoteTmuxControlConnection {
+        try refuseARouteTheLiveConnectionDoesNotUse(host)
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         if let existing = connectionsByHostSession[key] {
             if !existing.exited { return existing }
@@ -107,7 +128,7 @@ final class RemoteTmuxController {
         let connection = RemoteTmuxControlConnection(
             host: host,
             sessionName: sessionName,
-            createIfMissing: createIfMissing
+            attachMode: .forCreateIfMissing(createIfMissing)
         )
         // Insert only after a successful launch, so a failed `start()` never
         // leaves a dead (never-started, `exited == false`) connection that a
@@ -126,6 +147,7 @@ final class RemoteTmuxController {
         sessionName: String,
         createIfMissing: Bool = false
     ) async throws -> [String]? {
+        try refuseARouteTheLiveConnectionDoesNotUse(host)
         if let sshArgv = try await preflightControlAttach(
             host: host,
             sessionName: sessionName,
@@ -170,6 +192,23 @@ final class RemoteTmuxController {
                 )
             }
         )
+    }
+
+    /// Socket-only attaches also own live streams, even when no mirror exists.
+    func cachedControlHost(sharingEndpointWith host: RemoteTmuxHost) -> RemoteTmuxHost? {
+        connectionsByHostSession.values.first {
+            !$0.exited && $0.host.connectionHash == host.connectionHash
+        }?.host
+    }
+
+    /// The control streams own whether authentication is pending. A login workspace is
+    /// optional: the CLI can authenticate a shared stream before any mirror exists.
+    func hasPendingAuthentication(host: RemoteTmuxHost) -> Bool {
+        let key = host.connectionHash
+        if multiplexedViewsByHost[key]?.connection?.awaitingInteractiveAuth == true { return true }
+        return connectionsByHostSession.values.contains {
+            $0.host.connectionHash == key && $0.awaitingInteractiveAuth
+        }
     }
 
     @discardableResult
@@ -259,6 +298,42 @@ final class RemoteTmuxController {
     /// (see ``connectionKey(host:sessionName:)``).
     var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:]
 
+    /// Outstanding login offers, keyed by ``RemoteTmuxHost/connectionHash``.
+    ///
+    /// See ``RemoteTmuxLoginOffers`` for why the slot is reserved before the workspace is
+    /// created and released only on a successful connect.
+    var loginOffers = RemoteTmuxLoginOffers()
+
+    /// Hosts with a login waiter running, and the task doing the waiting. Folding a repeat
+    /// auth-required into an existing offer must not start a second waiter.
+    ///
+    /// The task is held rather than fire-and-forget so it can be cancelled: a waiter that
+    /// outlives the offer it was created for keeps probing a master nobody is waiting on, and
+    /// nothing else could stop it.
+    var hostsWaitingForAuth: Set<String> = []
+    var authWaitTasks: [String: Task<Void, Never>] = [:]
+    /// Identifies which waiter owns a host's registration, so a cancelled one cannot retract the
+    /// registration of the waiter that replaced it.
+    var authWaitIds: [String: UInt64] = [:]
+    var authWaitGeneration: UInt64 = 0
+
+    /// Multiplexer mode: one shared `tmux -CC` view connection per host (keyed by
+    /// ``RemoteTmuxHost/connectionHash``); the per-session channels scoping it live in
+    /// ``channelsByHostSession``.
+    var multiplexedViewsByHost: [String: RemoteTmuxViewConnection] = [:]
+    /// Multiplexer user intents by host: pending kills, deliberate local detaches,
+    /// and the one new session that should be selected when it surfaces. The pure
+    /// reconciler follows/prunes these by stable session id so name reuse stays safe.
+    var multiplexIntentsByHost: [String: RemoteTmuxMultiplexReconciler.Intents] = [:]
+    /// The hidden view connection's own `$id` per host. A changed id means the tmux
+    /// server restarted and may have reused `$N`s, so all id-scoped intents are stale.
+    var viewEpochSessionIdByHost: [String: Int] = [:]
+    /// A pending local title from the initial multiplexed attach. It is consumed by the first
+    /// workspace that the shared stream publishes, matching the dedicated mirror path's
+    /// `workspaceName` semantics. It must be host-scoped because the stream publishes sessions
+    /// asynchronously after the attach call returns.
+    var pendingMultiplexWorkspaceNamesByHost: [String: String] = [:]
+
     /// In-flight attach guards and kill-on-close markers for remote tmux mirrors.
     let windowRegistry = RemoteTmuxWindowRegistry()
 
@@ -310,33 +385,60 @@ final class RemoteTmuxController {
         sessionName: String,
         sessionId: Int? = nil,
         into tabManager: TabManager,
-        customTitle: String? = nil
+        customTitle: String? = nil,
+        select: Bool = false
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
         // Admit the connection and workspace as one active-manager acquisition:
         // a finalized window must start neither the ssh process nor a workspace.
-        guard let acquisition = try tabManager.acquireOptionalWorkspaceIfActive({ () throws -> (
-            connection: RemoteTmuxControlConnection,
-            workspace: Workspace
-        )? in
+        // Within the acquisition, attach (and start the ssh process) BEFORE
+        // creating the workspace, so a failed connection doesn't leave an
+        // orphaned empty mirror workspace in the sidebar.
+        guard try tabManager.acquireOptionalWorkspaceIfActive({ () throws -> RemoteTmuxSessionMirror? in
             let connection = try attach(host: host, sessionName: sessionName)
-            guard let workspace = tabManager.addWorkspaceIfActive(
-                title: sessionName,
-                titleSource: .auto,
-                select: false,
-                autoWelcomeIfNeeded: false,
-                applyCreationTitleAsCustomTitle: false
+            guard let mirror = createMirrorWorkspace(
+                host: host,
+                sessionName: sessionName,
+                sessionId: sessionId,
+                connection: connection,
+                into: tabManager,
+                customTitle: customTitle,
+                select: select
             ) else {
                 connection.stop()
                 return nil
             }
-            return (connection: connection, workspace: workspace)
-        }) else {
+            return mirror
+        }) != nil else {
             return false
         }
-        let connection = acquisition.connection
-        let workspace = acquisition.workspace
+        return true
+    }
+
+    /// Builds a mirror workspace for one session and registers it. Shared by the GA
+    /// dedicated-connection path (``mirrorSession``) and the multiplexer, which passes
+    /// a per-session channel as the source instead of a dedicated connection.
+    @discardableResult
+    func createMirrorWorkspace(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        sessionId: Int?,
+        connection: any RemoteTmuxSessionSource,
+        into tabManager: TabManager,
+        customTitle: String? = nil,
+        select: Bool
+    ) -> RemoteTmuxSessionMirror? {
+        let key = Self.connectionKey(host: host, sessionName: sessionName)
+        // Gated creation: a finalized window manager admits no new workspace,
+        // and a mirror without a workspace is unrepresentable, so the caller
+        // gets nil and owns the connection's cleanup.
+        guard let workspace = tabManager.addWorkspaceIfActive(
+            title: sessionName, titleSource: .auto,
+            select: select,
+            autoWelcomeIfNeeded: false,
+            applyCreationTitleAsCustomTitle: false
+        ) else { return nil }
         workspace.isRemoteTmuxMirror = true
         // Identity pairs the connection pushes into the remote SESSION
         // environment on attach and every reconnect (issue #833). Workspace id
@@ -344,6 +446,9 @@ final class RemoteTmuxController {
         // convention (`CMUX_TAB_ID` is the legacy alias). No socket path: the
         // ssh-tmux transport has no relay, so a local path would be dead on the
         // remote — see ``RemoteTmuxControlConnection/pushMirrorSessionEnvironment()``.
+        // A multiplexed channel publishes the same pairs into its own real session
+        // rather than the hidden view session the shared stream is attached to; see
+        // ``RemoteTmuxSessionChannel/setMirrorEnvironment(_:)``.
         connection.setMirrorEnvironment([
             "CMUX_WORKSPACE_ID": workspace.id.uuidString,
             "CMUX_TAB_ID": workspace.id.uuidString,
@@ -356,7 +461,7 @@ final class RemoteTmuxController {
                 verification: verification
             )
         }
-        sessionMirrors[key] = RemoteTmuxSessionMirror(
+        let mirror = RemoteTmuxSessionMirror(
             host: host,
             sessionName: sessionName,
             seededSessionId: sessionId,
@@ -376,7 +481,13 @@ final class RemoteTmuxController {
                 propagateToRemoteTmux: false
             )
         }
-        return true
+        sessionMirrors[key] = mirror
+        return mirror
+    }
+
+    /// Whether any dedicated control connection is attached to the given host.
+    func hasCachedConnection(hostHash: String) -> Bool {
+        connectionsByHostSession.values.contains { $0.host.connectionHash == hostHash }
     }
 
     // MARK: - Create / destroy propagation (P5)
@@ -398,6 +509,12 @@ final class RemoteTmuxController {
         _ = mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
         // Do not re-key local state here. tmux can reject a rename (for example
         // duplicate session name); `%session-changed` is the confirmation point.
+        // Multiplexed mirrors never receive `%session-changed` (the shared stream's
+        // event describes the hidden view session), so nudge a reconcile to observe
+        // the confirmed rename instead.
+        if isMultiplexed(mirror) {
+            multiplexedViewsByHost[mirror.host.connectionHash]?.requestReconcile()
+        }
     }
 
     /// Tmux confirmed that a mirrored session's name changed. This is the single
@@ -482,7 +599,7 @@ final class RemoteTmuxController {
     /// The live control connection + tmux pane id behind a remote-tmux
     /// session-mirror surface, or `nil`.
     private func pasteTarget(forSurfaceId surfaceId: UUID)
-        -> (connection: RemoteTmuxControlConnection, paneId: Int)?
+        -> (connection: any RemoteTmuxSessionSource, paneId: Int)?
     {
         for sessionMirror in sessionMirrors.values where sessionMirror.connection.connectionState == .connected {
             if let paneId = sessionMirror.paneId(forSurfaceId: surfaceId) {
@@ -625,13 +742,27 @@ final class RemoteTmuxController {
         reason: RemoteTmuxMirrorTeardownReason
     ) {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
+        // Multiplexed teardown: release the channel only. The shared stream and
+        // ControlMaster belong to the host's view — tearing them down here would
+        // kill every sibling session's mirror — and an explicit detach must record
+        // the intent so the reconcile excludes the session instead of re-creating it.
+        if let mirror = sessionMirrors[key], isMultiplexed(mirror) {
+            if reason == .explicitDetach { mirror.connection.endSession(kill: false) }
+            teardownMultiplexedMirror(key: key)
+            if !hostHasLiveMirror(host) { stopMultiplexedHost(host: host) }
+            closeDeadMirrorWorkspace(mirror.mirroredWorkspace)
+            return
+        }
         let mirrorWorkspace = sessionMirrors[key]?.mirroredWorkspace
         if let mirror = sessionMirrors.removeValue(forKey: key) {
             mirror.detachObserver()
         }
-        removeCachedConnection(forKey: key)?.stop()
+        // Safe for every reason: a session that already ended leaves the stream past `.connected`,
+        // so this degrades to the plain teardown and only a live client is asked to detach.
+        removeCachedConnection(forKey: key)?.detachThenStop()
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
         if !hostHasOtherMirrors {
+            releaseLoginOfferIfHostHasNoMirrors(host: host)
             let hostHasOtherConnections = connectionsByHostSession.values
                 .contains { $0.host.connectionHash == host.connectionHash }
             if !hostHasOtherConnections {
@@ -676,18 +807,43 @@ final class RemoteTmuxController {
     /// down via `detachObserver`.
     func handleWindowWorkspacesClosed(workspaceIds: [UUID]) {
         let ids = Set(workspaceIds)
+        // A login cmux opened can be in a different window from the mirror it exists for, so a
+        // window close is a decline for every login it takes with it. Without this, closing the
+        // login's window leaves that host parked with retrying stopped and no waiter, and the
+        // mirror in the other window stays frozen until cmux restarts — the per-workspace close
+        // path handles only its own window's tabs.
+        for workspaceId in ids {
+            noteLoginWorkspaceClosed(workspaceId: workspaceId)
+        }
         var affectedHosts: [String: RemoteTmuxHost] = [:]
         for (key, mirror) in sessionMirrors {
             guard let workspaceId = mirror.mirroredWorkspaceId, ids.contains(workspaceId) else { continue }
             affectedHosts[mirror.host.connectionHash] = mirror.host
+            mirror.connection.endSession(kill: false)
             mirror.detachObserver()
             sessionMirrors.removeValue(forKey: key)
-            removeCachedConnection(forKey: key)?.stop()
+            // Multiplexed mirrors have a channel, not a cached connection — release
+            // it so the shared stream's observer slot doesn't leak.
+            if let channel = channelsByHostSession.removeValue(forKey: key) {
+                channel.releaseMirror()
+            } else {
+                removeCachedConnection(forKey: key)?.stop()
+            }
+        }
+        // Stop the shared view for any affected host whose sessions all closed (its
+        // channels aren't cached connections, so the master-teardown loop below
+        // can't see it).
+        for (hash, host) in affectedHosts
+        where multiplexedViewsByHost[hash] != nil && !hostHasLiveMirror(host) {
+            stopMultiplexedHost(host: host)
         }
         // For any host left with no live mirror or connection, close its shared SSH
         // ControlMaster now — the last-session teardown paths already do this, and
         // a window close must too or the master lingers for the full
         // ControlPersist window.
+        for (_, host) in affectedHosts {
+            releaseLoginOfferIfHostHasNoMirrors(host: host)
+        }
         for (hash, host) in affectedHosts {
             let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == hash }
                 || connectionsByHostSession.values.contains { $0.host.connectionHash == hash }
@@ -720,6 +876,27 @@ final class RemoteTmuxController {
             let closingWorkspaceIds = Set(
                 AppDelegate.shared?.tabManagerForWindowTeardown(windowId: windowId)?.tabs.map(\.id) ?? []
             )
+            // Multiplexer: kill every home session over the shared stream (a one-shot
+            // ssh would be refused on a single-connection host), await the command
+            // barrier so the kills land before quit continues, then stop the view.
+            let multiplexedHosts = sessionMirrors.values
+                .filter { isMultiplexed($0) && $0.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true }
+                .map(\.host)
+            var killedHosts = Set<String>()
+            for host in multiplexedHosts where killedHosts.insert(host.connectionHash).inserted {
+                // Kill ONLY the sessions whose mirrors are in the closing window — a
+                // detached-kept-open or dragged-out session is work the user kept.
+                let mirrors = sessionMirrors.filter { _, mirror in
+                    isMultiplexed(mirror) && mirror.host.connectionHash == host.connectionHash
+                        && mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
+                }
+                for (_, mirror) in mirrors { mirror.connection.endSession(kill: true) }
+                if let view = multiplexedViewsByHost[host.connectionHash] {
+                    await view.awaitCommandBarrier(timeout: timeout.asSeconds)
+                }
+                for (key, _) in mirrors { teardownMultiplexedMirror(key: key) }
+                if !hostHasLiveMirror(host) { stopMultiplexedHost(host: host) }
+            }
             let mirrorsInWindow = sessionMirrors.filter { _, mirror in
                 mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
             }
@@ -741,11 +918,21 @@ final class RemoteTmuxController {
     func detachMirrorWorkspaceKeptOpenLocally(workspaceId: UUID) {
         guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId }) else { return }
         let host = entry.value.host
+        if isMultiplexed(entry.value) {
+            entry.value.connection.endSession(kill: false)
+            teardownMultiplexedMirror(key: entry.key)
+            // The remote session stays alive and stays published by the view —
+            // record the detach intent (via endSession) so the next reconcile
+            // excludes it instead of re-mirroring what the user detached.
+            if !hostHasLiveMirror(host) { stopMultiplexedHost(host: host) }
+            return
+        }
         sessionMirrors.removeValue(forKey: entry.key)
         entry.value.detachObserver()
-        removeCachedConnection(forKey: entry.key)?.stop()
+        removeCachedConnection(forKey: entry.key)?.detachThenStop()
         let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
         if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash); RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
+        releaseLoginOfferIfHostHasNoMirrors(host: host)
     }
 
     /// User-initiated mirrored workspace close detaches locally and kills the remote session.
@@ -755,6 +942,18 @@ final class RemoteTmuxController {
         let mirror = entry.value
         let host = mirror.host
         let sessionName = mirror.sessionName
+        // Multiplexer: kill over the shared view stream (a one-shot ssh would be
+        // refused on a single-connection host) and let the reconcile confirm.
+        // Remove the mirror + channel NOW (matches GA), and — via the channel's
+        // end-session intent — mark the session pending-kill so the next reconcile
+        // won't re-surface a workspace for it (the session is still published until
+        // tmux confirms the kill) and retries the kill if this send is dropped. Do
+        // NOT stop the view here: the reconcile drives last-session teardown.
+        if isMultiplexed(mirror) {
+            mirror.connection.endSession(kill: true)
+            teardownMultiplexedMirror(key: entry.key)
+            return
+        }
         // Kill by the stable session id when known, so a prior rename-session
         // can't leave us targeting a stale name. If the control client already
         // ended (for example after deliberate detach), closing leftover local
@@ -768,6 +967,9 @@ final class RemoteTmuxController {
         mirror.detachObserver()
         detach(host: host, sessionName: sessionName)
         let isLastSession = !sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
+        if isLastSession {
+            releaseLoginOfferIfHostHasNoMirrors(host: host)
+        }
         let transport = transport(for: host)
         if isLastSession {
             // Drop the transport so a later re-attach builds a fresh one instead of
@@ -813,7 +1015,7 @@ final class RemoteTmuxController {
         }
         if let mirror = sessionMirrors.removeValue(forKey: key) {
             mirror.detachObserver()
-            removeCachedConnection(forKey: key)?.stop()
+            removeCachedConnection(forKey: key)?.detachThenStop()
             let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
             if !hostHasOtherMirrors,
                !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) {
@@ -822,7 +1024,7 @@ final class RemoteTmuxController {
             }
             return
         }
-        removeCachedConnection(forKey: key)?.stop()
+        removeCachedConnection(forKey: key)?.detachThenStop()
     }
 
     /// `DisableRemoteConnections` (MDM): detaches every control client and
@@ -840,7 +1042,40 @@ final class RemoteTmuxController {
     /// ControlMasters, so quitting cmux closes the ssh connections it opened (the
     /// CLI's `ssh -f` left them persistent). Does NOT kill any remote tmux
     /// server/session — only the local control clients and masters.
+    /// Every mirror that owes tmux a goodbye, in the order the app is about to lose them.
+    var connectionsOwingDeliberateDetach: [RemoteTmuxControlConnection] {
+        let views = multiplexedViewsByHost.values.compactMap(\.connection)
+        return (views + Array(connectionsByHostSession.values)).filter(\.owesDeliberateDetach)
+    }
+
+    /// Detaches every mirror and waits for tmux to acknowledge, before anything is torn down.
+    ///
+    /// Called from the app's deferred-termination phase, which exists precisely so work like
+    /// this can finish. Doing it inside `detachAll()` cannot work: that function goes on to stop
+    /// the transports, and a detach the transport never forwarded dies with it — the app exits,
+    /// the remote half keeps the tmux client, and its per-window size claims pin those windows
+    /// for every other client until someone notices and kills it by hand.
+    ///
+    /// One deadline covers the whole set rather than one each, so a single wedged mirror cannot
+    /// multiply the wait.
+    func detachAllAwaitingExit(timeout: TimeInterval = 2.0) async {
+        let owing = connectionsOwingDeliberateDetach
+        guard !owing.isEmpty else { return }
+        Self.logger.info("terminate: detaching \(owing.count, privacy: .public) mirror(s) before exit")
+        await withTaskGroup(of: Void.self) { group in
+            for connection in owing {
+                group.addTask { @MainActor in await connection.detachAwaitingExit(timeout: timeout) }
+            }
+            await group.waitForAll()
+        }
+    }
+
     func detachAll() {
+        // No waiter may outlive the mirrors it was waiting for.
+        for key in Array(authWaitTasks.keys) { cancelAuthWait(host: key) }
+        // Stop every shared view stream first — their channels aren't cached
+        // connections, so the loop below can't see them.
+        for host in multiplexedViewsByHost.values.map(\.host) { stopMultiplexedHost(host: host) }
         let connections = Array(connectionsByHostSession.keys).compactMap { removeCachedConnection(forKey: $0) }
         for connection in connections { connection.stop() }
         // Fire-and-forget `ssh -O exit` per endpoint: it hits the local control

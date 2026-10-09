@@ -8,7 +8,8 @@ extension SocketClient {
         method: String,
         params: [String: Any] = [:],
         responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        waitUntilCompletion: Bool = false
     ) throws -> [String: Any] {
         var tracedParams = params
         if method.hasPrefix("vm.") {
@@ -44,7 +45,12 @@ extension SocketClient {
         )
         let uptimeDeadline = ProcessInfo.processInfo.systemUptime + max(0, operationDeadline.timeIntervalSinceNow)
         while true {
-            let raw = try send(command: requestLine, responseTimeout: responseTimeout, deadline: operationDeadline)
+            let raw = try send(
+                command: requestLine,
+                responseTimeout: responseTimeout,
+                deadline: waitUntilCompletion ? deadline : operationDeadline,
+                waitUntilCompletion: waitUntilCompletion
+            )
 
             // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
             // before the JSON protocol starts. Surface these directly instead of letting

@@ -18,6 +18,7 @@ struct SidebarWorkspacePresenceHeadsView: View {
                         size: 18
                     )
                     .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.25))
+                    .opacity(WorkspacePresencePolicy.avatarOpacity(for: participant))
                 }
             }
             if layout.overflow > 0 {

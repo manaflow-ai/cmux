@@ -135,3 +135,49 @@ describe("coderouter models proxy", () => {
     expect(authenticatedTokens).toEqual([]);
   });
 });
+
+describe("coderouter models proxy with no account configured", () => {
+  function noAccountModelsProxy(configured: boolean) {
+    const checks: string[] = [];
+    const proxy = createCodexModelsProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => null,
+      credential: async () => {
+        throw new Error("no account should be read");
+      },
+      cooldown: async () => {},
+      providerRead: async (request) => await request(),
+      hasConfiguredAccount: async (input) => {
+        checks.push(input.teamId);
+        return configured;
+      },
+    });
+    return { proxy, checks };
+  }
+
+  const request = () => new Request("https://coderouter.dev/v1/models?client_version=0.146.0", {
+    headers: { authorization: "Bearer crt_route" },
+  });
+
+  test("answers a caller that can see no Codex account with the terminal 403", async () => {
+    const run = noAccountModelsProxy(false);
+    const response = await run.proxy(request());
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual({
+      error: {
+        message: "No Codex account is configured for this team or shared with this caller. Add one with `cr add codex` or at coderouter.dev.",
+        type: "invalid_request_error",
+        code: "no_account_configured",
+      },
+    });
+    expect(run.checks).toEqual(["team-1"]);
+  });
+
+  test("a caller whose accounts are all unavailable still gets a retryable 503", async () => {
+    const run = noAccountModelsProxy(true);
+    const response = await run.proxy(request());
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("15");
+  });
+});

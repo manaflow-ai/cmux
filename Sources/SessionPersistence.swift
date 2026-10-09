@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSurfaceCatalogModel
 import CoreGraphics
 import CmuxBrowser
@@ -1568,6 +1569,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var wasAgentRunning: Bool?
     /// Whether the terminal has received user input. Nil means unknown in older snapshots.
     var hasReceivedExplicitInput: Bool?
+    /// The Claude Code background session this pane was viewing through
+    /// `claude attach`. Restore reattaches it instead of resuming a second writer.
+    var claudeBackgroundViewer: ClaudeBackgroundSessionViewer?
 
     init(
         workingDirectory: String? = nil,
@@ -1583,7 +1587,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil,
-        hasReceivedExplicitInput: Bool? = nil
+        hasReceivedExplicitInput: Bool? = nil,
+        claudeBackgroundViewer: ClaudeBackgroundSessionViewer? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1599,6 +1604,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
         self.hasReceivedExplicitInput = hasReceivedExplicitInput
+        self.claudeBackgroundViewer = claudeBackgroundViewer
     }
 }
 

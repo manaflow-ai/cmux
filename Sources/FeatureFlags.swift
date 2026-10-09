@@ -12,8 +12,8 @@ import os
 ///
 /// Resolution semantics (flags must never break the app):
 /// - A remote value is authoritative when present, so rollout and kill-switch
-///   changes cannot be masked by a stale local override. Cloud alone permits
-///   explicit overrides when the injected Nightly/debug capability allows it.
+///   changes cannot be masked by a stale local override. The legacy Cloud
+///   definition is kept only for tagged debug tooling and is not in `allFlags`.
 /// - Without a remote value, a permitted override applies, then the explicit
 ///   per-flag default.
 /// - Until a payload arrives, the last remote value survives restarts. A flag
@@ -29,12 +29,6 @@ import os
 @Observable
 final class CmuxFeatureFlags {
     static let shared = CmuxFeatureFlags(publishesOffMainSnapshot: true)
-
-    #if DEBUG
-    private static let proUpgradeUIDefault = true
-    #else
-    private static let proUpgradeUIDefault = false
-    #endif
 
     private static let mobileConnectButtonDefault = false
     private static let sidebarAccountButtonDefault = true
@@ -188,8 +182,6 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.agentInboxQuickViewDefault
     )
 
-    // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
-    //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
     // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
     //      reviewBy: 2026-10-18, defaultWhenUnavailable: false)
     // Controls availability of the opt-in multi-provider conversation sidebar.
@@ -209,163 +201,164 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.conversationSidebarDefault
     )
 
-    // Order is load-bearing for the positional typed accessors below. Flags
-    // that need a stable public definition are declared independently and
-    // included here without repeating their key literal.
+    // FLAG(key: mac-account-directory-release, owner: lawrencecchen,
+    //      reviewBy: 2027-01-31, defaultWhenUnavailable: true)
+    // Lets My Devices find and admit the same user's Macs across teams through
+    // the per-user account directory. Off falls back to team-only discovery
+    // and admission; the enabled fallback keeps the shipping behavior when
+    // PostHog is unavailable, and a remote false value is the kill switch.
+    nonisolated static let macAccountDirectoryFlag = CmuxFeatureFlagDefinition(
+        key: "mac-account-directory-release",
+        title: String(
+            localized: "featureFlags.macAccountDirectory.title",
+            defaultValue: "Cross-team My Devices"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.macAccountDirectory.description",
+            defaultValue: "Finds and connects your Macs signed in to the same account even when they selected different teams."
+        ),
+        defaultWhenUnavailable: true
+    )
+
+    // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
+    // Shows the bottom-left sidebar iPhone button that opens the Tailscale
+    // Pairing workspace. It stays hidden until the remote flag or a
+    // local debug override enables it.
+    static let mobileConnectButtonFlag = CmuxFeatureFlagDefinition(
+        key: "mobile-connect-button-enabled-release",
+        title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Pairing button"),
+        flagDescription: String(
+            localized: "featureFlags.mobileConnect.description",
+            defaultValue: "Shows the Mobile Pairing button in the sidebar footer."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
+    )
+
+    // FLAG(key: sidebar-account-button-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2027-02-16, defaultWhenUnavailable: true)
+    // Shows the account control in the bottom-left sidebar footer. The
+    // Settings account section remains available when this shortcut is off.
+    static let sidebarAccountButtonFlag = CmuxFeatureFlagDefinition(
+        key: "sidebar-account-button-enabled-release",
+        title: String(localized: "featureFlags.sidebarAccount.title", defaultValue: "Sidebar account button"),
+        flagDescription: String(
+            localized: "featureFlags.sidebarAccount.description",
+            defaultValue: "Shows the profile and sign-in control in the sidebar footer."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
+    )
+
+    // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
+    // Shows the Agent Chat entrypoints: the new-workspace dropdown item,
+    // command-palette command, surface-tab-bar button, and shared action
+    // executor. Hidden by default until the sidecar UX is ready to ship.
+    static let agentChatUIFlag = CmuxFeatureFlagDefinition(
+        key: "agent-chat-ui-enabled-release",
+        title: String(localized: "featureFlags.agentChat.title", defaultValue: "Agent Chat UI"),
+        flagDescription: String(
+            localized: "featureFlags.agentChat.description",
+            defaultValue: "Shows Agent Chat entrypoints in the new-workspace dropdown, command palette, and surface tab bar."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.agentChatUIDefault
+    )
+
+    // FLAG(key: sidebar-workspace-agent-spinner-experiment, owner: lawrencecchen,
+    //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
+    // Shows the coding-agent activity spinner in workspace rows. Hidden
+    // by default while multi-agent lifecycle edge cases are investigated.
+    static let sidebarWorkspaceAgentSpinnerFlag = CmuxFeatureFlagDefinition(
+        key: "sidebar-workspace-agent-spinner-experiment",
+        title: String(
+            localized: "featureFlags.sidebarWorkspaceAgentSpinner.title",
+            defaultValue: "Workspace agent spinner"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.sidebarWorkspaceAgentSpinner.description",
+            defaultValue: "Shows a spinner in workspace rows while coding agents are running."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
+    )
+
+    // FLAG(key: computer-use-ux-enabled-release, owner: austinwang,
+    //      reviewBy: 2027-01-19, defaultWhenUnavailable: true)
+    // Shows the computer-use status item and allows automatic onboarding.
+    // The settings and terminal kill switch remain available if this UI
+    // flag is remotely disabled.
+    static let computerUseUXFlag = CmuxFeatureFlagDefinition(
+        key: "computer-use-ux-enabled-release",
+        title: String(localized: "featureFlags.computerUseUX.title", defaultValue: "cmux Computer Use UX"),
+        flagDescription: String(
+            localized: "featureFlags.computerUseUX.description",
+            defaultValue: "Shows the Computer Use menu-bar item and automatic onboarding."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.computerUseUXDefault
+    )
+
+    // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2027-02-16, defaultWhenUnavailable: false)
+    // Shows user-facing workspace todo controls that create checklist
+    // items or set completion/status lanes. Hidden until the local
+    // beta setting opts in or the PostHog flag is enabled.
+    static let workspaceTodoControlsFlag = CmuxFeatureFlagDefinition(
+        key: "workspace-todo-controls-enabled-release",
+        title: String(
+            localized: "featureFlags.workspaceTodoControls.title",
+            defaultValue: "Workspace todo controls"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.workspaceTodoControls.description",
+            defaultValue: "Shows Add Checklist Item and workspace completion status controls."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.workspaceTodoControlsDefault
+    )
+
+    // Registry order is used only for remote loading; accessors bind to named definitions.
     static let allFlags: [CmuxFeatureFlagDefinition] = {
         [
-            // FLAG(key: pro-upgrade-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2027-01-19, defaultWhenUnavailable: false)
-            // Shows the Pro upgrade entrypoints (sidebar badge, Settings Account
-            // card, palette command, Help menu item). Release builds hide them until
-            // the PostHog flag is enabled; DEBUG keeps them visible for dogfood.
-            CmuxFeatureFlagDefinition(
-                key: "pro-upgrade-ui-enabled-release",
-                title: String(localized: "featureFlags.proUpgrade.title", defaultValue: "Pro upgrade UI"),
-                flagDescription: String(
-                    localized: "featureFlags.proUpgrade.description",
-                    defaultValue: "Shows Pro upgrade entrypoints in the sidebar, Settings, command palette, and Help menu."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.proUpgradeUIDefault
-            ),
-
-            // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
-            // Shows the bottom-left sidebar iPhone button that opens the Tailscale
-            // Pairing workspace. It stays hidden until the remote flag or a
-            // local debug override enables it.
-            CmuxFeatureFlagDefinition(
-                key: "mobile-connect-button-enabled-release",
-                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Pairing button"),
-                flagDescription: String(
-                    localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows the Mobile Pairing button in the sidebar footer."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
-            ),
-
-            // FLAG(key: sidebar-account-button-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2027-02-16, defaultWhenUnavailable: true)
-            // Shows the account control in the bottom-left sidebar footer. The
-            // Settings account section remains available when this shortcut is off.
-            CmuxFeatureFlagDefinition(
-                key: "sidebar-account-button-enabled-release",
-                title: String(localized: "featureFlags.sidebarAccount.title", defaultValue: "Sidebar account button"),
-                flagDescription: String(
-                    localized: "featureFlags.sidebarAccount.description",
-                    defaultValue: "Shows the profile and sign-in control in the sidebar footer."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
-            ),
-
-            // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
-            // Shows the Agent Chat entrypoints: the new-workspace dropdown item,
-            // command-palette command, surface-tab-bar button, and shared action
-            // executor. Hidden by default until the sidecar UX is ready to ship.
-            CmuxFeatureFlagDefinition(
-                key: "agent-chat-ui-enabled-release",
-                title: String(localized: "featureFlags.agentChat.title", defaultValue: "Agent Chat UI"),
-                flagDescription: String(
-                    localized: "featureFlags.agentChat.description",
-                    defaultValue: "Shows Agent Chat entrypoints in the new-workspace dropdown, command palette, and surface tab bar."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.agentChatUIDefault
-            ),
-
-            // FLAG(key: sidebar-workspace-agent-spinner-experiment, owner: lawrencecchen,
-            //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
-            // Shows the coding-agent activity spinner in workspace rows. Hidden
-            // by default while multi-agent lifecycle edge cases are investigated.
-            CmuxFeatureFlagDefinition(
-                key: "sidebar-workspace-agent-spinner-experiment",
-                title: String(
-                    localized: "featureFlags.sidebarWorkspaceAgentSpinner.title",
-                    defaultValue: "Workspace agent spinner"
-                ),
-                flagDescription: String(
-                    localized: "featureFlags.sidebarWorkspaceAgentSpinner.description",
-                    defaultValue: "Shows a spinner in workspace rows while coding agents are running."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
-            ),
-
-            // FLAG(key: computer-use-ux-enabled-release, owner: austinwang,
-            //      reviewBy: 2027-01-19, defaultWhenUnavailable: true)
-            // Shows the computer-use status item and allows automatic onboarding.
-            // The settings and terminal kill switch remain available if this UI
-            // flag is remotely disabled.
-            CmuxFeatureFlagDefinition(
-                key: "computer-use-ux-enabled-release",
-                title: String(localized: "featureFlags.computerUseUX.title", defaultValue: "cmux Computer Use UX"),
-                flagDescription: String(
-                    localized: "featureFlags.computerUseUX.description",
-                    defaultValue: "Shows the Computer Use menu-bar item and automatic onboarding."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.computerUseUXDefault
-            ),
-
+            CmuxFeatureFlags.mobileConnectButtonFlag,
+            CmuxFeatureFlags.sidebarAccountButtonFlag,
+            CmuxFeatureFlags.agentChatUIFlag,
+            CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerFlag,
+            CmuxFeatureFlags.computerUseUXFlag,
             CmuxFeatureFlags.simulatorFlag,
-
-            // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2027-02-16, defaultWhenUnavailable: false)
-            // Shows user-facing workspace todo controls that create checklist
-            // items or set completion/status lanes. Hidden until the local
-            // beta setting opts in or the PostHog flag is enabled.
-            CmuxFeatureFlagDefinition(
-                key: "workspace-todo-controls-enabled-release",
-                title: String(
-                    localized: "featureFlags.workspaceTodoControls.title",
-                    defaultValue: "Workspace todo controls"
-                ),
-                flagDescription: String(
-                    localized: "featureFlags.workspaceTodoControls.description",
-                    defaultValue: "Shows Add Checklist Item and workspace completion status controls."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.workspaceTodoControlsDefault
-            ),
-
+            CmuxFeatureFlags.workspaceTodoControlsFlag,
             CmuxFeatureFlags.appKitSidebarListFlag,
-
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
-
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.goPlanFlag,
-            CmuxFeatureFlags.cloudMachinesFlag,
             CmuxFeatureFlags.agentInboxQuickViewFlag,
-            CmuxFeatureFlags.conversationSidebarFlag
+            CmuxFeatureFlags.conversationSidebarFlag,
+            CmuxFeatureFlags.macAccountDirectoryFlag
         ]
     }()
 
-    var isProUpgradeUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[0])
-    }
-
     var isMobileConnectButtonEnabled: Bool {
-        effectiveValue(for: Self.allFlags[1])
+        effectiveValue(for: Self.mobileConnectButtonFlag)
     }
 
     var isAgentChatUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[3])
+        effectiveValue(for: Self.agentChatUIFlag)
     }
 
     var isSidebarAccountButtonEnabled: Bool {
-        effectiveValue(for: Self.allFlags[2])
+        effectiveValue(for: Self.sidebarAccountButtonFlag)
     }
 
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
-        effectiveValue(for: Self.allFlags[4])
+        effectiveValue(for: Self.sidebarWorkspaceAgentSpinnerFlag)
     }
 
     var isComputerUseUXEnabled: Bool {
-        effectiveValue(for: Self.allFlags[5])
+        effectiveValue(for: Self.computerUseUXFlag)
     }
     var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.simulatorFlag)
     }
     var isWorkspaceTodoControlsEnabled: Bool {
-        effectiveValue(for: Self.allFlags[7])
+        effectiveValue(for: Self.workspaceTodoControlsFlag)
     }
     var isAppKitSidebarListEnabled: Bool {
         effectiveValue(for: Self.appKitSidebarListFlag)
@@ -484,6 +477,11 @@ final class CmuxFeatureFlags {
             if let value = Self.storedOverrideValue(for: definition.key, defaults: defaults) {
                 values[definition.key] = value
             }
+        }
+        // Cloud is retired from remote delivery but tagged debug artifacts
+        // still use its persisted local override as a compatibility control.
+        if let value = Self.storedOverrideValue(for: Self.cloudMachinesFlag.key, defaults: defaults) {
+            localOverridesByKey[Self.cloudMachinesFlag.key] = value
         }
         remoteValuesByKey = pinsFlagsToLocalValues
             ? [:]
@@ -743,6 +741,10 @@ final class CmuxFeatureFlags {
             }
             defaults.removeObject(forKey: Self.overrideDefaultsKey(for: definition.key))
         }
+        if localOverridesByKey.removeValue(forKey: Self.cloudMachinesFlag.key) != nil {
+            clearedAnyOverride = true
+        }
+        defaults.removeObject(forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
         guard clearedAnyOverride else { return }
         recomputeEffectiveValues()
         postChangeIfNeeded(previousResolutions: previousResolutions)

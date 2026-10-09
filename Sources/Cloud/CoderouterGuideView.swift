@@ -7,7 +7,7 @@ struct CoderouterGuideView: View {
     /// The one-line pitch: the "?" tooltip and the guide's first paragraph.
     static let summary = String(
         localized: "coderouter.guide.summary",
-        defaultValue: "Add the Codex, Claude and OpenCode Go accounts you already have, and agents on your Cloud machines use them right away."
+        defaultValue: "Add the Codex, Claude and OpenCode accounts you already have, and agents on your Cloud machines use them right away."
     )
 
     var body: some View {
@@ -18,7 +18,7 @@ struct CoderouterGuideView: View {
             heading(String(localized: "coderouter.guide.sidebar.title", defaultValue: "In this sidebar"))
             paragraph(String(
                 localized: "coderouter.guide.sidebar",
-                defaultValue: "Click New Codex, Claude or OpenCode Go Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
+                defaultValue: "Click New Codex, Claude or OpenCode Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
             ))
             heading(String(localized: "coderouter.guide.cli.title", defaultValue: "From a terminal"))
             command("cr add codex", String(localized: "coderouter.guide.cli.add", defaultValue: "Add an account. Also claude or opencode."))

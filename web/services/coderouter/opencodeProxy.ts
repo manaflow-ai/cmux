@@ -6,7 +6,7 @@ import { isIP, type LookupFunction } from "node:net";
 import { Readable, pipeline } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
-import { authenticateRouteToken, selectAccountForRequest } from "./repository";
+import { authenticateRouteToken, hasConfiguredAccount, selectAccountForRequest } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { captureCoderouterEvent } from "./analytics";
@@ -50,6 +50,11 @@ type OpenCodeDependencies = {
   readonly remoteConfig: (accessToken: string, signal?: AbortSignal) => Promise<Record<string, unknown>>;
   readonly fetch?: typeof fetch;
   readonly resolveProviderURL?: (value: string) => Promise<URL | null>;
+  /**
+   * Whether the caller can see any OpenCode account, in any state. False
+   * turns an empty selection into a terminal 403 instead of a 503.
+   */
+  readonly hasConfiguredAccount?: typeof hasConfiguredAccount;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -71,6 +76,7 @@ const defaultDependencies: OpenCodeDependencies = {
   credential: freshCredential,
   remoteConfig,
   fetch,
+  hasConfiguredAccount,
 };
 
 const AUTH_FAILURE_MESSAGES: Record<RouteTokenAuthFailure, string> = {
@@ -120,8 +126,17 @@ export async function openCodeClientConfig(
       true,
     );
   }
-  if (!resolved)
-    return Response.json({ error: "no_usable_account" }, { status: 503 });
+  if (!resolved) {
+    return await noUsableOpenCodeAccount(dependencies, auth.identity, request.signal, upstreamHeaderDeadlineAt, runtime.now, {
+      record: (status, terminal) => recordCoderouterOutcome({
+        outcome: "no_usable_account",
+        failureStage: terminal ? "provider_config" : "account_selection",
+        status,
+        provider: "opencode-go",
+        attempts: 0,
+      }),
+    });
+  }
   let remote: Record<string, unknown>;
   try {
     remote = await withCoderouterOperationDeadline(
@@ -245,20 +260,16 @@ export async function proxyOpenCodeRequest(
     attributes: { provider: "opencode-go", attempts: resolved?.attempts ?? 0, healthy: resolved !== null },
   });
   if (!resolved) {
-    captureOpenCodeHealth({
-      requestId,
-      identity: auth,
-      startedAt,
-      status: 503,
-      outcome: "no_usable_account",
-      failureStage: "account_selection",
+    return await noUsableOpenCodeAccount(dependencies, auth, request.signal, upstreamHeaderDeadlineAt, runtime.now, {
+      record: (status, terminal) => captureOpenCodeHealth({
+        requestId,
+        identity: auth,
+        startedAt,
+        status,
+        outcome: "no_usable_account",
+        failureStage: terminal ? "provider_config" : "account_selection",
+      }),
     });
-    return apiError(
-      "no_usable_account",
-      "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
-      503,
-      true,
-    );
   }
   let config: Record<string, unknown>;
   const configStartedAt = performance.now();
@@ -512,6 +523,55 @@ async function openCodeAccount(
     }
   }
   return null;
+}
+
+/**
+ * The answer when no OpenCode account served. A caller that can see no
+ * account at all gets a terminal 403; one whose accounts are cooling,
+ * refreshing, or broken gets a retryable 503. An unknown lookup answer keeps
+ * the 503 rather than telling a client to stop.
+ */
+async function noUsableOpenCodeAccount(
+  dependencies: Pick<OpenCodeDependencies, "hasConfiguredAccount">,
+  identity: RouteTokenIdentity,
+  requestSignal: AbortSignal,
+  deadlineAt: number,
+  now: () => number,
+  telemetry: { readonly record: (status: number, terminal: boolean) => void },
+): Promise<Response> {
+  const lookup = dependencies.hasConfiguredAccount;
+  let configured = true;
+  if (lookup) {
+    try {
+      configured = await withCoderouterOperationDeadline(requestSignal, deadlineAt, now, (signal) => lookup({
+        teamId: identity.teamId,
+        provider: "opencode-go",
+        access: accountAccessForIdentity(identity),
+        signal,
+      }));
+    } catch (error) {
+      if (requestSignal.aborted) throw error;
+    }
+  }
+  if (!configured) {
+    telemetry.record(403, true);
+    // OpenCode providers use the OpenAI-compatible SDK, so the terminal
+    // answer uses the OpenAI error shape. No retry-after: it surfaces once.
+    return Response.json({
+      error: {
+        message: "No OpenCode account is configured for this team or shared with this caller. Add one with `cr add opencode` or at coderouter.dev.",
+        type: "invalid_request_error",
+        code: "no_account_configured",
+      },
+    }, { status: 403, headers: { "cache-control": "no-store" } });
+  }
+  telemetry.record(503, false);
+  return apiError(
+    "no_usable_account",
+    "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
+    503,
+    true,
+  );
 }
 
 async function remoteConfig(

@@ -4,3 +4,4 @@
 # scripts/lint-feature-flags.py fails CI if any of these reappear.
 pro-checkout-enabled-release
 cloud-vm-ui-enabled-release
+pro-upgrade-ui-enabled-release

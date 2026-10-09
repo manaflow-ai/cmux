@@ -1,5 +1,6 @@
 #!/bin/bash
-# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [gh pr merge flags...]
+# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [--freeze-token TOKEN] [--window-token TOKEN]... [gh pr merge flags...]
+# gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
 set -Eeuo pipefail
@@ -101,15 +102,36 @@ maybe_update_checkout() {
 
 maybe_update_checkout "$ref" "$@"
 
+# --revert: one-command rollback. The revert PR lands through this same tool.
+if [ "$ref" = --revert ]; then
+  exec python3 "$script_dir/ci/revert_pr.py" "$@"
+fi
+
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
 fix=0
 override_reason=''
+freeze_token=''
+window_tokens=()
 args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --main-fix)
       fix=1
+      ;;
+    --freeze-token)
+      [ "$#" -ge 2 ] || refuse \
+        'not green: --freeze-token requires the token from the FREEZE line' \
+        'pass --freeze-token followed by the token=... value you hold'
+      freeze_token="$2"
+      shift
+      ;;
+    --window-token)
+      [ "$#" -ge 2 ] || refuse \
+        'not green: --window-token requires the token of the WINDOW area you hold' \
+        'pass --window-token followed by the token: value of your [AREA] in the WINDOW'
+      window_tokens+=("$2")
+      shift
       ;;
     --override)
       [ "$#" -ge 2 ] || refuse \
@@ -133,12 +155,19 @@ if [ -n "$override_reason" ]; then
       'explain the concrete red check and why this exact head is safe to merge'
   fi
 fi
+skip_vercel=0
+if [ -n "$override_reason" ] && [[ "$override_reason" =~ [Vv]ercel ]]; then
+  # Vercel is an optional preview deployment status in this repository.  An
+  # explicit, auditable override may waive that one external status when it is
+  # pending or red; all other pending statuses remain merge blockers.
+  skip_vercel=1
+fi
 if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
   refuse \
     'not green: --override cannot be combined with --main-fix' \
     'use --main-fix for its evidence path, or run the normal exact-head merge with --override'
 fi
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels 2>/dev/null); then
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository 2>/dev/null); then
   refuse \
     "not green: cannot read $ref" \
     'check the repository, pull request number, GitHub login, and network access'
@@ -236,8 +265,8 @@ excuse_runs=()
 red_lanes=()
 if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 
-# Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
-# Require it only if it was scheduled or the diff touches app code.
+# Use a conservative path fallback until the exact-head CI routing is available.
+needs_app_compile=0
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
@@ -246,7 +275,7 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
       'restore GitHub API access, then retry the exact-head check'
   fi
   if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
-    must+=("macos / macOS compile admission")
+    needs_app_compile=1
   fi
 fi
 if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
@@ -265,6 +294,23 @@ if ! runs=$(jq -r '
   refuse \
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
+fi
+
+# CI's package graph can exclude iOS-only Swift changes that the path fallback
+# includes. Accept an explicit skip only from GitHub Actions in the same suite
+# as the latest successful ci-status. Missing or unrelated routing stays closed.
+# A reported compile-admission check is still required below, even with a skip.
+if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
+  (map(.check_runs) | add | sort_by(.name, (.id // 0))
+   | group_by(.name) | map(last)) as $latest
+  | ($latest[] | select(.name == "ci-status")) as $ci
+  | $ci.status == "completed" and $ci.conclusion == "success"
+    and $ci.app.slug == "github-actions" and $ci.check_suite.id != null
+    and any($latest[];
+      .name == "macos" and .status == "completed" and .conclusion == "skipped"
+      and .app.slug == "github-actions" and .check_suite.id == $ci.check_suite.id)
+' <<<"$check_runs_json" >/dev/null 2>&1; then
+  must+=("macos / macOS compile admission")
 fi
 
 # God-file, localization and concurrency lint fail only on the change itself, so
@@ -454,6 +500,10 @@ if [ "$has_ci" -eq 0 ]; then
   while IFS=$'\t' read -r name st co; do
     [ -n "$name" ] || continue
     reported=$((reported + 1))
+    if [ "$skip_vercel" -eq 1 ] && [ "$name" = Vercel ]; then
+      echo "note: --override waived Vercel $st/$co status" >&2
+      continue
+    fi
     if [ "$st" != completed ]; then
       refuse \
         "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
@@ -532,6 +582,213 @@ if grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)' <<<"$patches"; then
     "not green: conflict markers are present in $ref" \
     'resolve the conflict markers, push the repaired head, and rerun the checks'
 fi
+# A feat-cmux-next merge stops at a frozen path. The coordinator's WINDOW
+# (cmux-lawrence:~/agent-mailbox/WINDOW) names each freeze as
+# `FREEZE: <path prefix>... token=<token>`; only the token holder
+# (--freeze-token) merges into it, and --override never lifts it. A WINDOW
+# that cannot be read refuses: the coordinator merges while freezes are unknown.
+window=''
+if [ "$base" = feat-cmux-next ] || [ -n "$freeze_token" ] || [ "${#window_tokens[@]}" -gt 0 ]; then
+  if [ -n "${GH_MERGE_GREEN_WINDOW_FILE:-}" ]; then
+    window=$(cat -- "$GH_MERGE_GREEN_WINDOW_FILE" 2>/dev/null) || window=''
+  elif [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
+    window=''
+  else
+    window=$(timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=10 cmux-lawrence 'cat ~/agent-mailbox/WINDOW' 2>/dev/null) || window=''
+  fi
+fi
+if [ "$base" = feat-cmux-next ]; then
+  if [ -z "$window" ]; then
+    refuse \
+      "not merged: cannot read the coordinator's WINDOW, so active freezes on $ref are unknown" \
+      'check with the coordinator; they merge this PR while the WINDOW is unreadable'
+  fi
+  if ! changed=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+    refuse \
+      "not merged: cannot list changed files for $ref to check freezes" \
+      'restore GitHub API access, then retry'
+  fi
+  if ! frozen=$(WINDOW="$window" FREEZE_TOKEN="$freeze_token" python3 -c '
+import os, sys
+token = os.environ["FREEZE_TOKEN"]
+freezes = []
+for line in os.environ["WINDOW"].splitlines():
+    if not line.startswith("FREEZE:"):
+        continue
+    words = line[len("FREEZE:"):].split()
+    held = {w.split("=", 1)[1] for w in words if w.startswith("token=")}
+    if token and token in held:
+        continue
+    freezes += [w for w in words if "=" not in w]
+for path in sys.stdin.read().split():
+    for prefix in freezes:
+        if path == prefix or path.startswith(prefix if prefix.endswith("/") else prefix + "/"):
+            print(f"{path} (FREEZE: {prefix})")
+' <<<"$changed"); then
+    refuse \
+      "not merged: cannot check $ref against the WINDOW freezes" \
+      'check with the coordinator before merging'
+  fi
+  if [ -n "$frozen" ]; then
+    refuse \
+      "not merged: $ref touches frozen paths: $(paste -sd ';' <<<"$frozen" | sed 's/;/; /g')" \
+      'wait for the freeze to lift, or send the PR to the coordinator; only the token holder merges with --freeze-token'
+  fi
+fi
+# A merge under a WINDOW token releases it: each token must be current (an
+# [AREA] section's `token:` or a hold line's `token=`), and right after the
+# merge a RELEASE <AREA> mail with the landed SHA goes to
+# inbox/lawrence-coordinator (Lawrence's coordinator missed a manual one).
+releases=''
+# The real mailbox is reachable only from a real run: under test
+# (GH_MERGE_GREEN_TEST) or with a local WINDOW file, the RELEASE mail needs
+# GH_MERGE_GREEN_MAILBOX_DIR, so a test can never mail a fake RELEASE that
+# frees a real token.
+mailbox_is_local() {
+  [ -n "${GH_MERGE_GREEN_MAILBOX_DIR:-}" ] && return 0
+  [ -z "${GH_MERGE_GREEN_TEST:-}" ] && [ -z "${GH_MERGE_GREEN_WINDOW_FILE:-}" ] && return 0
+  return 1
+}
+if [ -n "$freeze_token" ] || [ "${#window_tokens[@]}" -gt 0 ]; then
+  if ! mailbox_is_local; then
+    refuse \
+      "not merged: a test or local-WINDOW run must set GH_MERGE_GREEN_MAILBOX_DIR before a token merge of $ref" \
+      'set GH_MERGE_GREEN_MAILBOX_DIR to a temp mailbox; only a real run mails the coordinator'
+  fi
+  if [ -z "$window" ]; then
+    refuse \
+      "not merged: cannot read the coordinator's WINDOW to check the tokens for $ref" \
+      'check with the coordinator; they merge this PR while the WINDOW is unreadable'
+  fi
+  if ! releases=$(WINDOW="$window" python3 -c '
+import re, os, sys
+areas, holds, frozen = {}, {}, set()
+area = None
+for line in os.environ["WINDOW"].splitlines():
+    header = re.match(r"\[([A-Za-z0-9_-]+)\]", line)
+    if header:
+        area = header.group(1)
+        continue
+    held = re.match(r"token:\s*(\S+)", line)
+    if area and held and held.group(1) != "none":
+        areas[held.group(1)] = area
+    if not line.strip():
+        area = None
+    for token in re.findall(r"token=(\S+)", line):
+        if line.startswith("FREEZE:"):
+            frozen.add(token)
+        else:
+            holds.setdefault(token, line.split()[0])
+missing = []
+for token in sys.argv[1:]:
+    name = areas.get(token) or holds.get(token) or ("FREEZE" if token in frozen else None)
+    if name is None:
+        missing.append(token)
+    else:
+        print(f"{name}\t{token}")
+if missing:
+    print(" ".join(missing), file=sys.stderr)
+    sys.exit(3)
+' ${freeze_token:+"$freeze_token"} ${window_tokens[@]+"${window_tokens[@]}"} 2>"${TMPDIR:-/tmp}/gh-merge-green-tokens.$$"); then
+    stale=$(cat "${TMPDIR:-/tmp}/gh-merge-green-tokens.$$")
+    rm -f "${TMPDIR:-/tmp}/gh-merge-green-tokens.$$"
+    refuse \
+      "not merged: ${stale:-a token} is not a current WINDOW token" \
+      'merge only while you hold the token; ask the coordinator for the current one'
+  fi
+  rm -f "${TMPDIR:-/tmp}/gh-merge-green-tokens.$$"
+fi
+# The merged head passes the checks a red lint job can hide (#18326 grew a god
+# type while an unrelated lint red masked the god-file step): the Swift god-file
+# check when CmuxNext changes, vp check when webviews changes. They run here on
+# base + head merged locally, with the base branch's copy of the god-file script
+# and baseline, so a pull request cannot loosen its own check.
+# The files a vp check report names, sorted (ANSI colors stripped).
+vp_flagged_files() {
+  sed 's/\x1b\[[0-9;]*m//g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
+}
+merged_head_checks() {
+  local repo_dir tmp merged base_sha head_sha status=0 output bun
+  local swift_changed=0 web_changed=0
+  grep -q '^Packages/macOS/CmuxNext/' <<<"$changed" && swift_changed=1
+  grep -q '^webviews/' <<<"$changed" && web_changed=1
+  [ "$swift_changed" -eq 1 ] || [ "$web_changed" -eq 1 ] || return 0
+  if jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1; then
+    refuse \
+      "not merged: $ref is from a fork, and its merged-head checks would run its code here" \
+      'send the PR to the coordinator, who merges it after reviewing the god-file and vp check results'
+  fi
+  repo_dir="${GH_MERGE_GREEN_REPO_DIR:-$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)}"
+  if [ -z "$repo_dir" ] || ! git -C "$repo_dir" fetch --quiet origin \
+      "+refs/heads/$base:refs/gh-merge-green/base" "+refs/pull/$num/head:refs/gh-merge-green/head" 2>/dev/null; then
+    refuse \
+      "not merged: cannot fetch $base and $ref to check the merged head" \
+      'run gh-merge-green from its cmux checkout with network access, or set GH_MERGE_GREEN_REPO_DIR to a cmux clone'
+  fi
+  base_sha=$(git -C "$repo_dir" rev-parse refs/gh-merge-green/base)
+  head_sha=$(git -C "$repo_dir" rev-parse refs/gh-merge-green/head)
+  if [ "$head_sha" != "$sha" ]; then
+    refuse \
+      "not merged: $ref moved to $head_sha while checking $sha" \
+      'retry on the current head'
+  fi
+  tmp=$(mktemp -d)
+  merged="$tmp/merged"
+  git -C "$repo_dir" worktree add --quiet --detach "$merged" "$base_sha" >/dev/null 2>&1
+  if ! git -C "$merged" -c user.name=gh-merge-green -c user.email=gh-merge-green@invalid \
+      merge --quiet --no-ff --no-edit "$head_sha" >/dev/null 2>&1; then
+    git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
+    rm -rf "$tmp"
+    refuse \
+      "not merged: $ref does not merge cleanly into $base ($base_sha)" \
+      'merge the base into the PR (scripts/merge-main.sh), push, and retry'
+  fi
+  if [ "$swift_changed" -eq 1 ]; then
+    git -C "$repo_dir" show "$base_sha:scripts/cmux-next/check-no-godfiles.sh" > "$merged/scripts/cmux-next/check-no-godfiles.sh"
+    git -C "$repo_dir" show "$base_sha:scripts/cmux-next/godfile-baseline.tsv" > "$merged/scripts/cmux-next/godfile-baseline.tsv"
+    if ! output=$(bash "$merged/scripts/cmux-next/check-no-godfiles.sh" --only swift --base "$base_sha" \
+        "$merged/Packages/macOS/CmuxNext" 2>&1); then
+      status=1
+      printf '%s\n' "$output" | grep -E 'FAIL|god|split' | sed 's/^/  /' >&2 || true
+      printf 'not merged: the merged head of %s fails the Swift god-file check\n' "$ref" >&2
+    fi
+  fi
+  if [ "$web_changed" -eq 1 ] && [ "$status" -eq 0 ]; then
+    if ! bun=$(command -v bun); then
+      status=2
+      printf 'not merged: bun is not on PATH, so vp check cannot run on the merged head of %s\n' "$ref" >&2
+    elif ! output=$(cd "$merged/webviews" && "$bun" install --frozen-lockfile --ignore-scripts 2>&1 && "$bun" x vp check 2>&1); then
+      # A red the base already has is not this PR's: check the base tree with
+      # the same install, and refuse only for files the base does not flag.
+      local base_output new_files
+      git -C "$merged" checkout --quiet --detach "$base_sha" 2>/dev/null
+      if base_output=$(cd "$merged/webviews" && "$bun" x vp check 2>&1); then
+        new_files=$(vp_flagged_files <<<"$output")
+      else
+        new_files=$(LC_ALL=C comm -23 <(vp_flagged_files <<<"$output") <(vp_flagged_files <<<"$base_output"))
+      fi
+      if [ -z "$base_output" ] || [ -n "$new_files" ] || [ -z "$(vp_flagged_files <<<"$output")" ]; then
+        status=1
+        printf '%s\n' "$output" | grep -vE '^\s*$' | tail -n 15 | sed 's/^/  /' >&2
+        printf 'not merged: the merged head of %s fails vp check in webviews/%s\n' "$ref" \
+          "${new_files:+ (not on the base: $(paste -sd ' ' <<<"$new_files"))}" >&2
+      else
+        printf 'note: vp check is red on the base (%s) too (%s), not by %s\n' "$base" \
+          "$(vp_flagged_files <<<"$base_output" | paste -sd ' ')" "$ref" >&2
+      fi
+    fi
+  fi
+  git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
+  rm -rf "$tmp"
+  if [ "$status" -ne 0 ]; then
+    refusal_reported=1
+    print_repair 'fix the merged head (split the god type, or run vp check --fix in webviews/), push, and retry'
+    exit 1
+  fi
+}
+if [ "$base" = feat-cmux-next ]; then
+  merged_head_checks
+fi
 if [ -n "$override_reason" ]; then
   if ! gh pr comment "$num" --repo "$repo" --body "merge-override: $override_reason" >/dev/null; then
     refuse \
@@ -556,3 +813,37 @@ if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@"; then
     "not green: GitHub refused to merge $ref" \
     'read the GitHub refusal, repair the named issue, and retry the exact head'
 fi
+[ -n "$releases" ] || exit 0
+landed=''
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  landed=$(gh pr view "$num" --repo "$repo" --json state,mergeCommit 2>/dev/null \
+    | jq -r 'select(.state == "MERGED") | .mergeCommit.oid // empty' 2>/dev/null || true)
+  [ -n "$landed" ] && break
+  sleep 3
+done
+sender="${GH_MERGE_GREEN_SENDER:-}"
+[ -n "$sender" ] || { [ -n "${TMUX_PANE:-}" ] && sender=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null); }
+sender="${sender:-$(hostname -s)}"
+mail_failed=0
+while IFS=$'\t' read -r area token; do
+  subject="RELEASE $area: $ref landed ${landed:-<merge commit not reported yet>}"
+  subject="${subject/$repo#/#}"
+  body=$(printf 'from: %s/gh-merge-green\nto: lawrence-coordinator\nre: none\npriority: normal\nsubject: %s\n\nRELEASE %s. #%s landed as %s under token %s (sent by gh-merge-green right after the merge).\n' \
+    "$sender" "$subject" "$area" "$num" "${landed:-an unreported merge commit}" "$token")
+  name="$(date -u +%Y%m%dT%H%M%SZ)-$sender-release-$(tr '[:upper:]' '[:lower:]' <<<"$area")-$num.md"
+  if [ -n "${GH_MERGE_GREEN_MAILBOX_DIR:-}" ]; then
+    dir="$GH_MERGE_GREEN_MAILBOX_DIR/inbox/lawrence-coordinator"
+    printf '%s\n' "$body" > "$dir/$name.tmp" && mv "$dir/$name.tmp" "$dir/$name" || mail_failed=1
+  elif ! mailbox_is_local; then
+    mail_failed=1
+  else
+    printf '%s\n' "$body" | timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=10 cmux-lawrence \
+      "f=~/agent-mailbox/inbox/lawrence-coordinator/$name; cat > \"\$f.tmp\" && mv \"\$f.tmp\" \"\$f\"" || mail_failed=1
+  fi
+  if [ "$mail_failed" -eq 1 ]; then
+    refusal_reported=1
+    printf 'merged %s, but the RELEASE %s mail failed. Send it by hand to inbox/lawrence-coordinator:\n%s\n' "$ref" "$area" "$body" >&2
+    exit 1
+  fi
+  printf 'mailed RELEASE %s for %s (%s) to inbox/lawrence-coordinator\n' "$area" "$ref" "${landed:-merge commit pending}" >&2
+done <<<"$releases"

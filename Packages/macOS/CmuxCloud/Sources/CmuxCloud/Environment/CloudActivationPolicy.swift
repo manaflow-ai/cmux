@@ -22,7 +22,7 @@ import Foundation
 /// trusted or missed on the strength of the last poll.
 ///
 /// The inputs are injected closures so the decision is testable without a
-/// signed bundle; ``live(defaults:machineCache:browserTunnel:terminalTunnel:remoteEnabled:resolveCloudMachine:)``
+/// signed bundle; ``live(defaults:machineCache:browserTunnel:terminalTunnel:resolveCloudMachine:)``
 /// wires the persisted Cloud activation marker (plus the managed `DisableCloud` policy),
 /// the cached machine count and this Mac's tunnel enrollment files, the
 /// browser-role VPN configuration on disk, and ``VMClient`` for resolution.
@@ -41,7 +41,7 @@ public struct CloudActivationPolicy: Sendable {
         self.resolveCloudMachine = resolveCloudMachine
     }
 
-    /// The remote flag and persisted Cloud activation marker are on,
+    /// The local activation marker is on,
     /// and no managed profile disables Cloud (``CloudMachinesFeature``).
     public let isCloudMachinesEnabled: @Sendable () -> Bool
     /// This Mac has used Cloud before: the cached marker says the account had
@@ -62,9 +62,8 @@ public struct CloudActivationPolicy: Sendable {
     public let resolveCloudMachine: @Sendable () async -> Bool?
 
     /// Fleet polling and links may run only while the shared Cloud availability
-    /// policy is enabled. A previous Cloud use must never bypass the remote
-    /// kill switch: disabling it suspends idle Cloud work without deleting the
-    /// saved machine or workspace identities.
+    /// policy is enabled. Disabling it suspends idle Cloud work without
+    /// deleting the saved machine or workspace identities.
     public var allowsBackgroundCloudWork: Bool {
         isCloudMachinesEnabled()
     }
@@ -115,14 +114,12 @@ public struct CloudActivationPolicy: Sendable {
     }
 
     /// The production policy over this build's defaults, tunnel state files,
-    /// and the signed-in ``VMClient``. `remoteEnabled` reads the app's remote
-    /// Cloud Machines flag.
+    /// and the signed-in ``VMClient``.
     public static func live(
         defaults: UserDefaults = .standard,
         machineCache: CloudMachineCache = CloudMachineCache(),
         browserTunnel: VMTunnelManager = VMTunnelManager(purpose: .browser),
         terminalTunnel: VMTunnelManager = VMTunnelManager(purpose: .terminal),
-        remoteEnabled: @escaping @Sendable () -> Bool,
         resolveCloudMachine: @escaping @Sendable () async -> Bool? = { await listedFleetHasMachine() }
     ) -> CloudActivationPolicy {
         // nonisolated(unsafe): UserDefaults is documented thread-safe but not
@@ -130,7 +127,10 @@ public struct CloudActivationPolicy: Sendable {
         nonisolated(unsafe) let toggleDefaults = defaults
         return CloudActivationPolicy(
             isCloudMachinesEnabled: {
-                CloudMachinesFeature.isEnabled(defaults: toggleDefaults, policy: ManagedDevicePolicy(), remoteEnabled: remoteEnabled())
+                CloudMachinesFeature.isEnabled(
+                    defaults: toggleDefaults,
+                    policy: ManagedDevicePolicy(defaults: toggleDefaults)
+                )
             },
             hasUsedCloud: {
                 machineCache.hasAnyMachine == true
