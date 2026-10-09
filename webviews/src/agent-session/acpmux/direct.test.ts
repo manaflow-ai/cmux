@@ -1830,6 +1830,51 @@ describe("direct client session state", () => {
     ]);
   });
 
+  test("a reply that ends with its turn hands the transcript a new row, so its caret goes away", async () => {
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? { session: { sessionId: "a", status: "idle" }, events: [userEvent("a", 1, "Reply with exactly: pong")] }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    await connect();
+    await settle();
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 2,
+      at: 2,
+      dir: "in",
+      kind: "agent_message_chunk",
+      msg: {
+        method: "session/update",
+        params: {
+          sessionId: "a",
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "pong" } },
+        },
+      },
+    });
+    await settle();
+    const streamed = latest();
+    const live = streamed.rows.find((row) => row.kind === "assistant");
+    expect(live?.streaming).toBe(true);
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 3,
+      at: 3,
+      dir: "mux",
+      kind: "turn_result",
+      msg: { status: "completed" },
+    });
+    await settle();
+    const ended = latest().rows.find((row) => row.id === live?.id);
+    expect(ended?.streaming).toBe(false);
+    // The transcript memoizes rows by id and version against the snapshot it drew: the drawn snapshot
+    // must keep its streaming row, or the version check sees no change and the caret never goes away.
+    const drawn = streamed.rows.find((row) => row.id === live?.id);
+    expect(drawn?.streaming).toBe(true);
+    expect(ended?.version).toBeGreaterThan(drawn?.version ?? Infinity);
+  });
+
   test("a superseded message drops every segment it was split into", async () => {
     const update = (seq: number, update: Record<string, unknown>): EventRecord => ({
       sessionId: "a",
