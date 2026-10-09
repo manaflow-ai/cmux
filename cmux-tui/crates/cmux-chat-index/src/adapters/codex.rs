@@ -286,8 +286,20 @@ fn query_threads(db: &Path) -> rusqlite::Result<Vec<ChatEntry>> {
         }
     };
     let mut filters = vec!["1 = 1".to_owned()];
+    // `has_user_event` is only a hint: Codex 0.159+ leaves it 0 on every
+    // thread. A thread is a chat when it has the flag or any user text.
+    let texts: Vec<String> = ["first_user_message", "title", "preview", "name"]
+        .into_iter()
+        .filter(|name| cols.contains(*name))
+        .map(|name| format!("coalesce({name}, '') <> ''"))
+        .collect();
     if cols.contains("has_user_event") {
-        filters.push("has_user_event = 1".to_owned());
+        let mut any = vec!["has_user_event = 1".to_owned()];
+        any.extend(texts);
+        filters.push(format!("({})", any.join(" OR ")));
+    }
+    if cols.contains("thread_source") {
+        filters.push("coalesce(thread_source, '') <> 'subagent'".to_owned());
     }
     for agent_col in ["agent_nickname", "agent_role"] {
         if cols.contains(agent_col) {

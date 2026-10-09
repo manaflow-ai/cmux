@@ -237,6 +237,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
             },
+            // `debug.palette.entries {scope?, path}`: writes the scope's ranker input (the
+            // palette-ranking eval fixture, plans/cmux-next/palette-ranking.md) to `path`.
+            .async("debug.palette.entries") { [weak services] call in
+                try await DebugPaletteEntries.write(call.params, services: services)
+            },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
