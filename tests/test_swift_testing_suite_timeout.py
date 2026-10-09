@@ -960,13 +960,16 @@ class DirectBundleSuiteTests(unittest.TestCase):
         """aws-m4pro-8, Xcode 26.6 (2026-10-09): dsymutil of the 444 MB CmuxNext
         test bundle took 8.1 s of every test build. CMUX_SWIFT_TEST_DEBUG_INFO=none
         passes -debug-info-format none to the list build and to every later swift
-        call (with other flags they would plan a different build); dwarf adds none."""
-        for value, want in (("none", True), ("dwarf", False)):
+        call (with other flags they would plan a different build); dwarf adds none.
+        none is the default."""
+        for value, want in (("none", True), ("dwarf", False), (None, True)):
             for direct in ("1", "0"):
                 with self.subTest(value=value, direct=direct), tempfile.TemporaryDirectory() as temp_dir:
                     temp = pathlib.Path(temp_dir).resolve()
                     package, env = self._setup(temp)
-                    env["CMUX_SWIFT_TEST_DEBUG_INFO"] = value
+                    env.pop("CMUX_SWIFT_TEST_DEBUG_INFO", None)
+                    if value is not None:
+                        env["CMUX_SWIFT_TEST_DEBUG_INFO"] = value
                     env["CMUX_SWIFT_TEST_DIRECT"] = direct
                     if direct == "0":
                         # The fallback runs the suites through the fake swift.
