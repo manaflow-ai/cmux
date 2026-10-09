@@ -31,14 +31,17 @@
 //! reports every change to the broker handler as a [`ClipboardReadSignal`]:
 //! a request, or a cancel when the host withdrew it or the connection ended.
 
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::Terminal;
 
+use super::super::sys::HostStream;
 use super::super::*;
+use super::attachment::{HostAttachment, send_host_frame};
 use super::codec::PayloadDecoder;
+use super::control_responses::ControlResponses;
 use super::host_state::HostTap;
 use ghostty_vt::{
     ClipboardLocation, ClipboardReadFn, ClipboardReadRequest, MAX_CLIPBOARD_READ_BYTES,
@@ -415,4 +418,156 @@ pub(crate) fn clipboard_envelope_valid(frame: &Frame, protocol_version: u16) -> 
         && frame.flags == 0
         && frame.request_id == 0
         && frame.sequence == 0
+}
+
+impl ControlResponses {
+    pub(crate) fn with_clipboard_reads(negotiated: bool) -> Self {
+        let responses = Self::new();
+        responses.clipboard_reads.negotiated.store(negotiated, Ordering::Release);
+        responses
+    }
+
+    #[cfg(test)]
+    pub(crate) fn negotiate_clipboard_reads_for_test(&self) {
+        self.clipboard_reads.negotiated.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn clipboard_reads_negotiated(&self) -> bool {
+        self.clipboard_reads.negotiated.load(Ordering::Acquire)
+    }
+
+    /// Installs the broker's handler for this connection's reads.
+    pub(crate) fn set_clipboard_read_handler(&self, handler: ClipboardReadHandler) {
+        *lock(&self.clipboard_reads.handler) = Some(handler);
+    }
+
+    /// The connection's frame reader got a `ClipboardReadRequest`. False
+    /// ends the connection: unnegotiated, or a malformed envelope or payload.
+    pub(crate) fn accept_clipboard_read_request(
+        &self,
+        frame: &Frame,
+        protocol_version: u16,
+    ) -> bool {
+        if !self.clipboard_reads_negotiated() || !clipboard_envelope_valid(frame, protocol_version)
+        {
+            return false;
+        }
+        let Ok(request) = decode_clipboard_read_request(&frame.payload) else {
+            return false;
+        };
+        *lock(&self.clipboard_reads.pending) = Some(request);
+        self.clipboard_reads.signal(ClipboardReadSignal::Request(request));
+        true
+    }
+
+    /// The connection's frame reader got a `ClipboardReadCancel`. A cancel
+    /// for a read that is no longer pending (answered, or replaced) is stale
+    /// and ignored. False ends the connection, as for a request.
+    pub(crate) fn accept_clipboard_read_cancel(
+        &self,
+        frame: &Frame,
+        protocol_version: u16,
+    ) -> bool {
+        if !self.clipboard_reads_negotiated() || !clipboard_envelope_valid(frame, protocol_version)
+        {
+            return false;
+        }
+        let Ok(token) = decode_clipboard_read_cancel(&frame.payload) else {
+            return false;
+        };
+        if self.take_clipboard_read(token) {
+            self.clipboard_reads.signal(ClipboardReadSignal::Cancel(token));
+        }
+        true
+    }
+
+    /// The connection's stream ended: its host refused the pending read, so
+    /// the broker withdraws it.
+    pub(crate) fn end_clipboard_reads(&self) {
+        let pending = lock(&self.clipboard_reads.pending).take();
+        if let Some(pending) = pending {
+            self.clipboard_reads.signal(ClipboardReadSignal::Cancel(pending.token));
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_clipboard_read(&self) -> Option<ClipboardReadRequest> {
+        *lock(&self.clipboard_reads.pending)
+    }
+
+    pub(crate) fn take_clipboard_read(&self, token: u64) -> bool {
+        self.clipboard_reads
+            .pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take_if(|pending| pending.token == token)
+            .is_some()
+    }
+}
+
+impl HostAttachment {
+    #[cfg(test)]
+    pub(crate) fn clipboard_reads_negotiated(&self) -> bool {
+        self.control_responses.clipboard_reads_negotiated()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn negotiate_clipboard_reads_for_test(&self) {
+        self.control_responses.negotiate_clipboard_reads_for_test();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_clipboard_read(&self) -> Option<ClipboardReadRequest> {
+        self.control_responses.pending_clipboard_read()
+    }
+
+    /// Answers the pending read `token`: `Some(text)` grants, `None`
+    /// refuses. False, with nothing sent, when `token` is not pending.
+    /// Tests only: production answers go through the broker's replier.
+    #[cfg(test)]
+    pub(crate) fn complete_clipboard_read(
+        &self,
+        token: u64,
+        text: Option<&[u8]>,
+    ) -> std::io::Result<bool> {
+        self.clipboard_replier().complete(token, text)
+    }
+
+    /// This connection's answering side, for the daemon broker.
+    pub(crate) fn clipboard_replier(&self) -> ClipboardReplier {
+        ClipboardReplier {
+            writer: Arc::downgrade(&self.writer),
+            responses: Arc::downgrade(&self.control_responses),
+            protocol_version: self.protocol_version,
+        }
+    }
+}
+
+/// Answers one connection's reads without the surface's runtime lock, so
+/// the broker may refuse a read on the frame reader thread. It holds the
+/// connection weakly: once the attachment is gone it sends nothing, and it
+/// never keeps the host socket open.
+#[derive(Clone)]
+pub(crate) struct ClipboardReplier {
+    pub(crate) writer: Weak<Mutex<HostStream>>,
+    pub(crate) responses: Weak<ControlResponses>,
+    pub(crate) protocol_version: u16,
+}
+
+impl ClipboardReplier {
+    /// Answers the pending read `token`: `Some(text)` grants, `None`
+    /// refuses. False, with nothing sent, when `token` is not pending
+    /// (answered, replaced, or the connection is gone).
+    pub(crate) fn complete(&self, token: u64, text: Option<&[u8]>) -> std::io::Result<bool> {
+        let (Some(writer), Some(responses)) = (self.writer.upgrade(), self.responses.upgrade())
+        else {
+            return Ok(false);
+        };
+        if !responses.take_clipboard_read(token) {
+            return Ok(false);
+        }
+        let reply = encode_clipboard_read_reply(token, text);
+        send_host_frame(&writer, self.protocol_version, MessageKind::ClipboardReadReply, &reply)?;
+        Ok(true)
+    }
 }

@@ -72,6 +72,19 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
+                id: "agentPane.switchModel",
+                title: String(localized: "action.agentPane.switchModel", defaultValue: "Switch Model…", bundle: .module),
+                keywords: ["agent", "chat", "model", "harness", "effort", "reasoning", "picker", "switch"],
+                // Ctrl-Cmd-M (Lawrence 2026-10-09): an app chord, so it works wherever the agent
+                // pane's keyboard is; the menu opens with the keyboard in its search field.
+                defaultShortcut: Shortcut("m", modifiers: [.control, .command]),
+                category: .agents, symbol: "cpu", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // A chooser for a person. Scripts set the model with `debug.agent_pane set_model`
+                // or the acpmux CLI, so the CLI/MCP surface is exempt like Continue in….
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
                 id: "agentPane.createCheckpoint",
                 title: String(localized: "action.agentPane.createCheckpoint", defaultValue: "Create checkpoint", bundle: .module),
                 keywords: ["agent", "git", "snapshot", "checkpoint", "handoff"],
