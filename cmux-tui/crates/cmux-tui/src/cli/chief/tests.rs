@@ -447,7 +447,8 @@ fn stop_takes_a_subagent_and_engine_takes_speeds() {
         Some(Control::Stop(Some("a3".into())))
     );
     assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop(None)));
-    let parsed = parse_args(&strings(&["engine", "--speed", "fast", "--compactor-speed=default"])).unwrap();
+    let parsed =
+        parse_args(&strings(&["engine", "--speed", "fast", "--compactor-speed=default"])).unwrap();
     assert_eq!(
         parsed.control,
         Some(Control::Engine(vec![

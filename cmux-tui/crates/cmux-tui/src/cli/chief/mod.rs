@@ -88,8 +88,13 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
         match flag {
             "engine" if first => parsed.control = Some(control::Control::Engine(Vec::new())),
             "stop" if first => parsed.control = Some(control::Control::Stop(None)),
-            "--harness" | "--model" | "--effort" => {
-                let key = flag.trim_start_matches("--").to_owned();
+            name if !name.starts_with('-')
+                && matches!(parsed.control, Some(control::Control::Stop(None))) =>
+            {
+                parsed.control = Some(control::Control::Stop(Some(name.to_owned())));
+            }
+            "--harness" | "--model" | "--effort" | "--speed" | "--compactor-speed" => {
+                let key = flag.trim_start_matches("--").replace('-', "_");
                 let value = value()?;
                 match &mut parsed.control {
                     Some(control::Control::Engine(changes)) => changes.push((key, value)),
