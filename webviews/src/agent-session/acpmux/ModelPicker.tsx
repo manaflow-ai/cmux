@@ -17,7 +17,8 @@ import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
-import { usePopoverTrigger } from "./popoverTrigger";
+import { useEscapeCloses } from "../../ui/escapeDismiss";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import {
   PickerButton,
   PickerComboboxInput,
@@ -268,6 +269,7 @@ export function ModelPicker(props: ModelPickerProps) {
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
   const press = usePopoverTrigger(open, toggle, show);
+  useEscapeCloses(open, close);
 
   useLayoutEffect(() => {
     if (open) search.current?.focus();
@@ -433,28 +435,6 @@ export function ModelPicker(props: ModelPickerProps) {
           aria-label={modelText}
           style={menuStyle}
         >
-          <div className="acpmux-mp-search acpmux-menu-search">
-            <SearchIcon size={15} />
-            <span className="acpmux-menu-search-value" aria-hidden="true">
-              {query || searchText}
-            </span>
-            <PickerComboboxInput
-              ref={search}
-              type="search"
-              aria-label={searchText}
-              aria-autocomplete="list"
-              aria-controls={`${menuId}-models`}
-              aria-activedescendant={visible[active] ? modelRowId(visible[active].id) : undefined}
-              aria-expanded="true"
-              value={query}
-              placeholder={searchText}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActive(0);
-              }}
-              keyboard={keyDown}
-            />
-          </div>
           <div className="acpmux-mp-columns">
             {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
             <div className="acpmux-mp-harnesses">
@@ -463,9 +443,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 <div className="acpmux-mp-harness-list-inner">
                   {harnesses.map((entry, index) => [
                     index === firstProfile && (
-                      <div key="folder-section" className="acpmux-mp-section" role="presentation">
-                        {t("picker.thisFolder")}
-                      </div>
+                      <hr key="folder-section" className="acpmux-mp-rail-divider" aria-label={t("picker.thisFolder")} />
                     ),
                     <PickerOption
                       type="button"
@@ -474,6 +452,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       aria-disabled={blockedProfile(entry) || undefined}
                       disabled={!entry.pickable}
                       className="acpmux-mp-harness"
+                      title={[entry.name, folderNote(entry)].filter(Boolean).join(" · ")}
                       selected={entry.ids.includes(selectedHarness ?? "")}
                       keyboard={(event) => {
                         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -503,82 +482,107 @@ export function ModelPicker(props: ModelPickerProps) {
                       }}
                       active={index === activeHarness}
                     >
-                      <AgentMark agent={entry.mark ?? entry.id} size={16} />
-                      <span>{entry.name}</span>
-                      {folderNote(entry) && <span className="acpmux-menu-description">{folderNote(entry)}</span>}
-                      {entry.ids.includes(harness ?? "") && <CheckIcon />}
+                      <AgentMark agent={entry.mark ?? entry.id} size={18} />
+                      <span className="acpmux-hidden-label">{entry.name}</span>
+                      {entry.ids.includes(harness ?? "") && (
+                        <span className="acpmux-mp-rail-current" aria-hidden="true" />
+                      )}
                     </PickerOption>,
                   ])}
                 </div>
               </PickerOptionList>
             </div>
-            <PickerOptionList
-              id={`${menuId}-models`}
-              className="acpmux-mp-models"
-              aria-label={selected?.name ?? modelText}
-            >
-              {selectedOther && blockedProfile(selected) ? (
-                <div className="acpmux-mp-empty">
-                  {selected.folder?.state === "needs-trust"
-                    ? t("picker.trustFirst")
-                    : (selected.folder?.diagnostic ?? unavailableText)}
-                </div>
-              ) : selectedOther && selected.folder?.state === "needs-enable" ? (
-                <button type="button" className="acpmux-mp-row" onClick={() => enableProfile(selected)}>
-                  <span className="acpmux-menu-label">{t("harness.enable")}</span>
-                </button>
-              ) : selectedOther && selected.folder && visible.length === 0 && !query ? (
-                <button
-                  type="button"
-                  className="acpmux-mp-row"
-                  onClick={() => {
-                    onHarness?.(selected.id);
-                    close();
+            <div className="acpmux-mp-main">
+              <div className="acpmux-mp-search acpmux-menu-search">
+                <SearchIcon size={15} />
+                <span className="acpmux-menu-search-value" aria-hidden="true">
+                  {query || searchText}
+                </span>
+                <PickerComboboxInput
+                  ref={search}
+                  type="search"
+                  aria-label={searchText}
+                  aria-autocomplete="list"
+                  aria-controls={`${menuId}-models`}
+                  aria-activedescendant={visible[active] ? modelRowId(visible[active].id) : undefined}
+                  aria-expanded="true"
+                  value={query}
+                  placeholder={searchText}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setActive(0);
                   }}
-                >
-                  <span className="acpmux-menu-label">{t("picker.newChat")}</span>
-                </button>
-              ) : visible.length === 0 ? (
-                <div className="acpmux-mp-empty">{noMatchesText}</div>
-              ) : (
-                visible.map((model, index) => [
-                  starredCount > 0 && (index === 0 || index === starredCount) && (
-                    <div key={`section-${index}`} className="acpmux-mp-section" role="presentation">
-                      {index === 0 ? starredText : selected?.name}
-                    </div>
-                  ),
-                  <div className="acpmux-mp-row-shell" key={model.id}>
-                    <PickerOption
-                      type="button"
-                      id={modelRowId(model.id)}
-                      data-key={`model:${model.id}`}
-                      selected={index === active}
-                      aria-checked={model.id === props.model}
-                      className={`acpmux-mp-row${index === active ? " acpmux-mp-active" : ""}`}
-                      onPointerEnter={() => setActive(index)}
-                      disabled={Boolean(model.unavailable)}
-                      onClick={() => selectModel(model)}
-                      active={index === active}
-                    >
-                      <span className="acpmux-menu-label">{model.name}</span>
-                      {index < 4 && <span className="acpmux-mp-hotkey">⌘{index + 1}</span>}
-                      {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
-                      {model.id === props.model && <CheckIcon />}
-                    </PickerOption>
-                    <button
-                      type="button"
-                      className="acpmux-mp-favorite"
-                      aria-label={`${modelText}: ${model.name}`}
-                      aria-pressed={favorites.has(model.id)}
-                      title={modelText}
-                      onClick={() => toggleFavorite(model.id)}
-                    >
-                      <span aria-hidden="true">{favorites.has(model.id) ? "★" : "☆"}</span>
-                    </button>
-                  </div>,
-                ])
-              )}
-            </PickerOptionList>
+                  keyboard={keyDown}
+                />
+              </div>
+              <PickerOptionList
+                id={`${menuId}-models`}
+                className="acpmux-mp-models"
+                aria-label={selected?.name ?? modelText}
+              >
+                {selectedOther && blockedProfile(selected) ? (
+                  <div className="acpmux-mp-empty">
+                    {selected.folder?.state === "needs-trust"
+                      ? t("picker.trustFirst")
+                      : (selected.folder?.diagnostic ?? unavailableText)}
+                  </div>
+                ) : selectedOther && selected.folder?.state === "needs-enable" ? (
+                  <button type="button" className="acpmux-mp-row" onClick={() => enableProfile(selected)}>
+                    <span className="acpmux-menu-label">{t("harness.enable")}</span>
+                  </button>
+                ) : selectedOther && selected.folder && visible.length === 0 && !query ? (
+                  <button
+                    type="button"
+                    className="acpmux-mp-row"
+                    onClick={() => {
+                      onHarness?.(selected.id);
+                      close();
+                    }}
+                  >
+                    <span className="acpmux-menu-label">{t("picker.newChat")}</span>
+                  </button>
+                ) : visible.length === 0 ? (
+                  <div className="acpmux-mp-empty">{noMatchesText}</div>
+                ) : (
+                  visible.map((model, index) => [
+                    starredCount > 0 && (index === 0 || index === starredCount) && (
+                      <div key={`section-${index}`} className="acpmux-mp-section" role="presentation">
+                        {index === 0 ? starredText : selected?.name}
+                      </div>
+                    ),
+                    <div className="acpmux-mp-row-shell" key={model.id}>
+                      <PickerOption
+                        type="button"
+                        id={modelRowId(model.id)}
+                        data-key={`model:${model.id}`}
+                        selected={index === active}
+                        aria-checked={model.id === props.model}
+                        className={`acpmux-mp-row${index === active ? " acpmux-mp-active" : ""}`}
+                        onPointerEnter={() => setActive(index)}
+                        disabled={Boolean(model.unavailable)}
+                        onClick={() => selectModel(model)}
+                        active={index === active}
+                      >
+                        <span className="acpmux-menu-label">{model.name}</span>
+                        {index < 4 && <span className="acpmux-mp-hotkey">⌘{index + 1}</span>}
+                        {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
+                        {model.id === props.model && <CheckIcon />}
+                      </PickerOption>
+                      <button
+                        type="button"
+                        className="acpmux-mp-favorite"
+                        aria-label={`${modelText}: ${model.name}`}
+                        aria-pressed={favorites.has(model.id)}
+                        title={modelText}
+                        onClick={() => toggleFavorite(model.id)}
+                      >
+                        <span aria-hidden="true">{favorites.has(model.id) ? "★" : "☆"}</span>
+                      </button>
+                    </div>,
+                  ])
+                )}
+              </PickerOptionList>
+            </div>
           </div>
           {(fastMode || catalogRefresh) && (
             <div className="acpmux-mp-footer">

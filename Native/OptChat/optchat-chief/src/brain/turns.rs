@@ -197,7 +197,7 @@ impl Brain {
                                     }
                                 ));
                                 if let Err(e) =
-                                    crate::session_dir::set_prompt_cache_ttl(&session_dir, retry)
+                                    crate::session_dir::set_session_cache(&session_dir, retry, true)
                                 {
                                     log(&format!("updating the session's promptCacheTtl: {e}"));
                                 }
@@ -219,6 +219,14 @@ impl Brain {
                                     start.key,
                                     crate::prompt::MARK_RETRY_AFTER
                                 ));
+                                // Unmarked: Claude Code's own marks again.
+                                if let Err(e) = crate::session_dir::set_session_cache(
+                                    &session_dir,
+                                    ours.unwrap_or(CacheTtl::OneHour),
+                                    false,
+                                ) {
+                                    log(&format!("updating the session's cache settings: {e}"));
+                                }
                                 let mut again = start.clone();
                                 for block in &mut again.blocks {
                                     if let Some(b) = block.as_object_mut() {
@@ -328,7 +336,10 @@ impl Brain {
                     .and_then(|m| m.prefix_of(&view.text));
                 optchat_core::mark_piece(&view.text, prev)
             })
-            .map(|piece| Mark { piece, ttl });
+            .map(|piece| Mark { piece, ttl })
+            // A session the pool started for an unmarked turn runs Claude
+            // Code with its own marks: ours on top would make 5.
+            .filter(|_| self.prewarm_ours != Some(false));
         let mark_record = mark.map(|m| {
             crate::state::MarkRecord::of(
                 &optchat_core::block_pieces(&view.text)[..=m.piece].concat(),
@@ -412,9 +423,11 @@ impl Brain {
                 // before a cache.ttl change still has the old one.
                 self.ttl_stale
                     .store(self.prewarm_ttl.is_some_and(|p| p != ttl), Ordering::SeqCst);
-                if let Err(e) =
-                    crate::session_dir::set_prompt_cache_ttl(&self.settings.session_dir, ttl)
-                {
+                if let Err(e) = crate::session_dir::set_session_cache(
+                    &self.settings.session_dir,
+                    ttl,
+                    mark.is_some(),
+                ) {
                     (self.log)(&format!("updating the session's promptCacheTtl: {e}"));
                 }
                 let layout = cached_layout_marked(

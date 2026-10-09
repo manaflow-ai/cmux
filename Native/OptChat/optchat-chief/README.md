@@ -667,6 +667,19 @@ through it. Two rules keep that true:
   is not reused. 1h and 5m entries are one cache (measured), so a node reads
   what a turn wrote either way.
 
+**At most 4 marks.** Claude Code 2.1.287 marks its two system blocks and
+the last message of a session's first request, and the last TWO messages of
+every later request in the session (a tool step, a size-loop follow-up, a
+steered message), on the subscription login and through `sr` alike
+(measured 2026-10-08). Our view mark stays in the first message's history,
+so it would make 5 on the session's second request, which the API refuses.
+So a turn or a compactor node that carries our mark runs with
+`DISABLE_PROMPT_CACHING=1` in its directory's settings env: Claude Code
+places none, every request of the session reads up to our mark, and a
+turn's tool steps send their own tail uncached. A turn or node too small
+for a mark keeps Claude Code's own. Subagents never carry our mark: their
+sessions are long, and Claude Code's own marks cache them step by step.
+
 `turn.start` records the marked piece and the TTL (`layout.mark`,
 `layout.ttl`) and the inspector lays the prompt out from them.
 `optchat-core/tests/cache_replay_long.rs` replays 10,000 messages (batch

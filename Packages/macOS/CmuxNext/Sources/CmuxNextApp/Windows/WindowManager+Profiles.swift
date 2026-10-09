@@ -33,7 +33,7 @@ extension WindowManager {
             // soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            Task { await createWorkspace(into: state.id) }
+            Task { [services] in await createWorkspace(into: state.id); withExtendedLifetime(services) {} }
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }

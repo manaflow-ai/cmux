@@ -2628,7 +2628,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dots (current)"
+            "value": "Dots (original)"
           }
         },
         "ar": {
@@ -2676,7 +2676,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドット（現在）"
+            "value": "ドット（元のデザイン）"
           }
         },
         "km": {
