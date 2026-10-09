@@ -76,12 +76,14 @@ pub(super) fn prepare(
         }
     };
     let messages = if tail == 0 { Vec::new() } else { messages };
+    let typing = mux.conversation_typing(&conversation);
     let initial = reset.map(|reason| {
         json!({
             "type": "snapshot",
             "reset_reason": reason,
             "conversation": summary,
             "messages": messages,
+            "typing": typing,
         })
     });
     let overflow =

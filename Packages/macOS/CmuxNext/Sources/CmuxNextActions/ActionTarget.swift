@@ -110,6 +110,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case sidebarItem
     /// The header of a titled sidebar section.
     case sidebarSection
+    /// An agent chat's empty space: not a message, not a selection.
+    case agentChat
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -132,6 +134,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .bookmarksBar, .screenBar, .notification: nil
         case .sidebarItem: .sidebarItem
         case .sidebarSection: .sidebarSection
+        // The chat's tab (the App passes it).
+        case .agentChat: .tab
         }
     }
 }

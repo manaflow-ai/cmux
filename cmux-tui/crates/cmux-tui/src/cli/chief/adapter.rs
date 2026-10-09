@@ -16,6 +16,8 @@ pub(super) enum UiEvent {
     Snapshot {
         summary: Value,
         messages: Vec<Value>,
+        /// The participants typing when the snapshot was taken.
+        typing: Vec<String>,
     },
     /// A new message.
     Message(Value),
@@ -71,6 +73,11 @@ pub(super) fn adapt(item: &Value, conversation: &str) -> Option<UiEvent> {
         "snapshot" => Some(UiEvent::Snapshot {
             summary: item.get("conversation")?.clone(),
             messages: item.get("messages").and_then(Value::as_array).cloned().unwrap_or_default(),
+            typing: item
+                .get("typing")
+                .and_then(Value::as_array)
+                .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default(),
         }),
         "message" => Some(UiEvent::Message(item.get("message")?.clone())),
         "message_updated" => Some(UiEvent::Updated(item.get("message")?.clone())),
