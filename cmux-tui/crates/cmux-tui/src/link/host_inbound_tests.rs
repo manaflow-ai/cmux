@@ -1,8 +1,8 @@
 //! A Cloud host serves a link stream only with a token its verifier
 //! accepts, for its epoch, from the install's own overlay address.
 
-use std::net::{IpAddr, SocketAddr};
 use serde_json::json;
+use std::net::{IpAddr, SocketAddr};
 
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::stamp::LinkPeer;

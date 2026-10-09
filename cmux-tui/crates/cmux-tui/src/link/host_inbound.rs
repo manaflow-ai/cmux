@@ -63,9 +63,8 @@ impl CloudHost {
         {
             return Err("bound.json has an invalid install identity".into());
         }
-        let keyset = read_keyset(&bound.keyset).map_err(|why| {
-            format!("bound.json keyset refused ({})", why.as_str())
-        })?;
+        let keyset = read_keyset(&bound.keyset)
+            .map_err(|why| format!("bound.json keyset refused ({})", why.as_str()))?;
         Ok(Self {
             host: bound.host,
             epoch: bound.epoch,

@@ -180,9 +180,14 @@ pub(super) async fn serve_overlay_with_cloud<L: OverlayListener>(
                     session_socket: &cloud_host.session_socket,
                     sshd: cloud_host.sshd,
                 };
-                if let Err(why) =
-                    serve_host_inbound(stream, key, address, cloud_host.verifier.as_ref(), &identity)
-                        .await
+                if let Err(why) = serve_host_inbound(
+                    stream,
+                    key,
+                    address,
+                    cloud_host.verifier.as_ref(),
+                    &identity,
+                )
+                .await
                 {
                     if !matches!(why, HostRefused::Token) {
                         eprintln!("cmux link: Cloud inbound refused ({why:?}) for {address}");
