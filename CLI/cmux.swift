@@ -35042,12 +35042,12 @@ export default {
         var removedLegacyPlugin = false
         if fm.fileExists(atPath: pluginURL.path) {
             let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
-            guard existing.contains(Self.openCodeSessionPluginMarker) else {
+            if !existing.contains(Self.openCodeSessionPluginMarker) {
                 print("Refusing to remove \(pluginURL.path): missing cmux marker")
-                return
+            } else {
+                try fm.removeItem(at: pluginURL)
+                removedLegacyPlugin = true
             }
-            try fm.removeItem(at: pluginURL)
-            removedLegacyPlugin = true
         }
         let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         try removeOpenCodeTUIPlugin(in: configDir)

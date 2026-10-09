@@ -426,6 +426,44 @@ await v1Hooks.event({
             print(f"stderr={orphan_uninstall.stderr.strip()}")
             return 1
 
+        # An unrelated legacy file must remain untouched while the marked
+        # TUI package and its registration are still removed.
+        foreign_root = root / "foreign-config"
+        foreign_root.mkdir(parents=True, exist_ok=True)
+        foreign_env = env.copy()
+        foreign_env["OPENCODE_CONFIG_DIR"] = str(foreign_root)
+        foreign_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=foreign_env,
+            timeout=20,
+        )
+        if foreign_install.returncode != 0:
+            print("FAIL: foreign-file OpenCode plugin install failed")
+            return 1
+        foreign_session = foreign_root / "plugins" / "cmux-session.js"
+        foreign_tui = foreign_root / "plugins" / "cmux"
+        foreign_session.write_text("// user-owned plugin\n", encoding="utf-8")
+        foreign_uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=foreign_env,
+            timeout=20,
+        )
+        foreign_config = json.loads((foreign_root / "opencode.json").read_text(encoding="utf-8"))
+        if (
+            foreign_uninstall.returncode != 0
+            or foreign_session.read_text(encoding="utf-8") != "// user-owned plugin\n"
+            or foreign_tui.exists()
+            or "./plugins/cmux" in foreign_config.get("plugins", [])
+        ):
+            print("FAIL: uninstall removed or retained the wrong files for an unmarked legacy plugin")
+            return 1
+
         # Never follow a user symlink while validating or overwriting the
         # shared TUI package directory.
         symlink_root = root / "symlink-config"
