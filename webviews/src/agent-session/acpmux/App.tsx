@@ -2465,6 +2465,8 @@ function AcpmuxPane() {
                       onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
                       summary={
                         <SummaryButton
+                          // Another chat closes its summary and gallery, as it does the image viewer.
+                          key={snapshot.sessionId}
                           rows={snapshot.rows}
                           onOpenOutput={quick ? undefined : openOutput}
                           onOpenImage={quick ? undefined : openImage}
