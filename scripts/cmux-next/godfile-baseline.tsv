@@ -61,7 +61,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource.rs	1031	25
 rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	19961	447
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
-rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	9552	370
+rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	8242	334
 rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime.rs	8689	296
 rust-file	cmux-tui/crates/cmux-tui-platform/src/unix_process_scope.rs	1687	72
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs	6055	229
