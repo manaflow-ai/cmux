@@ -88,7 +88,7 @@ impl PaneClientIds {
             })?;
         }
         if let Some(tab_id) = &self.tab_id {
-            TabPublicId::parse(tab_id.clone())
+            crate::resource::TabPublicId::parse(tab_id.clone())
                 .map_err(|_| anyhow::anyhow!("bad request: tab_id {tab_id:?} is not a tab id"))?;
         }
         spawn.pane_id = self.pane_id;
