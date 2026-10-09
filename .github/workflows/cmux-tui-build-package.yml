@@ -27,6 +27,11 @@ on:
         required: false
         default: false
         type: boolean
+      windows_optional:
+        description: "A failed Windows build does not fail this workflow; the caller must handle a missing Windows artifact"
+        required: false
+        default: false
+        type: boolean
       target_set:
         description: "Binary targets to build: all, macos (both macOS targets) or macos-arm64"
         required: false
@@ -613,6 +618,9 @@ jobs:
   build-windows:
     name: build x86_64-pc-windows-gnu
     if: inputs.include_windows
+    # cmux-tui-artifacts.yml: a Windows failure must not block the macOS and
+    # Linux tree; its publish jobs go on without the Windows daemon.
+    continue-on-error: ${{ inputs.windows_optional }}
     runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
     timeout-minutes: 60
     env:

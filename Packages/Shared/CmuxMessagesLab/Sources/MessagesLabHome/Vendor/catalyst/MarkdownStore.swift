@@ -36,8 +36,8 @@ final class MarkdownStore: @unchecked Sendable {
             let lines = MDLines.split(text).map { MDLine($0) }
             let from = last.lines.lowerBound
             var refs = MDRefs()
-            var tail = MDBlockParser.parse(Array(lines[min(from, lines.count)...]), refs: &refs, known: nil, topLevel: true)
-            for i in tail.indices { tail[i].lines = (tail[i].lines.lowerBound + from)..<(tail[i].lines.upperBound + from) }
+            var tail = MDBlockParser.parse(Array(lines.slice(from: min(from, lines.count))), refs: &refs, known: nil, topLevel: true) // cmux: clamped slice
+            tail = tail.map { var b = $0; b.lines = (b.lines.lowerBound + from)..<(b.lines.upperBound + from); return b } // cmux: no index writes
             if let first = tail.first, var t0 = Optional(first) {
                 t0.blankBefore = last.blankBefore
                 tail[0] = t0

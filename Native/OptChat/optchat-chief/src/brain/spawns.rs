@@ -542,19 +542,45 @@ impl Brain {
         }
     }
 
+    /// chief.stop {name}: subagent `name` stops as with chief.stop (its
+    /// report comes quiet), the reference's "Stopped by the user: X.".
+    pub(super) fn stop_subagent(&mut self, name: &str) -> Value {
+        let live = self.state.sub(name).is_some_and(|(_, s)| {
+            matches!(
+                s.status,
+                SubStatus::Starting | SubStatus::Running | SubStatus::Queued
+            )
+        });
+        if !live {
+            return json!({"stopped": false, "error": format!("no subagent {name} at work")});
+        }
+        let stopped = self.stop_subagents_where(|id| id == name);
+        if stopped.is_empty() {
+            return json!({"stopped": false, "error": format!("{name} is still starting; stop it again in a moment")});
+        }
+        (self.log)(&format!("the owner stopped subagent {name}"));
+        json!({"stopped": true, "subagents": stopped, "note": format!("Stopped by the user: {}.", stopped.join(", "))})
+    }
+
     /// chief.stop: every subagent at work stops (`session/cancel`; its
     /// report comes quiet) and every queued one is dropped. Their ids.
     pub(super) fn stop_subagents(&mut self) -> Vec<String> {
+        self.stop_subagents_where(|_| true)
+    }
+
+    /// Stops the subagents at work (or queued) whose id `pick` takes.
+    fn stop_subagents_where(&mut self, pick: impl Fn(&str) -> bool) -> Vec<String> {
         let subs: Vec<(String, SubStatus, Option<String>)> = self
             .state
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
             .filter(|s| {
-                matches!(
-                    s.status,
-                    SubStatus::Starting | SubStatus::Running | SubStatus::Queued
-                )
+                pick(&s.id)
+                    && matches!(
+                        s.status,
+                        SubStatus::Starting | SubStatus::Running | SubStatus::Queued
+                    )
             })
             .map(|s| (s.id.clone(), s.status, s.session_id.clone()))
             .collect();
