@@ -174,7 +174,7 @@ pub fn socket_dir_check(layout: &Layout, port: u16) -> Option<Vec<PathAccess>> {
         return None;
     };
     let dir = layout.postgres_socket_dir(port);
-    let parent = HostPath::new(Platform::MacOs, &format!("/tmp/cmux-{uid}")).expect("absolute");
+    let parent = HostPath::unix_absolute(Platform::MacOs, format!("/tmp/cmux-{uid}"));
     Some(vec![
         posix(parent, PosixOwner::Uid(uid), None, 0o700),
         posix(dir, PosixOwner::Uid(uid), None, 0o700),
