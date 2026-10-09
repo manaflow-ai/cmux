@@ -7,8 +7,9 @@ extension AgentPaneModel {
     func roots() -> [String] {
         var roots = (chosenFolder.map { [$0] } ?? []) + (workspaceRoots?() ?? [])
         if let handshakeCwd { roots.append(handshakeCwd) }
-        // The store's start folder is where the chat runs, so it is a root (cx-9aps).
-        if let folder = startFolder?.folder, !roots.contains(folder) { roots.append(folder) }
+        // The store's start folder is where the chat runs, so it is a root (cx-9aps), while it
+        // is still current (``currentStartFolder``).
+        if let folder = currentStartFolder(), !roots.contains(folder) { roots.append(folder) }
         if let cwd = newTab?.cwd { roots.append(cwd) }
         return roots
     }
@@ -27,7 +28,7 @@ extension AgentPaneModel {
     /// chat still starts in agent-home, and the page still offers Choose Folder….
     func primaryRoot() -> String? {
         // The store's answer when it gave one (cx-9aps): a real folder, else agent-home (nil).
-        if let startFolder { return chosenFolder ?? startFolder.folder }
+        if startFolder != nil { return chosenFolder ?? currentStartFolder() }
         // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-6bf9.
         let candidates = [handshakeCwd, chosenFolder] + (workspaceRoots?() ?? []).map(Optional.some) + [newTab?.cwd]
         return candidates.lazy.compactMap { $0 }.first { !isHomeOrAbove($0) && !isAgentHome($0) }
@@ -79,9 +80,12 @@ extension AgentPaneModel {
             if answer.kind == .seed, let cwd = answer.cwd { return AgentPaneReply.success(["status": "ok", "cwd": cwd]) }
             switch answer.skipped?.reason {
             case .home:
-                let raw = answer.skipped?.cwd ?? path
-                let home = await Task.detached { AcpmuxPathPolicy.canonical(raw) ?? homeFolder.flatMap(AcpmuxPathPolicy.canonical) }.value
-                guard let home else { return Self.transportFailure(.pathInvalid) }
+                // Granted only when the pick is this Mac's own home folder, checked here again:
+                // never a fallback, and never a folder a symlink points at after the store's check.
+                let (picked, home) = await Task.detached {
+                    (AcpmuxPathPolicy.canonical(path), homeFolder.flatMap(AcpmuxPathPolicy.canonical))
+                }.value
+                guard let home, picked == home else { return Self.transportFailure(.pathInvalid) }
                 return answerHome(home, confirm: confirm)
             case .aboveHome: return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": path])
             case .agentHome: return AgentPaneReply.success(["status": "ok", "cwd": answer.agentHome ?? path])
@@ -107,6 +111,15 @@ extension AgentPaneModel {
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
         transport.grant(home)
         return AgentPaneReply.success(["status": "ok", "cwd": home])
+    }
+
+    /// The store's start folder while it is still current: a seed (the pane's own proposal), or a
+    /// folder the workspace still has (its agent folder or a tab's folder). A folder the workspace
+    /// dropped after the handshake is no root and no fill.
+    func currentStartFolder() -> String? {
+        guard let startFolder, let folder = startFolder.folder else { return nil }
+        if startFolder.kind == .seed { return folder }
+        return (workspaceRoots?() ?? []).contains(folder) ? folder : nil
     }
 
     /// Whether `path` is the user's home folder (``AgentPaneTransport/homeFolder``) or above it.

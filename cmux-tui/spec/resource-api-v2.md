@@ -232,7 +232,7 @@ the whole home folder.
 chat of the workspace starts: `{cwd, kind, agent_home, skipped?}`. Rules, first
 match wins: the proposed `cwd` (`seed`), the agent folder (`chosen`), the first
 folder of the workspace's terminal tabs (`workspace`), the workspace's
-agent-home folder `<data dir>/cmux/agent-home/<workspace id>` (`agent_home`).
+agent-home folder `<data dir>/cmux/agent-home/<workspace key>` (`agent_home`).
 A candidate counts only when it is an existing folder that is not the home
 folder, above it, or inside agent-home; a proposed `cwd` that does not count is
 returned in `skipped` with its reason (`home`, `above_home`, `agent_home`,

@@ -237,7 +237,8 @@ public final class AgentPaneModel {
                     startFolder = answer
                     filled = answer.kind != .seed
                     // A reconnect keeps the page's own pick; it learns the start folder only from `ready`.
-                    if request == .ready || answer.kind == .seed { handshake.cwd = answer.folder }
+                    // A proposed folder the store skipped (`~`, above it) never reaches the page.
+                    if request == .ready || answer.kind == .seed || answer.skipped != nil { handshake.cwd = answer.folder }
                     handshake.startKind = answer.kind.rawValue
                     if answer.kind == .agentHome, onChooseFolder != nil { handshake.chooseFolder = true }
                 } else {

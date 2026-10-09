@@ -161,6 +161,8 @@ import Testing
         defer { rig.server.stop() }
         let project = rig.folder("project")
         let model = AgentPaneModel(host: MockAgentPaneHost(), transport: rig.transport)
+        var folders = [project]
+        model.workspaceRoots = { folders }
         model.resolveStartFolder = { _ in AgentPaneStartFolder(kind: .workspace, cwd: project, agentHome: nil) }
         let handshake = try #require(Self.value(await model.respond(to: .ready)))
         #expect(handshake["cwd"] as? String == project)
@@ -168,6 +170,25 @@ import Testing
         #expect(handshake["chooseFolder"] == nil)
         let chat = await rig.send("session/new", ["mcpServers": [Any]()])
         #expect(await rig.cwd(chat) == project)
+        // The workspace dropped the folder: it is no longer the fill or a root.
+        folders = []
+        #expect(model.primaryRoot() == nil)
+        #expect(!model.roots().contains(project))
+    }
+
+    /// Review: a pick the store calls home is granted only when it is this Mac's own home folder.
+    @Test func aHomeAnswerForAnotherFolderGrantsNothing() async throws {
+        let rig = AgentPaneProductRulesTests.Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let home = rig.folder("home"), other = rig.folder("other")
+        rig.transport.homeFolder = home
+        let model = AgentPaneModel(host: MockAgentPaneHost(), transport: rig.transport)
+        model.resolveStartFolder = { cwd in AgentPaneStartFolder(kind: .agentHome, cwd: nil, agentHome: nil, skipped: (cwd ?? "", .home)) }
+        rig.transport.gestures.record()
+        let reply = await model.respond(to: Self.useFolder(other, confirm: true))
+        #expect(reply["ok"] as? Bool == false)
+        #expect(rig.transport.addedRoots.isEmpty)
     }
 
     /// A pick goes through the store too: its `home` reason is the question, `above_home` the refusal.
@@ -176,6 +197,7 @@ import Testing
         try await rig.start()
         defer { rig.server.stop() }
         let home = rig.folder("home"), project = rig.folder("project")
+        rig.transport.homeFolder = home
         let model = AgentPaneModel(host: MockAgentPaneHost(), transport: rig.transport)
         model.resolveStartFolder = { cwd in
             if cwd == home { return AgentPaneStartFolder(kind: .agentHome, cwd: nil, agentHome: nil, skipped: (home, .home)) }

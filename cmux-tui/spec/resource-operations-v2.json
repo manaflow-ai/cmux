@@ -6859,7 +6859,8 @@
           "type": {
             "kind": "primitive",
             "name": "string"
-          }
+          },
+          "description": "The proposed cwd as the caller sent it (not made canonical)."
         },
         "reason": {
           "required": true,
@@ -20670,7 +20671,7 @@
         },
         "extra": false,
         "constraints": [
-          "The one owner of where a new agent chat of the workspace starts (cx-9aps). Rules, first match wins: the proposed cwd (kind seed), the workspace's agent folder (kind chosen), the first folder of the workspace's terminal tabs in screen, pane and tab order (kind workspace), the workspace's agent-home folder <data dir>/cmux/agent-home/<workspace id> (kind agent_home). The user's home folder, every folder above it and agent-home itself are never a start folder by these rules. The daemon never creates the agent-home folder."
+          "The one owner of where a new agent chat of the workspace starts (cx-9aps). Rules, first match wins: the proposed cwd (kind seed), the workspace's agent folder (kind chosen), the first folder of the workspace's terminal tabs in screen, pane and tab order (kind workspace), the workspace's agent-home folder <data dir>/cmux/agent-home/<workspace key> (kind agent_home). The user's home folder, every folder above it and folders inside agent-home are never a seed, chosen or workspace folder; without a known home folder nothing is. The daemon never creates the agent-home folder."
         ]
       },
       "result": {

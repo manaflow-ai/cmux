@@ -63,13 +63,15 @@ pub(crate) struct Inputs<'a> {
 }
 
 /// `<data dir>/cmux/agent-home`: `~/Library/Application Support` on macOS,
-/// `$XDG_DATA_HOME` (else `~/.local/share`) elsewhere. The app's
-/// `AgentHome.standard` and acpmux's `trust::agent_home_root` name the same
-/// folder.
+/// `%APPDATA%` on Windows, `$XDG_DATA_HOME` (else `~/.local/share`)
+/// elsewhere, as `dirs::data_dir` (acpmux's `trust::agent_home_root`) and the
+/// app's `AgentHome.standard` name it.
 pub(crate) fn agent_home_base(home: Option<&Path>) -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     let data = home.map(|home| home.join("Library").join("Application Support"));
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    let data = std::env::var_os("APPDATA").map(PathBuf::from).filter(|path| path.is_absolute());
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
     let data = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
@@ -96,7 +98,7 @@ pub(crate) fn check(
     if path.is_empty()
         || path.len() > MAX_PATH_BYTES
         || path.contains('\0')
-        || !path.starts_with('/')
+        || !Path::new(path).is_absolute()
     {
         return Err(Skip::Missing);
     }
@@ -107,13 +109,13 @@ pub(crate) fn check(
     if folder.parent().is_none() {
         return Err(Skip::AboveHome);
     }
-    if let Some(home) = home.map(canonical) {
-        if folder == home {
-            return Err(Skip::Home);
-        }
-        if home.starts_with(&folder) {
-            return Err(Skip::AboveHome);
-        }
+    // No known home folder: fail closed, nothing counts as a start folder.
+    let Some(home) = home.map(canonical) else { return Err(Skip::Home) };
+    if folder == home {
+        return Err(Skip::Home);
+    }
+    if home.starts_with(&folder) {
+        return Err(Skip::AboveHome);
     }
     if let Some(base) = agent_home_base.map(canonical)
         && folder.starts_with(&base)
@@ -228,6 +230,17 @@ impl Mux {
             .workspace
             .ok_or_else(|| ResourceError::not_found("workspace", "<resolved>"))?;
         let id = workspace.as_str().to_owned();
+        // The agent-home folder is named by the workspace's durable key, as the app names it
+        // (`AgentHome.path(for: workspace.id)`) and moves it on a History reopen.
+        let key = self
+            .with_state(|state| {
+                state
+                    .workspaces
+                    .iter()
+                    .find(|candidate| candidate.public_id.as_str() == id)
+                    .map(|candidate| candidate.key.clone())
+            })
+            .ok_or_else(|| ResourceError::not_found("workspace", &id))?;
         let chosen = self
             .read_registry_state(|connection| super::agent_folder::agent_folder(connection, &id))
             .map_err(crate::resource_api::operation_failed)?;
@@ -241,7 +254,7 @@ impl Mux {
             tab_folders: &folders,
             home: home.as_deref(),
             agent_home_base: base.as_deref(),
-            workspace_id: &id,
+            workspace_id: &key,
         }))
     }
 }

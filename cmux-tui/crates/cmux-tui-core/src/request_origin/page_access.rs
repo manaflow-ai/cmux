@@ -99,7 +99,9 @@ const fn access(operation: Op) -> Access {
         | Op::GitCheckpointList
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
-        | Op::SessionJournalHookPut => Access::Denied(Denied::FileSystem),
+        | Op::SessionJournalHookPut
+        // It tells whether a path exists and is a folder (cx-9aps).
+        | Op::WorkspaceAgentStartGet => Access::Denied(Denied::FileSystem),
         Op::PaneCreate | Op::PaneSplit | Op::TabCreateTerminal => Access::DeniedWithCwd,
         Op::MachineList
         | Op::MachineGet
@@ -241,7 +243,6 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspacePlacementList
         | Op::WorkspaceUpdate
         | Op::WorkspaceAgentFolderSet
-        | Op::WorkspaceAgentStartGet
         | Op::WorkspaceGroupCreate
         | Op::WorkspaceGroupDelete
         | Op::WorkspaceGroupList

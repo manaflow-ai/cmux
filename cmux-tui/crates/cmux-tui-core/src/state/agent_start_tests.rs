@@ -138,7 +138,12 @@ fn the_operation_answers_for_a_workspace() {
     let fresh =
         send(&mux, "workspace.agent_start.get", json!({"workspace": workspace}), None).unwrap();
     assert_eq!(fresh["kind"], "agent_home");
-    assert!(fresh["cwd"].as_str().unwrap().ends_with(&format!("/cmux/agent-home/{workspace}")));
+    // Named by the workspace's durable key, as the app names and moves it.
+    let key = mux.with_state(|state| {
+        state.workspaces.iter().find(|w| w.public_id.as_str() == workspace).unwrap().key.clone()
+    });
+    assert_ne!(key, workspace);
+    assert!(fresh["cwd"].as_str().unwrap().ends_with(&format!("/cmux/agent-home/{key}")));
     let seeded = send(
         &mux,
         "workspace.agent_start.get",
