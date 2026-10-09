@@ -61,8 +61,9 @@ CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag my-feature
   `./scripts/install-git-hooks.sh`. With a custom `core.hooksPath` it prints the
   `pre-commit` and `post-merge` lines to add yourself; wire both.
 - The tracked pre-commit hook formats only staged webview files with `vp fmt`
-  and staged `cmux-tui` Rust files with `cargo fmt`, then re-stages formatter
-  output. It never builds. Install it in every worktree with
+  and staged `cmux-tui` Rust files with direct `rustfmt`, then re-stages
+  formatter output. It never builds, and skips all formatters during a merge
+  commit. Install it in every worktree with
   `./scripts/install-git-hooks.sh` (the configured hooks path is shared by the
   worktrees in a clone). Stage or stash edits in the affected file or Rust
   package before committing so the hook cannot include unstaged changes.
