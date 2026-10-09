@@ -308,8 +308,14 @@ struct ClaudeBackgroundSessionRestoreTests {
                 restored.terminalPanel(for: panelID)?.surface.debugInitialInputForTesting()
             }
         }
-        #expect(inputs.count == 1, Comment(rawValue: inputs.joined(separator: "\n")))
-        #expect(inputs.first?.contains("--resume") == true, Comment(rawValue: inputs.first ?? ""))
+        if deferred {
+            let states = restored.restoredAgentResumeStatesByPanelId.values
+            #expect(states.filter { $0 == .awaitingAutoResumeCommand }.count == 1)
+            #expect(states.filter { $0 == .manualResumeAvailable }.count == 1)
+        } else {
+            #expect(inputs.count == 1, Comment(rawValue: inputs.joined(separator: "\n")))
+            #expect(inputs.first?.contains("--resume") == true, Comment(rawValue: inputs.first ?? ""))
+        }
     }
 
     @Test("Completed resume eligibility does not change process liveness")
