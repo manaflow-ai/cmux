@@ -659,6 +659,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
     that can run on a mini is followed at once by the reset step.
     """
 
+    CHECKOUT_FAILED = "steps.checkout.outcome == 'failure'"
+
     def test_every_submodule_free_checkout_on_an_owned_runner_resets_submodules(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         checked = []
@@ -671,9 +673,16 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     continue
                 if str(step.get("with", {}).get("submodules", False)).lower() in ("true", "recursive"):
                     continue
+                # A failed checkout's retry pair (tests/test_cmux_next_checkout_retry.py)
+                # sits between the checkout and the reset, which follows either way.
+                if step.get("if") == self.CHECKOUT_FAILED:
+                    continue
                 checked.append(job_id)
                 with self.subTest(job=job_id):
-                    following = job_steps[index + 1] if index + 1 < len(job_steps) else {}
+                    after = index + 1
+                    while after < len(job_steps) and job_steps[after].get("if") == self.CHECKOUT_FAILED:
+                        after += 1
+                    following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
