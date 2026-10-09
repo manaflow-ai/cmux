@@ -2963,10 +2963,6 @@ fn plain_launch_attaches_to_existing_local_session() {
 mod session_shutdown;
 
 #[cfg(unix)]
-#[path = "cli/bundled_cli.rs"]
-mod bundled_cli;
-
-#[cfg(unix)]
 #[path = "cli/pty_child.rs"]
 mod pty_child;
 #[cfg(unix)]

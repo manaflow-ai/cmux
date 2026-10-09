@@ -6,7 +6,115 @@
 //! agent-style command with its own caller `PATH` gets it first too. Each
 //! case starts a real daemon and reads what the child sees.
 
-use super::*;
+#![cfg(unix)]
+
+use std::fs;
+use std::os::unix::fs::{PermissionsExt, symlink};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Output, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+fn bin() -> &'static str {
+    env!("CARGO_BIN_EXE_cmux-tui")
+}
+
+fn unique_temp_dir(name: &str) -> PathBuf {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    PathBuf::from("/tmp").join(format!("cmux-bcli-{name}-{}-{stamp}", std::process::id()))
+}
+
+fn write_executable(path: impl AsRef<Path>, contents: &str) {
+    fs::write(path.as_ref(), contents).unwrap();
+    fs::set_permissions(path.as_ref(), fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn assert_success(output: &Output) {
+    assert!(
+        output.status.success(),
+        "status={:?}\nstdout={}\nstderr={}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A headless daemon on its own socket and state; closes its terminals and
+/// stops on drop.
+struct HeadlessServer {
+    child: Child,
+    socket: PathBuf,
+    dir: PathBuf,
+}
+
+impl HeadlessServer {
+    fn start_with_options(name: &str, env: &[(&str, &str)]) -> Self {
+        let dir = unique_temp_dir(name);
+        fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("mux.sock");
+        fs::write(dir.join("config.json"), "{}").unwrap();
+        let child = Command::new(bin())
+            .args(["--headless", "--socket"])
+            .arg(&socket)
+            .arg("--state")
+            .arg(dir.join("state"))
+            .env("CMUX_TUI_CONFIG", dir.join("config.json"))
+            .envs(env.iter().copied())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let server = Self { child, socket, dir };
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !server.socket.exists()
+            || !cli(&server, &["--json", "workspace", "list"]).status.success()
+        {
+            assert!(Instant::now() < deadline, "headless daemon did not start");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        server
+    }
+}
+
+impl Drop for HeadlessServer {
+    fn drop(&mut self) {
+        let listed = cli(self, &["--json", "terminal", "list"]);
+        let terminals: serde_json::Value =
+            serde_json::from_slice(&listed.stdout).unwrap_or(serde_json::Value::Null);
+        for terminal in terminals.as_array().into_iter().flatten() {
+            if let Some(id) = terminal["id"].as_str() {
+                let _ = cli(self, &["--quiet", "terminal", id, "close"]);
+            }
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn cli(server: &HeadlessServer, args: &[&str]) -> Output {
+    let (flags, rest): (Vec<&str>, Vec<&str>) =
+        args.iter().partition(|arg| matches!(**arg, "--json" | "--quiet"));
+    Command::new(bin())
+        .args(flags)
+        .arg("--socket")
+        .arg(&server.socket)
+        .args(rest)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap()
+}
+
+fn json_socket_request(socket: &Path, request: serde_json::Value) -> serde_json::Value {
+    let output = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(socket)
+        .args(["raw", "command", "--request-json", &request.to_string()])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    serde_json::from_slice(&output.stdout).unwrap()
+}
 
 struct Fixture {
     dir: PathBuf,
@@ -27,8 +135,7 @@ impl Fixture {
             fs::create_dir_all(path).unwrap();
         }
         symlink(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../Resources/cmux-cli-path"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Resources/cmux-cli-path"),
             resources.join("cmux-cli-path"),
         )
         .unwrap();
@@ -67,11 +174,11 @@ impl Fixture {
             ("PATH", path.as_str()),
             ("CMUX_BUNDLED_CLI_PATH", self.bundled.as_str()),
         ];
-        HeadlessServer::start_with_options(&format!("bundled-cli-{name}"), None, None, &env)
+        HeadlessServer::start_with_options(&format!("bundled-cli-{name}"), &env)
     }
 
     /// The env lines and `command -v cmux` that the probe in `out` wrote.
-    fn lines(out: &std::path::Path, what: &str) -> Vec<String> {
+    fn lines(out: &Path, what: &str) -> Vec<String> {
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             if let Ok(text) = fs::read_to_string(out) {
@@ -99,7 +206,7 @@ impl Drop for Fixture {
     }
 }
 
-fn probe_text(out: &std::path::Path) -> String {
+fn probe_text(out: &Path) -> String {
     format!(
         "env > '{out}.tmp'; command -v cmux >> '{out}.tmp'; mv '{out}.tmp' '{out}'",
         out = out.display()
@@ -110,7 +217,7 @@ fn find_shell(name: &str) -> Option<String> {
     let path = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
         .iter()
         .map(|dir| format!("{dir}/{name}"))
-        .find(|path| std::path::Path::new(path).is_file())?;
+        .find(|path| Path::new(path).is_file())?;
     // Ghostty does not integrate Apple's bash 3.2, so its layer cannot either.
     (!(cfg!(target_os = "macos") && path == "/bin/bash")).then_some(path)
 }
