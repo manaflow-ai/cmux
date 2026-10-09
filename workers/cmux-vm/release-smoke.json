@@ -1,0 +1,12 @@
+{
+  "_doc": "Post-deploy smoke for scripts/cmux-next/release/worker-release.ts verify. Routes without sources run after every deploy; the others when a file under workers/cmux-vm matching a source changed. Unauthenticated requests: a 401 proves the request passed the schema gate (503 = schema not applied) and reached auth.",
+  "routes": [
+    { "name": "health", "method": "GET", "path": "/healthz", "expect": [200], "bodyIncludes": "\"ok\":true" },
+    { "name": "schema gate (vms)", "method": "GET", "path": "/v1/vms", "expect": [401], "why": "every route but /healthz answers 503 until the schema is applied" },
+    { "name": "stack webhook", "method": "POST", "path": "/v1/webhooks/stack", "body": "{}", "expect": [401], "why": "the 2026-10-07 incident: every Stack webhook answered 503" },
+    { "name": "api keys", "method": "GET", "path": "/v1/api-keys", "expect": [401], "sources": ["src/api/api-keys.ts", "src/handlers/api-keys.ts", "src/db/api-keys.ts", "src/auth/**"] },
+    { "name": "snapshots", "method": "GET", "path": "/v1/snapshots", "expect": [401], "sources": ["src/api/snapshots.ts", "src/handlers/snapshots.ts", "src/db/snapshots.ts", "src/upstream/*snapshots*.ts"] },
+    { "name": "meshes", "method": "GET", "path": "/v1/meshes", "expect": [401], "sources": ["src/api/mesh.ts", "src/handlers/mesh.ts", "src/db/mesh*.ts", "src/mesh/**", "src/upstream/*mesh*.ts"] },
+    { "name": "device peers", "method": "GET", "path": "/v1/devices/dev_smoke/peers", "expect": [401], "sources": ["src/api/mesh.ts", "src/handlers/mesh.ts", "src/proofs/device-*.ts"] }
+  ]
+}

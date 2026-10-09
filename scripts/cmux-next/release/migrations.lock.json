@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "trees": {
+    "cmux-vm": {
+      "grandfatheredThrough": "0008",
+      "files": {
+        "0001_cmux_vm_ownership.sql": "efaa9268d47ee6bfbf3ab6e596c982c4f9b6f870c9cec78c7433eb3abc2bd9ee",
+        "0002_cmux_vm_display_name_audit.sql": "61d4d0089eb559be47943c5549fa7958a0aa0d3ca5ed8a9eb178a915a65b7451",
+        "0003_cmux_vm_snapshot_parent.sql": "cadb388568905531912fdc73080246074b65b7c1f09121b70ba936f5b9a28053",
+        "0004_cmux_vm_mesh.sql": "b5fc967440bc82ac34c97cda0be3e99609b0537e8094814820b666afa2bd219e",
+        "0005_cmux_vm_mesh_m2.sql": "12a58159148dc116cdf55a1d087dff2d5437b7185257ccef996a67e99c523b75",
+        "0006_cmux_vm_mesh_m3.sql": "7657e3f456366ceb8423eaec40810f2024359a9b2a67130e82b773178f2621ee",
+        "0007_cmux_vm_mesh_m4.sql": "a3525bda461b9c19f2cdf74ff3a457e90ace177b7b517e187ea5b1173b734fe7",
+        "0008_cmux_vm_mesh_m4_retries.sql": "023cbec42e3137e7c506021abfcd97d6480e30c35a994a4d044c1e4fbacf90c8"
+      }
+    },
+    "backend": {
+      "grandfatheredThrough": "0006",
+      "files": {
+        "0001_init.sql": "93519f97b4a6296e55da59327368c97c721d9a9eb5e568f323d202ad4a2a16fa",
+        "0002_comment_projection_tables.sql": "6ff36cfc138278f903d505dad7f65b437516037b3b895309ff9526bb40ea0fbf",
+        "0003_automations.sql": "0a210f8ec4171fb820311e4be8b9739c886bdf3a07220cfc1b5fdc428aaf192a",
+        "0004_connections.sql": "9459fb9706ccd0907aa46e07c8a4eb6457b363c0f1a825cc6b9c089beefa0b4c",
+        "0005_audit_events.sql": "6414026f95b4a0496c02bd20e554b3954a0515460b2a4f464798ff8c8b38964c",
+        "0006_home.sql": "faa8bb121be718eab407dc687836f121e679312f9f5cafc3f9e37226536ad858"
+      }
+    }
+  }
+}

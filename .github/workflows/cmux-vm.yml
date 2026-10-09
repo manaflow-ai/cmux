@@ -15,6 +15,11 @@
 # feat-cmux-next deploys staging while cmux VM lands there first (Lawrence,
 # 2026-10-07: "into feat-cmux-next is all we want rn, no main").
 #
+# deploy-staging refuses a commit whose migrations staging lacks (db-release.ts
+# gate reads the database), records the serving version, deploys, smokes
+# health and changed routes (release-smoke.json) and runs `wrangler rollback`
+# to the recorded version on red (plans/cmux-next/release-rails.md).
+#
 # smoke-staging runs scripts/smoke.ts against the staging Worker after each
 # staging deploy: create, exec, pause and delete by exact id on the test
 # tenant. It needs the cmux-vm-staging environment variable
@@ -100,6 +105,16 @@ jobs:
       - id: install
         run: bun install --frozen-lockfile
       # Every check below runs whenever install succeeded, so one run reports all failures.
+      - name: Migration lint (expand-only, schema cmux_vm only, numbering, hash lock)
+        if: ${{ !cancelled() }}
+        working-directory: scripts/cmux-next/release
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          bun install --frozen-lockfile
+          base_args=()
+          if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^0+$ ]] && git fetch --quiet --no-tags --depth=1 origin "$BASE" 2>/dev/null; then base_args=(--base "$BASE"); fi
+          bun lint.ts --tree cmux-vm "${base_args[@]}"
       - name: Typecheck (includes compile-time proof misuse cases)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck
@@ -310,6 +325,25 @@ jobs:
           node-version: "24"
       - run: bun install --frozen-lockfile
         if: steps.gate.outputs.enabled == 'true'
+      - name: Install the release rails
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile
+      # Deploy ordering (plans/cmux-next/release-rails.md): read the staging database and refuse a
+      # commit whose migrations are not applied there, before anything ships. On 2026-10-07 a push
+      # ran ahead of 0008 and every Stack webhook answered 503.
+      - name: Deploy ordering gate (staging has every migration this commit needs)
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: scripts/cmux-next/release
+        env:
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+        run: bun db-release.ts gate --tree cmux-vm --target staging --url-env CMUX_VM_DATABASE_URL
+      - name: Record the serving version (the rollback target)
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun ../../scripts/cmux-next/release/worker-release.ts previous --worker cmux-vm-staging --wrangler node_modules/.bin/wrangler --out "$RUNNER_TEMP/cmux-vm-previous-version"
       - name: Deploy and set secrets
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -321,6 +355,18 @@ jobs:
           CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bash scripts/deploy.sh
+      - name: Smoke health and changed routes; roll back on red
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          URL: ${{ vars.CMUX_VM_STAGING_URL }}
+          BEFORE: ${{ github.event.before }}
+        run: >-
+          bun ../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-vm-staging
+          --url "${URL:-https://vm-staging.cmux.dev}" --routes release-smoke.json
+          --previous-file "$RUNNER_TEMP/cmux-vm-previous-version" --changed-since "$BEFORE" --source-dir .
+          --wrangler node_modules/.bin/wrangler
 
   smoke-staging:
     if: >-

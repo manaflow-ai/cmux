@@ -94,6 +94,9 @@ jobs:
       - name: Migration lint (parsed SQL) and lint tests
         working-directory: backend/db
         run: bun migrate.ts --lint && bun test test
+      - name: Release rails migration lint (expand-only, numbering, hash lock)
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile && bun lint.ts --tree backend
       - name: Migrations apply from zero (scratch Postgres)
         working-directory: backend/db
         env:
@@ -253,6 +256,8 @@ jobs:
           fi
           (cd backend && bun install --frozen-lockfile >/dev/null)
           (cd backend/db && bun migrate.ts --lint) || errors=1
+          # Release rails: the hash lock and the previous head's files and lock entries (plans/cmux-next/release-rails.md).
+          (cd scripts/cmux-next/release && bun install --frozen-lockfile >/dev/null && bun lint.ts --tree backend ${BEFORE:+--base "$BEFORE"}) || errors=1
           exit "$errors"
 
   deploy-staging:
@@ -290,11 +295,14 @@ jobs:
             exit 1
           fi
           echo "$out"
-      - name: Deploy API Worker
+      # deploy-worker.sh records the serving version, deploys, smokes apps/api/release-smoke.json and
+      # runs `wrangler rollback` on red (plans/cmux-next/release-rails.md).
+      - name: Deploy API Worker (smoke, rollback on red)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
+          CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
         run: bash scripts/deploy-worker.sh staging
       - name: Deploy dashboard (console-staging.cmux.dev)
         working-directory: backend/apps/dashboard
@@ -324,12 +332,13 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - name: Deploy API Worker (refuses if production lacks a migration)
+      - name: Deploy API Worker (refuses if production lacks a migration; smoke, rollback on red)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
           CMUX_NEXT_DEPLOY_PRODUCTION: "1"
+          CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
         run: bash scripts/deploy-worker.sh production
       - name: Deploy dashboard (console.cmux.dev)
         working-directory: backend/apps/dashboard

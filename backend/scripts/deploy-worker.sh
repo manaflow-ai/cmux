@@ -54,4 +54,23 @@ case "$target" in
     grep -q "cmux-automation-run-${target}" "$preview_config" || { echo "preview workflow rename failed" >&2; exit 1; }
     config=(--config "$preview_config") ;;
 esac
+# Release rails (plans/cmux-next/release-rails.md): staging and production record the serving
+# version, deploy, smoke ../release-smoke.json (health + routes whose sources changed since
+# CMUX_RELEASE_CHANGED_SINCE) and run `wrangler rollback` to the recorded version on red.
+rails="../../../scripts/cmux-next/release/worker-release.ts"
+case "$env_name" in
+  staging) worker=cmux-api-staging; origin=https://cloud-api-staging.cmux.dev ;;
+  production) worker=cmux-api; origin=https://cloud-api.cmux.dev ;;
+  *) worker="" ;;
+esac
+case "$target" in preview-*) worker="" ;; esac
+if [ -n "$worker" ]; then
+  previous="$(mktemp "${TMPDIR:-/tmp}/cmux-api-previous.XXXXXX")"
+  trap 'rm -f "$secrets" "$previous"' EXIT
+  bun "$rails" previous --worker "$worker" --wrangler ./node_modules/.bin/wrangler --out "$previous"
+fi
 ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" --secrets-file "$secrets"
+if [ -n "$worker" ]; then
+  bun "$rails" verify --worker "$worker" --url "$origin" --routes release-smoke.json --previous-file "$previous" \
+    --changed-since "${CMUX_RELEASE_CHANGED_SINCE:-}" --source-dir . --wrangler ./node_modules/.bin/wrangler
+fi

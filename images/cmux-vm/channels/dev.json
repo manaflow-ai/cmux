@@ -17,5 +17,19 @@
   "also_kept": "cmuxnp-dev-vmimg-auto4-71d9a47 (sh-e4aab9ea589146abb98e356574ffe2de), superseded by auto5; cmuxnp-dev-vmimg-auto5-de18da6 (sh-d16c97b11a404bf9a1a9849bd0f073bb), superseded by auto6; cmuxnp-dev-vmimg-auto6-c9693f8 (sh-94ef280de5674a52adf18831289c37f1), superseded by auto7; cmuxnp-dev-vmimg-auto7-5c5cf35 (sh-42ecf781e5a1460b991c7bff18ae4caf), superseded by auto8; cmuxnp-dev-vmimg-agenttools3 (sh-538ea0742b344e04ae19eb3438a2afe6), superseded by agenttools5 (no cua-video refusal); cmuxnp-dev-vmimg-agenttools5 (sh-e64294bf57394cd397ba37951eeb6a52), superseded by hostrun3",
   "deleted": "cmuxnp-dev-vmimg-auto1-8d111c8 (sh-99d84130836649b4b1b746a41f57b5f9) deleted 2026-10-06 by exact id after the coordinator's OK (0 dev machine rows and 0 Freestyle VMs used it)",
   "browser": "role browser off, first use: cmux-browser-host 0.1.0 (release cmux-browser-host-v0.1.0, x86_64 + aarch64 pins) and Chrome for Testing 154.0.8037.92 x86_64; 25-package apt closure; CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE=0",
-  "rollback": "wrangler rollback 7e29392f-4f88-4236-8f64-abca96b2132f --name cmux-api-development (from backend/apps/api), or set CLOUD_FREESTYLE_SNAPSHOT back to cmuxnp-dev-vmimg-agenttools5 in wrangler.jsonc (env.development), bun run deploy:development, and set this file back to agenttools5"
+  "rollback": "wrangler rollback 7e29392f-4f88-4236-8f64-abca96b2132f --name cmux-api-development (from backend/apps/api), or set CLOUD_FREESTYLE_SNAPSHOT back to cmuxnp-dev-vmimg-agenttools5 in wrangler.jsonc (env.development), bun run deploy:development, and set this file back to agenttools5",
+  "history_doc": "Structured bake records that images/cmux-vm/promote.ts reads: a snapshot is promoted only when its exact snapshot_id is here with smoke.result PASSED. Append one entry per baked snapshot (newest last); never edit an entry. Older snapshots above are prose only, so they cannot be promoted until re-smoked and recorded.",
+  "history": [
+    {
+      "snapshot": "cmuxnp-dev-vmimg-hostrun5",
+      "snapshot_id": "sh-05e11db6222747e9b75b3be37bf8de0c",
+      "source_sha": "9a69d6576a7a",
+      "baked_at": "2026-10-08",
+      "smoke": {
+        "result": "PASSED",
+        "at": "2026-10-08",
+        "detail": "smoke.ts 2 clones with the bind probe"
+      }
+    }
+  ]
 }
