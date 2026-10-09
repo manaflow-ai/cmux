@@ -17,7 +17,7 @@ import { Popover } from "../../ui/Popover";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
-import { usePopoverTrigger } from "./popoverTrigger";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
