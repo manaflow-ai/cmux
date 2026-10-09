@@ -102,6 +102,35 @@ pub fn default_harness(answer: &serde_json::Value) -> &'static str {
     }
 }
 
+/// Which codex the codex sessions run, in host.log and the trace (event
+/// `codex`: path and `--version`). Without the Chief's own copy, one line
+/// says that the PATH codex runs and may not read the view back.
+fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String)) {
+    let (path, own) = match crate::codex_home::chief_codex(paths) {
+        Some(p) => (p, true),
+        None => {
+            log(format!(
+                "codex: the Chief's own codex is not installed at {}; codex sessions run the PATH codex, which may ignore the Chief's prompt cache key",
+                paths.codex_bin.display()
+            ));
+            (PathBuf::from("codex"), false)
+        }
+    };
+    let version = std::process::Command::new(&path)
+        .arg("--version")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default();
+    trace.emit(
+        "codex",
+        serde_json::json!({"path": path.display().to_string(), "own": own, "version": version}),
+    );
+    if own {
+        log(format!("codex: {} ({version})", path.display()));
+    }
+}
+
 /// acpmux's profile for a configured CodeRouter Claude route.
 pub const CODEROUTER_HARNESS: &str = "claude-cr";
 
@@ -128,6 +157,12 @@ pub fn turn_preset(
             CODEX_CACHE_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
         );
+        if let Some(codex) = crate::codex_home::chief_codex(paths) {
+            env.insert(
+                crate::codex_home::CODEX_PATH_ENV.to_owned(),
+                codex.display().to_string(),
+            );
+        }
         if isolate {
             // The Chief's own codex home: no native subagents (its subagents
             // are `chief spawn` sessions), no user MCP servers, hooks or skills.
@@ -637,6 +672,9 @@ fn start(
     let codex_preset = (family == Family::Codex
         || (other_family == Family::Codex && other_preset.is_some()))
     .then(|| turn_preset_name(home, Family::Codex));
+    if codex_preset.is_some() || compactor_family == Family::Codex {
+        trace_codex(paths, &trace, &log);
+    }
     if codex_preset.is_some()
         && isolate
         && let Err(e) =
