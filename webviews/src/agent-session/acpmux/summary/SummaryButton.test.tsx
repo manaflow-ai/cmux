@@ -14,6 +14,7 @@ const saved = Object.fromEntries(
     "navigator",
     "Node",
     "HTMLElement",
+    "customElements",
     "requestAnimationFrame",
     "cancelAnimationFrame",
     "getComputedStyle",
@@ -25,6 +26,8 @@ Object.assign(globals, {
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // The summary reads the chat's images with the Markdown parser, which loads the diff viewer's element.
+  customElements: dom.window.customElements,
   Node: dom.window.Node,
   requestAnimationFrame: (callback: FrameRequestCallback) => {
     callback(Date.now());

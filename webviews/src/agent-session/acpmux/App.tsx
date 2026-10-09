@@ -2463,7 +2463,13 @@ function AcpmuxPane() {
                       tabTools={!quick}
                       onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, localCwd)}
                       onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
-                      summary={<SummaryButton rows={snapshot.rows} onOpenOutput={quick ? undefined : openOutput} />}
+                      summary={
+                        <SummaryButton
+                          rows={snapshot.rows}
+                          onOpenOutput={quick ? undefined : openOutput}
+                          onOpenImage={quick ? undefined : openImage}
+                        />
+                      }
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}

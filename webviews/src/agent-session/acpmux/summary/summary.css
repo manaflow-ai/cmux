@@ -29,3 +29,18 @@
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 .acpmux-summary-none{color:var(--agent-muted)}
+/* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
+.acpmux-chat-gallery{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
+.acpmux-chat-gallery-filters{display:flex;gap:2px;margin-right:8px}
+.acpmux-chat-gallery-filter{height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:12px;cursor:default}
+.acpmux-chat-gallery-filter:hover{background:var(--agent-control-hover)}
+.acpmux-chat-gallery-filter[aria-pressed="true"]{background:var(--acpmux-menu-hover);color:var(--agent-text)}
+.acpmux-chat-gallery-filter:focus-visible{outline:2px solid var(--agent-accent-soft)}
+.acpmux-chat-gallery-count{font-variant-numeric:tabular-nums}
+.acpmux-chat-gallery-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));grid-auto-rows:min-content;gap:12px;padding:4px 16px 16px}
+.acpmux-chat-gallery-tile{margin:0;min-width:0}
+.acpmux-chat-gallery-tile.is-render{grid-column:1/-1}
+.acpmux-chat-gallery-image{display:block;width:100%;aspect-ratio:4/3;padding:0;border:.5px solid var(--agent-border);border-radius:8px;background:var(--acpmux-base);overflow:hidden;cursor:zoom-in}
+.acpmux-chat-gallery-image img{display:block;width:100%;height:100%;object-fit:contain}
+.acpmux-chat-gallery-image:focus-visible{outline:2px solid var(--agent-accent-soft);outline-offset:2px}
+.acpmux-chat-gallery-title{display:block;padding:8px;border:.5px solid var(--agent-border);border-radius:8px;color:var(--agent-muted);font-size:12px}

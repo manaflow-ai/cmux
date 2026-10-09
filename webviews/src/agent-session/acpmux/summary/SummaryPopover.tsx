@@ -13,14 +13,19 @@ const ROW_ICON = rowIconSize(12);
 /// always show, in the Codex app's order, with "None" while empty; pull requests and wakeups
 /// follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
-/// an output opens the changes view at that file. Following a link calls `onFollow`.
+/// an output opens the changes view at that file. Following a link calls `onFollow`. A chat
+/// with images or renders offers its gallery under Outputs (GalleryDialog.tsx).
 export function SummaryPopover({
   summary,
+  galleryCount = 0,
   onOpenOutput,
+  onOpenGallery,
   onFollow,
 }: {
   summary: SessionSummary;
+  galleryCount?: number;
   onOpenOutput?: (path: string) => void;
+  onOpenGallery?: () => void;
   onFollow?: () => void;
 }) {
   const t = useT();
@@ -45,6 +50,20 @@ export function SummaryPopover({
             </button>
           </li>
         )}
+        footer={
+          galleryCount > 0 &&
+          onOpenGallery && (
+            <button
+              type="button"
+              className="acpmux-summary-row acpmux-summary-link acpmux-summary-gallery"
+              onClick={onOpenGallery}
+            >
+              <Icon name="view.grid" size={ROW_ICON} row />
+              <span className="acpmux-summary-text">{t("summary.gallery")}</span>{" "}
+              <span className="acpmux-summary-meta">{galleryCount}</span>
+            </button>
+          )
+        }
       />
       <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
         <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>

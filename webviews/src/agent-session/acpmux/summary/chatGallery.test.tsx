@@ -16,6 +16,7 @@ const NAMES = [
   "location",
   "Element",
   "HTMLElement",
+  "customElements",
   "Node",
   "Event",
   "KeyboardEvent",
@@ -36,7 +37,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { chatGallery, galleryItems } = await import("./chatGallery");
-const { ChatGallery } = await import("./ChatGallery");
+const { GalleryDialog } = await import("./GalleryDialog");
 const { SummaryPopover } = await import("./SummaryPopover");
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -94,7 +95,7 @@ test("the gallery shows a tile per item, filters by kind and opens an image in t
   const root = createRoot(container);
   await act(async () =>
     root.render(
-      createElement(ChatGallery, {
+      createElement(GalleryDialog, {
         rows,
         onClose: () => undefined,
         onOpenImage: (src: string) => opened.push(src),
@@ -102,7 +103,8 @@ test("the gallery shows a tile per item, filters by kind and opens an image in t
     ),
   );
   const dialog = () => document.querySelector(".acpmux-chat-gallery")!;
-  const tiles = () => [...dialog().querySelectorAll("[data-gallery-kind]")].map((tile) => tile.getAttribute("data-gallery-kind"));
+  const tiles = () =>
+    [...dialog().querySelectorAll("[data-gallery-kind]")].map((tile) => tile.getAttribute("data-gallery-kind"));
   expect(tiles()).toEqual(["image", "render", "image", "render"]);
   const filters = [...dialog().querySelectorAll<HTMLButtonElement>(".acpmux-chat-gallery-filter")];
   expect(filters.map((button) => button.textContent)).toEqual(["All 4", "Images 2", "Renders 2"]);
@@ -132,7 +134,9 @@ test("the summary's Outputs section opens the gallery when the chat has images o
   await act(async () => button!.click());
   expect(galleries).toBe(1);
 
-  await act(async () => root.render(createElement(SummaryPopover, { summary, galleryCount: 0, onOpenGallery: () => galleries++ })));
+  await act(async () =>
+    root.render(createElement(SummaryPopover, { summary, galleryCount: 0, onOpenGallery: () => galleries++ })),
+  );
   expect(container.querySelector(".acpmux-summary-gallery")).toBeNull();
   await act(async () => root.unmount());
 });

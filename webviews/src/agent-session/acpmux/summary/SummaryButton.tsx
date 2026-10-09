@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
+import { GalleryDialog } from "./GalleryDialog";
+import { chatGallery } from "./chatGallery";
 import { sessionSummary } from "./sessionSummary";
 import { SummaryPopover } from "./SummaryPopover";
 import { Popover } from "../../../ui/Popover";
@@ -9,18 +11,23 @@ import { registerPicker } from "../pickerOpeners";
 
 /// The header's summary button and its popover: what this chat has produced so far. The
 /// summary is read from the transcript only while the popover is open, so a live turn pays
-/// nothing for it while it is closed.
+/// nothing for it while it is closed. Its Outputs section opens the chat's gallery; an image
+/// there opens the image viewer (`onOpenImage`) in the gallery's place.
 export function SummaryButton({
   rows,
   onOpenOutput,
+  onOpenImage,
 }: {
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
+  onOpenImage?: (src: string, alt: string) => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [gallery, setGallery] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
+  const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   useEffect(() => {
     if (!open) return;
     const dismissOutside = (event: PointerEvent) => {
@@ -60,6 +67,11 @@ export function SummaryButton({
         >
           <SummaryPopover
             summary={summary}
+            galleryCount={galleryCount}
+            onOpenGallery={() => {
+              setOpen(false);
+              setGallery(true);
+            }}
             onFollow={() => setOpen(false)}
             onOpenOutput={
               onOpenOutput &&
@@ -71,6 +83,19 @@ export function SummaryButton({
           />
         </Popover>
       ) : null}
+      {gallery && (
+        <GalleryDialog
+          rows={rows}
+          onClose={() => setGallery(false)}
+          onOpenImage={
+            onOpenImage &&
+            ((src, alt) => {
+              setGallery(false);
+              onOpenImage(src, alt);
+            })
+          }
+        />
+      )}
     </span>
   );
 }
