@@ -158,7 +158,7 @@ final class LinkPreviews: LinkPreviewFetching {
     }
 
     private func finish(_ url: String, _ meta: LinkMetadata?) {
-        cache.updateValue(.some(meta), forKey: url) /* cmux */
+        cache.updateValue(meta, forKey: url) /* cmux: the value type is LinkMetadata? (nil: a failed fetch) */
         if meta?.title == nil { negativeAt[url] = Date().timeIntervalSince1970 }
         let cbs = waiting.removeValue(forKey: url) ?? []
         cbs.forEach { $0(meta) }
