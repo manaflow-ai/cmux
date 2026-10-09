@@ -72,9 +72,14 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     private let scroll = NSScrollView()
     private var items: [Item] = []
     private(set) var selectedGrouping: SidebarChatsGrouping = .newest
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
     private let preferenceKey = "sidebar.chats.grouping"
     private let expandedKey = "sidebar.chats.expanded"
+    let shareKey = "sidebar.chats.share"
+    /// The open height the person dragged to (`SidebarChatsView+Resize`), nil for one third.
+    var customShare: CGFloat?
+    let divider = SidebarSectionDivider()
+    var dragStartHeight: CGFloat = 0
     /// Open (the list shows, a third of the sidebar tall) or minimized to its header row, the
     /// default (Lawrence 2026-10-09). Kept per Mac.
     public private(set) var isExpanded = false
@@ -88,6 +93,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         super.init(frame: frame)
         selectedGrouping = SidebarChatsGrouping(rawValue: defaults.string(forKey: preferenceKey) ?? "") ?? .newest
         isExpanded = defaults.bool(forKey: expandedKey)
+        customShare = (defaults.object(forKey: shareKey) as? Double).map { CGFloat($0) }
         configure()
     }
 
@@ -139,6 +145,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         for control in [titleLabel, search, searchButton, filterButton, groupButton] as [NSView] { header.addSubview(control) }
         addSubview(header)
         addSubview(scroll)
+        installDivider()
         applyHeaderReveal(animated: false)
         update([], enabled: true, ready: true)
     }
@@ -179,7 +186,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     public var preferredHeight: CGFloat { Metrics.sidebarRowHeight }
 
     /// Open, the section is a fixed third of the sidebar's height and its list scrolls inside.
-    var sidebarShare: CGFloat? { isExpanded ? 1.0 / 3.0 : nil }
+    var sidebarShare: CGFloat? { isExpanded ? customShare ?? Self.defaultShare : nil }
 
     /// Opens or closes the section (a click on its header).
     public func toggleExpanded() {
@@ -221,6 +228,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         let alpha: CGFloat = isHeaderRevealed ? 1 : 0
         header.iconsRevealed = isHeaderRevealed
         scroll.isHidden = !isExpanded
+        divider.isHidden = !isExpanded
         let icons = [searchButton, filterButton, groupButton] as [NSView]
         guard icons.contains(where: { $0.alphaValue != alpha }) else { return }
         if animated {
@@ -326,6 +334,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         let controlHeight: CGFloat = 20
         let y = (top - controlHeight) / 2
         header.frame = NSRect(x: 0, y: 0, width: bounds.width, height: top)
+        divider.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Metrics.space2)
         // Trailing icon buttons (group, filter, search), then the title or the open search field.
         let searching = isSearchOpen || !search.stringValue.isEmpty
         var x = bounds.width - Metrics.space2
