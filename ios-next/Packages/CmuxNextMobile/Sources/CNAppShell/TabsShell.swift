@@ -1,0 +1,90 @@
+#if os(iOS)
+import CNDesign
+import CNSettingsUI
+import CNTransport
+import SwiftUI
+
+/// Native tab bar shell: Home, Agents, Terminals, Browser, Settings, with the
+/// iOS 26 minimize-on-scroll tab bar and a bottom accessory for status.
+struct TabsShell: View {
+    let model: AppModel
+    @State private var selection: ShellDestination = .home
+
+    var body: some View {
+        let roots = ModuleRoots(model: model)
+        TabView(selection: $selection) {
+            Tab(ShellDestination.home.title, systemImage: ShellDestination.home.symbol, value: .home) {
+                roots.conversations()
+            }
+            Tab(ShellDestination.agents.title, systemImage: ShellDestination.agents.symbol, value: .agents) {
+                roots.agents()
+            }
+            .badge(model.shellData.waitingSessions.count)
+            Tab(ShellDestination.terminals.title, systemImage: ShellDestination.terminals.symbol, value: .terminals) {
+                roots.terminals()
+            }
+            Tab(ShellDestination.browser.title, systemImage: ShellDestination.browser.symbol, value: .browser) {
+                roots.browser()
+            }
+            Tab(ShellDestination.settings.title, systemImage: ShellDestination.settings.symbol, value: .settings) {
+                roots.settings()
+            }
+        }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabViewBottomAccessory {
+            StatusAccessory(model: model) { selection = .agents }
+        }
+        .modifier(ShellEnvironment(model: model))
+        .task { await model.shellData.run() }
+        .onChange(of: model.connection.generation) { Task { await model.shellData.reloadIfNeeded() } }
+    }
+}
+
+/// Bottom accessory: running agents plus the connection path.
+struct StatusAccessory: View {
+    let model: AppModel
+    let openAgents: () -> Void
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+
+    var body: some View {
+        let summary = ConnectionSummary(model.connection.state)
+        let running = model.shellData.runningSessions.count
+        let waiting = model.shellData.waitingSessions.count
+        Button(action: openAgents) {
+            HStack(spacing: 8) {
+                Circle().fill(summary.tone.color).frame(width: 7, height: 7)
+                if placement == .inline {
+                    Text(running > 0 ? "\(running) running" : summary.title)
+                        .font(.footnote.weight(.medium))
+                        .lineLimit(1)
+                } else {
+                    Text(agentText(running: running, waiting: waiting))
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.cn(\.textPrimary))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(summary.compact)
+                        .font(.footnote)
+                        .monospacedDigit()
+                        .foregroundStyle(.cn(\.textSecondary))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("shell.connectionPill")
+    }
+
+    private func agentText(running: Int, waiting: Int) -> String {
+        switch (running, waiting) {
+        case (0, 0): model.connection.hostInfo?.hostName ?? model.selectedHost?.name ?? "No agents running"
+        case (_, 0): running == 1 ? "1 agent running" : "\(running) agents running"
+        case (0, _): waiting == 1 ? "1 agent needs you" : "\(waiting) agents need you"
+        default: "\(running) running · \(waiting) need you"
+        }
+    }
+}
+#endif

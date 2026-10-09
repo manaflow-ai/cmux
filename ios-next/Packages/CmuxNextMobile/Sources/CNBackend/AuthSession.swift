@@ -83,6 +83,13 @@ public final class AuthSession {
         return true
     }
 
+    /// Exchanges a Stack Auth access token for the backend session.
+    public func signInWithStack(accessToken: String, projectId: String) async throws {
+        try await run {
+            self.state = .signedIn(try await self.backend.signInWithStack(accessToken: accessToken, projectId: projectId))
+        }
+    }
+
     public func startEmailSignIn(email: String) async throws {
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
         try await run {

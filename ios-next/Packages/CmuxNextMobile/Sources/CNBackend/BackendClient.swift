@@ -129,6 +129,13 @@ public actor BackendClient {
         try await adopt(send("POST", "/auth/oauth/exchange", body: ["code": code], auth: false, as: Tokens.self))
     }
 
+    /// Primary sign-in: exchanges a Stack Auth access token (the same
+    /// accounts as cmux iOS) for a backend session (`POST /v1/auth/stack`).
+    @discardableResult
+    public func signInWithStack(accessToken: String, projectId: String) async throws -> User {
+        try await adopt(send("POST", "/auth/stack", body: ["accessToken": accessToken, "projectId": projectId], auth: false, as: Tokens.self))
+    }
+
     /// Automated-verification login (`POST /v1/auth/test {email, secret}`).
     @discardableResult
     public func testLogin(email: String, secret: String) async throws -> User {

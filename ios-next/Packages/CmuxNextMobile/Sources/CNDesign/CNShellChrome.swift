@@ -13,6 +13,36 @@ extension EnvironmentValues {
     /// True while the drawer shell's sidebar is open or being dragged. Roots
     /// can use it to pause expensive work or resign first responder.
     @Entry public var cnDrawerIsOpen: Bool = false
+    /// Item the shell asks the root to show (a row tapped in the drawer
+    /// sidebar, or the compose button). Roots that can open the item observe
+    /// it with `.onChange(of:)`; the `nonce` makes repeated taps distinct.
+    @Entry public var cnShellRoute: CNShellRoute? = nil
+    /// Terminal font size from Settings, in points.
+    @Entry public var cnTerminalFontSize: CGFloat = 13
+}
+
+/// A request from the shell to open one item inside a module root.
+public struct CNShellRoute: Hashable, Sendable {
+    public enum Kind: String, Hashable, Sendable {
+        /// `id` is a conversation id (Home).
+        case conversation
+        /// Start a new Chief conversation / compose (Home).
+        case compose
+        /// `id` is an agent session id.
+        case agentSession
+        /// `id` is a terminal id.
+        case terminal
+        /// `id` is a browser tab id.
+        case browserTab
+    }
+
+    public var kind: Kind
+    public var id: String?
+    public var nonce: UUID
+
+    public init(kind: Kind, id: String? = nil, nonce: UUID = UUID()) {
+        self.kind = kind; self.id = id; self.nonce = nonce
+    }
 }
 
 /// Adds the shell's leading bar item (if any) to the toolbar of the view it is

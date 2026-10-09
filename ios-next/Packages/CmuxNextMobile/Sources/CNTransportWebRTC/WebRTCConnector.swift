@@ -133,7 +133,7 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
                 }
             }
         }
-        try await signaling.send(.offer(to: hostId, from: nil, sessionId: sessionId, sdp: sdp))
+        try await signaling.send(Self.offerMessage(hostId: hostId, sessionId: sessionId, sdp: sdp, relayOnly: options.relayOnly))
 
         let timeout = options.connectTimeout
         let timer = Task { [weak self] in
@@ -148,7 +148,35 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
             openWaiter = c
             lock.unlock()
         }
-        continuation.yield(.pathChanged(await pathInfo()))
+        let path = await pathInfo()
+        if options.relayOnly, path.localCandidate != .relay {
+            // libjuice can still form a direct path from peer-reflexive
+            // candidates; a relay-only link must not open on one (PROTOCOL §5).
+            let found = path.localCandidate?.rawValue ?? "unknown"
+            close(reason: "Relay only: the selected path is \(found), not relay.")
+            throw TransportError.connectFailed("Relay only: could not establish a TURN relay path (selected \(found)).")
+        }
+        continuation.yield(.pathChanged(path))
+    }
+
+    /// The offer frame. `policy:"relay"` (PROTOCOL §5) asks the host to use a
+    /// relay-only ICE policy for this session too.
+    static func offerMessage(hostId: String, sessionId: String, sdp: String, relayOnly: Bool) -> SignalMessage {
+        guard relayOnly else { return .offer(to: hostId, from: nil, sessionId: sessionId, sdp: sdp) }
+        return .unknown(type: "offer", raw: .object([
+            "type": .string("offer"),
+            "to": .string(hostId),
+            "sessionId": .string(sessionId),
+            "sdp": .string(sdp),
+            "policy": .string("relay"),
+        ]))
+    }
+
+    /// Whether an ICE candidate line is a `relay` candidate.
+    static func isRelayCandidate(_ sdp: String) -> Bool {
+        let fields = sdp.split(separator: " ")
+        guard let typIndex = fields.firstIndex(of: "typ"), typIndex + 1 < fields.count else { return false }
+        return fields[typIndex + 1] == "relay"
     }
 
     private func failOpen(_ error: any Error) {
@@ -176,6 +204,7 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
                 for candidate in pending { self.peerConnection.add(candidate) { _ in } }
             }
         case .candidate(_, _, _, let sdp, let mid, let index):
+            if options.relayOnly, !Self.isRelayCandidate(sdp) { return }
             let candidate = RTCIceCandidate(sdp: sdp, sdpMLineIndex: index, sdpMid: mid)
             lock.lock()
             if remoteDescriptionSet {

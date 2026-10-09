@@ -15,6 +15,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/stasel/WebRTC", exact: "154.0.0"),
         .package(path: "../../../Packages/Shared/CmuxGhosttyKit"),
+        // Stack Auth, the same sign-in SDK (and accounts) as cmux iOS.
+        .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
         // Codable mirrors of PROTOCOL.md and small shared helpers.
@@ -34,7 +36,14 @@ let package = Package(
         .target(name: "CNBackend", dependencies: ["CNCore"]),
         // cmux-next tokens: colors, type, metrics, motion.
         .target(name: "CNDesign"),
-        .target(name: "CNAuthUI", dependencies: ["CNCore", "CNBackend", "CNDesign"]),
+        .target(
+            name: "CNAuthUI",
+            dependencies: [
+                "CNCore", "CNBackend", "CNDesign",
+                .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease", condition: .when(platforms: [.iOS])),
+            ],
+            resources: [.process("Resources")]
+        ),
         .target(name: "CNConversationsUI", dependencies: ["CNCore", "CNTransport", "CNDesign"]),
         .target(name: "CNAgentUI", dependencies: ["CNCore", "CNTransport", "CNDesign"]),
         .target(

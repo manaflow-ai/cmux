@@ -20,7 +20,7 @@ settings:
     INFOPLIST_KEY_NSMicrophoneUsageDescription: "Dictate prompts."
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    CMUX_NEXT_API_BASE: "https://cmux-next-mobile.aziz-f6d.workers.dev"
+    CMUX_NEXT_API_BASE: "https://cmux-next-mobile.debussy.workers.dev"
 packages:
   CmuxNextMobile:
     path: ../Packages/CmuxNextMobile

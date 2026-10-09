@@ -4,6 +4,7 @@
 #
 #   ios-next/scripts/remote-ios.sh build  [--slot S] [--scheme Drawer|Tabs]
 #   ios-next/scripts/remote-ios.sh run    [--slot S] [--scheme Drawer|Tabs] [--env K=V ...]
+#   ios-next/scripts/remote-ios.sh launch [--slot S] [--scheme Drawer|Tabs] [--env K=V ...]   (install + launch the last build, no rebuild)
 #   ios-next/scripts/remote-ios.sh shot   [--slot S] --out local.png
 #   ios-next/scripts/remote-ios.sh video  [--slot S] --seconds N --out local.mp4
 #   ios-next/scripts/remote-ios.sh openurl [--slot S] --url <url>
@@ -42,11 +43,14 @@ case "$scheme" in
 esac
 
 sync_src() {
-  ssh "$HOST" "mkdir -p ~/$R/src/Packages/Shared"
+  ssh "$HOST" "mkdir -p ~/$R/src/Packages/Shared ~/$R/src/vendor"
   rsync -a --delete --exclude .build --exclude node_modules --exclude 'reference/' \
     --exclude '*.xcodeproj/xcuserdata' --exclude '*.xcodeproj/project.xcworkspace/xcuserdata' \
     "$ROOT/ios-next" "$HOST:$R/src/"
   rsync -a --delete --exclude .build "$ROOT/Packages/Shared/CmuxGhosttyKit" "$HOST:$R/src/Packages/Shared/"
+  # Path dependencies of Packages/CmuxNextMobile, mirrored at the same
+  # relative paths.
+  rsync -a --delete --exclude .build --exclude Tests "$ROOT/vendor/stack-auth-swift-sdk-prerelease" "$HOST:$R/src/vendor/"
 }
 
 remote() { ssh "$HOST" "bash -lc $(printf '%q' "$1")"; }
@@ -74,15 +78,15 @@ build() {
     xcodebuild -project CmuxNextMobile.xcodeproj -scheme $scheme -configuration Debug \
       -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
       -derivedDataPath ~/$R/dd -skipPackagePluginValidation \
-      CODE_SIGNING_ALLOWED=NO build 2>&1 | tee ~/$R/build.log | grep -E 'error:|warning: .*CN|BUILD (SUCCEEDED|FAILED)' | grep -v '^ld: warning' | head -80
+      ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build 2>&1 | tee ~/$R/build.log | grep -E 'error:|warning: .*CN|BUILD (SUCCEEDED|FAILED)' | grep -v '^ld: warning' | head -80
     grep -q 'BUILD SUCCEEDED' ~/$R/build.log
   "
 }
 
 case "$cmd" in
   build) build ;;
-  run)
-    build
+  run|launch)
+    [[ "$cmd" == run ]] && build
     ensure_sim
     envstr=""
     for e in "${envs[@]+"${envs[@]}"}"; do envstr+="SIMCTL_CHILD_${e} "; done
