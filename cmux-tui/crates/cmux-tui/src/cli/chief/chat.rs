@@ -83,7 +83,7 @@ impl Chat {
                 }
                 (self.message(message), None)
             }
-            UiEvent::Snapshot { summary, messages } => {
+            UiEvent::Snapshot { summary, messages, .. } => {
                 self.participants = participants(summary);
                 let lines = messages.iter().flat_map(|m| self.message(m)).collect();
                 (lines, None)
