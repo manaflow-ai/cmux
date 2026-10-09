@@ -323,6 +323,7 @@ public actor StoreKitBillingStore: BillingStore {
 /// actor/API lets pure platform tests and Linux tooling compile without a
 /// StoreKit SDK; an iOS build always selects the implementation above.
 public actor StoreKitBillingStore: BillingStore {
+    public let configuration: StoreKitBillingConfiguration
     private let fallback: (any BillingStore)?
 
     public init(
@@ -330,6 +331,7 @@ public actor StoreKitBillingStore: BillingStore {
         transactionSink: (any BillingTransactionSubmitting)? = nil,
         fallback: (any BillingStore)? = nil
     ) {
+        self.configuration = configuration
         self.fallback = fallback
     }
 
