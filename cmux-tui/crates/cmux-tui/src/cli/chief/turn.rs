@@ -5,8 +5,11 @@
 //! the turn's end (in that order, on one connection). So the turn that
 //! answers message `seq` is the one whose typing starts after the Chief's
 //! cursor reached `seq`; its typing-off ends it. A turn the Chief was
-//! already running when the message arrived stops for it (that turn's
-//! typing-off comes before the cursor moves) and does not count.
+//! already running when the message arrived either stops for it (that
+//! turn's typing-off comes before the cursor moves) and does not count, or
+//! takes it in (the brain steers it into the turn: the cursor passes it
+//! while the Chief types), and then that turn's end answers it. A reply the
+//! owner's rate limit holds past the typing-off still ends the turn.
 
 use serde_json::Value;
 
@@ -25,6 +28,8 @@ pub(super) struct TurnWatch {
     /// may still come (the brain posts it when the owner's agent rate
     /// limit allows), and ends the turn when it does.
     pub ended: bool,
+    /// The Chief is typing now (a turn runs).
+    typing: bool,
     /// The Chief's messages after `seq`, in order.
     pub replies: Vec<Value>,
 }
@@ -43,10 +48,14 @@ impl TurnWatch {
             UiEvent::Cursor { participant, seq } if participant == AGENT_MUX => {
                 if *seq >= self.seq {
                     self.read = true;
+                    // Read while a turn runs: the brain steered the message
+                    // into that turn, whose reply answers it.
+                    self.working |= self.typing;
                 }
                 None
             }
             UiEvent::Typing { participant, on } if participant == AGENT_MUX => {
+                self.typing = *on;
                 if *on && self.read {
                     self.working = true;
                 } else if !*on && self.working {
@@ -56,6 +65,7 @@ impl TurnWatch {
                 None
             }
             UiEvent::Snapshot { summary, messages, typing } => {
+                self.typing = typing.iter().any(|p| p == AGENT_MUX);
                 // A reopened stream after a gap: the state it missed.
                 let cursor = summary.pointer("/read_cursors/agent_mux").and_then(Value::as_u64);
                 if cursor.is_some_and(|c| c >= self.seq) {
