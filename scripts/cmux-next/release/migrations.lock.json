@@ -55,7 +55,8 @@
         "0003_automations.sql": "0a210f8ec4171fb820311e4be8b9739c886bdf3a07220cfc1b5fdc428aaf192a",
         "0004_connections.sql": "9459fb9706ccd0907aa46e07c8a4eb6457b363c0f1a825cc6b9c089beefa0b4c",
         "0005_audit_events.sql": "6414026f95b4a0496c02bd20e554b3954a0515460b2a4f464798ff8c8b38964c",
-        "0006_home.sql": "faa8bb121be718eab407dc687836f121e679312f9f5cafc3f9e37226536ad858"
+        "0006_home.sql": "faa8bb121be718eab407dc687836f121e679312f9f5cafc3f9e37226536ad858",
+        "0007_membership_roles.sql": "c2f115ca678bb41a42210e21d8a38fc22052ba7ec15586f35362bd20235c14df"
       }
     }
   }

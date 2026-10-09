@@ -1,112 +1,99 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
-import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
-import { useUiAnchor } from "../../ui/anchor";
-import { useEscapeCloses } from "../../ui/escapeDismiss";
-import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 
-/// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
-/// title, the model under it (a default level says "Reasoning" on the chip), and a stepped slider with one stop per level the agent offers.
-/// The slider is EffortTrack. Picking sends chat.effort through `onPick`.
+/// A second choice in the reasoning menu: Claude Code's Fast Mode (On/Off) or Codex's Service
+/// Tier (Standard/Fast). `on` is the choice that makes the chip say "Fast".
+export type SpeedSection = {
+  title: string;
+  choices: Choice[];
+  current?: string;
+  on: string;
+  onPick(value: string): void;
+};
+
+/// The reasoning chip and its menu (Lawrence 2026-10-09, MonoCode's picker): a Reasoning section
+/// with one checked row per level the model offers, a Default badge on the model's own level and
+/// a line under a level that needs one (Ultracode); then the speed section when the agent has one.
+/// The chip names the level, plus "Fast" while fast mode is on. The menu is the shared popup
+/// layer's opaque surface (ui/Menu), so nothing shows through it. Picking sends chat.effort
+/// through `onPick` (and the speed section's own `onPick`).
 export function EffortPicker({
   label,
   efforts,
   current,
-  model,
   onPick,
+  speed,
   chevron,
 }: {
   /// The stable name automation opens it by (`openPicker`), whatever the UI language.
   label: string;
   efforts: Choice[];
   current?: string;
-  model?: string;
   onPick(value: string): void;
+  speed?: SpeedSection;
   chevron?: React.ReactNode;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const root = useRef<HTMLSpanElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
-  const id = useId();
-  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
-  const level = Math.max(
-    0,
-    efforts.findIndex((choice) => choice.id === current),
+  const selected = efforts.find((choice) => choice.id === current) ?? efforts[0];
+  const level = !selected || isDefaultChoice(selected) ? t("picker.reasoning") : selected.name;
+  const fast = speed !== undefined && speed.current === speed.on;
+  // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
+  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const row = (choice: Choice) => (
+    <MenuRadioItem key={choice.id} value={choice.id} className="acpmux-effort-item">
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex items-center gap-1.5">
+          <span className="acpmux-menu-label">{choice.name}</span>
+          {choice.hint && (
+            <span className="rounded border-[0.5px] border-edge px-1 text-caption text-dim">{choice.hint}</span>
+          )}
+        </span>
+        {choice.description && <span className="text-detail text-dim">{choice.description}</span>}
+      </span>
+    </MenuRadioItem>
   );
-  const name = efforts[level]?.name ?? t("effort.title");
-  // The agent's default level names no level: the chip says "Reasoning" beside the model chip
-  // rather than a second "Default"; the popover title says "Default".
-  const chip = efforts[level] && isDefaultChoice(efforts[level]) ? t("picker.reasoning") : name;
-  // Automation opens the popover by its label as a click does (see pickerOpeners.ts).
-  // Already open, it only puts the focus back on the slider.
-  useEffect(
-    () =>
-      registerPicker(label, () => {
-        const range = root.current?.querySelector<HTMLInputElement>(".acpmux-effort-range");
-        if (range) {
-          range.focus();
-          return;
-        }
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-        setOpen(true);
-      }),
-    [label],
-  );
-  const close = () => {
-    setOpen(false);
-    trigger.current?.focus();
-  };
-  useEscapeCloses(open, close);
-  const press = usePopoverTrigger(open, setOpen);
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const blur = () => setOpen(false);
-    document.addEventListener("pointerdown", away);
-    window.addEventListener("blur", blur);
-    return () => {
-      document.removeEventListener("pointerdown", away);
-      window.removeEventListener("blur", blur);
-    };
-  }, [open]);
   return (
-    <span ref={root} className="acpmux-picker acpmux-effort" style={{ position: "relative" }}>
-      <button
-        ref={trigger}
-        type="button"
-        className="acpmux-picker-button"
-        data-menu={label}
-        aria-label={t("effort.title")}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        {...press}
-      >
-        <span>{chip}</span>
-        {chevron}
-      </button>
-      {open && (
-        <div
-          ref={menu}
-          className="acpmux-menu acpmux-menu-end acpmux-effort-pop"
-          style={menuStyle}
-          id={id}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="dialog"
-          aria-label={t("effort.title")}
-        >
-          <div className="acpmux-effort-title">{name}</div>
-          {model && <div className="acpmux-effort-model">{model}</div>}
-          <EffortTrack efforts={efforts} current={current} onPick={onPick} autoFocus onEscape={close} />
-        </div>
-      )}
+    <span className="acpmux-picker acpmux-effort">
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
+          <span>{fast ? `${level} ${t("picker.chipFast")}` : level}</span>
+          {chevron}
+        </MenuButton>
+        <MenuPopup side="top" align="start" className="acpmux-effort-menu">
+          <MenuGroup label={t("picker.reasoning")}>
+            <MenuRadioGroup
+              value={selected?.id ?? ""}
+              onValueChange={(next) => {
+                onPick(next);
+                setOpen(false);
+              }}
+            >
+              {efforts.map(row)}
+            </MenuRadioGroup>
+          </MenuGroup>
+          {speed && (
+            <>
+              <MenuSeparator />
+              <MenuGroup label={speed.title}>
+                <MenuRadioGroup
+                  value={speed.current ?? ""}
+                  onValueChange={(next) => {
+                    speed.onPick(next);
+                    setOpen(false);
+                  }}
+                >
+                  {speed.choices.map(row)}
+                </MenuRadioGroup>
+              </MenuGroup>
+            </>
+          )}
+        </MenuPopup>
+      </Menu>
     </span>
   );
 }

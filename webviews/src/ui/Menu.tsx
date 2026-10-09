@@ -102,6 +102,8 @@ export interface MenuButtonProps {
   disabled?: boolean;
   "aria-haspopup"?: "menu" | "listbox" | "dialog";
   "aria-labelledby"?: string;
+  /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
+  "data-menu"?: string;
   children: ReactNode;
 }
 
@@ -111,6 +113,7 @@ export function MenuButton({
   disabled,
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
+  "data-menu": dataMenu,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
@@ -120,6 +123,7 @@ export function MenuButton({
       aria-label={label}
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
+      data-menu={dataMenu}
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;
@@ -161,6 +165,10 @@ export interface MenuPopupProps {
   children: ReactNode;
 }
 
+/// The surface class of the popup a submenu sits in, so the submenu wears the same surface (a themed
+/// menu never gets a bare, see-through submenu).
+const PopupSurface = createContext<string | undefined>(undefined);
+
 export function MenuPopup({
   className,
   side = "bottom",
@@ -180,7 +188,7 @@ export function MenuPopup({
         sideOffset={UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup className={cx("ui-popup ui-menu", className)} finalFocus={finalFocus}>
-          {children}
+          <PopupSurface value={className}>{children}</PopupSurface>
         </BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
@@ -328,15 +336,17 @@ export interface SubmenuProps {
   children: ReactNode;
 }
 
-/** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). */
+/** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). Its popup
+ * wears the parent popup's surface unless `popupClassName` names another. */
 export function Submenu({ label, className, popupClassName, disabled, children }: SubmenuProps) {
+  const surface = use(PopupSurface);
   return (
     <BaseMenu.SubmenuRoot>
       <BaseMenu.SubmenuTrigger className={cx("ui-menu-item ui-submenu-trigger", className)} disabled={disabled}>
         {label}
         <span className="ui-submenu-chevron" aria-hidden="true" />
       </BaseMenu.SubmenuTrigger>
-      <MenuPopup side="inline-end" align="start" className={popupClassName}>
+      <MenuPopup side="inline-end" align="start" className={popupClassName ?? surface}>
         {children}
       </MenuPopup>
     </BaseMenu.SubmenuRoot>

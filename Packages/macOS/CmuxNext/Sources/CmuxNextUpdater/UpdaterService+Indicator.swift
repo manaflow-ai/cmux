@@ -23,7 +23,7 @@ extension UpdaterService {
         switch indicatorPhase {
         case .ready, .available, .downloading:
             installClicked()
-        case .note(_, isError: true):
+        case .note(.checkFailed):
             presentUpdateUI?()
         case .hidden, .checking, .installing, .note:
             break

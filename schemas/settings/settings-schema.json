@@ -299,9 +299,7 @@
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
               "sidebar.showChats",
-              "sidebar.allChatsRows",
               "sidebar.showProjects",
-              "sidebar.groupBy",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -481,6 +479,7 @@
         },
         "trail" : [
           "harnesses",
+          "agentHarnesses",
           "computerUse"
         ]
       },
@@ -2065,6 +2064,7 @@
     },
     {
       "accepts" : [
+        "system",
         "auto",
         "always",
         "off"
@@ -2072,6 +2072,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.stripScrollbarSystem",
+            "text" : "Follow System"
+          },
+          "value" : "system"
+        },
         {
           "title" : {
             "key" : "settings.choice.stripScrollbarAuto",
@@ -2097,7 +2104,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "auto",
+      "default" : "system",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -9617,61 +9624,6 @@
     },
     {
       "accepts" : [
-        1,
-        50,
-        25.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 8,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.allChatsRows.help",
-        "text" : "How many chats the All chats section shows before it scrolls."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.allChatsRows",
-      "keywords" : [
-        "sidebar",
-        "chats",
-        "all chats",
-        "rows",
-        "count"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "allChatsRows"
-      ],
-      "range" : {
-        "max" : 50,
-        "min" : 1,
-        "placeholder" : 1,
-        "step" : 1,
-        "unit" : "count"
-      },
-      "refuses" : [
-        -48,
-        99,
-        "1"
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.allChatsRows",
-        "text" : "All Chats Rows"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -9712,67 +9664,6 @@
       "title" : {
         "key" : "settings.sidebar.showProjects",
         "text" : "Show Projects"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "none",
-        "folder"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.groupByNone",
-            "text" : "None"
-          },
-          "value" : "none"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.groupByFolder",
-            "text" : "Folder"
-          },
-          "value" : "folder"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "none",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.groupBy",
-      "keywords" : [
-        "sidebar",
-        "projects",
-        "group",
-        "folder",
-        "directory",
-        "cwd"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "groupBy"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.groupBy",
-        "text" : "Group Projects By"
       },
       "validation" : "portable"
     },
@@ -17366,7 +17257,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "a7127856490c936cc8491d2c2df9bd457594b4bee92eb90eebc6a80c96c46582",
+  "schema_hash" : "16e50b7a3e44eb34845b0914f30189865637bf9b413d31604481edd37500fd6c",
   "sections" : [
     {
       "id" : "general",

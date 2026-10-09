@@ -8,6 +8,11 @@
  * idle timeout over 300 seconds and default to 300. Every other production VM
  * is a product machine: it defaults to -1 (never pause for idleness), because
  * the web app's CloudDO decides when product machines pause.
+ *
+ * The manaflow-team flag (cx-b4h.16): production tenants listed in
+ * MANAFLOW_TEAM_TENANT_IDS may create without billing during the internal phase.
+ * They stay product tenants (no dev/test idle cap). Who pays after the internal
+ * phase is Lawrence's decision.
  */
 import { Context, Layer } from "effect";
 import type { TenantId } from "./lib/ids.ts";
@@ -21,6 +26,8 @@ export const PRODUCT_DEFAULT_IDLE_SECONDS = -1;
 export interface TenantPolicyService {
   readonly environment: Environment;
   readonly isDevTest: (tenantId: TenantId) => boolean;
+  /** Listed in MANAFLOW_TEAM_TENANT_IDS: entitled without billing (the manaflow-team flag), still a product tenant. */
+  readonly isManaflowTeam: (tenantId: TenantId) => boolean;
   /** Live VMs a tenant may hold. */
   readonly maxVms: (tenantId: TenantId) => number;
   /** Live snapshots per tenant; a budget separate from VMs. */
@@ -35,6 +42,8 @@ export class TenantPolicy extends Context.Tag("cmux-vm/TenantPolicy")<TenantPoli
 export interface PolicyConfig {
   readonly environment: Environment;
   readonly devTestTenantIds?: ReadonlyArray<string>;
+  /** Stack team ids under the manaflow-team flag (MANAFLOW_TEAM_TENANT_IDS). */
+  readonly manaflowTenantIds?: ReadonlyArray<string>;
   /** Live VMs per tenant for every tenant (tests); overrides the defaults. */
   readonly maxVms?: number;
   /** Per-tenant live VM limits, by Stack team id, from TENANT_VM_QUOTAS. */
@@ -61,9 +70,11 @@ export const DEFAULT_MAX_UPLOAD_BYTES = 96 * 1024 * 1024;
 export const makeTenantPolicy = (config: PolicyConfig): TenantPolicyService => {
   const listed = new Set(config.devTestTenantIds ?? []);
   const isDevTest = (tenantId: TenantId) => config.environment !== "production" || listed.has(tenantId);
+  const manaflow = new Set(config.manaflowTenantIds ?? []);
   return {
     environment: config.environment,
     isDevTest,
+    isManaflowTeam: (tenantId) => manaflow.has(tenantId),
     maxVms: (tenantId) =>
       config.maxVms ?? config.vmQuotas?.[tenantId] ?? (isDevTest(tenantId) ? DEFAULT_DEV_TEST_MAX_VMS : DEFAULT_MAX_VMS),
     maxSnapshots: () => config.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS,

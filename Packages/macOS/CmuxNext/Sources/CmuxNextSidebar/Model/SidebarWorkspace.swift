@@ -109,6 +109,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The front tab's working directory, abbreviated (`~/src/app`): the
     /// bucket Group by Folder puts the row in. Nil when no tab reports one.
     public var folder: String?
+    /// A starting Cloud machine's stage (cx-lu8f): the row's machine label
+    /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
+    /// own workspace replaces the row. Nil for every other row.
+    public var stage: String?
 
     public init(
         id: WorkspaceID,
@@ -135,7 +139,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         rowState: SidebarRowState = .live,
         muted: Bool = false,
         isClosable: Bool = true,
-        folder: String? = nil
+        folder: String? = nil,
+        stage: String? = nil
     ) {
         self.id = id
         self.machineID = machineID
@@ -162,6 +167,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.muted = muted
         self.isClosable = isClosable
         self.folder = folder
+        self.stage = stage
     }
 }
 

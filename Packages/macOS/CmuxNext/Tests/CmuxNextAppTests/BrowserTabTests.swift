@@ -41,9 +41,9 @@ struct BrowserTabTests {
         store.apply(snapshot: try Self.tree())
         let recorder = Recorder()
         let browserTabs = try #require(services.cache.browserTabs)
-        browserTabs.isAvailable = { true }
+        browserTabs.serves = { _ in true }
         browserTabs.cefUnavailable = { .notBundled }
-        browserTabs.create = { pane, url, engine, _, _, _ in
+        browserTabs.create = { _, pane, url, engine, _, _, _ in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
         }
@@ -93,9 +93,9 @@ struct BrowserTabTests {
         store.apply(snapshot: try Self.tree())
         let recorder = Recorder()
         let browserTabs = try #require(services.cache.browserTabs)
-        browserTabs.isAvailable = { true }
+        browserTabs.serves = { _ in true }
         browserTabs.cefUnavailable = { .startFailed("no CEF here") }
-        browserTabs.create = { pane, url, engine, _, _, _ in
+        browserTabs.create = { _, pane, url, engine, _, _, _ in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
         }

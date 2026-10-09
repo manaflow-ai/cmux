@@ -61,9 +61,7 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardView(), tipCardView = SidebarTipCardView()
-    /// Back, in the footer band's spot while a destination is open (`SidebarView+Footer`).
-    let backButton = SidebarBackButton()
+    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardView(), noticeCardView = SidebarNoticeCardView()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -211,7 +209,6 @@ public final class SidebarView: NSView {
         buildBands()
 
         addSubview(footer)
-        installBackButton()
         footer.addSubview(profileBar)
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
@@ -272,7 +269,6 @@ public final class SidebarView: NSView {
         cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
-        layoutBack()
         placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
@@ -321,7 +317,6 @@ public final class SidebarView: NSView {
         var metrics: SidebarLayoutMetrics
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
-        var showsBack: Bool
         var cards: SidebarBottomCards
     }
 
@@ -347,8 +342,7 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    showsBack: model.showsBack,
-                    cards: SidebarBottomCards(update: model.updateCard, updated: model.updatedCard, tip: model.tipCard)
+                    cards: SidebarBottomCards(update: model.updateCard, updated: model.updatedCard, notice: model.noticeCard)
                 )
             }) {
                 self?.render(state)
@@ -383,7 +377,7 @@ public final class SidebarView: NSView {
             }
         }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
-        if chromeChanged || profilesChanged || lastState?.showsBack != state.showsBack { needsLayout = true }
+        if chromeChanged || profilesChanged { needsLayout = true }
         lastState = state
     }
 

@@ -32,7 +32,7 @@ struct BrowserOpenerOrderTests {
         ])
         let daemon = Daemon()
         let store = h.services.daemon.store
-        h.browserTabs.create = { _, _, _, _, _, after in
+        h.browserTabs.create = { _, _, _, _, _, _, after in
             daemon.afters.append(after)
             daemon.next += 1
             let slot = after.flatMap { daemon.order.firstIndex(of: $0.rawValue) }.map { $0 + 1 } ?? daemon.order.count
@@ -137,7 +137,7 @@ struct BrowserOpenerOrderTests {
         ])
         let daemon = Daemon()
         let store = h.services.daemon.store
-        h.browserTabs.create = { _, _, _, _, _, after in
+        h.browserTabs.create = { _, _, _, _, _, _, after in
             daemon.afters.append(after)
             daemon.next += 1
             let slot = after.flatMap { daemon.order.firstIndex(of: $0.rawValue) }.map { $0 + 1 } ?? daemon.order.count
@@ -203,7 +203,7 @@ struct BrowserOpenerOrderTests {
         daemon.order = [4, 32, 31]
         let store = h.services.daemon.store
         store.apply(snapshot: try daemon.tree())
-        h.browserTabs.create = { _, _, _, _, _, after in
+        h.browserTabs.create = { _, _, _, _, _, _, after in
             daemon.afters.append(after)
             daemon.next += 1
             let slot = after.flatMap { daemon.order.firstIndex(of: $0.rawValue) }.map { $0 + 1 } ?? daemon.order.count
@@ -264,5 +264,19 @@ struct BrowserOpenerOrderTests {
         let order = [ids[2], opener, ids[0], ids[1], SurfaceID(rawValue: 9)]
         #expect(openers.slot(after: opener, in: order) == ids[1], "child 5 closed, child 4 sits left of the opener")
         #expect(openers.slot(after: opener, in: [opener, ids[1], ids[0]]) == ids[0], "position, not creation order")
+    }
+
+    /// Every placed child reports its opener once (the browser host's
+    /// `tab.created`, so an agent sees its page's popup), foreground or not;
+    /// a tab the opener reopened as itself is no child.
+    @Test func aPlacedChildReportsItsOpener() async throws {
+        let openers = BrowserTabOpeners()
+        var placed: [(SurfaceID, SurfaceID)] = []
+        openers.onChildPlaced = { child, opener in placed.append((child, opener)) }
+        _ = try await openers.place(opener: SurfaceID(rawValue: 1), foreground: false, order: { [SurfaceID(rawValue: 1)] }) { _ in SurfaceID(rawValue: 2) }
+        _ = try await openers.place(opener: SurfaceID(rawValue: 1), foreground: true, order: { [SurfaceID(rawValue: 1)] }) { _ in SurfaceID(rawValue: 3) }
+        _ = try await openers.place(opener: SurfaceID(rawValue: 1), foreground: true, order: { [SurfaceID(rawValue: 1)] }) { _ in SurfaceID(rawValue: 1) }
+        #expect(placed.map(\.0) == [SurfaceID(rawValue: 2), SurfaceID(rawValue: 3)])
+        #expect(placed.allSatisfy { $0.1 == SurfaceID(rawValue: 1) })
     }
 }
