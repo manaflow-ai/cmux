@@ -118,7 +118,8 @@ export function selectTab(stack: Stack, workspaceId: string, tabId?: string): St
  * Close one tab and return the focus successor when the focused tab was removed.
  *
  * The successor follows the desktop tab rule: take the tab to the right, otherwise
- * the one to the left. Closing an inactive tab never changes focus. A workspace is
+ * the one to the left. Closing an inactive tab keeps logical selection and restores
+ * focus to the existing active tab. A workspace is
  * removed when its last tab closes; the next workspace below it, otherwise the one
  * above it, then receives focus when the removed workspace was active.
  */
