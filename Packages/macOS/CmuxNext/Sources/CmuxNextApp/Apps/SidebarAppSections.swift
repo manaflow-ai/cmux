@@ -4,7 +4,8 @@ import CmuxNextSidebar
 
 /// One window's app sections for its sidebar: the platform's
 /// `AppSectionProvider` and the optional native Chats section. Per window,
-/// because a view has one superview; mounts of the same app share its engine.
+/// because a view has one superview; every mount streams from the app
+/// supervisor, which runs one host per app.
 @MainActor
 final class SidebarAppSections: SidebarAppSectionProvider {
     private let provider: AppSectionProvider
@@ -12,8 +13,8 @@ final class SidebarAppSections: SidebarAppSectionProvider {
     private(set) var showsChats: Bool
     private var contentChange: (() -> Void)?
 
-    init(registry: AppRegistry, host: AppHost, recents: AgentRecentsSection?, showsChats: Bool) {
-        provider = AppSectionProvider(registry: registry, host: host)
+    init(apps: AppsService, recents: AgentRecentsSection?, showsChats: Bool) {
+        provider = AppSectionProvider(client: apps.client) { [weak apps] in apps?.presence.isPresented($0) == true }
         chats = showsChats ? recents : nil
         self.showsChats = showsChats
         chats?.onContentChange = { [weak self] in self?.contentChange?() }

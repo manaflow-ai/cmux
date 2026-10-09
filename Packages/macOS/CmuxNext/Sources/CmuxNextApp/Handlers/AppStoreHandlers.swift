@@ -1,4 +1,6 @@
 import CmuxNextActions
+import CmuxNextApps
+import CmuxNextDaemon
 import CmuxNextPalette
 
 /// App Store actions (plans/cmux-next/app-platform.md section 3). Opening
@@ -16,19 +18,30 @@ enum AppStoreHandlers {
         registry.bind("appStore.showInstalled", run: { invocation in
             services.apps.showStore(installed: true, focus: invocation.allowsViewChange)
         })
-        // Hide and unhide (V9): view preference only; the app keeps running and answering granted calls.
+        // Hide and unhide (V9): apps-set hidden on the supervisor with the
+        // invocation's origin; the supervisor decides which origins may hide.
+        // The app keeps running and answering granted calls.
         func bindHidden(_ id: ActionID, _ hidden: Bool) {
             registry.bind(id, run: { invocation in
                 let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-                guard services.apps.registry.app(appID)?.isInstalled == true else {
+                let apps = services.apps
+                if let reason = apps.client.unavailableReason {
+                    switch reason {
+                    case .needsNewerDaemon: throw ActionFailure.needsDaemonCapability(DaemonAppsTransport.capability)
+                    case .notConnected: throw ActionFailure(message: DaemonError.notConnected.description)
+                    case .turnedOff(let text): throw ActionFailure(message: text)
+                    }
+                }
+                guard apps.client.app(appID)?.installed == true else {
                     throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
                 }
+                let origin = AppOrigin(rawValue: invocation.origin.rawValue) ?? .script
                 registry.track(Task { @MainActor in
-                    do {
-                        try await services.apps.registry.setHidden(appID, hidden)
+                    do throws(AppsClientError) {
+                        try await apps.client.set(appID, .hide(hidden), origin: origin)
                         return nil
                     } catch {
-                        return ActionWorkFailure(String(describing: error))
+                        return ActionWorkFailure(error.description)
                     }
                 })
             })
@@ -59,7 +72,7 @@ enum AppStoreHandlers {
             guard !appID.isEmpty || !commandID.isEmpty else {
                 return services.palette.show(page: AppCommandPalette.page(services), relativeTo: context.activeWindow?.window)
             }
-            guard let entry = AppCommandPalette.entries(services.apps.registry).first(where: { $0.app.id == appID && $0.command.id == commandID }) else {
+            guard let entry = AppCommandPalette.entries(services.apps).first(where: { $0.app.id == appID && $0.matches(commandID) }) else {
                 throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
             }
             AppCommandPalette.run(entry, services: services)

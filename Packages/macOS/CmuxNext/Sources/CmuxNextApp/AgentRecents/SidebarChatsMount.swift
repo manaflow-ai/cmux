@@ -14,7 +14,7 @@ final class SidebarChatsMount {
     /// The window's app sections, with Chats when the setting is on.
     func makeSections(services: AppServices) -> SidebarAppSections {
         visible = DesignSettings.shared.sidebarSections.showChats
-        let made = SidebarAppSections(registry: services.apps.registry, host: services.apps.host,
+        let made = SidebarAppSections(apps: services.apps,
                                       recents: visible ? section(services) : nil, showsChats: visible)
         sections = made
         return made
