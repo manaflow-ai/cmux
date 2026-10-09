@@ -66,6 +66,7 @@ class DevDailyWorkflowContract(unittest.TestCase):
         self.assertIn("--clobber", text)
         self.assertIn("RELEASE_TAG: cmux-next-dev", text)
         self.assertIn("APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip", text)
+        self.assertRegex(text, r'gh release edit "\$RELEASE_TAG".*--target "\$SOURCE_SHA"')
 
     def test_identity_is_stable_and_updater_is_signed_download_only(self):
         entitlements = ENTITLEMENTS.read_text(encoding="utf-8")
