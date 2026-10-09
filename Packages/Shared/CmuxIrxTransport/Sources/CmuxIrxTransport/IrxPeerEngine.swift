@@ -43,6 +43,10 @@ public struct IrxClientSession: Sendable {
 /// trigger. The old stack's parallel dial storms (35 of 57 reconnect failures
 /// were "superseded by a newer attempt") cannot happen here by construction.
 public actor IrxPeerEngine {
+    /// A server Retry-After past 2^31 s (68 years) waits that long: a deadline
+    /// near Int.max seconds traps when the clock converts it.
+    static let maximumServerRetryAfterSeconds = 2_147_483_648
+
     public struct Config: Sendable {
         public var initialBackoff: Duration
         public var maxBackoff: Duration
@@ -500,7 +504,7 @@ public actor IrxPeerEngine {
                 "code": termination.code,
                 "origin": termination.origin.rawValue,
                 "via": viaKeepalive ? "keepalive" : "termination-watch",
-                "lifetime_s": String(Int(Date().timeIntervalSince(died.establishedAt))),
+                "lifetime_s": Date().timeIntervalSince(died.establishedAt).journalInteger,
             ]
         )
         setState(.closed(code: termination.code))
