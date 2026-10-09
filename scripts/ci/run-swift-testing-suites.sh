@@ -72,6 +72,11 @@ if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
   shard_index="${BASH_REMATCH[1]}" shard_count="${BASH_REMATCH[2]}"
 fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
+# same debug-info option, so the suites reuse the list build.
+# shellcheck source=scripts/ci/swift-test-debug-info.sh
+source "$script_dir/swift-test-debug-info.sh" || exit 2
+debug_info_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
 # Fixed-cost profile: `phase NAME` ends the running phase and starts NAME, and
@@ -132,7 +137,7 @@ else
   echo "ci-phase .build has no earlier build of this script (cold or first use)"
 fi
 phase build-and-list
-swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
+swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
 [ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
 phase filters
 python3 "$script_dir/require_swift_test_execution.py" \
@@ -142,11 +147,11 @@ if [ "$direct" -eq 1 ]; then
   # The build products folder, asked once: the catalog compile below gets it
   # and asks SwiftPM nothing, so it runs beside the XCTest list.
   phase bin-path
-  bin_path="$(swift build --package-path "$package_path" --show-bin-path)"
+  bin_path="$(swift build ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" --show-bin-path)"
   # Which listed tests are XCTest (the rest are Swift Testing), in the
   # background while the catalogs compile (hq11 2026-10-09: 7-17 s and 5-12 s
   # one after the other).
-  swift test list --package-path "$package_path" --skip-build --disable-swift-testing \
+  swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" --skip-build --disable-swift-testing \
     > "$evidence_dir/xctest-tests.txt" < /dev/null &
   xctest_list_job=$!
 fi
@@ -242,7 +247,7 @@ attempt_suite() {
       --tests "$evidence_dir/discovered-tests.txt" --xctest-tests "$evidence_dir/xctest-tests.txt"
       --filter "$suite")
   else
-    command=(swift test --package-path "$package_path" --skip-build
+    command=(swift test ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" --skip-build
       ${lock_args[@]+"${lock_args[@]}"} --filter "$suite")
   fi
   python3 "$script_dir/hung_test_watchdog.py" \
