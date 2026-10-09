@@ -64,7 +64,7 @@
   "index_subscript": {
    "CmuxIrohTransport": 22,
    "CmuxIrxTransport": 15,
-   "CmuxNextControl": 19,
+   "CmuxNextControl": 18,
    "CmuxNextDaemon": 41
   },
   "int_conversion": {

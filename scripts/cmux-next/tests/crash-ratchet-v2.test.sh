@@ -279,4 +279,9 @@ if out="$(ratchet)"; then fail "Int(x) passed next to radix parses: $out"; fi
 [[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "radix parses counted or Int(x) was missed: $out"
 reset
 
+# 16. Every dictionary parameter on a func line is a dictionary, not only the first.
+printf 'func f(a: [String: Int], b: [String: String]) -> Bool { b[k] == nil }\n' > "$shared/Sources/MessagesLabHome/F.swift"
+out="$(ratchet)" || fail "the second dictionary parameter counted: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
