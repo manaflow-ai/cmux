@@ -244,7 +244,7 @@ test("the quick surface lists projects and shows its folder row above the prompt
   const context = page.querySelector(".acpmux-quick .acpmux-composer-context");
   expect(context).not.toBeNull();
   // The pickers head the panel (Start Agent's header): the folder row comes before the prompt.
-  expect(context!.compareDocumentPosition(prompt()) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(context!.compareDocumentPosition(prompt().element) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 test("⌘Return sends the prompt, then asks to open the chat in a window", async () => {
