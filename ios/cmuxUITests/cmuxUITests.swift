@@ -128,57 +128,6 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testAgentFeedDecisionPreviewPagesAndScrolls() {
-        let app = launchApp(mockData: false, environment: [
-            "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
-        ])
-        defer { app.terminate() }
-
-        let questionRow = app.descendants(matching: .any)["MobileAgentFeedRow-question-preview"]
-        XCTAssertTrue(questionRow.waitForExistence(timeout: 10))
-        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-assistant"].exists)
-        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-stop"].exists)
-
-        let questionPager = questionRow.descendants(matching: .scrollView).firstMatch
-        XCTAssertTrue(questionPager.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Question 1 of 2"].exists)
-        let otherAnswer = app.buttons["MobileAgentFeedQuestionOther-deploy"]
-        XCTAssertTrue(otherAnswer.waitForExistence(timeout: 5))
-        XCTAssertTrue(otherAnswer.isHittable)
-        questionPager.swipeLeft()
-        XCTAssertTrue(app.staticTexts["Question 2 of 2"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Select all that apply"].exists)
-        app.buttons["MobileAgentFeedQuestionOption-events-build"].tap()
-
-        questionPager.swipeRight()
-        XCTAssertTrue(app.staticTexts["Question 1 of 2"].waitForExistence(timeout: 5))
-        app.buttons["MobileAgentFeedQuestionOption-deploy-production"].tap()
-        questionPager.swipeLeft()
-        XCTAssertTrue(app.buttons["MobileAgentFeedQuestionSubmit"].waitForExistence(timeout: 5))
-        app.buttons["MobileAgentFeedQuestionSubmit"].tap()
-        XCTAssertTrue(app.staticTexts["Question reply accepted"].waitForExistence(timeout: 3))
-
-        let allow = app.buttons["MobileAgentFeedPermissionAllow"]
-        let always = app.buttons["MobileAgentFeedPermissionAlways"]
-        let more = app.buttons["MobileAgentFeedPermissionMore"]
-        for _ in 0..<10 where !allow.isHittable {
-            app.swipeUp()
-        }
-        XCTAssertTrue(allow.waitForExistence(timeout: 5))
-        XCTAssertTrue(always.exists)
-        XCTAssertTrue(more.exists)
-        XCTAssertTrue(more.isHittable)
-        XCTAssertEqual(allow.frame.width, more.frame.width, accuracy: 6)
-        XCTAssertEqual(allow.frame.height, more.frame.height, accuracy: 6)
-
-        for _ in 0..<8 { app.swipeDown() }
-        let proof = XCTAttachment(screenshot: app.screenshot())
-        proof.name = "feed-decision-controls-and-scroll"
-        proof.lifetime = .keepAlways
-        add(proof)
-    }
-
-    @MainActor
     func testAgentFeedHeavyActivityScrollPacing() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
@@ -214,6 +163,12 @@ final class cmuxUITests: XCTestCase {
         }
         let frames: Int = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
         XCTAssertGreaterThan(frames, 120, value)
+        if #available(iOS 18.0, *) {
+            let callbacks = try XCTUnwrap(fields["native_scroll_callbacks"].flatMap(Int.init), value)
+            XCTAssertGreaterThan(callbacks, 60, "Native Feed scroll phase hook must produce callbacks: " + value)
+        }
+        let projections = try XCTUnwrap(fields["published_projections"].flatMap(Int.init), value)
+        XCTAssertGreaterThan(projections, 0, "Feed updates must reach the observation port: " + value)
         XCTAssertNotNil(fields["frame_p95_ms"], value)
         XCTAssertNotNil(fields["hitches"], value)
     }

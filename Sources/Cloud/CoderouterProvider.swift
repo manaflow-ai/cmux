@@ -22,7 +22,7 @@ struct CoderouterProvider: Hashable {
         switch id {
         case "codex": return "Codex"
         case "claude": return "Claude"
-        case "opencode-go": return "Opencode"
+        case "opencode-go": return "OpenCode"
         case "openai-apikey": return "OpenAI API Key"
         case "openrouter-apikey": return "OpenRouter API Key"
         default: return id.capitalized
