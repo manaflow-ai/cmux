@@ -606,7 +606,7 @@ pub fn ghostty_config_paths() -> Vec<PathBuf> {
     ghostty_config_paths_from(env_path("XDG_CONFIG_HOME"), home_dir())
 }
 
-pub(crate) fn ghostty_config_paths_from(
+pub fn ghostty_config_paths_from(
     xdg_config_home: Option<PathBuf>,
     home: Option<PathBuf>,
 ) -> Vec<PathBuf> {
@@ -1278,7 +1278,7 @@ fn terminal_pwd_host_is_local(host: &str) -> bool {
 }
 
 #[cfg(unix)]
-pub(crate) fn local_hostname() -> Option<String> {
+pub fn local_hostname() -> Option<String> {
     let mut hostname = [0_u8; 256];
     if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
         return None;
@@ -1294,7 +1294,7 @@ fn decode_local_hostname(bytes: &[u8]) -> Option<String> {
 }
 
 #[cfg(windows)]
-pub(crate) fn local_hostname() -> Option<String> {
+pub fn local_hostname() -> Option<String> {
     std::env::var("COMPUTERNAME").ok().filter(|value| !value.is_empty())
 }
 

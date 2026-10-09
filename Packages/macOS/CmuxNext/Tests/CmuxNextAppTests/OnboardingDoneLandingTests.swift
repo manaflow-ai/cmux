@@ -31,4 +31,13 @@ import Testing
         #expect(OnboardingLanding.decide(firstRun: false, hasOpenWindow: true, shown: .home, fresh: "w1") == .stay)
         #expect(OnboardingLanding.decide(firstRun: false, hasOpenWindow: false, shown: nil, fresh: nil) == .stay)
     }
+
+    /// Chief rule: after Skip or Done a minimized main window comes back
+    /// and to the front, whatever the landing (the person just finished
+    /// setup and expects to see it). A window that is not minimized is
+    /// left where it is.
+    @Test func aMinimizedMainWindowComesBack() {
+        #expect(OnboardingLanding.restoresMainWindow(minimized: true))
+        #expect(!OnboardingLanding.restoresMainWindow(minimized: false))
+    }
 }
