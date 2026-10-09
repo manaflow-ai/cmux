@@ -129,6 +129,10 @@ mod windows_stubs {
         pub(crate) fn wake(&self) {}
 
         pub(crate) fn drain(&self) {}
+
+        pub(crate) fn wait_readable(&self, _timeout: std::time::Duration) -> io::Result<bool> {
+            Err(unsupported())
+        }
     }
 
     impl super::super::shared::host_shared::HostShared {
@@ -170,6 +174,18 @@ mod windows_stubs {
 
     pub(crate) fn process_definitely_gone(_pid: u32) -> bool {
         false
+    }
+
+    pub(crate) fn kill_process_group(_pid: u32) -> anyhow::Result<bool> {
+        Err(unsupported().into())
+    }
+
+    pub(crate) fn lease_was_free(_file: &File) -> bool {
+        false
+    }
+
+    pub(crate) fn wait_lease_exclusive(_file: &File) -> io::Result<()> {
+        Err(unsupported())
     }
 
     pub(crate) fn remove_released_pty_lock(
