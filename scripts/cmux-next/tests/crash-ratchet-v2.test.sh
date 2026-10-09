@@ -161,4 +161,82 @@ printf 'let a = rows[i]\nlet c = UInt8(value)\n' > "$app/Sources/M/A.swift"
 out="$(ratchet)" || fail "safe forms or code outside the index modules counted: $out"
 reset
 
+# 10. Forms that cannot trap (chief, 2026-10-09): UInt8(ascii:), a pure integer
+#     literal, a checked accessor, a dictionary subscript (a name the module declares
+#     only as a dictionary, in any file, or a `default:` argument). A name declared as
+#     an array anywhere in the module still counts, and so does a literal expression.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+var counts: [String: Int] = [:]
+var byID = [UUID: [Row]]()
+let a = UInt8(ascii: ".")
+let b = UInt8(0) + UInt32(0xff) + Int64(1_000)
+let c = rows[checked: i]
+counts[key] = 1
+let d = tally[key, default: 0]
+SWIFT
+printf 'func f(params: [String: Any]) { byID[id] = nil; counts[k] += 1; _ = params[key] }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+out="$(ratchet)" || fail "a non-trapping form counted: $out"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+var counts: [String: Int] = [:]
+let e = UInt8(1 + x)
+SWIFT
+printf 'var counts: [Int] = []\nfunc f() { counts[k] += 1 }\nlet lines = text.split(separator: " ")\nvar tally = [String: Int]()\nlet t = tally[k] + lines[i]\nlet u = reduce(into: [:]) { into[k] = 1 }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "an array subscript or a literal expression passed: $out"; fi
+# counts (also an array), lines (inferred) and into (a call label) count; tally does not.
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "a name declared as an array, inferred, or a call label was exempt: $out"
+[[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "UInt8(1 + x) was exempt: $out"
+g reset -q
+reset
+
+# 11. objc_observer: a selector-based NotificationCenter registration counts in every
+#     module, also when the arguments span lines (a @MainActor @objc target traps when
+#     the notification is posted off main); the block form with queue: .main does not.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+center.addObserver(self, selector: #selector(changed(_:)), name: name, object: nil)
+DistributedNotificationCenter.default().addObserver(
+    self,
+    selector: #selector(layoutChanged),
+    name: name, object: nil)
+SWIFT
+printf 'nc.addObserver(self, selector: #selector(moved), name: n, object: clip)\n' > "$shared/Sources/RenderText/T.swift"
+if out="$(ratchet)"; then fail "a selector-based observer passed: $out"; fi
+[[ "$out" == *"swift M: objc_observer 0 -> 2"* ]] || fail "objc_observer (one line and multi-line) is not reported: $out"
+[[ "$out" == *"swift RenderText: objc_observer 0 -> 1"* ]] || fail "objc_observer in a linked package is not reported: $out"
+printf 'let r = 1\n' > "$shared/Sources/RenderText/T.swift"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+token = center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+    // main-proof: registered with queue: .main
+    MainActor.assumeIsolated { self?.changed() }
+}
+func addObserver(_ handler: @escaping () -> Void) -> Int { 0 }
+let id = trail.addObserver { }
+// center.addObserver(self, selector: #selector(old), name: name, object: nil)
+SWIFT
+out="$(ratchet)" || fail "a block observer or an unrelated addObserver counted: $out"
+reset
+
+# 12. A per-module ban ("swift.<class>@<Module>"): that class fails in that module even with
+#    an inline crash-allow, and stays a ratchet class elsewhere.
+cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
+{"banned": ["swift.as_bang", "swift.objc_selector", "swift.index_subscript@MessagesLabHome"], "allow": []}
+JSON
+printf 'let a = rows[i] // crash-allow: x\n' > "$shared/Sources/MessagesLabHome/F.swift"
+if out="$(ratchet)"; then fail "a module-banned class passed: $out"; fi
+[[ "$out" == *"banned index_subscript in"* ]] || fail "the module ban is not reported: $out"
+reset
+
+# 13. A binding skips only its own bound value: a subscript or conversion elsewhere on a
+#    binding line still counts (H7: guard let ctx = CGContext(width: Int(w * scale) ...)).
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+if let a = map[key] { use(a) }
+guard let n = Int(text), let m = map[k] else { return }
+guard let ctx = CGContext(width: Int(w * scale), height: rows[i]) else { return }
+SWIFT
+if out="$(ratchet)"; then fail "hits inside a binding's argument list passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 1"* ]] || fail "the index inside the binding is not reported: $out"
+[[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "the conversion inside the binding is not reported: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

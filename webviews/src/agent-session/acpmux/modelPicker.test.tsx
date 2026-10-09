@@ -132,7 +132,7 @@ describe("T3 model picker", () => {
     expect(doc.activeElement).toBe(input);
     const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
     const first = labels();
-    expect(first).toEqual(["Opus 4.1", "Opus 5.5", "Sonnet 5.5"]);
+    expect(first).toEqual(["Opus 5.5", "Sonnet 5.5"]);
     Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, "sonnet");
     await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
     expect(labels()).toEqual(["Sonnet 5.5"]);
@@ -146,12 +146,13 @@ describe("T3 model picker", () => {
     await render();
     await act(async () => modelButton().click());
     const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
-    await key(input, "ArrowUp");
     expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
     await ctrlKey(input, "n");
     expect(modelRows()[1]!.getAttribute("aria-selected")).toBe("true");
-    await key(input, "1");
-    expect(calls).toEqual(["model claude-opus-4-1"]);
+    await key(input, "ArrowUp");
+    expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
+    await key(input, "2");
+    expect(calls).toEqual(["model claude-sonnet-5-5"]);
   });
 
   test("a different harness shows its models, then starts that harness on a model pick", async () => {
@@ -162,8 +163,8 @@ describe("T3 model picker", () => {
     )!;
     await act(async () => codex.click());
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
-      "o3",
       "GPT-6-Astra",
+      "o3",
     ]);
     await act(async () => modelRows()[0]!.click());
     expect(calls).toEqual(["harness codex"]);
@@ -283,9 +284,98 @@ describe("T3 model picker", () => {
       codex.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
     });
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
-      "o3",
       "GPT-6-Astra",
+      "o3",
     ]);
+  });
+
+  const typeQuery = async (text: string) => {
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+    return input;
+  };
+  const fastOption = {
+    id: "fast-mode",
+    name: "Fast mode",
+    currentValue: "off",
+    options: [
+      { value: "off", name: "Off" },
+      { value: "on", name: "On" },
+    ],
+  };
+
+  // Lawrence 2026-10-08: "typing needs to be separate that lets me search through all of them".
+  test("typing searches every harness, whatever tab shows", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    await typeQuery("gpt");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["GPT-6-Astra"]);
+    await typeQuery("opus");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "Opus 5.5",
+      "Opus 4.1",
+    ]);
+  });
+
+  // Lawrence 2026-10-08: "type like 'gpt medium fast' and it needs to update the other things too".
+  test("a typed effort and fast mode land with the model in this harness", async () => {
+    const value = snapshot();
+    value.catalog[0]!.models = value.catalog[0]!.models.map((model) => ({
+      ...model,
+      efforts: ["low", "high"],
+      fast: model.id === "claude-opus-5-5",
+    }));
+    value.summary!.configOptions = [effort, fastOption];
+    await render(value);
+    await act(async () => modelButton().click());
+    const input = await typeQuery("claude low fast");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Opus 5.5"]);
+    expect(modelRows()[0]!.textContent).toContain("low · fast");
+    await key(input, "Enter");
+    // Opus 5.5 already runs: the effort and fast mode change at once.
+    expect(calls).toEqual(["config effort low", "config fast-mode on"]);
+  });
+
+  test("a typed combo for another harness starts it, then lands the model and effort in its new session", async () => {
+    const value = snapshot();
+    value.catalog[2]!.models = value.catalog[2]!.models.map((model) => ({ ...model, efforts: ["low", "medium"] }));
+    await render(value);
+    await act(async () => modelButton().click());
+    const input = await typeQuery("gpt medium");
+    await key(input, "Enter");
+    expect(calls).toEqual(["harness codex"]);
+    // The new Codex session reports its default model and its effort option.
+    await render({
+      ...value,
+      summary: {
+        sessionId: "s2",
+        harness: "codex",
+        model: "o3",
+        configOptions: [{ ...effort, options: [{ value: "low" }, { value: "medium" }], currentValue: "low" }],
+      },
+    });
+    expect(calls).toEqual(["harness codex", "model gpt-6-astra"]);
+    await render({
+      ...value,
+      summary: {
+        sessionId: "s2",
+        harness: "codex",
+        model: "gpt-6-astra",
+        configOptions: [{ ...effort, options: [{ value: "low" }, { value: "medium" }], currentValue: "low" }],
+      },
+    });
+    expect(calls).toEqual(["harness codex", "model gpt-6-astra", "config effort medium"]);
+  });
+
+  test("Cmd-Ctrl-M opens the picker", async () => {
+    await render();
+    await act(async () =>
+      dom.window.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, cancelable: true }),
+      ),
+    );
+    expect(menu()).not.toBeNull();
   });
 
   // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside
@@ -308,5 +398,44 @@ describe("T3 model picker", () => {
     expect(modelButton().querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("openai");
     expect(modelButton().textContent).toContain("Codex");
     expect(modelButton().textContent).not.toContain("Opus 5.5");
+  });
+
+  // cx-jqkx (Lawrence 2026-10-09): the list ran oldest first, so Opus 5.5 sat below the fold.
+  test("the newest models come first; older versions sit under a collapsed Older models row", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5"]);
+    const older = menu()!.querySelector<HTMLButtonElement>(".acpmux-mp-older")!;
+    expect(older.textContent).toContain("Older models");
+    expect(older.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => older.click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    // A new opening starts collapsed; a search looks through every model, older ones included.
+    await act(async () => modelButton().click());
+    await act(async () => modelButton().click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5"]);
+    const search = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "4.1");
+    await act(async () => search.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+    expect(labels()).toEqual(["Opus 4.1"]);
+  });
+
+  test("the arrow keys open the fold, and a session on an older version opens with it open", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    await key(input, "ArrowDown");
+    await key(input, "ArrowDown");
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    expect(modelRows()[2]!.getAttribute("aria-selected")).toBe("true");
+    await act(async () => modelButton().click());
+    const older = snapshot();
+    older.summary = { ...older.summary!, model: "claude-opus-4-1" };
+    await render(older);
+    await act(async () => modelButton().click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    expect(modelRows()[2]!.getAttribute("aria-selected")).toBe("true");
   });
 });

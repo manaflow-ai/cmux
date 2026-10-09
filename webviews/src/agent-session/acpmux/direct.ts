@@ -105,6 +105,8 @@ export const PREWARM_METHOD = "_acpmux/prewarm";
 const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
 const USAGE_KIND = "usage_update";
+/// The agent's own change of a config option (a reasoning level, a model): the whole option list.
+const CONFIG_KIND = "config_option_update";
 
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
@@ -849,6 +851,16 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// Reads the selected session's durable composer draft from acpmux.
+  readDraft(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/draft_get", { sessionId });
+  }
+
+  /// Persists or clears the selected session's composer draft in acpmux.
+  writeDraft(sessionId: string, text: string): Promise<unknown> {
+    return this.request("_acpmux/draft_set", { sessionId, text });
+  }
+
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
   /// first (fileSearchModel.ts). acpmux serves no file search: the native host runs it on the
   /// session host as `git.files.search`, and mock mode's in-page daemon answers it.
@@ -932,7 +944,7 @@ export class AcpmuxDirectClient {
     const result = await this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND],
       eventStream: true,
     });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
@@ -1139,6 +1151,10 @@ export class AcpmuxDirectClient {
       const used = Number(update.used);
       const size = Number(update.size);
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
+      return;
+    }
+    if (update?.sessionUpdate === CONFIG_KIND) {
+      if (Array.isArray(update.configOptions)) this.summary = { ...this.summary, configOptions: update.configOptions };
       return;
     }
     if (event.dir === "mux") {
@@ -1757,14 +1773,20 @@ export class AcpmuxDirectClient {
         ...gestureMeta(ticket),
       });
   }
+  /// The session's summary reads the agent's answer, its whole option list: acpmux sends no
+  /// session change for it, so without this the chip and menu keep the old level.
   async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
-    if (this.selectedSessionId)
-      await this.request("session/set_config_option", {
-        sessionId: this.selectedSessionId,
-        configId,
-        value,
-        ...gestureMeta(ticket),
-      });
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return;
+    const result = await this.request("session/set_config_option", {
+      sessionId,
+      configId,
+      value,
+      ...gestureMeta(ticket),
+    });
+    if (sessionId !== this.selectedSessionId || !Array.isArray(result?.configOptions)) return;
+    this.summary = { ...this.summary, configOptions: result.configOptions };
+    this.emit();
   }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it.
    *  With `cwd` (the chat's folder) it also holds that folder's harness profiles (`folder` entries,
@@ -1938,6 +1960,9 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
+      ? { auth: { login: harness.auth.login.trim() } }
+      : {}),
     // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),

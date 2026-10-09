@@ -184,14 +184,57 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-model-effort")).toBeNull();
   });
 
-  test("the chip shows no effort for the agent's default level", async () => {
+  // Leo (dogfood 2026-10-08, A2): reasoning only where the model has levels to choose.
+  test("no reasoning control when the model offers only the agent's default", async () => {
     await render(
       snapshot({
         configOptions: [{ ...effort, currentValue: "default", options: [{ value: "default", name: "Default" }] }],
       }),
     );
     expect(button("Model")!.textContent).toContain("6 Astra");
+    expect(button("Effort")).toBeNull();
+  });
+
+  // Leo (dogfood 2026-10-08, A2): a small menu of the model's levels replaces the slider.
+  test("reasoning is a small menu of the model's levels, the current one checked", async () => {
+    await render({ ...snapshot({ configOptions: [effort] }), catalog: [] });
+    await act(async () => button("Effort")!.click());
+    expect(doc.querySelector(".acpmux-effort-range")).toBeNull();
+    const items = [...doc.querySelectorAll<HTMLElement>("[role=menu] [role=menuitemradio]")];
+    expect(items.map((item) => item.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Medium", "High"]);
+    expect(items[1]!.getAttribute("aria-checked")).toBe("true");
+    await act(async () => items[0]!.click());
+    expect(calls).toEqual(["effort reasoning_effort medium"]);
+    expect(doc.querySelector("[role=menu]")).toBeNull();
+  });
+
+  // Leo (dogfood 2026-10-08, A2): Claude's popover read "Default / Default" over the slider.
+  test("the agent's default level reads once, with no title over the levels", async () => {
+    await render({
+      ...snapshot({
+        configOptions: [
+          {
+            ...effort,
+            currentValue: "default",
+            options: [
+              { value: "default", name: "Default" },
+              { value: "low", name: "Low" },
+              { value: "high", name: "High" },
+            ],
+          },
+        ],
+      }),
+      catalog: [],
+    });
     expect(button("Effort")!.textContent).toContain("Reasoning");
+    await act(async () => button("Effort")!.click());
+    const menu = doc.querySelector<HTMLElement>("[role=menu]")!;
+    expect(
+      [...menu.querySelectorAll("[role=menuitemradio]")].map(
+        (item) => item.querySelector(".acpmux-menu-label")?.textContent,
+      ),
+    ).toEqual(["Default", "Low", "High"]);
+    expect(menu.textContent!.match(/Default/g)).toHaveLength(1);
   });
 
   test("the permission chip stays in the bar when Plan lives in the + menu", async () => {
@@ -271,7 +314,8 @@ describe("acpmux composer pickers", () => {
     expect(menu.textContent).toContain("Unrestricted");
   });
 
-  test("model rows keep a fixed order across openings and put the newest model nearest the anchor", async () => {
+  // cx-jqkx: newest first; older versions fold under "Older models" so a release is never below the fold.
+  test("model rows keep a fixed order across openings with the newest model first", async () => {
     const catalog = [
       {
         id: "codex",
@@ -291,8 +335,8 @@ describe("acpmux composer pickers", () => {
     await act(async () => model.click());
     const labels = () => [...doc.querySelectorAll(".acpmux-mp-row .acpmux-menu-label")].map((row) => row.textContent);
     const first = labels();
-    expect(first.at(-1)).toBe("6.1 Sol");
-    expect(first).toEqual(["6 Astra", "6 Luna", "6 Mini", "6 Nano", "6.1 Sol"]);
+    // Each name is its own line here (no catalog family), so every model is a newest one.
+    expect(first).toEqual(["6 Astra", "6.1 Sol", "6 Luna", "6 Mini", "6 Nano"]);
     await act(async () => model.click());
     await render(long({ model: "sol", configOptions: [effort] }));
     await act(async () => button("Model")!.click());
@@ -536,30 +580,13 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector("[role=listbox]")).toBeNull();
   });
 
-  // The Mode and Model menus keep the focus on their chip while open and close when it leaves, so
-  // their own Escape handlers always get the key; the Effort popover moves it to its slider.
-  test("Escape closes the Effort popover wherever the focus is in the page", async () => {
-    // Without a model list the effort keeps a chip and popover of its own.
+  test("Escape closes the Effort menu without picking", async () => {
     await render({ ...snapshot({ configOptions: [effort] }), catalog: [] });
     await act(async () => button("Effort")!.click());
-    expect(doc.querySelector(".acpmux-effort-pop")).not.toBeNull();
-    // Focus left the slider (a click on the popover's title, or on the page around it).
-    await act(async () => (doc.activeElement as HTMLElement | null)?.blur());
-    expect(doc.activeElement).toBe(doc.body);
-    await key(doc.body, "Escape");
-    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
-    expect(doc.activeElement).toBe(button("Effort"));
-    expect(calls).toEqual([]);
-  });
-
-  test("a click outside closes the Effort popover without picking", async () => {
-    await render({ ...snapshot({ configOptions: [effort] }), catalog: [] });
-    await act(async () => button("Effort")!.click());
-    expect(doc.querySelector(".acpmux-effort-pop")).not.toBeNull();
-    await act(async () => {
-      doc.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
-    });
-    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
+    const menu = doc.querySelector<HTMLElement>("[role=menu]")!;
+    expect(menu).not.toBeNull();
+    await key(doc.activeElement ?? menu, "Escape");
+    expect(doc.querySelector("[role=menu]")).toBeNull();
     expect(calls).toEqual([]);
   });
 

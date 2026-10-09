@@ -289,6 +289,12 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
             {binding.conflicts.length}
           </button>
         )}
+        {binding.heldElsewhere && (
+          // GlobalHotKeyService could not take this system-wide key: another app holds it.
+          <span className="keys-held-elsewhere" role="note" title={t("keybindings.page.heldElsewhere")}>
+            <Icon name="conflict" />
+          </span>
+        )}
       </td>
       <td className="keys-col-when">
         {editing ? (

@@ -16,7 +16,7 @@
    "cmux-remote": 60,
    "cmux-terminal-client": 1,
    "cmux-tui": 87,
-   "cmux-tui-core": 293,
+   "cmux-tui-core": 287,
    "cmux-wg": 15
   },
   "panic_macro": {
@@ -48,37 +48,25 @@
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 20
   },
-  "force_unwrap": {
-   "CmuxNextSettings": 6,
-   "CmuxNextSidebar": 3,
-   "MessagesLabHome": 4,
-   "MessagesLabSidebar": 2
-  },
   "index_subscript": {
-   "CMUXMobileCore": 124,
-   "CmuxHomeRender": 100,
-   "CmuxIrohTransport": 126,
-   "CmuxIrxTransport": 67,
-   "CmuxNextControl": 36,
-   "CmuxNextDaemon": 116,
-   "CmuxNextMobile": 13,
-   "CmuxTerminalSizing": 5,
-   "MessagesLabHome": 828,
-   "MessagesLabSidebar": 71
+   "CMUXMobileCore": 15,
+   "CmuxIrohTransport": 41,
+   "CmuxIrxTransport": 21,
+   "CmuxNextControl": 20,
+   "CmuxNextDaemon": 62,
+   "CmuxNextMobile": 1
   },
   "int_conversion": {
-   "CMUXMobileCore": 123,
-   "CmuxHomeRender": 9,
-   "CmuxIrohTransport": 111,
-   "CmuxIrxTransport": 43,
-   "CmuxNextControl": 45,
-   "CmuxNextDaemon": 21,
-   "CmuxNextMobile": 5,
-   "MessagesLabHome": 84,
-   "MessagesLabSidebar": 18
+   "CMUXMobileCore": 18,
+   "CmuxIrohTransport": 16,
+   "CmuxIrxTransport": 10,
+   "CmuxNextControl": 5,
+   "CmuxNextDaemon": 4,
+   "CmuxNextMobile": 1
   },
-  "iuo": {
-   "CmuxNextSidebar": 5
+  "objc_observer": {
+   "MessagesLabHome": 3,
+   "MessagesLabSidebar": 2
   },
   "render_font": {
    "CmuxHomeRender": 4,
@@ -118,14 +106,6 @@
    "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
-  },
-  "unowned": {
-   "CmuxNextApp": 63,
-   "CmuxNextBrowser": 6,
-   "CmuxNextPalette": 1,
-   "CmuxNextSidebar": 2,
-   "CmuxNextTerminal": 1,
-   "MessagesLabHome": 2
   }
  }
 }

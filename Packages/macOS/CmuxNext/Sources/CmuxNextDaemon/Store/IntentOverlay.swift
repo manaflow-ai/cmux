@@ -76,13 +76,17 @@ import Foundation
     private static func setRowHeights(_ heights: [RowHeightValue], of column: ColumnID, in store: DaemonStore) -> IntentUndo? {
         let byRow = Dictionary(heights.map { ($0.row, $0.height) }, uniquingKeysWith: { _, new in new })
         for screen in store.screensByHandle.values {
-            guard let index = screen.columns.firstIndex(where: { $0.id == column }) else { continue }
-            var entry = screen.columns[index]
+            guard let current = screen.columns.first(where: { $0.id == column }) else { continue }
+            var entry = current
             guard Set(entry.rows.map(\.id)) == Set(byRow.keys), entry.rows.count == byRow.count else { return nil }
             let previous = entry.rows.map { RowHeightValue(row: $0.id, height: $0.height) }
-            for row in entry.rows.indices { entry.rows[row].height = byRow[entry.rows[row].id] ?? entry.rows[row].height }
-            guard entry != screen.columns[index] else { return nil }
-            screen.columns[index] = entry
+            entry.rows = entry.rows.map { row in
+                var row = row
+                row.height = byRow[row.id] ?? row.height
+                return row
+            }
+            guard entry != current else { return nil }
+            screen.columns.modifyFirst(where: { $0.id == column }) { $0 = entry }
             return .rowHeights(column: column, heights: previous)
         }
         return nil

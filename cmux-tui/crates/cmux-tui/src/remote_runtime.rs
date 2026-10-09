@@ -1702,7 +1702,7 @@ fn validate_client_socket_directory(
 }
 
 #[cfg(unix)]
-fn unix_socket_path_fits(path: &Path) -> bool {
+pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
 
     let capacity = unsafe { std::mem::zeroed::<libc::sockaddr_un>() }.sun_path.len();
@@ -1943,7 +1943,7 @@ pub fn daemon_paths(
 }
 
 #[cfg(unix)]
-fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
+pub(crate) fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
     daemon_runtime_socket_paths_in(state, runtime.as_deref(), Path::new("/tmp"))
 }

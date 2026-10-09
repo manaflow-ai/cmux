@@ -31,7 +31,7 @@ public final class SidebarView: NSView {
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private var edgeFade: ScrollEdgeFadeView!
+    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
@@ -45,8 +45,9 @@ public final class SidebarView: NSView {
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
-    var aboveFade: ScrollEdgeFadeView!
-    var belowFade: ScrollEdgeFadeView!
+    // Built in the sections setup (no IUOs).
+    lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
+    lazy var belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
     /// The hairline between the top band and the list (quiet look). The
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
@@ -72,6 +73,7 @@ public final class SidebarView: NSView {
         didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
     }
     private var observation: Task<Void, Never>?
+    private var clipObservers: [any NSObjectProtocol] = []
     private var lastState: RenderState?
     public init(model: SidebarModel) {
         self.model = model
@@ -88,6 +90,7 @@ public final class SidebarView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     isolated deinit {
         observation?.cancel()
+        for token in clipObservers { NotificationCenter.default.removeObserver(token) }
     }
     override public var isFlipped: Bool { true }
     // MARK: Public API
@@ -196,12 +199,13 @@ public final class SidebarView: NSView {
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
         scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         scrollView.contentView.postsFrameChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
-        NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
+            NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.clipBoundsChanged() } }, // main-proof: observer on queue: .main
+            NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.syncListSize() } }, // main-proof: observer on queue: .main
+            NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
+        ]
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
-        edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
         buildBands()
@@ -213,16 +217,12 @@ public final class SidebarView: NSView {
         cardSlot.install(in: self)
     }
 
-    @objc private func clipBoundsChanged(_ note: Notification) {
+    private func clipBoundsChanged() {
         list.realizeVisibleRows()
         PointerHover.refresh(in: window)
     }
 
-    @objc private func clipFrameChanged(_ note: Notification) {
-        syncListSize()
-    }
-
-    @objc private func scrollerStyleChanged(_ note: Notification) {
+    private func scrollerStyleChanged() {
         scrollView.scrollerStyle = SystemScrollers.preferredStyle
         syncListSize()
     }
@@ -267,6 +267,7 @@ public final class SidebarView: NSView {
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
+        if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)

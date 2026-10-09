@@ -32,11 +32,20 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     index_subscript   in the background, render and decoder modules (INDEX_MODULES): a
                       subscript with a computed index (`rows[i]`, `bytes[n - 1]`, a range), not
                       followed by `?`/`??` and not an optional binding; an out-of-range index
-                      traps. Use a checked accessor. Dictionary lookups with a variable key
-                      also count (no types here); convert them to `.first(where:)`/`?? default`
-                      or keep and lower the count elsewhere
+                      traps. Use a checked accessor (`rows[checked: i]` does not count).
+                      A dictionary subscript cannot trap: a subscript on a name the module
+                      declares as a dictionary (`var m: [K: V]`, `= [K: V]()`, `Dictionary<`)
+                      and never as an array, or with a `default:` argument, does not count
     int_conversion    in INDEX_MODULES: `Int(x)`, `UInt8(x)`, ... that trap when the value does
-                      not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`
+                      not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`.
+                      `UInt8(ascii:)` and a pure integer literal (`UInt8(0)`, checked by the
+                      compiler) do not count
+    objc_observer     a selector-based NotificationCenter registration `addObserver(<target>, selector:`
+                      (the call may span lines). The target method is @objc; when it is also
+                      @MainActor, a post off the main thread traps in Swift's dynamic isolation
+                      check (PointerHover's KeyWindowObserver trapped CmuxNextAppTests on a
+                      willClose posted from a detached thread). Use the block form with
+                      `queue: .main` and keep the token
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
@@ -53,7 +62,7 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     exit              process::exit / process::abort
 
 BAN mode (crash-allowlist.json next to this script): a class named in "banned"
-("swift.<class>"; Rust classes are not bannable yet) is not in the baseline. Every hit fails, an inline
+("swift.<class>", or "swift.<class>@<Module>" for one module; Rust classes are not bannable yet) is not in the baseline. Every hit fails, an inline
 crash-allow does not waive it; only an "allow" entry {path, class, count, reason,
 reviewer} passes that many hits in that file. Flip a class to banned in the commit
 that brings it to zero (moving its reviewed crash-allow lines into the allowlist).
@@ -88,7 +97,7 @@ SWIFT = {
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
 }
 # Counted by objc_selector_hits (needs the declaration, which may span two lines).
-SWIFT_KINDS = list(SWIFT) + ["objc_selector", "render_font", "index_subscript", "int_conversion"]
+SWIFT_KINDS = list(SWIFT) + ["objc_selector", "objc_observer", "render_font", "index_subscript", "int_conversion"]
 # Modules whose drawing runs on background threads (RowBitmaps, tile and measure queues,
 # the sidebar's concurrentPerform), and their font caches (allowlisted when banned).
 RENDER_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender"}
@@ -103,7 +112,26 @@ INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMU
 INDEX_SUBSCRIPT = re.compile(r"(?<![\w.])(?:[a-z_]\w*|self)(?:\.\w+)*(?:\(\))?\[([^\[\]]+)\]")
 OPTIONAL_BINDING = re.compile(r"\b(?:if|guard|while)\s+(?:let|var)\b|,\s*let\s+\w+\s*=")
 INT_CONVERSION = re.compile(
-    r"(?<![\w.])U?Int(?:8|16|32|64)?\((?!\s*(?:truncatingIfNeeded|clamping|exactly|bitPattern|littleEndian|bigEndian)\s*:)(?!\s*\))")
+    r"(?<![\w.])U?Int(?:8|16|32|64)?\((?!\s*(?:truncatingIfNeeded|clamping|exactly|bitPattern|littleEndian|bigEndian|ascii)\s*:)"
+    r"(?!\s*\))(?!\s*(?:0x[0-9A-Fa-f_]+|0b[01_]+|0o[0-7_]+|\d[\d_]*)\s*\))")
+# Declarations that name a dictionary or an array (for index_subscript; no types here).
+DECLARED_TYPE = re.compile(r"\b(?:var|let)\s+(\w+)\s*(?::\s*(\S.*)|=\s*(\S.*))")
+# Parameters (`func f(m: [K: V])`, `init(_ m: [K: V])`): only on func/init lines, so call
+# labels (`reduce(into: [:])`) are not read as declarations.
+PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(\[.*|(?:Dictionary|Array)\s*<.*)")
+FUNC_OR_INIT = re.compile(r"\b(?:func\s+\w+|init\??)\s*(?:<[^>]*>)?\s*\(")
+
+
+BOUND_BEFORE = re.compile(r"(?:\b(?:if|guard|while)\s+|,\s*)(?:let|var)\s+\w+(?:\s*:\s*[^=,]+)?\s*=\s*$")
+BOUND_AFTER = re.compile(r"^\s*(?:,|\{|else\b|$)")
+
+
+def is_bound_value(code, start, end):
+    """True when CODE[start:end] is the whole value of an optional binding
+    (`if let x = map[k] {`, `guard let n = Int(s), ...`): the binding unwraps it, so
+    it cannot trap. A subscript or conversion elsewhere on a binding line still counts
+    (`guard let c = CGContext(width: Int(w * scale), ...)` traps on NaN)."""
+    return bool(BOUND_BEFORE.search(code[:start]) and BOUND_AFTER.match(code[end:]))
 
 
 def int_conversion_hits(code):
@@ -122,29 +150,89 @@ def int_conversion_hits(code):
                     end = pos + 1
                     break
         after = code[end:].lstrip() if end else ""
-        if after.startswith("?") or (binding and binding.start() < match.start()):
+        if after.startswith("?") or (binding and end and is_bound_value(code, match.start(), end)):
             continue
         hits += 1
     return hits
 
 
-def index_hits(code):
-    """Computed subscripts in CODE that can trap (see index_subscript)."""
+def bracket_kind(text):
+    """"dict" or "array" for a type or literal that starts with "[" (a top-level ":"
+    makes a dictionary, `[:]` included) or with Dictionary/Array; else None."""
+    if text.startswith("Dictionary"):
+        return "dict"
+    if text.startswith("Array"):
+        return "array"
+    if not text.startswith("["):
+        return None
+    depth = 0
+    for ch in text:
+        if ch in "[(<":
+            depth += 1
+        elif ch in "])>":
+            depth -= 1
+            if depth == 0:
+                return "array"
+        elif ch == "?" and depth == 1:
+            return None  # a ternary in an array literal, or an optional element type
+        elif ch == ":" and depth == 1:
+            return "dict"
+    return None
+
+
+def collection_names(lines):
+    """({dictionary names}, {names declared any other way}) in LINES: a name declared
+    as an array, or with an inferred or other type (`let rows = text.split(...)`), is
+    in the second set, so its subscripts keep counting."""
+    dicts, others = set(), set()
+    for line in lines:
+        code = swift_code(line)
+        found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
+        if FUNC_OR_INIT.search(code):
+            found += [(m.group(1), m.group(2).strip()) for m in PARAMETER_TYPE.finditer(code)]
+        for name, text in found:
+            (dicts if bracket_kind(text) == "dict" else others).add(name)
+    return dicts, others
+
+
+def index_hits(code, dictionaries=frozenset()):
+    """Computed subscripts in CODE that can trap (see index_subscript). DICTIONARIES:
+    names the module declares only as dictionaries."""
     hits = 0
     binding = OPTIONAL_BINDING.search(code)
     for match in INDEX_SUBSCRIPT.finditer(code):
         inner = match.group(1).strip()
         if not inner or inner[0] in "\"'" or re.fullmatch(r"\d+", inner):
             continue
+        if re.match(r"checked\s*:", inner) or re.search(r",\s*default\s*:", inner):
+            continue  # a checked accessor, or a dictionary subscript with a default
+        base = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")]).split(".")[-1]
+        if base in dictionaries:
+            continue
         if re.fullmatch(r"[A-Z][\w.<>?, ]*(?:\s*:\s*[A-Z][\w.<>?, \[\]]*)?", inner):
             continue  # a type: [String], [Key: Value]
         after = code[match.end():].lstrip()
         if after.startswith("?"):
             continue
-        if binding and binding.start() < match.start():
+        if binding and is_bound_value(code, match.start(), match.end()):
+            continue
+        if checked_slot(code, match):
             continue
         hits += 1
     return hits
+
+
+CHECKED_SLOT = re.compile(r"\blet\s+(\w+)\s*=\s*([\w.]+)\.checkedIndex\(")
+
+
+def checked_slot(code, match):
+    """`if let slot = rows.checkedIndex(i) { rows[slot] = v }`: the index came from the
+    same collection's checked accessor on this line, so it is in range."""
+    base = match.group(0)[:match.group(0).index("[")]
+    inner = match.group(1).strip()
+    return any(m.group(1) == inner and m.group(2) == base for m in CHECKED_SLOT.finditer(code[:match.start()]))
+ADD_OBSERVER = re.compile(r"\baddObserver\(")
+SELECTOR_OBSERVER = re.compile(r"addObserver\(\s*[^,()]+?,\s*selector\s*:")
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
 OBJC_FUNC = re.compile(r"\bfunc\s+[\w`]+\s*(?:<[^>]*>)?\s*\(")
 OTHER_DECL = re.compile(r"\b(protocol|class|struct|enum|extension|var|let|init|subscript|case)\b")
@@ -301,7 +389,17 @@ def objc_selector_hits(lines, index, code):
     return 0
 
 
-def swift_line_hits(lines, index, module=None):
+def objc_observer_hits(lines, index, code):
+    """Selector-based addObserver calls that start in LINE; the arguments may continue
+    on the next two lines."""
+    starts = [m.start() for m in ADD_OBSERVER.finditer(code)]
+    if not starts:
+        return 0
+    follow = " ".join(swift_code(l).strip() for l in lines[index + 1:index + 3])
+    return sum(1 for start in starts if SELECTOR_OBSERVER.match(code[start:] + " " + follow))
+
+
+def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     """{kind: hits} for one Swift line (comment lines and crash-allow are the caller's)."""
     line = lines[index]
     code = swift_code(line)
@@ -319,8 +417,11 @@ def swift_line_hits(lines, index, module=None):
         hits[kind] = found
     if objc_selector_hits(lines, index, code):
         hits["objc_selector"] = 1
+    found = objc_observer_hits(lines, index, code)
+    if found:
+        hits["objc_observer"] = found
     if module in INDEX_MODULES:
-        found = index_hits(code)
+        found = index_hits(code, dictionaries)
         if found:
             hits["index_subscript"] = found
         found = int_conversion_hits(code)
@@ -333,10 +434,28 @@ def swift_line_hits(lines, index, module=None):
     return hits
 
 
+def module_dictionaries(repo):
+    """{index module: names it declares as dictionaries and never as arrays}."""
+    declared = {}
+    for root in swift_source_roots(repo):
+        sources = os.path.join(repo, root)
+        for path in tracked_files(repo, sources):
+            module = os.path.relpath(path, sources).split(os.sep)[0]
+            if module not in INDEX_MODULES or not path.endswith(".swift") or not os.path.isfile(path):
+                continue
+            dicts, arrays = collection_names(open(path, encoding="utf-8", errors="replace").read().split("\n"))
+            entry = declared.setdefault(module, (set(), set()))
+            entry[0].update(dicts)
+            entry[1].update(arrays)
+    return {module: frozenset(d - a) for module, (d, a) in declared.items()}
+
+
 def scan_swift(repo, counts, banned_files=None):
     """Ratchet counts per module into COUNTS; hits of banned classes per file (crash-allow
     ignored) into BANNED_FILES {(kind, repo-relative path): hits}."""
     banned = banned_kinds("swift")
+    banned_modules = banned_in("swift")
+    dictionaries = module_dictionaries(repo)
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources):
@@ -349,8 +468,8 @@ def scan_swift(repo, counts, banned_files=None):
                 if line.lstrip().startswith("//"):
                     continue
                 is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index, rel).items():
-                    if kind in banned:
+                for kind, hits in swift_line_hits(lines, index, rel, dictionaries.get(rel, frozenset())).items():
+                    if kind in banned or (kind, rel) in banned_modules:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))
                             banned_files[key] = banned_files.get(key, 0) + hits
@@ -371,7 +490,17 @@ def load_allowlist():
 
 
 def banned_kinds(lang):
-    return {entry.split(".", 1)[1] for entry in load_allowlist()["banned"] if entry.startswith(lang + ".")}
+    """Classes banned everywhere ("swift.<class>"); a "swift.<class>@<Module>" entry bans
+    the class in that module only (see banned_in)."""
+    return {entry.split(".", 1)[1] for entry in load_allowlist()["banned"]
+            if entry.startswith(lang + ".") and "@" not in entry}
+
+
+def banned_in(lang):
+    """{(class, module)} of per-module bans: a module that reached zero keeps zero while
+    the class stays a ratchet elsewhere."""
+    return {tuple(entry.split(".", 1)[1].split("@", 1)) for entry in load_allowlist()["banned"]
+            if entry.startswith(lang + ".") and "@" in entry}
 
 
 def module_of(path):
@@ -485,6 +614,7 @@ def main():
         for kind, files in baseline.get(lang, {}).items():
             if kind in banned_kinds(lang):
                 continue
+            files = {m: n for m, n in files.items() if (kind, m) not in banned_in(lang)}
             for rel, hits in files.items():
                 if counts[lang].get(kind, {}).get(rel, 0) < hits:
                     shrunk += 1

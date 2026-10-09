@@ -51,7 +51,7 @@ import Testing
         #expect(text.string.contains("chart"), "the alt text shows")
         #expect(!text.string.contains("https://example.com/chart.png") || text.spans.contains { $0.link != nil },
                 "the destination shows only as a link")
-        _ = Markdown.layout(source, message: nil, width: 628)
+        _ = Markdown.layout(source, message: nil, format: .markdown, width: 628)
         #expect(NoNetwork.requests == 0, "no URL was requested")
     }
 }

@@ -89,12 +89,14 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            claude_profile: None,
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
             harness_roots: vec![],
+            composer_draft: None,
         };
         let new = self.make_session(meta);
         if is_claude {
