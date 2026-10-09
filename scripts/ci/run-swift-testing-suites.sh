@@ -74,10 +74,29 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
+# Fixed-cost profile: `phase NAME` ends the running phase and starts NAME, and
+# prints "ci-phase <name> <seconds>s" for the one it ended; `phase` with no
+# name ends the last one. phase_table prints them all (the step log is the
+# only record a fleet step keeps of where its time went).
+phase_name="" phase_started=$SECONDS phase_rows=()
+echo "ci-phase start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+phase() {
+  if [ -n "$phase_name" ]; then
+    phase_rows+=("$(printf '%-14s %5ss' "$phase_name" "$((SECONDS - phase_started))")")
+    echo "ci-phase $phase_name $((SECONDS - phase_started))s"
+  fi
+  phase_name="${1:-}" phase_started=$SECONDS
+}
+phase_table() {
+  phase
+  echo "Fixed-cost phases (seconds, total ${SECONDS}s):"
+  printf '  %s\n' ${phase_rows[@]+"${phase_rows[@]}"}
+}
 # The cmux-next web bundles are build output (cx-vn5) that the package reads at
 # test time: without them AgentPaneView.init returns nil and the pane suites crash.
 case "$(cd "$package_path" && pwd -P)" in
   */Packages/macOS/CmuxNext)
+    phase web-bundles
     (cd "$script_dir/../.." && "${CMUX_ENSURE_WEB_BUNDLES:-scripts/ci/ensure-web-bundles.sh}")
     # The live-daemon suites find this tree's hosted cmux-tui through
     # `pin-cmux-tui.sh path` (about 60 git processes, 7-10 s) and fetch a
@@ -102,17 +121,32 @@ case "$(cd "$package_path" && pwd -P)" in
 esac
 # Keep process-global test state inside one suite. Some packages otherwise
 # finish every assertion but leave the aggregate Swift Testing runner waiting.
+# A warm fleet slot keeps .build between steps; name the commit it last built,
+# so a long "warm" build shows how far the tree moved since.
+built_ref_file="$package_path/.build/.cmux-ci-built-ref"
+if [ -f "$built_ref_file" ]; then
+  previous_ref="$(cat "$built_ref_file")"
+  changed="$(git diff --name-only "$previous_ref" HEAD -- 2>/dev/null | wc -l | tr -d ' ')" || changed='?'
+  echo "ci-phase .build last built at ${previous_ref:0:12}; ${changed:-?} files differ from HEAD"
+else
+  echo "ci-phase .build has no earlier build of this script (cold or first use)"
+fi
+phase build-and-list
 swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
+[ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
+phase filters
 python3 "$script_dir/require_swift_test_execution.py" \
   --list-filters "$evidence_dir/discovered-tests.txt" > "$evidence_dir/filters.txt"
 # swift build copies String Catalogs into the resource bundles uncompiled; without
 # the compiled <lang>.lproj tables, localization suites fail (cmux-next.yml and
 # package-test-lane.sh run the same step after their build).
 if [ -n "$(find "$package_path/Sources" -name '*.xcstrings' -print -quit 2>/dev/null)" ]; then
+  phase catalogs
   compile_catalogs="${CMUX_COMPILE_STRING_CATALOGS:-$script_dir/../cmux-next/compile-string-catalogs.sh}"
   (cd "$package_path" && "$compile_catalogs")
 fi
 if [ -n "${tree_path_job:-}" ]; then
+  phase tui-tree-wait
   wait "$tree_path_job" || true
   tree_path="$(cat "$evidence_dir/tui-tree-path" 2>/dev/null || true)"
   [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
@@ -121,8 +155,10 @@ if [ "$direct" -eq 1 ]; then
   # Everything the suites need from SwiftPM and the toolchain, resolved once:
   # which listed tests are XCTest (the rest are Swift Testing), the test
   # bundle, and the two runners with the platform paths SwiftPM sets.
+  phase xctest-list
   swift test list --package-path "$package_path" --skip-build --disable-swift-testing \
     > "$evidence_dir/xctest-tests.txt"
+  phase bin-path
   bin_path="$(swift build --package-path "$package_path" --show-bin-path)"
   bundles=()
   for candidate in "$bin_path"/*.xctest; do
@@ -150,6 +186,7 @@ fi
 # Run every suite, so one early failure or hang does not hide the rest, then
 # list each suite's result and exit with the first failure's status (first in
 # suite order, whatever order the suites finish in).
+phase suites
 suites=()
 position=0
 while IFS= read -r suite; do
@@ -285,6 +322,7 @@ failed=0
 for result in ${results[@]+"${results[@]}"}; do
   [[ "$result" == PASS* ]] || failed=$((failed + 1))
 done
+phase_table
 echo "Swift test suites: $(( ${#results[@]} - failed )) passed, $failed failed"
 for result in ${results[@]+"${results[@]}"}; do
   echo "  $result"
