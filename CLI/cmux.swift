@@ -41831,14 +41831,13 @@ export default {
         let fm = FileManager.default
         let path = openCodePluginPath(projectLocal: projectLocal)
         if fm.fileExists(atPath: path) {
-            guard let existing = try? String(contentsOfFile: path, encoding: .utf8),
-                  existing.contains(Self.openCodePluginMarker)
-            else {
+            let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+            if !existing.contains(Self.openCodePluginMarker) {
                 print("Skipping \(path) (no cmux marker)")
-                return
+            } else {
+                try fm.removeItem(atPath: path)
+                print("OpenCode plugin removed from \(path)")
             }
-            try fm.removeItem(atPath: path)
-            print("OpenCode plugin removed from \(path)")
         }
         let configDir = projectLocal
             ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".opencode", isDirectory: true)

@@ -833,7 +833,11 @@ const createCMUXFeed = async (ctx, options = {}) => {
         case "permission.asked": {
           const props = eventProperties(event);
           const nestedPermission = isObject(props.permission) ? props.permission : {};
-          const request = props;
+          // V2 normally puts request fields in `data`; older event envelopes
+          // may put them under `data.permission`. Merge both so nested
+          // metadata and reply details survive without allowing nested values
+          // to override explicit top-level V2 fields.
+          const request = { ...nestedPermission, ...props };
           const requestId = firstString(request.id, request.requestID, request.requestId, nestedPermission.id, nestedPermission.requestID);
           if (!requestId) break;
           const sid = firstString(request.sessionID, request.sessionId, nestedPermission.sessionID, nestedPermission.sessionId) || "unknown";

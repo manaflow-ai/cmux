@@ -392,6 +392,43 @@ await v1Hooks.event({
             print("FAIL: project-local uninstall removed the global OpenCode bridge")
             return 1
 
+        # Project-local uninstall must preserve a user-owned Feed file while
+        # still removing the cmux-owned TUI package and registration.
+        project_foreign_dir = root / "project-foreign"
+        project_foreign_dir.mkdir(parents=True, exist_ok=True)
+        project_foreign_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--project", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=project_foreign_dir,
+            env=project_env,
+            timeout=20,
+        )
+        if project_foreign_install.returncode != 0:
+            print("FAIL: project-local foreign-file install failed")
+            return 1
+        project_foreign_plugins = project_foreign_dir / ".opencode" / "plugins"
+        project_foreign_feed = project_foreign_plugins / "cmux-feed.js"
+        project_foreign_tui = project_foreign_plugins / "cmux"
+        project_foreign_feed.write_text("// user-owned project plugin\n", encoding="utf-8")
+        project_foreign_uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--project"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=project_foreign_dir,
+            env=project_env,
+            timeout=20,
+        )
+        if (
+            project_foreign_uninstall.returncode != 0
+            or project_foreign_feed.read_text(encoding="utf-8") != "// user-owned project plugin\n"
+            or project_foreign_tui.exists()
+        ):
+            print("FAIL: project-local uninstall removed or retained the wrong files for an unmarked Feed plugin")
+            return 1
+
         # Removing the legacy session file must not strand an owned TUI package.
         orphan_root = root / "orphan-config"
         orphan_root.mkdir(parents=True, exist_ok=True)

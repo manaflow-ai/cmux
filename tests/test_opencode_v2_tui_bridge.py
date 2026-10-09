@@ -149,6 +149,22 @@ const permissionA = await Promise.race([repliesA.permission.promise, new Promise
 if (permissionA.sessionID !== "child-a" || permissionA.requestID !== "perm-a" || permissionA.decision !== "once") throw new Error("permission reply used the wrong TUI contract");
 const permissionFrame = observed.find((event) => event._opencode_request_id === "perm-a");
 if (permissionFrame?.tool_input?.action !== "edit" || permissionFrame?.tool_input?.resources?.[0] !== "/tmp/a/file") throw new Error("permission request details were dropped from the Feed frame");
+liveA.emit({ details: { type: "permission.asked", data: { permission: {
+  sessionID: "child-a", id: "perm-nested", action: "shell", resources: ["/tmp/a/script"],
+  metadata: { command: "make test" }, always: ["shell"], save: true, source: "tool",
+  message: "Run the build?", tool: { name: "bash" },
+} } } });
+const nestedFrame = await waitForObserved((event) => event._opencode_request_id === "perm-nested");
+if (nestedFrame?.tool_input?.action !== "shell"
+  || nestedFrame?.tool_input?.resources?.[0] !== "/tmp/a/script"
+  || nestedFrame?.tool_input?.metadata?.command !== "make test"
+  || nestedFrame?.tool_input?.always?.[0] !== "shell"
+  || nestedFrame?.tool_input?.save !== true
+  || nestedFrame?.tool_input?.source !== "tool"
+  || nestedFrame?.tool_input?.message !== "Run the build?"
+  || nestedFrame?.tool_input?.tool?.name !== "bash") {
+  throw new Error("nested permission request details were dropped from the Feed frame");
+}
 
 liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-a", fields: [{ key: "choice", type: "string", options: [{ value: "yes-value", label: "yes" }] }] } } } });
 const formA = await Promise.race([repliesA.form.promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`form reply timed out (${JSON.stringify(observed)})`)), 2000))]);
