@@ -366,6 +366,25 @@ describe("harness switch: failure", () => {
     expect(port.creates.length).toBe(2);
   });
 
+  // Live proof (nxdog82 automation): the start was refused before any prompt, then the prompt came;
+  // its send's gesture must still be kept for after Trust.
+  test("a prompt sent while the switch waits for trust keeps its gesture and goes once after Trust", async () => {
+    const { store, port } = setup();
+    const held: string[] = [];
+    store.setHandlers({ holdPrompt: (promptId) => held.push(promptId) });
+    void store.switchTo("claude", "/work");
+    port.creates[0]!.reply.reject(Object.assign(new Error("trust.pending"), { reason: "trust.pending", cwd: "/work" }));
+    await settle();
+    expect(held).toEqual([]);
+    const turn = store.send("pong?");
+    expect(held).toEqual([store.view().intent!.queued[0]!.id]);
+    store.resumeAfterTrust();
+    port.creates[1]!.reply.resolve("claude-7");
+    await settle();
+    expect(port.sent.map((sent) => sent.promptId)).toEqual(held);
+    expect(await turn).toBe("sent");
+  });
+
   // Data loss: a queued prompt's attachments must come back with its text, exactly as they were.
   test("a failed or cancelled queued prompt hands back its attachments with its text", async () => {
     const image = { id: "a1", kind: "image" as const, name: "shot.png", mimeType: "image/png", size: 3, data: "AAA" };

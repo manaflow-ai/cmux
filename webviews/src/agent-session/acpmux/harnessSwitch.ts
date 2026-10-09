@@ -270,10 +270,11 @@ export class HarnessSwitch {
       });
       return { promise, resolve, reject };
     })();
-    intent.queued = [
-      ...intent.queued,
-      { id: crypto.randomUUID(), text, attachments, at: Date.now(), resolve, reject, written },
-    ];
+    const id = crypto.randomUUID();
+    intent.queued = [...intent.queued, { id, text, attachments, at: Date.now(), resolve, reject, written }];
+    // A prompt sent while the switch waits for the trust answer keeps this send's gesture for
+    // after Trust (the first held prompt only: one ticket per send).
+    if (intent.phase === "trust" && intent.queued.length === 1) this.handlers.holdPrompt?.(id);
     if (!intent.shown) {
       // The pick waited for this prompt: the pane moves to the new chat now.
       intent.shown = true;
