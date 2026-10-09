@@ -80,10 +80,8 @@ impl Surface {
                 .finish_change_publication(revision, published);
         }
         if published && status_changed {
-            let alerts = records
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take_alerts();
+            let alerts =
+                records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_alerts();
             let notifications = pty
                 .terminal_metadata
                 .lock()

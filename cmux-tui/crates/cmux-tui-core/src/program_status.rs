@@ -166,9 +166,11 @@ impl ProgramStatusRecords {
             updated_at_ms: now_ms,
         };
         let previous = self.records.insert(id.clone(), record);
-        self.last_change = self.records.get(&id).cloned().map(|record| {
-            ProgramStatusChange::Report { id: id.clone(), record }
-        });
+        self.last_change = self
+            .records
+            .get(&id)
+            .cloned()
+            .map(|record| ProgramStatusChange::Report { id: id.clone(), record });
         self.revision += 1;
         self.raise_alert(&id, previous.as_ref());
     }
