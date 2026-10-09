@@ -88,6 +88,23 @@ fn crosscheck_enabled() -> bool {
 }
 
 impl Mux {
+    /// The projection for a commit whose result is `result`: a created view
+    /// changed one workspace, so once the public fold is seeded (a full
+    /// projection seeds it) only that workspace is projected.
+    pub(crate) fn created_view_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        result: Value,
+    ) -> anyhow::Result<ResourceEffectProjection> {
+        match created_view_workspace(&result) {
+            Some(workspace) if registry.public_fold_seeded() => {
+                self.resource_effect_projection_scoped_locked(registry, state, &[workspace], result)
+            }
+            _ => self.resource_effect_projection_locked(registry, state, result),
+        }
+    }
+
     /// [`Self::resource_effect_projection_locked`] for a change confined to
     /// `workspaces`. Same fence contract: the caller holds registry -> state
     /// and commits the returned patch before releasing either.

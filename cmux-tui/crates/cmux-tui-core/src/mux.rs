@@ -65,6 +65,8 @@ mod orphan_hosts;
 mod pending_terminals;
 pub(crate) mod terminal_archive;
 mod terminal_directory;
+mod terminal_lifecycle_commit;
+use terminal_lifecycle_commit::commit_terminal_lifecycle;
 mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
@@ -92,7 +94,6 @@ pub use presentation::{
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
-use resource_content::created_view_workspace;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
@@ -5281,23 +5282,11 @@ impl Mux {
         fingerprint: &Value,
         result: Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        // A created view changed one workspace: project only that one once
-        // the public fold is seeded (a full projection seeds it).
-        let scope = created_view_workspace(&result);
         self.commit_resource_effect_projection(
             idempotency_key,
             operation,
             fingerprint,
-            |registry, state| match scope {
-                Some(workspace) if registry.public_fold_seeded() => self
-                    .resource_effect_projection_scoped_locked(
-                        registry,
-                        state,
-                        &[workspace],
-                        result,
-                    ),
-                _ => self.resource_effect_projection_locked(registry, state, result),
-            },
+            |registry, state| self.created_view_projection_locked(registry, state, result),
         )
     }
 
@@ -17079,53 +17068,6 @@ fn commit_terminal_transition(
         }),
     )?;
     Ok(commit.revision)
-}
-
-/// Advance only renderer lifecycle fields from the latest durable row. This
-/// deliberately re-reads under the registry writer mutex and uses the
-/// terminal revision as a CAS: a GUI move committed while a host launch or
-/// adoption was in flight can never be overwritten by a stale row clone.
-fn commit_terminal_lifecycle(
-    registry: &mut WorkspaceRegistry,
-    event_kind: &str,
-    operation: &str,
-    terminal_id: &str,
-    lifecycle: TerminalLifecycle,
-    incarnation: Option<&str>,
-    exit: Option<Value>,
-) -> anyhow::Result<(RegistryTerminal, u64)> {
-    // Only the revision fence is needed: reading every terminal row here made
-    // each launch O(terminals) under the registry lock.
-    let (generation, revision) = (registry.generation().to_string(), registry.terminal_revision()?);
-    let mut terminal = registry
-        .terminal_record(terminal_id)?
-        .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-    terminal.lifecycle = lifecycle;
-    if let Some(incarnation) = incarnation {
-        terminal.incarnation = Some(incarnation.to_string());
-    }
-    terminal.exit = exit;
-    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
-    let commit = registry.commit_terminal(
-        &mutation,
-        &serde_json::json!({
-            "op": operation,
-            "terminal_id": terminal.terminal_id,
-            "incarnation": terminal.incarnation,
-            "lifecycle": terminal.lifecycle,
-        }),
-        Some(&generation),
-        Some(revision),
-        event_kind,
-        &terminal,
-        &serde_json::json!({
-            "terminal_id": terminal.terminal_id,
-            "workspace_key": terminal.workspace_key,
-            "incarnation": terminal.incarnation,
-            "state": terminal.lifecycle,
-        }),
-    )?;
-    Ok((terminal, commit.revision))
 }
 
 #[cfg(test)]

@@ -25,7 +25,6 @@ mod full_projection;
 mod live_screen;
 mod published_screens;
 mod scoped_projection;
-pub(crate) use scoped_projection::created_view_workspace;
 #[cfg(test)]
 mod scoped_projection_tests;
 mod split_ids;
