@@ -117,7 +117,36 @@ enum GlobalSearchDocuments {
         )
     }
 
-    static func cappedText(_ text: String) -> String {
+    /// An open agent session's transcript, indexed in place of the pane's
+    /// scrollback. Nonisolated so the capture manager builds it (capping up
+    /// to 400k characters) off the main actor.
+    nonisolated static func agentSessionDocument(
+        windowID: UUID,
+        workspaceID: UUID,
+        panelID: UUID,
+        location: String,
+        source: AgentSessionSearchSource,
+        transcriptText: String
+    ) -> SearchIndexDocument {
+        let text = cappedText([source.workingDirectory, transcriptText]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n"))
+
+        return SearchIndexDocument(
+            id: SearchIndexDocument.panelStableID(panelID: panelID, kind: .agentSession),
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            kind: .agentSession,
+            title: source.title,
+            location: location,
+            anchor: source.sessionID,
+            text: text
+        )
+    }
+
+    nonisolated static func cappedText(_ text: String) -> String {
         guard text.count > GlobalSearchIndexingLimits.maxIndexedTextCharacters else { return text }
         let endIndex = text.index(text.startIndex, offsetBy: GlobalSearchIndexingLimits.maxIndexedTextCharacters)
         return String(text[..<endIndex])

@@ -6,6 +6,8 @@ final class GlobalSearchPanelCaptureManager {
     private let markdownCaptureDebounceMilliseconds = 250
     private let indexProvider: () async -> SearchIndex?
     private let cancelPanelPurge: (UUID) -> Void
+    private let agentSessionSource: (GlobalSearchPanelContext) -> AgentSessionSearchSource?
+    private let agentSessionTranscripts = AgentSessionSearchTranscripts()
 
     private var browserCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var browserCaptureTasks: [UUID: Task<Void, Never>] = [:]
@@ -16,13 +18,24 @@ final class GlobalSearchPanelCaptureManager {
     /// Last indexed scrollback fingerprint per terminal panel, to skip
     /// unchanged re-captures across palette opens.
     private var terminalCaptureFingerprints: [UUID: UInt64] = [:]
+    /// What each agent-session panel last indexed, to skip unchanged upserts.
+    private var agentSessionIndexStates: [UUID: AgentSessionIndexState] = [:]
+
+    private struct AgentSessionIndexState: Equatable {
+        let sessionID: String
+        let revision: Int
+        let title: String
+        let location: String
+    }
 
     init(
         indexProvider: @escaping () async -> SearchIndex?,
-        cancelPanelPurge: @escaping (UUID) -> Void
+        cancelPanelPurge: @escaping (UUID) -> Void,
+        agentSessionSource: @escaping (GlobalSearchPanelContext) -> AgentSessionSearchSource? = { _ in nil }
     ) {
         self.indexProvider = indexProvider
         self.cancelPanelPurge = cancelPanelPurge
+        self.agentSessionSource = agentSessionSource
     }
 
     func refreshPanelContent(for context: GlobalSearchPanelContext, index: SearchIndex) async {
@@ -42,8 +55,19 @@ final class GlobalSearchPanelCaptureManager {
         } else if let browserPanel = context.panel as? BrowserPanel {
             captureBrowserPanel(browserPanel)
         } else if let terminalPanel = context.panel as? TerminalPanel {
+            if let source = agentSessionSource(context),
+               await indexAgentSession(source, context: context, index: index) {
+                return
+            }
+            await purgeAgentSessionDocument(forPanelID: context.panelID, index: index)
             await indexTerminalPanel(terminalPanel, context: context, index: index)
         }
+    }
+
+    /// Drops transcript readers for sessions no panel indexes anymore.
+    func pruneAgentSessionReaders() async {
+        let indexedSessionIDs = Set(agentSessionIndexStates.values.map(\.sessionID))
+        await agentSessionTranscripts.retainOnly(sessionIDs: indexedSessionIDs)
     }
 
     func captureBrowserPanel(_ panel: BrowserPanel) {
@@ -168,6 +192,7 @@ final class GlobalSearchPanelCaptureManager {
         cancelBrowserCapture(forPanelID: panelID)
         cancelMarkdownCapture(forPanelID: panelID)
         terminalCaptureFingerprints[panelID] = nil
+        agentSessionIndexStates[panelID] = nil
     }
 
     private func cancelBrowserCapture(forPanelID panelID: UUID) {
@@ -239,6 +264,76 @@ final class GlobalSearchPanelCaptureManager {
         } catch {
 #if DEBUG
             cmuxDebugLog("globalSearch.terminal.upsert failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+#endif
+        }
+    }
+
+    /// Indexes an open agent session's transcript in place of the pane's
+    /// scrollback: the transcript holds the whole conversation as clean text,
+    /// while the scrollback holds a rendered, possibly cleared, copy of it.
+    ///
+    /// The transcript is read and the document built off the main actor.
+    ///
+    /// - Returns: Whether the transcript represents the pane. False while it
+    ///   has no text yet or the upsert failed, so the scrollback is indexed.
+    private func indexAgentSession(
+        _ source: AgentSessionSearchSource,
+        context: GlobalSearchPanelContext,
+        index: SearchIndex
+    ) async -> Bool {
+        let panelID = context.panelID
+        let previous = agentSessionIndexStates[panelID]
+        let revision = await agentSessionTranscripts.refreshedRevision(for: source)
+        guard !Task.isCancelled else { return true }
+        guard let revision else { return false }
+        let next = AgentSessionIndexState(
+            sessionID: source.sessionID,
+            revision: revision,
+            title: source.title,
+            location: context.location
+        )
+        guard next != previous else { return true }
+        guard let transcriptText = await agentSessionTranscripts.text(forSessionID: source.sessionID) else {
+            return false
+        }
+        guard !Task.isCancelled else { return true }
+        let windowID = context.windowID
+        let workspaceID = context.workspaceID
+        let location = context.location
+        let document = await Task.detached(priority: .utility) {
+            GlobalSearchDocuments.agentSessionDocument(
+                windowID: windowID,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                location: location,
+                source: source,
+                transcriptText: transcriptText
+            )
+        }.value
+        guard !Task.isCancelled else { return true }
+        do {
+            try await index.upsert(document)
+            agentSessionIndexStates[panelID] = next
+        } catch {
+#if DEBUG
+            cmuxDebugLog("globalSearch.agentSession.upsert failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+#endif
+            return false
+        }
+        if terminalCaptureFingerprints.removeValue(forKey: panelID) != nil || previous == nil {
+            await purgeTerminalDocument(forPanelID: panelID, index: index)
+        }
+        return true
+    }
+
+    private func purgeAgentSessionDocument(forPanelID panelID: UUID, index: SearchIndex) async {
+        guard agentSessionIndexStates.removeValue(forKey: panelID) != nil else { return }
+        let documentID = SearchIndexDocument.panelStableID(panelID: panelID, kind: .agentSession)
+        do {
+            try await index.deleteDocument(id: documentID)
+        } catch {
+#if DEBUG
+            cmuxDebugLog("globalSearch.agentSession.purge failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
         }
     }

@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import Foundation
 import Testing
 
@@ -94,6 +95,71 @@ struct SearchIndexAgentSessionTests {
         ]
         #expect(SearchIndex.onePerPanel(hits, limit: 10).map(\.id) == ["a-session", "b-session", "loose"])
         #expect(SearchIndex.onePerPanel(hits, limit: 2).map(\.id) == ["a-session", "b-session"])
+    }
+
+    @Test
+    func agentSessionDocumentUsesTheSessionTitleAndLeadsWithTheDirectory() {
+        let source = AgentSessionSearchSource(
+            sessionID: "s-1",
+            agentKind: .claude,
+            transcriptPath: "/tmp/s-1.jsonl",
+            title: "Env linter eval cost estimate",
+            workingDirectory: "/Users/me/cc-sparta"
+        )
+        let panelID = UUID()
+        let document = GlobalSearchDocuments.agentSessionDocument(
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            location: "Window 1 > research pod",
+            source: source,
+            transcriptText: "what would the eval cost"
+        )
+        #expect(document.id == SearchIndexDocument.panelStableID(panelID: panelID, kind: .agentSession))
+        #expect(document.kind == .agentSession)
+        #expect(document.panelID == panelID)
+        #expect(document.title == "Env linter eval cost estimate")
+        #expect(document.location == "Window 1 > research pod")
+        #expect(document.anchor == "s-1")
+        #expect(document.text == "/Users/me/cc-sparta\nwhat would the eval cost")
+    }
+
+    @Test
+    func agentSessionDocumentCapsItsText() {
+        let source = AgentSessionSearchSource(
+            sessionID: "s-2",
+            agentKind: .codex,
+            transcriptPath: "/tmp/s-2.jsonl",
+            title: "Codex",
+            workingDirectory: nil
+        )
+        let document = GlobalSearchDocuments.agentSessionDocument(
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: UUID(),
+            location: "Window 1 > workspace",
+            source: source,
+            transcriptText: String(repeating: "x", count: GlobalSearchIndexingLimits.maxIndexedTextCharacters + 10)
+        )
+        #expect(document.text.count == GlobalSearchIndexingLimits.maxIndexedTextCharacters)
+    }
+
+    @Test(arguments: [
+        ("✳ Fix the login redirect", "first prompt", "Fix the login redirect"),
+        ("  ◐  ", "Why does the build fail", "Why does the build fail"),
+        ("✶", nil, "Claude"),
+    ] as [(String, String?, String)])
+    func sessionTitlePrefersThePaneTitleWithoutSpinnerGlyphs(
+        paneTitle: String,
+        conversationTitle: String?,
+        expected: String
+    ) {
+        let title = AgentChatTranscriptService.globalSearchTitle(
+            paneTitle: paneTitle,
+            conversationTitle: conversationTitle,
+            agentName: "Claude"
+        )
+        #expect(title == expected)
     }
 
     // MARK: - Fixtures
