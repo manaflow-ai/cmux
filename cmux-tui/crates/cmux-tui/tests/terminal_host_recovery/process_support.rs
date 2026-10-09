@@ -18,6 +18,9 @@ pub(crate) fn wait_for_process_and_group_absent(pid: libc::pid_t) {
     }
 }
 
+#[path = "session_cleanup.rs"]
+mod session_cleanup;
+
 pub(crate) fn process_exists(pid: libc::pid_t) -> bool {
     // SAFETY: signal 0 performs existence/permission checks only.
     (unsafe { libc::kill(pid, 0) }) == 0
