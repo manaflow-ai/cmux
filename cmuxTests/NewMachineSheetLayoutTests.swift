@@ -114,6 +114,7 @@ struct NewMachineSheetLayoutTests {
         host.setFrameOrigin(NSPoint(x: host.frame.minX, y: host.frame.minY - 80))
         Self.runMainLoopTurns()
         let movedTopEdge = sheet.frame.maxY
+        #expect(abs(movedTopEdge - initialTopEdge) > 1, "moving the host did not move the attached sheet")
 
         for tick in 0..<12 {
             let pool = CloudVMResourcePool(poolVcpus: 40, poolMemoryMb: 81920, usedVcpus: 32 + tick % 3, usedMemoryMb: 65536)
