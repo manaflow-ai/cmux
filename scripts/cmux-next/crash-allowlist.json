@@ -1,0 +1,23 @@
+{
+ "_comment": "crash_ratchet.py BAN mode (plans/cmux-next/crash-elimination.md). A class in 'banned' fails on every hit in the app's Swift package closure; an inline `// crash-allow:` does not waive it. Only an 'allow' entry passes, at most 'count' hits of 'class' in 'path', with the reason and the reviewer who signed it off. Add an entry only with the crash lead's or a review subagent's sign-off named in 'reviewer'.",
+ "banned": [
+  "swift.fatal_error",
+  "swift.objc_selector"
+ ],
+ "allow": [
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugCrashes.swift",
+   "class": "swift.fatal_error",
+   "count": 1,
+   "reason": "debug.crash.app signal=trap: a DEBUG-only socket verb that ends the process on purpose to test relaunch recovery; compiled out of Release (#if DEBUG).",
+   "reviewer": "crash-lead 2026-10-08"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-port/LayerViews.swift",
+   "class": "swift.fatal_error",
+   "count": 1,
+   "reason": "UICollectionView stand-in of the AppKit port: only the --transcript collection lab flag constructs it, the app never does (the row recycler is the transcript).",
+   "reviewer": "crash-lead 2026-10-08"
+  }
+ ]
+}
