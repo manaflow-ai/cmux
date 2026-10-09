@@ -25,6 +25,11 @@ const net = await import("node:net");
 const path = await import("node:path");
 const source = await fs.readFile(path.join(packageDir, "tui.js"), "utf8");
 const mod = await import(path.join(packageDir, "tui.js"));
+const serverMod = await import(path.join(packageDir, "index.js"));
+if (typeof serverMod.default?.server !== "function") throw new Error("missing inert V2 server entrypoint");
+const serverCleanup = await serverMod.default.setup({});
+if (typeof serverCleanup !== "function") throw new Error("legacy server setup did not return a cleanup function");
+serverCleanup();
 const makeContext = (name) => {
   const spec = fixture.tuis[name];
   return {
@@ -146,7 +151,7 @@ liveB.emit({ details: { type: "session.execution.succeeded", data: { sessionID: 
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-a", action: "edit", resources: ["/tmp/a/file"] } } });
 liveB.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-wrong", action: "edit" } } });
 const permissionA = await Promise.race([repliesA.permission.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("permission reply timed out")), 2000))]);
-if (permissionA.sessionID !== "child-a" || permissionA.requestID !== "perm-a" || permissionA.decision !== "once") throw new Error("permission reply used the wrong TUI contract");
+if (permissionA.requestID !== "perm-a" || permissionA.reply !== "once" || permissionA.decision !== undefined) throw new Error("permission reply used the wrong TUI contract");
 const permissionFrame = observed.find((event) => event._opencode_request_id === "perm-a");
 if (permissionFrame?.tool_input?.action !== "edit" || permissionFrame?.tool_input?.resources?.[0] !== "/tmp/a/file") throw new Error("permission request details were dropped from the Feed frame");
 liveA.emit({ details: { type: "permission.asked", data: { permission: {

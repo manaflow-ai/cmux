@@ -146,8 +146,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertTrue(tuiSource.contains("spawn"))
 
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: configURL), options: []) as? [String: Any])
-        XCTAssertNil(json["plugin"])
-        XCTAssertEqual(try XCTUnwrap(json["plugins"] as? [String]), ["other-plugin", "./plugins/cmux"])
+        XCTAssertNil(json["plugins"])
+        XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin", "./plugins/cmux"])
     }
 
     // Regression for https://github.com/manaflow-ai/cmux/issues/7140: opencode resolves
