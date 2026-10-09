@@ -38977,7 +38977,7 @@ export default {
             // completed session's lifecycle; prose waiting requests remain
             // real attention events.
             let isStructuredIdleReminder = AgentHookNotificationClassifier.isStructuredIdleReminder(
-                parsedInput.rawObject
+                input.rawObject
             )
             let idleReminderForSettledSession = summary.notifyCategory == .idleReminder
                 && summary.status == .needsInput
