@@ -484,6 +484,11 @@ jobs:
       # relay has no Windows PTY backend yet; no misleading Windows relay,
       # machine package or manifest entry).
       include_windows: true
+      # Optional: a failed Windows build publishes the macOS and Linux tree
+      # without it (a ::warning names it); the key gets the Windows daemon on
+      # a later republication (cmux-tui-pin-* push or dispatch), and
+      # pin-cmux-tui.sh fetch on Windows fails fast until then.
+      windows_optional: true
       # Same-repository PRs (pull_request_target) publish the tree that their
       # same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
@@ -668,8 +673,15 @@ jobs:
       # the hook and both relays too. Only the daemon is published, and in
       # its own prefix (see the build job).
       - name: Move the Windows daemon to its own prefix
+        id: windows
         run: |
           set -euo pipefail
+          if [[ ! -f assets/cmux-tui/cmux-tui-x86_64-pc-windows-gnu.exe ]]; then
+            echo "::warning title=no Windows daemon::the optional Windows build made no cmux-tui-x86_64-pc-windows-gnu.exe; publishing without cmux-tui-windows/$GITHUB_SHA"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
           mkdir -p assets/cmux-tui-windows
           mv assets/cmux-tui/cmux-tui-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
           # The rest of the Windows build: the hook and both relays.
@@ -899,7 +911,9 @@ jobs:
             cp "assets/cmux-tui/cmux-tui-${target}" "assets/chatmux-relay/cmux-tui-${target}"
           done
           build_manifest assets/cmux-tui cmux-tui- cmux-tui-checksums.txt
-          build_manifest assets/cmux-tui-windows cmux-tui- cmux-tui-windows-checksums.txt
+          if [[ -d assets/cmux-tui-windows ]]; then
+            build_manifest assets/cmux-tui-windows cmux-tui- cmux-tui-windows-checksums.txt
+          fi
           build_manifest assets/cmux-relay cmux-relay- cmux-relay-checksums.txt
           build_machine_manifest assets/chatmux-relay assets/cmux-tui
 
@@ -927,12 +941,14 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-directory assets/cmux-tui
-          python3 cmux-tui/scripts/verify_published_manifest.py \
-            --manifest-file assets/cmux-tui-windows/manifest.json \
-            --expected-commit "$GITHUB_SHA" \
-            --require-provenance \
-            --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
-            --artifact-directory assets/cmux-tui-windows
+          if [[ -d assets/cmux-tui-windows ]]; then
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-file assets/cmux-tui-windows/manifest.json \
+              --expected-commit "$GITHUB_SHA" \
+              --require-provenance \
+              --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --artifact-directory assets/cmux-tui-windows
+          fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-file assets/cmux-relay/manifest.json \
             --expected-commit "$GITHUB_SHA" \
@@ -993,11 +1009,13 @@ jobs:
             done
           }
           publish_prefix assets/cmux-tui "cmux-tui/$GITHUB_SHA" "public, max-age=31536000, immutable" true
-          publish_prefix assets/cmux-tui-windows "cmux-tui-windows/$GITHUB_SHA" "public, max-age=31536000, immutable" true
+          if [[ -d assets/cmux-tui-windows ]]; then
+            publish_prefix assets/cmux-tui-windows "cmux-tui-windows/$GITHUB_SHA" "public, max-age=31536000, immutable" true
+            echo "Published: https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json"
+          fi
           publish_prefix assets/cmux-relay "cmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true
           publish_prefix assets/chatmux-relay "chatmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true
           echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json"
-          echo "Published: https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json"
           echo "Published: https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json"
           echo "Published: https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json"
 
@@ -1083,12 +1101,14 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
-          python3 cmux-tui/scripts/verify_published_manifest.py \
-            --manifest-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" \
-            --expected-commit "$GITHUB_SHA" \
-            --require-provenance \
-            --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
-            --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
+          if [[ -d assets/cmux-tui-windows ]]; then
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" \
+              --expected-commit "$GITHUB_SHA" \
+              --require-provenance \
+              --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
+          fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
@@ -1178,12 +1198,14 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
-          python3 cmux-tui/scripts/verify_published_manifest.py \
-            --manifest-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" \
-            --expected-commit "$GITHUB_SHA" \
-            --require-provenance \
-            --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
-            --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
+          if [[ -d assets/cmux-tui-windows ]]; then
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" \
+              --expected-commit "$GITHUB_SHA" \
+              --require-provenance \
+              --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
+          fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
@@ -1474,7 +1496,9 @@ jobs:
       # (pin-cmux-tui.sh fetch on Git Bash, or CMUX_TUI_TREE_TARGET). The
       # Windows build artifact also holds the hook and relays; only the daemon
       # goes into the tree.
+      # Optional (build windows_optional): absent when the Windows build failed.
       - name: Download the Windows x86_64 cmux-tui
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-tui-x86_64-pc-windows-gnu
@@ -1484,7 +1508,11 @@ jobs:
         run: |
           set -euo pipefail
           for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
-            cp "assets/windows/$asset" "assets/tree/$asset"
+            if [[ -f "assets/windows/$asset" ]]; then
+              cp "assets/windows/$asset" "assets/tree/$asset"
+            else
+              echo "::warning title=no Windows daemon::this run built no $asset; the tree keeps an earlier Windows build or none"
+            fi
           done
           rm -rf assets/windows
 
@@ -1552,20 +1580,29 @@ jobs:
           # commit an earlier publication of this tree named there; else the
           # tree's source commit's, when it published one; else this run's (a
           # tree published before the Windows target). A write-once object
-          # never gets a second build's bytes.
-          windows_commit="$GITHUB_SHA"
+          # never gets a second build's bytes. The Windows build is optional:
+          # with none of these, the tree is published without Windows.
+          windows_commit=""
           if fetch "$base/completion-windows.json" tree/completion-windows.json 2>/dev/null; then
             windows_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceCommit"])' tree/completion-windows.json)"
           elif [[ "$source_commit" != "$GITHUB_SHA" ]] &&
               fetch "https://files.cmux.com/cmux-tui-windows/$source_commit/manifest.json" tree/windows-manifest.json 2>/dev/null; then
             windows_commit="$source_commit"
+          elif fetch "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" tree/windows-manifest.json 2>/dev/null; then
+            windows_commit="$GITHUB_SHA"
           fi
-          [[ "$windows_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed Windows tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
-          fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/manifest.json" tree/windows-manifest.json
-          if [[ "$windows_commit" != "$GITHUB_SHA" ]]; then
-            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
-              fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
-            done
+          windows_args=()
+          if [[ -n "$windows_commit" ]]; then
+            [[ "$windows_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed Windows tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
+            fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/manifest.json" tree/windows-manifest.json
+            if [[ "$windows_commit" != "$GITHUB_SHA" ]]; then
+              for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
+                fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+              done
+            fi
+            windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$windows_commit")
+          else
+            echo "::warning title=tree without Windows::tree $KEY is published without the Windows daemon (the optional Windows build made none); a later republication adds it"
           fi
           python3 scripts/ci/publish-cmux-tui-tree.py \
             --key "$KEY" \
@@ -1573,8 +1610,7 @@ jobs:
             --assets-dir assets/tree \
             --manifest-file manifest.json \
             "${source_args[@]}" \
-            --windows-manifest-file tree/windows-manifest.json \
-            --windows-source-commit "$windows_commit" \
+            "${windows_args[@]}" \
             --uploader scripts/ci/upload-r2-object.py \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries
@@ -1592,7 +1628,14 @@ jobs:
           set -euo pipefail
           verify_tree() {
           local base="https://files.cmux.com/cmux-tui/tree/$1" name published_sha
-          for name in cmux-tui-aarch64-apple-darwin cmux-tui-x86_64-unknown-linux-musl cmux-tui-aarch64-unknown-linux-musl cmux-tui-x86_64-pc-windows-gnu.exe; do
+          names="cmux-tui-aarch64-apple-darwin cmux-tui-x86_64-unknown-linux-musl cmux-tui-aarch64-unknown-linux-musl"
+          # The Windows daemon is optional: verified when the tree has it.
+          if curl -fsSL --proto '=https' -o /dev/null "$base/completion-windows.json?verify=$GITHUB_RUN_ID"; then
+            names="$names cmux-tui-x86_64-pc-windows-gnu.exe"
+          else
+            echo "::warning title=tree without Windows::$base has no completion-windows.json"
+          fi
+          for name in $names; do
             curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID"
             published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID" | awk 'NR==1{print $1}')"
             [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]

@@ -155,6 +155,8 @@ class VerifyPublishedManifestTests(TestCase):
         # cmux-tui/<sha>/ or cmux-tui/latest/, which the public Windows
         # installer reads (asserted below with --forbid-artifact).
         self.assertIs(build["include_windows"], True)
+        # A Windows failure must not block the macOS and Linux tree.
+        self.assertIs(build["windows_optional"], True)
         self.assertIs(build["package_npm"], False)
         self.assertIs(build["package_pypi"], False)
 
