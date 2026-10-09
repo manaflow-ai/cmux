@@ -88,7 +88,10 @@ impl Hub {
         // The CLIs need the login environment (PATH, API keys).
         self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
-        let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
+        // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
+        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+            .await
+            .unwrap_or_else(|_| std::env::temp_dir());
         let started = std::time::Instant::now();
         let listed =
             crate::live_models::probe(target.cli, &target.argv, &target.env, &cwd, PROBE_TIMEOUT)

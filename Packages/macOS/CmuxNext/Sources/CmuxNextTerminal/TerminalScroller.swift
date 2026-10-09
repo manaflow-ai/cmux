@@ -7,8 +7,10 @@ import CmuxNextDesign
 /// - overlay ("When scrolling", or "Automatically" with a trackpad): hidden at rest, shown while
 ///   the viewport moves through the scrollback (wheel, keyboard, search), never for output that
 ///   only follows the bottom. It takes no clicks, so the last column stays the terminal's.
-/// - legacy ("Always"): always shown in its own strip; the host narrows the surface by
-///   ``reservedWidth`` so no cell sits under it. Dragging it scrolls the terminal.
+/// - legacy ("Always"): shown in its own strip whenever there is scrollback (no empty track when
+///   everything fits); the host always narrows the surface by ``reservedWidth`` so no cell sits
+///   under it and the grid does not resize when scrollback appears. Dragging it scrolls the
+///   terminal.
 ///
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so
 /// AppKit draws and animates a native scroller in either style.
@@ -62,8 +64,8 @@ final class TerminalScroller: NSScrollView {
 
     private func apply(_ style: NSScroller.Style) {
         scrollerStyle = style
-        // "Always" shows the track even when everything fits, as Terminal does.
-        autohidesScrollers = style == .overlay
+        // Both styles hide the scroller while everything fits (the document equals the viewport).
+        autohidesScrollers = true
     }
 
     /// The width the host keeps free for the scroller: the legacy scroller's, else none.
