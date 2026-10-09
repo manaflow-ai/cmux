@@ -29,6 +29,8 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 const SDDL_REVISION_1: u32 = 1;
 /// winnt.h JOB_OBJECT_QUERY (windows-sys has it under SystemServices).
 const JOB_OBJECT_QUERY: u32 = 0x0004;
+/// winnt.h READ_CONTROL: GetSecurityInfo reads the owner through it.
+const READ_CONTROL: u32 = 0x0002_0000;
 
 /// `Local\cmux-tui-job-<user>-<session token>-<terminal hex>-<incarnation hex>`:
 /// session-local, one per terminal incarnation. None for a component with
@@ -118,12 +120,12 @@ impl NamedJob {
         Ok(job)
     }
 
-    /// Opens an existing job for queries and checks that its owner is our
-    /// token user.
+    /// Opens an existing job for queries (and READ_CONTROL, to read its
+    /// owner) and checks that its owner is our token user.
     pub fn open_checked(name: &str) -> io::Result<Self> {
         let wname = wide(name);
         // SAFETY: a NUL-terminated name.
-        let handle = unsafe { OpenJobObjectW(JOB_OBJECT_QUERY, 0, wname.as_ptr()) };
+        let handle = unsafe { OpenJobObjectW(JOB_OBJECT_QUERY | READ_CONTROL, 0, wname.as_ptr()) };
         if handle.is_null() {
             return Err(io::Error::last_os_error());
         }
