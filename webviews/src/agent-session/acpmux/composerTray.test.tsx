@@ -6,10 +6,11 @@ import type { AcpmuxSnapshot } from "./model";
 // The composer card and its location row (cx-lzld, Lawrence 2026-10-08: "bottom part looks bad",
 // and the folder menu drew under the card). The pane's own stylesheets, in the order the pane
 // bundle concatenates them (scripts/cmux-next/build-agent-pane-web.sh), without src/ui/ui.css,
-// which the pane does not load.
+// which the pane does not load. Keep the desktop layer here: it owns the production layer tokens.
 const css = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const dom = new JSDOM(
   `<!doctype html><style>${[
+    "../../pages/shared/desktop.css",
     "./styles.css",
     "./composerControls.css",
     "./composerStates.css",
@@ -104,7 +105,10 @@ const render = async () => {
 };
 
 const zIndex = (element: Element) => {
-  const value = Number.parseInt(dom.window.getComputedStyle(element).zIndex, 10);
+  const style = dom.window.getComputedStyle(element);
+  const raw = style.zIndex.trim();
+  const token = /^var\((--[\w-]+)\)$/.exec(raw)?.[1];
+  const value = Number.parseInt(token ? style.getPropertyValue(token).trim() : raw, 10);
   return Number.isNaN(value) ? 0 : value;
 };
 
@@ -132,6 +136,7 @@ test("an open location menu stacks above the composer card", async () => {
   expect(positioner).not.toBeNull();
   // The menu portals out of the composer, and its layer outranks every layer the card makes.
   expect(doc.querySelector(".acpmux-composer")!.contains(positioner)).toBe(false);
+  expect(dom.window.getComputedStyle(doc.documentElement).getPropertyValue("--layer-dropdown").trim()).toBe("50");
   const card = [
     doc.querySelector(".acpmux-composer")!,
     doc.querySelector(".acpmux-composer-box")!,

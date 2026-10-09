@@ -14,7 +14,7 @@ import { fixtureSteps } from "../src/gallery/frame/settingsPasswords";
 const restore = installDom();
 const savedSelect = globalThis.HTMLSelectElement;
 globalThis.HTMLSelectElement = window.HTMLSelectElement;
-const { renderPage, settle, run } = await import("../src/pages/settings/testing");
+const { renderPage, settle } = await import("../src/pages/settings/testing");
 afterAll(() => {
   globalThis.HTMLSelectElement = savedSelect;
   restore();
@@ -32,13 +32,15 @@ for (const [name, state] of Object.entries(settings.variants)) {
     const page = await renderPage({
       mock: structuredClone(state.options ?? {}),
       path: sectionHref(state.section, state.focus),
+      setup(provider) {
+        // Match the gallery renderer: configure the provider before the page reads its state.
+        provider.host = { ...provider.host, ...structuredClone(state.host ?? {}) };
+        if (state.accounts) provider.accounts = structuredClone(state.accounts);
+        if (state.agents) provider.agents.state = { ...provider.agents.state, ...structuredClone(state.agents) };
+        if (state.harnesses) provider.harnesses = structuredClone(state.harnesses);
+      },
     });
     try {
-      await run(async () => {
-        page.provider.setHost({ ...page.provider.host, ...structuredClone(state.host ?? {}) });
-        if (state.accounts) page.provider.accounts = structuredClone(state.accounts);
-        await page.store.refreshAccounts();
-      });
       const category = categoryOf(state.section);
       expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe(category);
       // The Theme section draws appearance.theme and appearance.appTheme as its pickers.
@@ -55,6 +57,22 @@ for (const [name, state] of Object.entries(settings.variants)) {
       if (name === "search-empty")
         expect(page.container.querySelectorAll("[data-row-key]:not([data-filtered])").length).toBe(0);
       if (name === "search-results") expect(page.container.querySelectorAll("mark").length).toBeGreaterThan(0);
+      if (name === "agents-cli") {
+        expect(page.container.querySelector("[data-agents-cli]")?.textContent).toContain("cmux harness add");
+        const buttons = [...page.container.querySelectorAll('[data-card="agentHarnesses"] button')].map(
+          (button) => button.textContent,
+        );
+        expect(buttons).toEqual(["Refresh"]);
+      }
+      if (name === "agents-empty") expect(page.container.querySelectorAll("[data-agent-harness]")).toHaveLength(0);
+      if (state.harnesses) {
+        expect(
+          [...page.container.querySelectorAll<HTMLElement>("[data-harness]")].map((row) => row.dataset.harness),
+        ).toEqual(state.harnesses.harnesses.map((row) => row.id));
+        expect(
+          page.container.querySelector<HTMLElement>("[data-harnesses-problem]")?.dataset.harnessesProblem ?? null,
+        ).toBe(state.harnesses.problem);
+      }
     } finally {
       page.unmount();
     }

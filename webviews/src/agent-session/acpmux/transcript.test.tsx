@@ -76,6 +76,13 @@ const { createRoot } = await import("react-dom/client");
 const { AcpmuxApp, VirtualTranscript } = await import("./App");
 const { acpmuxPerf } = await import("./perf");
 
+// Shared radio menus include a decorative check indicator outside their accessible label.
+function menuItemLabel(item: Element): string {
+  const label = item.cloneNode(true) as Element;
+  for (const decoration of label.querySelectorAll('[aria-hidden="true"]')) decoration.remove();
+  return label.textContent ?? "";
+}
+
 /// jsdom does no layout: give the transcript scroller a scriptable viewport and scroll offset.
 function fakeViewport(size: { width: number; height: number }) {
   const prototype = dom.window.HTMLElement.prototype;
@@ -1650,12 +1657,12 @@ describe("acpmux turn diff", () => {
       const more = panel.querySelector<HTMLElement>('[aria-label="More actions for notes.md"]')!;
       expect(more).not.toBeNull();
       expect([more.getAttribute("aria-haspopup"), more.getAttribute("aria-expanded")]).toEqual(["menu", "false"]);
-      const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
+      const items = () => [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
       // The menu opens on its first item; Copy path copies the file's full path and closes it.
       more.focus();
       await click(more);
       expect(more.getAttribute("aria-expanded")).toBe("true");
-      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Open file in a tab", "Collapse file"]);
+      expect(items().map(menuItemLabel)).toEqual(["Copy path", "Open file in a tab", "Collapse file"]);
       expect(document.activeElement).toBe(items()[0]);
       await click(items()[0]!);
       expect(copied).toEqual(["/repo/notes.md"]);
@@ -1671,7 +1678,7 @@ describe("acpmux turn diff", () => {
       expect(items()).toEqual([]);
       // Folded, the item opens the file again.
       await click(more);
-      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Open file in a tab", "Expand file"]);
+      expect(items().map(menuItemLabel)).toEqual(["Copy path", "Open file in a tab", "Expand file"]);
       await click(items()[2]!);
       expect(diffShown()).toEqual([true, true]);
       // Escape closes only the menu and returns focus to its button; the view stays open.
@@ -1766,7 +1773,7 @@ describe("acpmux turn diff", () => {
       ]);
       // So does the More menu's Open file in a tab.
       await click(panel.querySelector('[aria-label="More actions for notes.md"]')!);
-      const item = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
         (node) => node.textContent === "Open file in a tab",
       )!;
       await click(item);
@@ -1869,7 +1876,7 @@ describe("acpmux turn diff", () => {
       expect(notice()?.textContent).toBe("The file could not be opened.");
       await click(panel.querySelector('.acpmux-diff-header [aria-haspopup="menu"]')!);
       await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+        [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
           (node) => node.textContent === "Uncommitted",
         )!,
       );
@@ -1879,7 +1886,7 @@ describe("acpmux turn diff", () => {
       expect(panel.querySelector('[aria-label="Open src/old.ts in a tab"]')).toBeNull();
       expect(panel.querySelector('[aria-label="Open src/old.ts in the editor"]')).toBeNull();
       await click(panel.querySelector('[aria-label="More actions for src/old.ts"]')!);
-      const items = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((node) => node.textContent);
+      const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((node) => node.textContent);
       expect(items).toEqual(["Copy path", "Collapse file"]);
     } finally {
       await act(async () => root.unmount());
@@ -2282,7 +2289,7 @@ describe("acpmux turn diff", () => {
       const pill = panel.querySelector<HTMLElement>('.acpmux-diff-header [aria-haspopup="menu"]')!;
       expect(pill).not.toBeNull();
       expect(pill.querySelector("strong")?.textContent).toBe("Last turn");
-      const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')];
+      const items = () => [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')];
       const eye = () => panel.querySelector<HTMLElement>(".acpmux-diff-file [aria-pressed]")!;
       // The turn's file, marked viewed, folds away.
       await click(eye());
@@ -2292,7 +2299,7 @@ describe("acpmux turn diff", () => {
       pill.focus();
       await click(pill);
       expect(pill.getAttribute("aria-expanded")).toBe("true");
-      expect(items().map((item) => item.textContent)).toEqual([
+      expect(items().map(menuItemLabel)).toEqual([
         "Last turn",
         "Uncommitted",
         "Unstaged",
@@ -2300,7 +2307,7 @@ describe("acpmux turn diff", () => {
         "Committed",
         "Branch",
       ]);
-      expect(panel.querySelectorAll('[role="menu"] hr').length).toBe(2);
+      expect(document.querySelectorAll('[role="menu"] [role="separator"]').length).toBe(2);
       expect(items().map((item) => item.getAttribute("aria-checked"))).toEqual([
         "true",
         "false",
@@ -2351,10 +2358,10 @@ describe("acpmux turn diff", () => {
       expect(panel.querySelector("output")?.textContent).toBe("Loading changes…");
       // A scope with nothing in it says so. An arrow key opens the menu from the pill too.
       await key(pill, "ArrowDown");
-      expect(document.activeElement?.textContent).toBe("Uncommitted");
+      expect(document.activeElement ? menuItemLabel(document.activeElement) : "").toBe("Uncommitted");
       await key(document.activeElement!, "ArrowDown");
       await key(document.activeElement!, "ArrowDown");
-      expect(document.activeElement?.textContent).toBe("Staged");
+      expect(document.activeElement ? menuItemLabel(document.activeElement) : "").toBe("Staged");
       await key(document.activeElement!, "Enter");
       await settle();
       expect(asked.at(-1)).toEqual({ scope: "staged", include_patch: true });
@@ -2463,7 +2470,7 @@ describe("acpmux turn diff", () => {
       const rows = () => [
         ...panel.querySelectorAll<HTMLButtonElement>('[aria-label="Changes options"][role="menu"] [role="menuitem"]'),
       ];
-      const row = (label: string) => rows().find((item) => item.textContent === label)!;
+      const row = (label: string) => rows().find((item) => menuItemLabel(item) === label)!;
       const tool = (id: string) => panel.querySelector<HTMLElement>(`[data-tool="${id}"]`)!;
       // Last turn comes from the transcript: nothing to refresh and no git patches to copy.
       await click(options);
@@ -2502,7 +2509,7 @@ describe("acpmux turn diff", () => {
       const pill = panel.querySelector<HTMLElement>(".acpmux-diff-scope")!;
       await click(pill);
       await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+        [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
           (item) => item.textContent === "Uncommitted",
         )!,
       );
@@ -2623,7 +2630,7 @@ describe("acpmux turn diff", () => {
       const pick = async (label: string) => {
         await click(panel.querySelector<HTMLElement>(".acpmux-diff-scope")!);
         await click(
-          [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+          [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
             (item) => item.textContent === label,
           )!,
         );
