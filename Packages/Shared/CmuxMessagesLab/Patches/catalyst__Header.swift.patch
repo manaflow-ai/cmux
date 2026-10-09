@@ -1,0 +1,13 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Header.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Header.swift
+@@ -167,7 +167,9 @@
+         super.init(frame: frame)
+         isUserInteractionEnabled = false
+         addSubview(canvas)
+-        canvas.drawer = { [unowned self] ctx, b in
++        // cmux: weak capture, not unowned (crash program: no trap after the view is freed).
++        canvas.drawer = { [weak self] ctx, b in
++            guard let self else { return }
+             if self.drawsTrafficLights {
+                 // Measured top/bottom colours of each glassy light, plus a light rim.
+                 let colors: [((CGFloat, CGFloat, CGFloat), (CGFloat, CGFloat, CGFloat))] = [
