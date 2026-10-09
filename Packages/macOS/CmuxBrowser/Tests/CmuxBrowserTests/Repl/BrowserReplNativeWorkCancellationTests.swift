@@ -75,9 +75,9 @@ struct BrowserReplNativeWorkCancellationTests {
     }
 
     /// One group can hold every secret the store takes; cancellation is
-    /// checked between its entries too, and what was loaded before it
-    /// stopped is masked.
-    @Test("secrets.load stops between the entries of one group once cancelled, masking what it loaded")
+    /// checked between its entries too, and a load that stops registers
+    /// none of them (a load registers all its entries or none).
+    @Test("secrets.load stops between the entries of one group once cancelled, registering none of them")
     func secretsLoadStopsWithinAGroup() throws {
         let store = BrowserReplSecretStore()
         var group: [String: Any] = [:]
@@ -90,9 +90,8 @@ struct BrowserReplNativeWorkCancellationTests {
             return checks > 4
         }
         #expect(throws: CancellationError.self) { try store.load(["example.com": group], isCancelled: cancelled) }
-        let loaded = store.describe().count
-        #expect(loaded >= 1 && loaded < 200, "\(loaded) of 200 secrets loaded")
-        #expect(store.redact("value-0-s3cr3t") == "<secret:k000>")
+        #expect(checks == 5, "the load ran \(checks) cancellation checks, not stopping at the first cancelled one")
+        #expect(store.describe().isEmpty, "\(store.describe().count) of 200 secrets loaded")
     }
 
     /// A secrets file holds at most 256 values of 4 KiB with their domain
