@@ -49897,6 +49897,138 @@
         }
       }
     },
+    "picker.fullAccessWarning": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can edit and run commands without asking"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكنه تعديل الملفات وتشغيل الأوامر دون طلب الإذن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Može uređivati datoteke i pokretati naredbe bez pitanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan redigere filer og køre kommandoer uden at spørge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kann Dateien bearbeiten und Befehle ausführen, ohne zu fragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puede editar archivos y ejecutar comandos sin preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Peut modifier des fichiers et exécuter des commandes sans demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Può modificare file ed eseguire comandi senza chiedere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確認せずにファイルを編集し、コマンドを実行できます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាចកែសម្រួលឯកសារ និងដំណើរការពាក្យបញ្ជាដោយមិនសួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "묻지 않고 파일을 편집하고 명령을 실행할 수 있음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan redigere filer og kjøre kommandoer uten å spørre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Może edytować pliki i uruchamiać polecenia bez pytania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pode editar arquivos e executar comandos sem perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Может редактировать файлы и выполнять команды без запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แก้ไขไฟล์และเรียกใช้คำสั่งได้โดยไม่ต้องถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sormadan dosyaları düzenleyebilir ve komutları çalıştırabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Може редагувати файли й виконувати команди без запиту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Có thể chỉnh sửa tệp và chạy lệnh mà không hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "可编辑文件并运行命令，无需询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "可編輯檔案並執行指令，無需詢問"
+          }
+        }
+      }
+    },
     "picker.mode": {
       "comment": "Agent pane",
       "extractionState": "manual",
