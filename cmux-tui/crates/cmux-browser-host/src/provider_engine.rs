@@ -159,7 +159,10 @@ impl ProviderEngine {
         } else {
             self.provider.tab_rows(&self.engine)
         };
-        let driven = self.driven.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let mut driven = self.driven.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if provider_session {
+            driven.extend(self.provider.kept_by(&self.lease.session));
+        }
         Value::Array(
             rows.into_iter()
                 .filter(|row| {
@@ -297,8 +300,10 @@ impl ProviderEngine {
         // session's tabs; the app has no part in it).
         if method == "tab.keep" {
             self.created_tabs().remove(target_id);
-            // Still the session's own tab to list and drive.
+            // Still the session's own tab to list and drive, also for the
+            // next session of the same name (a one-shot eval ends its session).
             self.driven.lock().unwrap_or_else(PoisonError::into_inner).insert(target_id.to_owned());
+            self.provider.remember_kept(&self.lease.session, target_id);
             self.provider.kept(self.subscription, target_id);
             return Ok(Reply::Value(Value::Null));
         }

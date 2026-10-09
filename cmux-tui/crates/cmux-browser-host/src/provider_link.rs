@@ -52,6 +52,8 @@ pub struct ProviderDriver {
     pub(crate) request_filters: Mutex<HashMap<u64, crate::provider_source::SessionFilter>>,
     /// Downloads the app reported (`download.path` of provider sessions).
     pub(crate) downloads: Arc<crate::provider_downloads::ProviderDownloads>,
+    /// Tabs each session name kept (`tab.keep`), across its engines.
+    pub(crate) kept_tabs: Mutex<HashMap<String, std::collections::BTreeSet<String>>>,
 }
 
 pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_source::CefTab>>>>;
@@ -242,6 +244,7 @@ impl ProviderDriver {
             attach_lock: Mutex::new(()),
             request_filters: Mutex::new(HashMap::new()),
             downloads,
+            kept_tabs: Mutex::new(HashMap::new()),
             leases,
         }))
     }
