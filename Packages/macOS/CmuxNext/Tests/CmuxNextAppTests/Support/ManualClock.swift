@@ -73,6 +73,9 @@ final class ManualClock: Clock, Sendable {
         due.forEach { $0.continuation.resume() }
     }
 
+    /// Sleeps pending now (a cancelled sleep leaves at once).
+    var pendingSleepers: Int { state.withLock { $0.sleepers.count } }
+
     /// Returns once at least `count` sleeps are pending.
     func sleepers(atLeast count: Int = 1) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in

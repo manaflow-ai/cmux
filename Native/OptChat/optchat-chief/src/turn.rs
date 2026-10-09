@@ -296,6 +296,16 @@ pub fn run_with_drafts(
             return refused(trace, start, &reason);
         }
     };
+    // codex under approve-all: no workspace-write sandbox, so the turn's
+    // cmux calls reach the app and daemon sockets (E6). Before the prompt.
+    if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &start.session.policy)
+        && let Err(e) = agents.set_mode(&session, mode)
+    {
+        log(&format!(
+            "turn {}: {e}; its cmux calls may be sandboxed",
+            start.key
+        ));
+    }
     folding.replace(Some(session.clone()));
     let drafter = std::cell::RefCell::new(crate::draft::Drafter::new(
         &start.key,

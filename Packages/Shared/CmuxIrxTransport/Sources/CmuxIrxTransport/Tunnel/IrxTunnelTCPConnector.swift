@@ -121,7 +121,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
             host = .ipv6(v6)
         }
         let tcp = NWProtocolTCP.Options()
-        tcp.connectionTimeout = max(1, Int(timeout.components.seconds))
+        tcp.connectionTimeout = max(1, Int(clamping: timeout.components.seconds))
         tcp.noDelay = true
         let parameters = NWParameters(tls: nil, tcp: tcp)
         parameters.preferNoProxies = true

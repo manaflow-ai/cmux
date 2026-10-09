@@ -168,6 +168,7 @@ fn setup_with(f: impl FnOnce(Spawner) -> Spawner) -> Setup {
             harness: "claude-sr".into(),
             policy: "approve-all".into(),
             model: None,
+            effort: None,
             preset: Some("optchat-sub-h0me".into()),
             cwd: h.dir.path().join("subagent"),
             prefix: "optchat-sub-h0me".into(),
@@ -973,4 +974,65 @@ fn a_tell_that_cannot_steer_is_queued_as_its_next_prompt() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     assert!(s.h.agents.inner.lock().unwrap().steers.is_empty());
+}
+
+/// Reference parity S11: stop ONE subagent by name (`chief.stop {name}`):
+/// only its session is cancelled; the turn and the other subagents go on.
+#[test]
+fn chief_stop_with_a_name_stops_only_that_subagent() {
+    let mut s = setup();
+    spawn(&mut s, &["one", "two", "three"]).unwrap();
+    let (reply, answer) = std::sync::mpsc::channel();
+    s.h.brain.step(optchat_chief::brain::Input::StopSubagent {
+        name: "a2".into(),
+        reply,
+    });
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": true, "subagents": ["a2"], "note": "Stopped by the user: a2."})
+    );
+    assert_eq!(
+        s.h.agents.inner.lock().unwrap().cancels,
+        vec!["s2".to_owned()]
+    );
+    let (reply, answer) = std::sync::mpsc::channel();
+    s.h.brain.step(optchat_chief::brain::Input::StopSubagent {
+        name: "a9".into(),
+        reply,
+    });
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": false, "error": "no subagent a9 at work"})
+    );
+}
+
+/// Reference parity S2: `spawn(tasks, effort?)`: how hard the subagents
+/// think; by default as hard as the Chief's turn.
+#[test]
+fn a_spawn_takes_an_effort_and_defaults_to_the_turns() {
+    assert_eq!(
+        Call::parse("spawn", &json!({"tasks": ["x"], "effort": "high"})).unwrap(),
+        Call::Spawn {
+            tasks: vec!["x".into()],
+            cwd: None,
+            effort: Some("high".into())
+        }
+    );
+    assert!(Call::parse("spawn", &json!({"tasks": ["x"], "effort": "harder"})).is_err());
+    let mut s = setup();
+    s.h.say("user_local", "hello");
+    s.h.settle();
+    call(&mut s, |sp| {
+        sp.spawn_with_effort(vec!["one".into()], None, Some("high".into()))
+    })
+    .unwrap();
+    spawn(&mut s, &["two"]).unwrap();
+    let specs = s.h.agents.inner.lock().unwrap().specs.clone();
+    let turn = specs[0].effort.clone();
+    let subs: Vec<_> = specs
+        .iter()
+        .filter(|sp| sp.name.starts_with("optchat-sub-h0me-"))
+        .collect();
+    assert_eq!(subs[0].effort.as_deref(), Some("high"));
+    assert_eq!(subs[1].effort, turn, "as hard as the turn");
 }

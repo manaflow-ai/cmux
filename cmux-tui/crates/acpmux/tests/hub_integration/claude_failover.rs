@@ -172,3 +172,93 @@ async fn a_restart_before_the_first_turn_still_never_resumes_an_unstored_convers
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A Claude conversation lives in the store of the profile that ran it
+/// (its CLAUDE_CONFIG_DIR). A failover onto a profile with another store
+/// after a finished turn resumed an id that store never had: "No
+/// conversation found with session ID" (E1, 2026-10-09). The fallback
+/// starts a fresh conversation, with the restored transcript, instead.
+#[tokio::test]
+async fn a_failover_to_another_store_starts_fresh_with_the_transcript() {
+    let root = std::env::temp_dir().join(format!("acpmux-claude-stores-{}", uuid::Uuid::now_v7()));
+    let (store_a, store_b, die) = (root.join("a"), root.join("b"), root.join("die"));
+    std::fs::create_dir_all(&store_a).unwrap();
+    std::fs::create_dir_all(&store_b).unwrap();
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let profile = |store: &std::path::Path, fallback: Option<&str>| {
+        let mut env = BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            store.to_string_lossy().into_owned(),
+        )]);
+        if fallback.is_some() {
+            env.insert("FAKE_CLAUDE_DIE_IF".into(), die.to_string_lossy().into_owned());
+        }
+        HarnessProfile {
+            kind: acpmux::config::HarnessKind::ClaudeStdio,
+            argv: vec!["python3".into(), fake_claude.into()],
+            env,
+            description: None,
+            fallback: fallback.map(str::to_owned),
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        }
+    };
+    let agents = BTreeMap::from([
+        ("primary".to_owned(), profile(&store_a, Some("direct"))),
+        ("direct".to_owned(), profile(&store_b, None)),
+    ]);
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("primary".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
+        .await
+        .unwrap();
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "stores"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    // Turn 1 finishes on primary: its conversation is in primary's store.
+    let one = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "one"}]}),
+        )
+        .await
+        .expect("turn 1 answers on primary");
+    assert_eq!(one["stopReason"], "end_turn");
+    // Primary's launcher now dies on its prompt: acpmux fails over to direct.
+    std::fs::write(&die, "").unwrap();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    let two = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "two"}]}),
+        )
+        .await
+        .expect("the fallback answers turn 2 instead of failing on --resume");
+    assert_eq!(two["stopReason"], "end_turn");
+    assert_eq!(hub.session_summary(&session)["harness"], "direct");
+    let kinds: Vec<String> =
+        hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
+    assert!(kinds.iter().any(|k| k == "failover"), "{kinds:?}");
+    assert!(
+        kinds.iter().any(|k| k == "resume_failed"),
+        "the skipped resume is recorded: {kinds:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
