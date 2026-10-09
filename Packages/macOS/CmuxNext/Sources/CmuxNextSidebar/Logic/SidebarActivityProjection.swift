@@ -44,7 +44,12 @@ public nonisolated enum SidebarActivityBucket: Hashable, Sendable, CaseIterable 
     /// The group of a chat last active at `date`, by `calendar` days. A time
     /// after `now` (clock skew between machines) counts as today.
     public static func of(_ date: Date, now: Date, calendar: Calendar) -> Self {
-        .older
+        let today = calendar.startOfDay(for: now)
+        if date >= today { return .today }
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+              let weekStart = calendar.date(byAdding: .day, value: -6, to: today) else { return .older }
+        if date >= yesterday { return .yesterday }
+        return date >= weekStart ? .thisWeek : .older
     }
 }
 
@@ -62,7 +67,12 @@ public nonisolated struct SidebarActivityProjection: Hashable, Sendable {
     public var groups: [Group]
 
     public init(chats: [SidebarActivityChat], now: Date, calendar: Calendar) {
-        priority = []
-        groups = []
+        let newestFirst = chats.sorted { $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id < $1.id }
+        // A stable sort by urgency keeps newest first within each kind.
+        priority = SidebarActivityAttention.allCases.flatMap { kind in newestFirst.filter { $0.attention == kind } }
+        let byBucket = Dictionary(grouping: newestFirst) { SidebarActivityBucket.of($0.updatedAt, now: now, calendar: calendar) }
+        groups = SidebarActivityBucket.allCases.compactMap { bucket in
+            byBucket[bucket].map { Group(bucket: bucket, chats: $0) }
+        }
     }
 }
