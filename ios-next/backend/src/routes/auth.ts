@@ -4,6 +4,7 @@ import { issueTokens, jwtSecret, requireUser, resolveUser, rotateRefreshToken, u
 import type { HonoEnv } from "../context";
 import { CODE_ALPHABET, hmacHex, randomCode, randomToken, sha256Hex, timingSafeEqual } from "../crypto";
 import { csv } from "../env";
+import { fetchStackUser, verifyStackAccessToken } from "../stack";
 import { ApiError, badRequest, notFound, unauthorized, unavailable } from "../errors";
 import { rateLimit, readJson, str } from "../http";
 
@@ -92,6 +93,36 @@ authRoutes.post("/test", async (c) => {
   const now = deps.now();
   const user = await resolveUser(repo, { provider: "email", subject: email, email, emailVerified: true, name: null }, now);
   return c.json(await issueTokens(repo, jwtSecret(c.env), user, now));
+});
+
+/** Primary sign-in: exchange a Stack Auth access token (same accounts as cmux iOS). */
+authRoutes.post("/stack", async (c) => {
+  await rateLimit(c, "auth");
+  const { repo, deps } = c.var;
+  const secret = jwtSecret(c.env);
+  const body = await readJson(c);
+  const accessToken = str(body, "accessToken", { max: 8192 });
+  const projectId = str(body, "projectId", { max: 64 });
+  const now = deps.now();
+  const claims = await verifyStackAccessToken(accessToken, projectId, csv(c.env.STACK_PROJECT_IDS), deps.fetch, now);
+  if (!claims.email || !claims.name) {
+    try {
+      const extra = await fetchStackUser(accessToken, projectId, deps.fetch);
+      if (!claims.email && extra.email) {
+        claims.email = extra.email;
+        claims.emailVerified = extra.emailVerified ?? false;
+      }
+      claims.name ??= extra.name ?? null;
+    } catch (err) {
+      console.error("stack users/me failed", err instanceof Error ? err.message : err);
+    }
+  }
+  const user = await resolveUser(
+    repo,
+    { provider: "stack", subject: claims.sub, email: claims.email, emailVerified: claims.emailVerified, name: claims.name },
+    now,
+  );
+  return c.json(await issueTokens(repo, secret, user, now));
 });
 
 authRoutes.post("/apple", async (c) => {

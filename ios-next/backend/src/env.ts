@@ -9,6 +9,8 @@ export interface AppEnv {
   AUTH_LIMITER?: RateLimit;
 
   APPLE_AUDIENCES?: string;
+  /** Comma list of Stack Auth project ids accepted by /auth/stack. */
+  STACK_PROJECT_IDS?: string;
   OAUTH_REDIRECT_SCHEMES?: string;
   EMAIL_FROM?: string;
 

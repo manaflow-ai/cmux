@@ -115,3 +115,9 @@ export async function verifyRs256(jwk: JsonWebKey, signingInput: string, signatu
   const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
   return crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, encoder.encode(signingInput));
 }
+
+/** ES256 (P-256, raw r||s signature as used by JOSE). */
+export async function verifyEs256(jwk: JsonWebKey, signingInput: string, signature: Uint8Array): Promise<boolean> {
+  const key = await crypto.subtle.importKey("jwk", { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  return crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, signature, encoder.encode(signingInput));
+}

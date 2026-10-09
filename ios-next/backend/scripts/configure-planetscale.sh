@@ -4,6 +4,7 @@
 #
 #   scripts/configure-planetscale.sh --dry-run   # show the plan, change nothing
 #   scripts/configure-planetscale.sh --yes       # do it (creating a database is billed)
+#   scripts/configure-planetscale.sh --org cmux --yes
 #
 # Requires: `pscale auth login` done, wrangler logged in to the Cloudflare
 # account in wrangler.toml, and the Worker already deployed once.
@@ -28,10 +29,19 @@ ORG_ARGS=()
 [[ -n "${PSCALE_ORG:-}" ]] && ORG_ARGS=(--org "$PSCALE_ORG")
 
 MODE=""
-for arg in "$@"; do
+ARGS=("$@")
+for ((i = 0; i < ${#ARGS[@]}; i++)); do
+  arg="${ARGS[$i]}"
+  if [[ "$arg" == "--org" ]]; then
+    i=$((i + 1))
+    [[ $i -lt ${#ARGS[@]} ]] || { echo "--org needs a value" >&2; exit 2; }
+    ORG_ARGS=(--org "${ARGS[$i]}")
+    continue
+  fi
   case "$arg" in
     --dry-run) MODE="dry" ;;
     --yes) MODE="run" ;;
+    --org=*) ORG_ARGS=(--org "${arg#--org=}") ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
@@ -69,7 +79,7 @@ cheapest_size() {
   ' "$TMP/sizes.json"
 }
 
-echo "PlanetScale database: $DB (mysql, region $REGION, branch $BRANCH)"
+echo "PlanetScale database: $DB (mysql, region $REGION, branch $BRANCH, org ${ORG_ARGS[1]:-<pscale default>})"
 
 if [[ "$MODE" == "dry" ]]; then
   cat <<PLAN
@@ -86,7 +96,7 @@ PLAN
   exit 0
 fi
 
-if ! ps auth check >/dev/null 2>&1; then
+if ! "$PSCALE" auth check >/dev/null 2>&1; then
   echo "pscale is not logged in. Run: $PSCALE auth login" >&2
   exit 1
 fi
@@ -128,4 +138,4 @@ ps password create "$DB" "$BRANCH" "migrate-$STAMP" --role admin --ttl 1h --form
     npx --no-install tsx scripts/migrate.ts
 )
 
-echo "Done. Check: curl -s https://cmux-next-mobile.cmux-presence-worker.workers.dev/v1/health"
+echo "Done. Check: curl -s https://cmux-next-mobile.debussy.workers.dev/v1/health"

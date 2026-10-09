@@ -1,6 +1,6 @@
 name = "cmux-next-mobile"
 main = "src/index.ts"
-account_id = "f6dc2896a972b2d492ec89b1548b74db"
+account_id = "0c1675e0def6de1ab3a50a4e17dc5656"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
@@ -10,6 +10,8 @@ preview_urls = false
 enabled = true
 
 [vars]
+# Stack Auth projects accepted by /v1/auth/stack: cmux prod, cmux dev.
+STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82,454ecd03-1db2-4050-845e-4ce5b0cd9895"
 APPLE_AUDIENCES = "dev.cmux.next.drawer,dev.cmux.next.tabs"
 # Custom URL schemes the OAuth flow may redirect back to.
 OAUTH_REDIRECT_SCHEMES = "cmux-next,dev.cmux.next.drawer,dev.cmux.next.tabs"
@@ -32,5 +34,5 @@ name = "EMAIL"
 # Per-IP limit on unauthenticated auth and pairing routes.
 [[ratelimits]]
 name = "AUTH_LIMITER"
-namespace_id = "41001"
+namespace_id = "73141"
 simple = { limit = 30, period = 60 }

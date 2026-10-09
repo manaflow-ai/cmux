@@ -4,8 +4,10 @@ Cloudflare Worker `cmux-next-mobile` with a `SignalRoom` Durable Object for
 WebRTC signaling and PlanetScale MySQL for storage. The wire contract is
 `../PROTOCOL.md` §5 and §6.
 
-Deployed at `https://cmux-next-mobile.cmux-presence-worker.workers.dev`
-(account `Aziz@manaflow.ai's Account`, `f6dc2896a972b2d492ec89b1548b74db`).
+Deployed at `https://cmux-next-mobile.debussy.workers.dev` (Cloudflare account
+`Lawrencechen2002@gmail.com's Account`, `0c1675e0def6de1ab3a50a4e17dc5656`).
+Database: PlanetScale org `cmux`, MySQL database `cmux-next-mobile` (PS_10,
+us-west).
 
 ## Layout
 
@@ -27,7 +29,8 @@ All bodies are JSON. Errors are `{error:{code,message}}`.
 
 | Method | Path | Auth | Notes |
 | --- | --- | --- | --- |
-| GET | `/health` | - | `{ok, db, email, turn, auth, oauth:{github,google}}` |
+| GET | `/health` | - | `{ok, db, email, turn, auth, stack, oauth:{github,google}}` |
+| POST | `/auth/stack` | - | `{accessToken, projectId}` -> `Tokens`. **Primary sign-in**, see Stack Auth below |
 | POST | `/auth/email/start` | - | `{email}` -> `{nonce}`; mails a 6-char code (A-Z, 2-9, no 0/O/1/I/L). 10 min expiry, 5 codes per email per hour |
 | POST | `/auth/email/verify` | - | `{email, code, nonce}` -> `Tokens`; 5 attempts per code, single use |
 | POST | `/auth/test` | - | `{email, secret}` -> `Tokens`; only when `TEST_LOGIN_SECRET` is set (else 404), see below |
@@ -85,6 +88,7 @@ One `SignalRoom` per user id. Behaviour beyond PROTOCOL.md:
 | `TEST_LOGIN_SECRET` | secret | Enables `POST /v1/auth/test` |
 | `TEST_LOGIN_EMAIL_DOMAINS` | var | Domains `/auth/test` may sign in (default `test.cmux.dev`) |
 | `EMAIL_FROM` | var | Sender address for codes; empty disables email sign-in (503) |
+| `STACK_PROJECT_IDS` | var | Stack Auth projects accepted by `/auth/stack` (cmux prod and dev) |
 | `APPLE_AUDIENCES` | var | `dev.cmux.next.drawer,dev.cmux.next.tabs` |
 | `OAUTH_REDIRECT_SCHEMES` | var | App schemes OAuth may redirect to |
 
@@ -98,16 +102,35 @@ Set a secret without echoing it:
 printf '%s' "$VALUE" | npx wrangler secret put NAME
 ```
 
+### Stack Auth (primary)
+
+The app signs in with Stack Auth exactly like cmux iOS on TestFlight, then
+calls `POST /v1/auth/stack {accessToken, projectId}` with the Stack access
+token. The Worker checks `projectId` against `STACK_PROJECT_IDS` (prod
+`9790718f-14cd-4f7e-824d-eaf527a82b82`, dev
+`454ecd03-1db2-4050-845e-4ce5b0cd9895`), verifies the ES256 signature against
+`https://api.stack-auth.com/api/v1/projects/<projectId>/.well-known/jwks.json`
+(cached 10 min, refetched on an unknown `kid`), requires
+`iss = https://api.stack-auth.com/api/v1/projects/<projectId>`,
+`aud = <projectId>`, an unexpired `exp` (60 s skew) and `is_anonymous != true`.
+The identity is `("stack", <Stack user id>)`; email and name come from the
+claims, or from `GET /api/v1/users/me` (headers `x-stack-access-token`,
+`x-stack-project-id`, `x-stack-access-type: client`) when missing. Only a
+verified email links to an existing account. Email code, Apple and OAuth
+sign-in remain in the code but are disabled until configured.
+
 ### Test sign-in
 
 `POST /v1/auth/test {email, secret}` issues normal tokens. It exists only
 while `TEST_LOGIN_SECRET` is set, compares in constant time, and accepts only
 emails in `TEST_LOGIN_EMAIL_DOMAINS` (default `test.cmux.dev`), so a leaked
 secret cannot take over real accounts. Enable it for automated simulator
-runs, and delete it when done:
+runs. It is set on the deployed Worker; the value is stored on Aziz's Mac at
+`~/.secrets/cmux-next-mobile-test-login` (mode 600). Rotate or remove:
 
 ```sh
-openssl rand -base64 32 | tr -d '\n' | npx wrangler secret put TEST_LOGIN_SECRET
+(umask 077; openssl rand -base64 32 | tr -d '\n' > ~/.secrets/cmux-next-mobile-test-login)
+npx wrangler secret put TEST_LOGIN_SECRET < ~/.secrets/cmux-next-mobile-test-login
 npx wrangler secret delete TEST_LOGIN_SECRET
 ```
 
@@ -141,8 +164,8 @@ EMAIL_FROM = "login@your-domain.example"
 
 ```sh
 /opt/homebrew/bin/pscale auth login
-scripts/configure-planetscale.sh --dry-run
-scripts/configure-planetscale.sh --yes
+scripts/configure-planetscale.sh --org cmux --dry-run
+scripts/configure-planetscale.sh --org cmux --yes
 ```
 
 The script creates database `cmux-next-mobile` (MySQL, `us-west`, the
@@ -159,10 +182,10 @@ npm test             # vitest in the Workers runtime (@cloudflare/vitest-plugin)
 npm run typecheck
 npm run types        # regenerate worker-configuration.d.ts after wrangler.toml changes
 npx wrangler deploy
-curl -s https://cmux-next-mobile.cmux-presence-worker.workers.dev/v1/health
+curl -s https://cmux-next-mobile.debussy.workers.dev/v1/health
 ```
 
 Tests use `REPO_BACKEND=memory` (set only in `vitest.config.ts`) and cover
-email, test, Apple and OAuth sign-in, refresh rotation and reuse, `/me`,
+Stack, email, test, Apple and OAuth sign-in, refresh rotation and reuse, `/me`,
 pairing, `/ice` with and without TURN, and signaling between real phone and
 host WebSockets through the Durable Object, including presence.

@@ -146,6 +146,8 @@ stored hashed). Errors: `{error:{code,message}}` with HTTP status.
 
 | Method | Path | Auth | Body -> Result |
 | --- | --- | --- | --- |
+| POST | `/auth/stack` | - | `{accessToken, projectId}` -> `Tokens`. Primary sign-in: the Stack Auth access token cmux iOS uses (prod `9790718f-14cd-4f7e-824d-eaf527a82b82`, dev `454ecd03-1db2-4050-845e-4ce5b0cd9895`), verified ES256 against the project JWKS |
+| POST | `/auth/test` | - | `{email, secret}` -> `Tokens`. Only when the `TEST_LOGIN_SECRET` secret is set (else 404) and only for `@test.cmux.dev` emails; automated simulator runs |
 | POST | `/auth/email/start` | - | `{email}` -> `{nonce}` (6-char code mailed) |
 | POST | `/auth/email/verify` | - | `{email, code, nonce}` -> `Tokens` |
 | POST | `/auth/apple` | - | `{identityToken, fullName?}` -> `Tokens` |

@@ -1,7 +1,7 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { requireUser, userView } from "./auth";
 import type { Deps, HonoEnv, Mailer } from "./context";
-import { dbConfigured, emailConfigured, oauthConfigured, turnConfigured, type AppEnv } from "./env";
+import { csv, dbConfigured, emailConfigured, oauthConfigured, turnConfigured, type AppEnv } from "./env";
 import { ApiError, errorBody, notFound, unavailable } from "./errors";
 import { repoFromEnv } from "./repo";
 import { authRoutes } from "./routes/auth";
@@ -56,6 +56,7 @@ export function createApp(overrides: Partial<Deps> = {}) {
       email: emailConfigured(c.env),
       turn: turnConfigured(c.env),
       auth: Boolean(c.env.JWT_SECRET),
+      stack: csv(c.env.STACK_PROJECT_IDS).length > 0,
       oauth: { github: oauthConfigured(c.env, "github"), google: oauthConfigured(c.env, "google") },
     }),
   );
