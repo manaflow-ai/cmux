@@ -6095,6 +6095,29 @@ class TerminalController {
         normalizeLineEndings: Bool = true
     ) -> String? {
         guard terminalPanel != nil || terminalTarget != nil else { return nil }
+
+        // Session persistence already caps the capture by rows and characters.
+        // Use Ghostty's bounded formatter so quit does not format an
+        // unbounded history and discard most of it afterward. Keep the export
+        // path as a compatibility fallback for runtimes that reject the
+        // bounded request.
+        if let lineLimit,
+           lineLimit > 0,
+           let surface = terminalPanel?.surface ?? terminalTarget?.surface,
+           let boundedOutput = surface.readBoundedScreenTailVT(
+               maxRows: lineLimit,
+               maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4
+           ) {
+#if DEBUG
+            cmuxDebugLog(
+                "session.scrollbackCapture bounded=1 rows=\(lineLimit)"
+            )
+#endif
+            return normalizeLineEndings
+                ? Self.normalizedMobileVTExportText(boundedOutput)
+                : boundedOutput
+        }
+
         var actionSucceeded = false
         let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
             let ok = terminalTarget?.performInternalBindingAction(bindingAction)
