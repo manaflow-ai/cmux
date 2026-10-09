@@ -3,6 +3,13 @@ use acpmux::adopt::HarnessHomes;
 
 const ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
 const LIVE_ID: &str = "0199a1b2-1111-7e5f-8a9b-0c1d2e3f4a5b";
+/// The fork test's own chat. Its forked harness runs `claude --resume <id>
+/// --fork-session` outside any `acpmux` process, so every other test that
+/// adopts the same id while it runs is refused as "open in another process".
+/// Tests run concurrently (threads under `cargo test`, processes under
+/// `cargo nextest`), so no two tests may share a session id that one of them
+/// keeps on a live harness command line.
+const FORK_ID: &str = "0199a1b2-2222-7e5f-8a9b-0c1d2e3f4a5b";
 
 /// A hub whose fake harnesses are Codex-family, and a fixture Codex store
 /// holding one rollout recorded in a temp project folder.
@@ -180,7 +187,7 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
     let root = std::env::temp_dir().join(format!("acpmux-adopt-fork-{}", uuid::Uuid::now_v7()));
     let project = root.join("project");
     std::fs::create_dir_all(&project).unwrap();
-    let transcript = root.join(format!("claude/projects/-project/{ID}.jsonl"));
+    let transcript = root.join(format!("claude/projects/-project/{FORK_ID}.jsonl"));
     std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
     std::fs::write(&transcript, format!("{}\n", json!({"type": "user", "cwd": project}))).unwrap();
     hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
@@ -193,19 +200,19 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
         .unwrap();
 
     // Just written: live.
-    let refused = c.request(method::SESSION_NEW, adopt("fakeclaude", ID)).await.unwrap_err();
+    let refused = c.request(method::SESSION_NEW, adopt("fakeclaude", FORK_ID)).await.unwrap_err();
     assert!(refused.contains("written"), "{refused}");
     let forked =
-        c.request(method::SESSION_NEW, adopt_if_live("fakeclaude", ID, Some("fork"))).await;
+        c.request(method::SESSION_NEW, adopt_if_live("fakeclaude", FORK_ID, Some("fork"))).await;
     let id = forked.unwrap()["sessionId"].as_str().unwrap().to_owned();
     let session = hub.resolve(&id).unwrap();
     assert_eq!(session.meta().cwd, project);
-    assert_ne!(session.meta().agent_session_id.as_deref(), Some(ID));
+    assert_ne!(session.meta().agent_session_id.as_deref(), Some(FORK_ID));
     let events = hub.events(&session.id, 0, 10_000).unwrap();
     let mux = |kind: &str| {
         events.iter().find(|e| e.dir == "mux" && e.kind == kind).map(|e| e.msg.clone())
     };
-    assert_eq!(mux("adopted"), Some(json!({"agentSessionId": ID, "fork": true})));
+    assert_eq!(mux("adopted"), Some(json!({"agentSessionId": FORK_ID, "fork": true})));
     assert_eq!(mux("resumed"), Some(json!({"level": "fork"})));
     let _ = std::fs::remove_dir_all(root);
 }
