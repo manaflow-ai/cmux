@@ -86,8 +86,8 @@ describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, 
       return lateReply
     })
     expect(r).toMatchObject({ ok: false })
-    // The slow one and the one after asked Stack; the late one never did.
-    expect(t.w.calls() - base).toBe(2)
+    // The slow one and the one after asked Stack (team and member list each); the late one never did.
+    expect(t.w.calls() - base).toBe(4)
   })
 
   it("no session of a removed member reconnects to the shared team's cloud socket", async () => {

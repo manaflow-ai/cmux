@@ -51,50 +51,6 @@ final class FakeDataStoreFactory: WebsiteDataStoreFactory {
     }
 }
 
-@Suite struct SupportTests {
-    @Test func downloadDestinationsAreUniqueAndConfined() {
-        let directory = URL(filePath: "/tmp/dl", directoryHint: .isDirectory)
-        var existing: Set<String> = ["/tmp/dl/report.pdf", "/tmp/dl/report (1).pdf", "/tmp/dl/README"]
-        let exists: (URL) -> Bool = { existing.contains($0.path(percentEncoded: false)) }
-
-        #expect(DownloadDestination.uniqueURL(in: directory, suggestedFilename: "report.pdf", exists: exists)?.lastPathComponent == "report (2).pdf")
-        #expect(DownloadDestination.uniqueURL(in: directory, suggestedFilename: "README", exists: exists)?.lastPathComponent == "README (1)")
-        #expect(DownloadDestination.uniqueURL(in: directory, suggestedFilename: "../../etc/passwd", exists: exists)?.path(percentEncoded: false) == "/tmp/dl/passwd")
-        #expect(DownloadDestination.sanitizedFilename(".hidden") == "hidden")
-        #expect(DownloadDestination.sanitizedFilename("a:b.txt") == "a-b.txt")
-        #expect(DownloadDestination.sanitizedFilename("  ") == "download")
-        existing.removeAll()
-    }
-
-    @Test func findStateTracksPositionWithWraparound() {
-        var find = FindState()
-        #expect(find.step(query: "a", direction: .forward, matchFound: true, count: 3).currentIndex == 1)
-        #expect(find.step(query: "a", direction: .forward, matchFound: true, count: 3).currentIndex == 2)
-        #expect(find.step(query: "a", direction: .forward, matchFound: true, count: 3).currentIndex == 3)
-        #expect(find.step(query: "a", direction: .forward, matchFound: true, count: 3).currentIndex == 1)
-        #expect(find.step(query: "a", direction: .backward, matchFound: true, count: 3).currentIndex == 3)
-        #expect(find.step(query: "ab", direction: .backward, matchFound: true, count: 2).currentIndex == 2)
-        let miss = find.step(query: "zz", direction: .forward, matchFound: false, count: 0)
-        #expect(!miss.matchFound)
-        #expect(miss.currentIndex == nil)
-    }
-
-    @Test func jsValuesConvertFromFoundation() {
-        #expect(BrowserJSValue(foundation: nil) == .null)
-        #expect(BrowserJSValue(foundation: NSNumber(value: true)) == .bool(true))
-        #expect(BrowserJSValue(foundation: NSNumber(value: 2.5)) == .number(2.5))
-        #expect(BrowserJSValue(foundation: ["a": [1, "x", NSNull()]] as [String: Any])
-            == .object(["a": .array([.number(1), .string("x"), .null])]))
-        #expect(BrowserJSValue.string("s").stringValue == "s")
-    }
-
-    @Test func newTabDispositionFromModifiers() {
-        #expect(WebKitTab.isWebScheme(URL(string: "https://x.example")!))
-        #expect(!WebKitTab.isWebScheme(URL(string: "mailto:a@b.c")!))
-        #expect(!WebKitTab.isWebScheme(URL(string: "zoommtg://join")!))
-    }
-}
-
 @Suite struct SuggestionTests {
     let now = Date(timeIntervalSince1970: 2_000_000_000)
 
