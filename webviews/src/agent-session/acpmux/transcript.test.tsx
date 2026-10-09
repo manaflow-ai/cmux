@@ -1869,7 +1869,7 @@ describe("acpmux turn diff", () => {
       expect(notice()?.textContent).toBe("The file could not be opened.");
       await click(panel.querySelector('.acpmux-diff-header [aria-haspopup="menu"]')!);
       await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+        [...document.querySelectorAll<HTMLElement>('.acpmux-scope-list [role="menuitemradio"]')].find(
           (node) => node.textContent === "Uncommitted",
         )!,
       );
@@ -2282,7 +2282,7 @@ describe("acpmux turn diff", () => {
       const pill = panel.querySelector<HTMLElement>('.acpmux-diff-header [aria-haspopup="menu"]')!;
       expect(pill).not.toBeNull();
       expect(pill.querySelector("strong")?.textContent).toBe("Last turn");
-      const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')];
+      const items = () => [...document.querySelectorAll<HTMLElement>('.acpmux-scope-list [role="menuitemradio"]')];
       const eye = () => panel.querySelector<HTMLElement>(".acpmux-diff-file [aria-pressed]")!;
       // The turn's file, marked viewed, folds away.
       await click(eye());
@@ -2292,7 +2292,7 @@ describe("acpmux turn diff", () => {
       pill.focus();
       await click(pill);
       expect(pill.getAttribute("aria-expanded")).toBe("true");
-      expect(items().map((item) => item.textContent)).toEqual([
+      expect(items().map((item) => item.querySelector(".acpmux-scope-label")?.textContent)).toEqual([
         "Last turn",
         "Uncommitted",
         "Unstaged",
@@ -2300,7 +2300,7 @@ describe("acpmux turn diff", () => {
         "Committed",
         "Branch",
       ]);
-      expect(panel.querySelectorAll('[role="menu"] hr').length).toBe(2);
+      expect(document.querySelectorAll('.acpmux-scope-list [role="separator"]').length).toBe(2);
       expect(items().map((item) => item.getAttribute("aria-checked"))).toEqual([
         "true",
         "false",
@@ -2351,10 +2351,10 @@ describe("acpmux turn diff", () => {
       expect(panel.querySelector("output")?.textContent).toBe("Loading changes…");
       // A scope with nothing in it says so. An arrow key opens the menu from the pill too.
       await key(pill, "ArrowDown");
-      expect(document.activeElement?.textContent).toBe("Uncommitted");
+      expect(document.activeElement?.querySelector(".acpmux-scope-label")?.textContent).toBe("Uncommitted");
       await key(document.activeElement!, "ArrowDown");
       await key(document.activeElement!, "ArrowDown");
-      expect(document.activeElement?.textContent).toBe("Staged");
+      expect(document.activeElement?.querySelector(".acpmux-scope-label")?.textContent).toBe("Staged");
       await key(document.activeElement!, "Enter");
       await settle();
       expect(asked.at(-1)).toEqual({ scope: "staged", include_patch: true });
@@ -2504,7 +2504,7 @@ describe("acpmux turn diff", () => {
       const pill = panel.querySelector<HTMLElement>(".acpmux-diff-scope")!;
       await click(pill);
       await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+        [...document.querySelectorAll<HTMLElement>('.acpmux-scope-list [role="menuitemradio"]')].find(
           (item) => item.textContent === "Uncommitted",
         )!,
       );
@@ -2629,8 +2629,8 @@ describe("acpmux turn diff", () => {
       const pick = async (label: string) => {
         await click(panel.querySelector<HTMLElement>(".acpmux-diff-scope")!);
         await click(
-          [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
-            (item) => item.textContent === label,
+          [...document.querySelectorAll<HTMLElement>('.acpmux-scope-list [role="menuitemradio"]')].find(
+            (item) => item.querySelector(".acpmux-scope-label")?.textContent === label,
           )!,
         );
       };

@@ -19,6 +19,7 @@ import { isMousePress, trackPressRelease } from "./pressRelease";
 export interface MenuProps {
   open?: boolean;
   onOpenChange?(open: boolean): void;
+  onOpenChangeComplete?(open: boolean): void;
   children: ReactNode;
 }
 
@@ -33,7 +34,7 @@ interface MenuContextValue {
 const MenuContext = createContext<MenuContextValue | null>(null);
 
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
-export function Menu({ open, onOpenChange, children }: MenuProps) {
+export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: MenuProps) {
   const [internalOpen, setInternalOpen] = useState(open ?? false);
   const session = useRef<PointerSession | null>(null);
   const pointerCleanup = useRef<(() => void) | null>(null);
@@ -88,7 +89,7 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
   };
   return (
     <MenuContext value={context}>
-      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen}>
+      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={onOpenChangeComplete}>
         {children}
       </BaseMenu.Root>
     </MenuContext>
