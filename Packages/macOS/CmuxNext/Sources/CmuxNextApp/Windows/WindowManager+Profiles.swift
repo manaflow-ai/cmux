@@ -32,7 +32,10 @@ extension WindowManager {
             // soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            Task { await createWorkspace(into: state.id) }
+            Task { [services] in
+                await createWorkspace(into: state.id)
+                withExtendedLifetime(services) {} // pins the app's services until the create ends (cx-6so P1b)
+            }
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }

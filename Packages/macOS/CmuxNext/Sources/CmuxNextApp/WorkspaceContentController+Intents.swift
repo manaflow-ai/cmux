@@ -98,13 +98,15 @@ extension WorkspaceContentController {
                            _ body: @escaping @Sendable (DaemonConnection) async throws -> SurfaceCreated) {
         guard let connection = daemon.connection else { return }
         let intent = beginFocusIntent()
-        Task {
+        // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
+        Task { [services, state] in
             do {
                 expectFocus(on: try await body(connection).surface, generation: intent)
                 then?()
             } catch {
                 daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
+            withExtendedLifetime((services, state)) {}
         }
     }
 
