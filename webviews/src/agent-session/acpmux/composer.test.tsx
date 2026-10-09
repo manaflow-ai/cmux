@@ -984,7 +984,9 @@ describe("acpmux composer prompt recall and large pastes", () => {
   };
   const key = async (name: string) =>
     act(async () => {
-      promptField().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+      promptField().dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
+      );
     });
   const pasteText = async (text: string) => {
     const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
@@ -1042,11 +1044,14 @@ describe("acpmux composer prompt recall and large pastes", () => {
     const big = Array.from({ length: 200 }, (_, line) => `log line ${line}`).join("\n");
     const event = await pasteText(big);
     expect(event.defaultPrevented).toBe(true);
-    const chips = [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) => chip.getAttribute("title"));
+    const chips = [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) =>
+      chip.getAttribute("title"),
+    );
     expect(chips).toEqual(["Pasted text (200 lines).txt"]);
     expect(promptField().value).toBe("");
-    const small = await pasteText("a short line");
-    expect(small.defaultPrevented).toBe(false);
+    // A small paste is the editor's: it adds no attachment.
+    await pasteText("a short line");
+    expect(dom.window.document.querySelectorAll(".acpmux-attachment").length).toBe(1);
     await act(async () =>
       dom.window.document
         .querySelector("form")!

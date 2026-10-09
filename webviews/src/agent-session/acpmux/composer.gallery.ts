@@ -124,6 +124,17 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
       },
     },
+    "prompt-recall": {
+      note: "Play: Up in the empty field recalls the previous prompt (newest first); Down walks back to an empty draft.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() =>
+          ctx.document.querySelector("[contenteditable='true']")?.textContent?.includes("retries"),
+        );
+      },
+    },
     idle: {
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),

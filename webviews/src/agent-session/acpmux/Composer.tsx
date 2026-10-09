@@ -50,6 +50,7 @@ import {
   writePersistedDraft,
 } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
+import { isLargePaste, lineCount, recallStep, sentPrompts, type RecallState } from "./composer/promptRecall";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import type { SendBlock } from "./useFolderTrustAsk";
@@ -79,6 +80,7 @@ export const COMPOSER_LABELS = {
   tooMany: "composer.tooMany",
   queue: "composer.queue",
   queued: "composer.queued",
+  pastedText: "composer.pastedText",
 } as const satisfies Record<string, StringKey>;
 
 function attachmentErrorText(error: AttachmentError, t: Translate): string {
@@ -250,6 +252,10 @@ export function Composer({
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
   const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
+  // A very large plain-text paste becomes a text attachment (composer/promptRecall.ts); its name
+  // says how many lines it holds.
+  const pastedName = useRef((lines: number) => `${lines}.txt`);
+  pastedName.current = (lines) => `${t(COMPOSER_LABELS.pastedText, { lines })}.txt`;
   attach.current = async (files: File[]) => {
     if (files.length === 0) return;
     const read = await readAttachments(files, held.current, allowImages);
@@ -283,12 +289,25 @@ export function Composer({
     document.addEventListener("dragover", over);
     document.addEventListener("dragleave", leave);
     document.addEventListener("drop", drop);
+    // Capture phase: the editor inserts pasted text on its own element before a bubbling listener
+    // runs, so a large paste is taken here and never reaches it.
+    const pasteText = (event: ClipboardEvent) => {
+      if (!field.current?.element()?.contains(event.target as Node)) return;
+      if (filesFrom(event.clipboardData).length > 0) return;
+      const pasted = event.clipboardData?.getData?.("text/plain") ?? "";
+      if (!isLargePaste(pasted)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void attach.current([new File([pasted], pastedName.current(lineCount(pasted)), { type: "text/plain" })]);
+    };
+    document.addEventListener("paste", pasteText, true);
     document.addEventListener("paste", paste);
     return () => {
       document.removeEventListener("dragover", over);
       document.removeEventListener("dragleave", leave);
       document.removeEventListener("drop", drop);
       document.removeEventListener("paste", paste);
+      document.removeEventListener("paste", pasteText, true);
     };
   }, []);
   useLayoutEffect(() => {
@@ -394,6 +413,9 @@ export function Composer({
       : undefined;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
+  // Up and Down in an empty field walk the chat's previous prompts (composer/promptRecall.ts).
+  const prompts = useMemo(() => sentPrompts(snapshot.rows), [snapshot.rows]);
+  const recall = useRef<RecallState>(undefined);
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
 
   useEffect(() => setActive(0), [query]);
@@ -438,6 +460,7 @@ export function Composer({
     return send(false);
   };
   const send = (force: boolean): boolean => {
+    recall.current = undefined;
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
@@ -622,6 +645,16 @@ export function Composer({
     if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) {
       submit(event);
       return;
+    }
+    if (!open && plain && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      const step = recallStep(prompts, recall.current, text, event.key);
+      if (step) {
+        event.preventDefault();
+        recall.current = step.state;
+        pendingCaret.current = step.text.length;
+        edit(step.text, step.text.length);
+        return;
+      }
     }
     if (!open) return;
     if (event.key === "Escape") {
