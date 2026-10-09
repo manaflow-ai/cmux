@@ -505,15 +505,6 @@
       "targets": [],
       "packages": []
     },
-    "CmuxNextCopyModeTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCopyModeTests",
-      "targets": [
-        "CmuxNextCopyMode"
-      ],
-      "packages": [],
-      "reads": []
-    },
     "CmuxNextDaemon": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon",
