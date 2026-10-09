@@ -105,6 +105,7 @@ on:
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
@@ -215,6 +216,7 @@ on:
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
@@ -743,6 +745,9 @@ jobs:
           bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
           bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
           bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
+          # The herdr-derived agent plugin's vendored manifests match their pin.
+          python3 -I scripts/cmux-next/herdr-sync.py check
+          python3 -I scripts/cmux-next/tests/test_herdr_sync.py
           bash scripts/cef/tests/test-embedder-step.test.sh
 
       # The app's Ghostty shell integration comes from ghostty-next (the

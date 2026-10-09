@@ -150,7 +150,7 @@ class HerdrSyncTests(unittest.TestCase):
             "[[patch.edit]]\nfind = '''priority = 100'''\nreplace = '''priority = 90'''\n",
             encoding="utf-8",
         )
-        second = self.herdr.commit({"src/detect/manifests/grok.toml": GROK_V1.replace("priority = 100", "priority = 1000")}, "upstream fix")
+        second = self.herdr.commit({"src/detect/manifests/grok.toml": GROK_V1.replace("priority = 100", "priority = 250")}, "upstream fix")
         with self.assertRaisesRegex(herdr_sync.SyncError, "no longer applies"):
             self.sync(second)
 

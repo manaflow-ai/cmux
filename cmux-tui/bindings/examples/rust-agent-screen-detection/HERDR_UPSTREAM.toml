@@ -1,0 +1,188 @@
+# herdr upstream pin for the agent screen-detection plugin.
+# Written by scripts/cmux-next/herdr-sync.py sync; verified offline by
+# `python3 -I scripts/cmux-next/herdr-sync.py check`. Do not edit by hand.
+# upstream_sha256 is the byte hash of the manifest at `revision`.
+# vendored_sha256 differs only for a file with a documented local patch
+# (HERDR_PATCHES.toml). engine lists the upstream sources the Rust port follows.
+
+[upstream]
+repository = "https://github.com/ogulcancelik/herdr"
+revision = "2563803dca97c040beaf3dc3acdcb5a3221b4238"
+herdr_version = "0.9.3"
+engine_version = 3
+synced = "2026-10-08"
+manifest_dir = "src/detect/manifests"
+
+[[manifest]]
+file = "amp.toml"
+version = "2026.07.09.1"
+upstream_sha256 = "b5806b0dd21e2f5e752d0eac7f084d5ce2e3f275638cfd1234c42cc88152dc8c"
+vendored_sha256 = "b5806b0dd21e2f5e752d0eac7f084d5ce2e3f275638cfd1234c42cc88152dc8c"
+local_patch = false
+
+[[manifest]]
+file = "antigravity.toml"
+version = "2026.10.05.1"
+upstream_sha256 = "c25fc6bae935b7582d707120915287b52d39bf81b5ab3f368cd688739c6e0325"
+vendored_sha256 = "c25fc6bae935b7582d707120915287b52d39bf81b5ab3f368cd688739c6e0325"
+local_patch = false
+
+[[manifest]]
+file = "claude.toml"
+version = "2026.09.11.1"
+upstream_sha256 = "038d0aa23fee3f9b39cb3c9ca117d0f95b0b3a5873cf0f38284ccbac279c9664"
+vendored_sha256 = "038d0aa23fee3f9b39cb3c9ca117d0f95b0b3a5873cf0f38284ccbac279c9664"
+local_patch = false
+
+[[manifest]]
+file = "cline.toml"
+version = "2026.09.11.1"
+upstream_sha256 = "75fe33ec735c59638da8d62e16bddd257d9959e692edb83b1f11b7f28057866a"
+vendored_sha256 = "75fe33ec735c59638da8d62e16bddd257d9959e692edb83b1f11b7f28057866a"
+local_patch = false
+
+[[manifest]]
+file = "codex.toml"
+version = "2026.10.01.1"
+upstream_sha256 = "da6d6084e3ac84975caac79bef237b23b1801aba8ec7efc9266ab127f1a794e6"
+vendored_sha256 = "da6d6084e3ac84975caac79bef237b23b1801aba8ec7efc9266ab127f1a794e6"
+local_patch = false
+
+[[manifest]]
+file = "cursor.toml"
+version = "2026.08.03.1"
+upstream_sha256 = "753b1f7f632d42fa21139c2767ecbb5e1078748aba2e59407ac4932d3ce36ad7"
+vendored_sha256 = "753b1f7f632d42fa21139c2767ecbb5e1078748aba2e59407ac4932d3ce36ad7"
+local_patch = false
+
+[[manifest]]
+file = "devin.toml"
+version = "2026.06.15.1"
+upstream_sha256 = "250c9cea1d60bdb965dc6056f3066b785e941d60242756fbaca73b57ca6b0f85"
+vendored_sha256 = "250c9cea1d60bdb965dc6056f3066b785e941d60242756fbaca73b57ca6b0f85"
+local_patch = false
+
+[[manifest]]
+file = "droid.toml"
+version = "2026.06.10.1"
+upstream_sha256 = "d37e7c464177c0e8f3edce8d4fabc4bcc7a1874edf2c4c87a2f927888cf69ce9"
+vendored_sha256 = "d37e7c464177c0e8f3edce8d4fabc4bcc7a1874edf2c4c87a2f927888cf69ce9"
+local_patch = false
+
+[[manifest]]
+file = "gemini.toml"
+version = "2026.06.10.1"
+upstream_sha256 = "d7013b5e772852ecc595febf964f00b4f9edcbc6047a2a5421613a154d92520d"
+vendored_sha256 = "d7013b5e772852ecc595febf964f00b4f9edcbc6047a2a5421613a154d92520d"
+local_patch = false
+
+[[manifest]]
+file = "github-copilot.toml"
+version = "2026.08.29.1"
+upstream_sha256 = "b70c652584326a1a98475a5fcef16207dee9f23b65f8e78300f4fc2bb578cb11"
+vendored_sha256 = "b70c652584326a1a98475a5fcef16207dee9f23b65f8e78300f4fc2bb578cb11"
+local_patch = false
+
+[[manifest]]
+file = "grok.toml"
+version = "2026.10.05.1"
+upstream_sha256 = "8db7a8de4cd782fce26600859d78db7167399feb4c76f303104bc1bb83ab602b"
+vendored_sha256 = "8db7a8de4cd782fce26600859d78db7167399feb4c76f303104bc1bb83ab602b"
+local_patch = false
+
+[[manifest]]
+file = "hermes.toml"
+version = "2026.07.24.1"
+upstream_sha256 = "533d21b65dea3a0c60c25d0475c9c900d28a5712b6392669a7788f75de2b6e85"
+vendored_sha256 = "533d21b65dea3a0c60c25d0475c9c900d28a5712b6392669a7788f75de2b6e85"
+local_patch = false
+
+[[manifest]]
+file = "kilo.toml"
+version = "2026.06.10.1"
+upstream_sha256 = "70f0ba4e58bc141fe69d7024013f973cd16e8616393079318914d70afeefef3b"
+vendored_sha256 = "70f0ba4e58bc141fe69d7024013f973cd16e8616393079318914d70afeefef3b"
+local_patch = false
+
+[[manifest]]
+file = "kimi.toml"
+version = "2026.06.10.1"
+upstream_sha256 = "ede08c0d2d5024f7606dc0a1b2f7a9c6a0ebb99f3b6c58ca6757049856d06e05"
+vendored_sha256 = "ede08c0d2d5024f7606dc0a1b2f7a9c6a0ebb99f3b6c58ca6757049856d06e05"
+local_patch = false
+
+[[manifest]]
+file = "kiro.toml"
+version = "2026.09.19.1"
+upstream_sha256 = "c8990f3c9d4810995be97e8df29836411e37d90f6ac9d9303f505787b504806b"
+vendored_sha256 = "c8990f3c9d4810995be97e8df29836411e37d90f6ac9d9303f505787b504806b"
+local_patch = false
+
+[[manifest]]
+file = "letta.toml"
+version = "2026.08.24.1"
+upstream_sha256 = "205b8c135584c86f9f529aa2d061109b5129085cc5c3124c6dbfe0e78fcdba43"
+vendored_sha256 = "205b8c135584c86f9f529aa2d061109b5129085cc5c3124c6dbfe0e78fcdba43"
+local_patch = false
+
+[[manifest]]
+file = "maki.toml"
+version = "2026.07.09.2"
+upstream_sha256 = "3b392170ee3082051266509f575a4640bde8d693b2f37ecf52157a641bc75b28"
+vendored_sha256 = "3b392170ee3082051266509f575a4640bde8d693b2f37ecf52157a641bc75b28"
+local_patch = false
+
+[[manifest]]
+file = "muse.toml"
+version = "2026.08.26.1"
+upstream_sha256 = "b69c4d87fa9c19e3e6453b706fbe39c98a8b33ffbaa48e8cd5ae6751e9615074"
+vendored_sha256 = "b69c4d87fa9c19e3e6453b706fbe39c98a8b33ffbaa48e8cd5ae6751e9615074"
+local_patch = false
+
+[[manifest]]
+file = "opencode.toml"
+version = "2026.06.10.1"
+upstream_sha256 = "faa82aed2d76ad856528caae04232894594b74cc903aed3e522b3e725c5f2c95"
+vendored_sha256 = "faa82aed2d76ad856528caae04232894594b74cc903aed3e522b3e725c5f2c95"
+local_patch = false
+
+[[manifest]]
+file = "pi.toml"
+version = "2026.10.01.1"
+upstream_sha256 = "949f5f3bcfeb6db1261432697dd94a9ed625a733d70c00e6fc0910372fad7c66"
+vendored_sha256 = "949f5f3bcfeb6db1261432697dd94a9ed625a733d70c00e6fc0910372fad7c66"
+local_patch = false
+
+[[manifest]]
+file = "qodercli.toml"
+version = "2026.06.10.1"
+upstream_sha256 = "2089f70fc78c6576fd7128a00f4e7eedb85be81bde9ed73301b3b88000048961"
+vendored_sha256 = "2089f70fc78c6576fd7128a00f4e7eedb85be81bde9ed73301b3b88000048961"
+local_patch = false
+
+[[manifest]]
+file = "qwen.toml"
+version = "2026.08.14.1"
+upstream_sha256 = "b27aa456af228e8a4ceac74f0dd431c33b21473b69314fc672a7fba474e2a7fe"
+vendored_sha256 = "b27aa456af228e8a4ceac74f0dd431c33b21473b69314fc672a7fba474e2a7fe"
+local_patch = false
+
+[[engine]]
+path = "src/detect/manifest.rs"
+sha256 = "40323d77ef508376fac4bee840b987009a2e4305416ded37c6b570690895a1fc"
+
+[[engine]]
+path = "src/detect/manifest_update.rs"
+sha256 = "417ea1d3c64f53ee4b09a71ed7cbe8d7428d902960a521993d1a11a63319ca2e"
+
+[[engine]]
+path = "src/detect/mod.rs"
+sha256 = "2594e99fd886cf65cb1fb4ba19993bd54e731a21c9f0f64c564c009ab858d06f"
+
+[[engine]]
+path = "src/pane/agent_detection.rs"
+sha256 = "762186bc5ec3f523657d86ebb33f34ff142eae6c5912909fc1d2e05b767845a4"
+
+[[engine]]
+path = "src/pane/osc.rs"
+sha256 = "993b597a93996cf9efecfb9d62a724dfd4a79daf40d79995bbaa7207c98308f0"
