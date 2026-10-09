@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 
 @MainActor
 final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
@@ -110,6 +111,28 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
 }
 
 extension AppDelegate {
+    /// Whether the quit path needs the precise dirty-workspace scan.
+    ///
+    /// The scan is only an input to a user quit in ``ConfirmQuitMode/dirtyOnly``.
+    /// Running it for an unconditional warning, a disabled warning, a dev build,
+    /// an already-confirmed request, or a session/update termination adds work
+    /// before ``NSApplication`` can commit to quitting. The precise scan also
+    /// reaches Ghostty's close-risk query, so keeping this gate narrow avoids
+    /// taking that renderer mutex on paths that ignore its result.
+    static func shouldEvaluateQuitConfirmationDirtyWorkspaces(
+        isQuitWarningConfirmed: Bool,
+        buildFlavor: BuildFlavor,
+        confirmQuitMode: ConfirmQuitMode,
+        quitReason: QuitRequestReason = .user
+    ) -> Bool {
+        guard quitReason == .user,
+              !isQuitWarningConfirmed,
+              buildFlavor != .dev else {
+            return false
+        }
+        return confirmQuitMode == .dirtyOnly
+    }
+
     /// Requests application termination for the Cmd+Q quit path.
     ///
     /// The `terminate` seam exists so the quit path's *scheduling* is testable
