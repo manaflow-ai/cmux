@@ -26,6 +26,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // AGP strips the packaged .so files with the NDK's llvm-strip.
+    providers.gradleProperty("ndkPath").orNull?.let { ndkPath = it }
+
     sourceSets["main"].java.srcDir(requiredPath("uniffiKotlinDir"))
     sourceSets["main"].jniLibs.srcDir(requiredPath("jniLibsDir"))
 }

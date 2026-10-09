@@ -387,6 +387,8 @@ jobs:
 
       - name: Kotlin fixture tests and AAR
         working-directory: cmux-tui/crates/cmux-mobile-ffi/android
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           set -euo pipefail
           gradle --no-daemon --stacktrace \
@@ -394,6 +396,7 @@ jobs:
             -PjniLibsDir="$RUNNER_TEMP/jniLibs" \
             -PhostLibDir="$GITHUB_WORKSPACE/cmux-tui/target/debug" \
             -PsizingFixtures="$GITHUB_WORKSPACE/schemas/terminal-sizing/fixtures.json" \
+            -PndkPath="$ANDROID_NDK_HOME" \
             :ffi:testDebugUnitTest :ffi:assembleRelease
           aar=ffi/build/outputs/aar/ffi-release.aar
           test -s "$aar"
@@ -407,18 +410,22 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           set -euo pipefail
-          strip="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -name llvm-strip -type f | head -1)"
+          strip="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          test -x "$strip"
+          packed="$RUNNER_TEMP/aar-unpacked"
+          rm -rf "$packed" && mkdir -p "$packed"
+          unzip -q "$RUNNER_TEMP/aar/cmux-mobile-ffi-release.aar" 'jni/*' -d "$packed"
           {
             echo "### cmux-mobile-ffi Android sizes (bytes)"
             echo
-            echo "| ABI | libcmux_mobile_ffi.so | stripped |"
-            echo "| --- | --- | --- |"
+            echo "| ABI | cargo-ndk .so | stripped | in the AAR |"
+            echo "| --- | --- | --- | --- |"
             for abi in arm64-v8a x86_64; do
               so="$RUNNER_TEMP/jniLibs/$abi/libcmux_mobile_ffi.so"
               "$strip" --strip-all -o "$RUNNER_TEMP/stripped-$abi.so" "$so"
-              echo "| $abi | $(stat -c %s "$so") | $(stat -c %s "$RUNNER_TEMP/stripped-$abi.so") |"
+              echo "| $abi | $(stat -c %s "$so") | $(stat -c %s "$RUNNER_TEMP/stripped-$abi.so") | $(stat -c %s "$packed/jni/$abi/libcmux_mobile_ffi.so") |"
             done
-            echo "| AAR | $(stat -c %s "$RUNNER_TEMP/aar/cmux-mobile-ffi-release.aar") | |"
+            echo "| AAR | | | $(stat -c %s "$RUNNER_TEMP/aar/cmux-mobile-ffi-release.aar") |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload AAR
