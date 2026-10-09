@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the Worker to $TARGET (preview or staging) and installs its secrets.
+# Deploys the Worker to $TARGET (preview, staging or production) and installs its secrets.
 # CI only. First it ensures the Hyperdrive config cmux-vm-$TARGET from
 # CMUX_VM_DATABASE_URL (create if missing, else rewrite its origin: idempotent),
 # then resolves its id by name, so no id is committed. Secret values travel to
@@ -9,8 +9,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 case "${TARGET:-}" in
-  preview | staging) ;;
-  *) echo "::error::TARGET must be preview or staging"; exit 1 ;;
+  preview | staging | production) ;;
+  *) echo "::error::TARGET must be preview, staging or production"; exit 1 ;;
 esac
 
 missing=()

@@ -144,8 +144,10 @@ extension WebKitDriver {
         let selector = NSSelectorFromString("_doAfterProcessingAllPendingMouseEvents:")
         guard webView.responds(to: selector) else { return }
         let imp = unsafeBitCast(webView.method(for: selector), to: AfterIMP.self)
-        await withCheckedContinuation { continuation in
-            imp(webView, selector) { continuation.resume() }
+        // Bounded like every WebKit block wait: a page whose web process
+        // never answers (not loaded yet, suspended) must not hang the call.
+        _ = await privateCalls.awaitCallback { done in
+            imp(webView, selector) { done() }
         }
     }
 

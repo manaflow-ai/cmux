@@ -27,8 +27,12 @@ enum RealBinary {
     static let sameTree: URL? = {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let resolved = ProcessInfo.processInfo.environment[treePathKey].flatMap { $0.isEmpty ? nil : $0 }
-        guard let path = resolved ?? pinScript(root: root, ["path"], capture: true), !path.isEmpty else { return nil }
+        if let resolved = ProcessInfo.processInfo.environment[treePathKey], !resolved.isEmpty {
+            // The runner already fetched once; an unpublished tree is not
+            // fetched again by every suite process (20-50 s each).
+            return FileManager.default.isExecutableFile(atPath: resolved) ? URL(fileURLWithPath: resolved) : nil
+        }
+        guard let path = pinScript(root: root, ["path"], capture: true), !path.isEmpty else { return nil }
         let binary = URL(fileURLWithPath: path)
         if !FileManager.default.isExecutableFile(atPath: binary.path) { _ = pinScript(root: root, ["fetch"], capture: false) }
         return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
