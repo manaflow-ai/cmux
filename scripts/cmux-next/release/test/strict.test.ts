@@ -15,7 +15,7 @@ const errorsOf = async (sql: string) => (await lintFile(vm, "0009_x.sql", sql, c
 describe("A: allowed without a header (exact shapes)", () => {
   const ok: Array<[string, string]> = [
     ["a table with built-in types, NULL/NOT NULL, constant and allowlisted defaults, keys and checks", "CREATE TABLE IF NOT EXISTS cmux_vm.t (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), n int4 NOT NULL DEFAULT 0, name text NULL CHECK (char_length(name) BETWEEN 1 AND 80), owner text REFERENCES cmux_vm.resources (cmux_id), at timestamptz NOT NULL DEFAULT now(), UNIQUE (n, name));"],
-    ["ADD COLUMN nullable, with a constant default, with an inline CHECK", "ALTER TABLE cmux_vm.resources ADD COLUMN note text, ADD COLUMN plan text NOT NULL DEFAULT 'free', ADD COLUMN v6 text NULL CHECK (v6 IS NULL OR v6 ~ '^[0-9a-f:]{2,39}$');"],
+    ["ADD COLUMN nullable and with a constant default", "ALTER TABLE cmux_vm.resources ADD COLUMN note text, ADD COLUMN plan text NOT NULL DEFAULT 'free';"],
     ["ADD CONSTRAINT ... NOT VALID and VALIDATE", "ALTER TABLE cmux_vm.resources ADD CONSTRAINT c CHECK (length(tenant_id) > 0) NOT VALID;\nALTER TABLE cmux_vm.resources VALIDATE CONSTRAINT c;"],
     ["a unique index on a new table and a CONCURRENTLY index with a partial WHERE", "CREATE TABLE cmux_vm.u (a text);\nCREATE UNIQUE INDEX u_a ON cmux_vm.u USING btree (a);"],
     ["CREATE INDEX CONCURRENTLY with an allowlisted expression", "CREATE INDEX CONCURRENTLY IF NOT EXISTS resources_lower ON cmux_vm.resources (lower(created_by)) WHERE deleted_at IS NULL;"],
@@ -85,5 +85,44 @@ describe("J: the parser itself is pinned", () => {
     const { parserProblems } = await import("../lint.ts")
     expect(parserProblems()).toEqual([])
     expect(parserProblems({ version: "18.1.5", sha256: { "wasm/libpg-query.wasm": "0".repeat(64) } }).join()).toContain("libpg-query.wasm")
+  })
+})
+
+describe("rails-hardening-1 (fourth review)", () => {
+  const never: Array<[string, string]> = [
+    ["P2-1 CREATE TABLE IF NOT EXISTS does not make a live table new (index without CONCURRENTLY)", "CREATE TABLE IF NOT EXISTS cmux_vm.resources (x int);\nCREATE INDEX i ON cmux_vm.resources (x);"],
+    ["P2-1 ... (NOT NULL without DEFAULT)", "CREATE TABLE IF NOT EXISTS cmux_vm.resources (x int);\nALTER TABLE cmux_vm.resources ADD COLUMN y text NOT NULL;"],
+    ["P2-1 ... (a validated UNIQUE)", "CREATE TABLE IF NOT EXISTS cmux_vm.resources (x int);\nALTER TABLE cmux_vm.resources ADD CONSTRAINT u UNIQUE (cmux_id);"],
+    ["P2-2 a serial column on an existing table", "ALTER TABLE cmux_vm.resources ADD COLUMN n bigserial;"],
+    ["P2-2 a smallserial column on an existing table", "ALTER TABLE cmux_vm.resources ADD COLUMN n smallserial;"],
+    ["P3-3 CREATE INDEX CONCURRENTLY without a name", "CREATE INDEX CONCURRENTLY ON cmux_vm.resources (created_by);"],
+    ["P3-4 a statement naming the tracking table", "ALTER TABLE cmux_vm.schema_migrations ADD COLUMN x text;"],
+    ["P3-4 an index on the tracking table", "CREATE INDEX CONCURRENTLY sm_x ON cmux_vm.schema_migrations (applied_at);"],
+    ["P3-6 CREATE SCHEMA ... AUTHORIZATION", "CREATE SCHEMA IF NOT EXISTS cmux_vm AUTHORIZATION someone;"],
+    ["P3-6 an unlogged sequence", "CREATE UNLOGGED SEQUENCE cmux_vm.s2;"],
+    ["P3-6 a sequence with OWNED BY", "CREATE SEQUENCE cmux_vm.s3 OWNED BY cmux_vm.resources.cmux_id;"],
+    ["P3-7 COMMENT ON a column with the wrong depth", "COMMENT ON COLUMN cmux_vm.resources IS 'x';"],
+    ["P3-7 COMMENT ON DATABASE", "COMMENT ON DATABASE postgres IS 'x';"],
+  ]
+  for (const [what, sql] of never) {
+    it(`refuses ${what}`, async () => {
+      expect((await errorsOf(sql)).length).toBeGreaterThan(0)
+      expect((await errorsOf(header + sql)).length).toBeGreaterThan(0)
+    })
+  }
+  it("P3-3 DROP INDEX CONCURRENTLY is liftable but alone in its file", async () => {
+    expect(await errorsOf(header + "DROP INDEX CONCURRENTLY IF EXISTS cmux_vm.resources_labels_idx;")).toEqual([])
+    expect((await errorsOf(header + "DROP INDEX CONCURRENTLY IF EXISTS cmux_vm.resources_labels_idx;\nCOMMENT ON TABLE cmux_vm.resources IS 'x';")).join()).toContain("only statement")
+  })
+  it("P3-5 ADD COLUMN ... CHECK on an existing table needs a header", async () => {
+    const sql = "ALTER TABLE cmux_vm.resources ADD COLUMN v6 text NULL CHECK (v6 IS NULL OR v6 ~ '^[0-9a-f:]{2,39}$');"
+    expect((await errorsOf(sql)).length).toBeGreaterThan(0)
+    expect(await errorsOf(header + sql)).toEqual([])
+  })
+  it("P3-6 backend COMMENT targets stay in public", async () => {
+    const { lintFile } = await import("../lint.ts")
+    const backendErrors = async (sql: string) => (await lintFile(TREES.backend, "0007_x.sql", `-- phase: expand\n${sql}`, contract)).errors
+    expect((await backendErrors("COMMENT ON TABLE cmux_vm.resources IS 'x';")).length).toBeGreaterThan(0)
+    expect(await backendErrors("COMMENT ON TABLE users IS 'x';")).toEqual([])
   })
 })
