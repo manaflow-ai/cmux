@@ -1296,6 +1296,10 @@ struct cmuxApp: App {
                 AppDelegate.shared?.jumpToLatestUnread()
             }
 
+            splitCommandButton(title: String(localized: "menu.view.jumpToLastPrompt", defaultValue: "Jump to Last Prompt"), shortcut: menuShortcut(for: .jumpToLastPrompt)) {
+                AppDelegate.shared?.jumpToLastPromptFromUserCommand()
+            }
+
             splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
                 showNotificationsPopover()
             }
