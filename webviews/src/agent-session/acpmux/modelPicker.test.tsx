@@ -146,10 +146,11 @@ describe("T3 model picker", () => {
     await render();
     await act(async () => modelButton().click());
     const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
-    await key(input, "ArrowUp");
     expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
     await ctrlKey(input, "n");
     expect(modelRows()[1]!.getAttribute("aria-selected")).toBe("true");
+    await key(input, "ArrowUp");
+    expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
     await key(input, "2");
     expect(calls).toEqual(["model claude-sonnet-5-5"]);
   });
@@ -312,8 +313,8 @@ describe("T3 model picker", () => {
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["GPT-6-Astra"]);
     await typeQuery("opus");
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
-      "Opus 4.1",
       "Opus 5.5",
+      "Opus 4.1",
     ]);
   });
 
