@@ -2156,3 +2156,53 @@ fn the_probe_retries_through_a_stoppable_delay() {
     assert!(!waiter.join().unwrap());
     assert!(started.elapsed() < Duration::from_secs(5));
 }
+/// Soak at 64d57f35a20f: during an import every compactor session is busy
+/// with imported nodes and dozens more wait; a new chat line's node waited
+/// behind them in an unordered queue. The reference client lets foreground
+/// work go first (its background calls yield). With all sessions busy on an
+/// import and imported nodes waiting, a chat node takes the first session
+/// that frees.
+#[test]
+fn a_chat_node_takes_the_next_free_session_before_waiting_import_nodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| answer(&format!("user: node {turn}"))));
+    agents.hold(true);
+    let compactor = Arc::new(compactor(&agents, dir.path()));
+    let node = |i: u64, imported: bool| CompactRequest {
+        node: NodeId::new(0, i),
+        imported,
+        ..request(i)
+    };
+    let spawn = |r: CompactRequest| {
+        let c = compactor.clone();
+        std::thread::spawn(move || run_node(&*c, &r))
+    };
+    let mut workers: Vec<_> = (0..COMPACTOR_SESSIONS as u64)
+        .map(|i| spawn(node(i, true)))
+        .collect();
+    agents.wait_prompts(COMPACTOR_SESSIONS);
+    workers.extend(
+        (COMPACTOR_SESSIONS as u64..2_000)
+            .take(48)
+            .map(|i| spawn(node(i, true))),
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    workers.push(spawn(node(2_000, false)));
+    std::thread::sleep(Duration::from_millis(300));
+    // One session frees.
+    agents.release();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while agents.inner.lock().unwrap().specs.len() <= COMPACTOR_SESSIONS {
+        assert!(std::time::Instant::now() < deadline, "no session started");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let next = agents.inner.lock().unwrap().specs[COMPACTOR_SESSIONS]
+        .name
+        .clone();
+    agents.hold(false);
+    agents.release();
+    for w in workers {
+        assert!(w.join().unwrap().is_ok());
+    }
+    assert_eq!(next, "optchat-compact-test-2000+1", "the chat node waited");
+}
