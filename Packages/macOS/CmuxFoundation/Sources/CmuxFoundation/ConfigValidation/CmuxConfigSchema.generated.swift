@@ -977,6 +977,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "description": "Briefly show \"Copied to clipboard\" at the bottom of a terminal after selecting text copies it. Applies whether copyOnSelect or Ghostty's copy-on-select turned copying on. Copies made with a keyboard shortcut or by a program (OSC 52) never show it."
         },
+        "accessibilityScreenText": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, accessibility clients can read the rendered terminal screen. When false, cmux keeps native selections and accessibility text insertion available but does not expose unselected screen text, which keeps macOS Speak Selection from reading the whole terminal when a TUI owns its selection."
+        },
         "reflowHardWrapOnCopy": {
           "type": "boolean",
           "default": false,

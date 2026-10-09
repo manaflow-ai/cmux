@@ -14341,6 +14341,124 @@
           }
         }
       }
+    },
+    "settings.terminal.accessibilityScreenText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expose Terminal Text to Accessibility"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إتاحة نص الطرفية لميزات تسهيلات الاستخدام"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminaltext für Bedienungshilfen bereitstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exponer el texto de la terminal a las funciones de accesibilidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exposer le texte du terminal aux fonctionnalités d’accessibilité"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティにターミナルテキストを公開"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "손쉬운 사용에 터미널 텍스트 노출"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向辅助功能提供终端文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向輔助使用功能提供終端機文字"
+          }
+        }
+      }
+    },
+    "settings.terminal.accessibilityScreenText.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets accessibility tools read the rendered terminal screen. Turn this off if Speak Selection reads a whole terminal-based app instead of the selected text."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتيح لأدوات تسهيلات الاستخدام قراءة شاشة الطرفية المعروضة. عطّل هذا الخيار إذا كان «نطق التحديد» يقرأ تطبيقًا طرفيًا كاملًا بدلًا من النص المحدد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ermöglicht Bedienungshilfen, den gerenderten Terminalbildschirm zu lesen. Deaktiviere diese Option, wenn „Auswahl vorlesen“ statt des ausgewählten Textes eine ganze terminalbasierte App vorliest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que las herramientas de accesibilidad lean la pantalla de la terminal renderizada. Desactívalo si «Hablar selección» lee toda una app de terminal en lugar del texto seleccionado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet aux outils d’accessibilité de lire l’écran du terminal rendu. Désactivez cette option si « Énoncer la sélection » lit toute l’app terminal au lieu du texte sélectionné."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティツールがレンダリングされたターミナル画面を読み取れるようにします。「選択項目を読み上げ」が選択したテキストではなくターミナルアプリ全体を読む場合はオフにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "손쉬운 사용 도구가 렌더링된 터미널 화면을 읽도록 합니다. ‘선택 항목 말하기’가 선택한 텍스트 대신 터미널 앱 전체를 읽으면 이 옵션을 끄세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许辅助功能工具读取渲染的终端屏幕。如果“朗读所选内容”读取整个终端应用而不是所选文本，请关闭此选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許輔助使用工具讀取轉譯後的終端機畫面。如果「朗讀所選範圍」讀取整個終端機應用程式而非所選文字，請關閉此選項。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

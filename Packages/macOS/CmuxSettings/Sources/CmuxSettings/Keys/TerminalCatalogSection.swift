@@ -51,6 +51,15 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.showCopyConfirmation"
     )
 
+    /// Whether accessibility clients receive the rendered terminal screen as
+    /// the text area's value. Off hides unselected screen text while keeping
+    /// native selections and text insertion available.
+    public let accessibilityScreenText = DefaultsKey<Bool>(
+        id: "terminal.accessibilityScreenText",
+        defaultValue: true,
+        userDefaultsKey: "terminal.accessibilityScreenText"
+    )
+
     /// Whether copy also rejoins lines an application hard-wrapped to the
     /// terminal width. Off by default. Soft-wrapped rows Ghostty marks with
     /// the row wrap flag are always joined, regardless of this key.
