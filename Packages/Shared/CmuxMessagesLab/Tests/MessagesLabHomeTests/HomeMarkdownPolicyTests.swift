@@ -17,10 +17,13 @@ import Testing
         p.apply(items: [Fixture2.item(1, Fixture2.them, "**Hi** [run](cmux://open) ![chart](https://example.com/c.png)")],
                 summary: Fixture2.summary(lastSeq: 1), typing: [], hasOlder: false)
         c.host.layoutSubtreeIfNeeded(); c.demo!.layoutIfNeeded(); c.demo!.collection.layoutIfNeeded()
-        let row = try #require(c.demo!.lastTextRow(mine: false))
-        let shown = try #require(row.row.markdown?.plain)
+        let shown = c.demo!.model.rows.compactMap { r -> String? in
+            guard case let .part(row) = r.spec.kind else { return nil }
+            return row.markdown?.plain ?? row.text?.text
+        }.joined(separator: "|")
         #expect(shown.contains("[Image: chart]"), "\(shown)")
-        #expect(c.linkURL(at: CGPoint(x: row.body.midX, y: row.body.midY))?.scheme != "cmux")
+        #expect(!shown.contains("**"), "\(shown)")
+        #expect(MDInlineParser.parse("[run](cmux://open)").spans.compactMap(\.link).isEmpty, "no extra scheme is a link")
     }
 
     @Test func theSidebarPreviewInstallsThePolicyToo() {
