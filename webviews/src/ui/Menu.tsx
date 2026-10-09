@@ -32,6 +32,8 @@ interface MenuContextValue {
   endPointer(): void;
 }
 const MenuContext = createContext<MenuContextValue | null>(null);
+/// The surface class of a submenu sits in the parent popup, so nested menus keep the same theme.
+const PopupSurface = createContext<string | undefined>(undefined);
 
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
 export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: MenuProps) {
@@ -194,7 +196,7 @@ export function MenuPopup({
         sideOffset={UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup className={cx("ui-popup ui-menu", className)} finalFocus={finalFocus} aria-label={ariaLabel}>
-          {children}
+          <PopupSurface value={className}>{children}</PopupSurface>
         </BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
@@ -344,13 +346,14 @@ export interface SubmenuProps {
 
 /** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). */
 export function Submenu({ label, className, popupClassName, disabled, children }: SubmenuProps) {
+  const surface = use(PopupSurface);
   return (
     <BaseMenu.SubmenuRoot>
       <BaseMenu.SubmenuTrigger className={cx("ui-menu-item ui-submenu-trigger", className)} disabled={disabled}>
         {label}
         <span className="ui-submenu-chevron" aria-hidden="true" />
       </BaseMenu.SubmenuTrigger>
-      <MenuPopup side="inline-end" align="start" className={popupClassName}>
+      <MenuPopup side="inline-end" align="start" className={popupClassName ?? surface}>
         {children}
       </MenuPopup>
     </BaseMenu.SubmenuRoot>
