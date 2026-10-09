@@ -550,14 +550,13 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
 }
 
 fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let columns = {
-        let mut statement = transaction.prepare("PRAGMA table_info(session_journal)")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<Result<HashSet<_>, _>>()?
-    };
+    let columns = journal_extensions::table_columns(transaction, "session_journal")?;
     if !columns.contains("content") {
         transaction.execute("ALTER TABLE session_journal ADD COLUMN content BLOB", [])?;
+    }
+    // Appends write it before the ledger pass; ADD COLUMN keeps rows and sequences (cx-0b8z).
+    if !columns.contains("actor") {
+        transaction.execute("ALTER TABLE session_journal ADD COLUMN actor TEXT", [])?;
     }
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS journal_terminal_streams (

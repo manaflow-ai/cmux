@@ -181,6 +181,10 @@ fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std
         ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
             .map(PathBuf::from),
     );
+    // The caller's PATH after the bundled and usual tool directories.
+    if let Some(path) = std::env::var_os("PATH") {
+        path_dirs.extend(std::env::split_paths(&path));
+    }
     let search_path = std::env::join_paths(path_dirs).map_err(std::io::Error::other)?;
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
@@ -192,6 +196,9 @@ fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std
         .arg("--mux-home")
         .arg(&home.root)
         .env_clear()
+        // The harness logins and settings (never logged), then the brain's
+        // own values, which win.
+        .envs(std::env::vars_os().filter(|(name, _)| name.to_str().is_some_and(brain_env_allowed)))
         .env("PATH", search_path)
         .env("HOME", &user_home)
         .env("MUX_AGENT_TOKEN_FILE", home.token_file())
@@ -207,11 +214,6 @@ fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std
         .stderr(log);
     if let Some(acpmux) = sibling_or_path("acpmux") {
         command.env("ACPMUX_BIN", acpmux);
-    }
-    for key in ["USER", "TMPDIR", "LANG", "MUX_HARNESS", "CMUX_MCP_COMMAND"] {
-        if let Some(value) = std::env::var_os(key) {
-            command.env(key, value);
-        }
     }
     #[cfg(unix)]
     {
@@ -232,6 +234,31 @@ fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std
         let _ = child.wait();
     });
     Ok(pid)
+}
+
+/// The environment a Chief brain gets from whoever starts it, the same
+/// for the CLI and the app (HomeBrainHost.childEnvironment): the user's
+/// identity and locale, the model harnesses' logins and settings, and the
+/// brain's own `MUX_*`, `OPTCHAT_*` and `CMUX_*` settings. Nothing else
+/// passes, so a shell's unrelated secrets stay out of the brain.
+pub(super) fn brain_env_allowed(name: &str) -> bool {
+    const NAMES: &[&str] = &[
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TMPDIR",
+        "LANG",
+        "TERM",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CLAUDE_CONFIG_DIR",
+        "CODEX_HOME",
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "SSH_AUTH_SOCK",
+    ];
+    const PREFIXES: &[&str] = &["LC_", "ANTHROPIC_", "MUX_", "OPTCHAT_", "CMUX_", "ACPMUX_"];
+    NAMES.contains(&name) || PREFIXES.iter().any(|prefix| name.starts_with(prefix))
 }
 
 /// The user's full name (`id -F` on macOS), else the login name: the name
