@@ -155,6 +155,11 @@ pub struct PromptOptions {
     /// Whether this prompt came from a gated app/Web path and must be checked
     /// again when a queued turn is dispatched.
     pub trust_gate: bool,
+    /// A steer that must not become a queued prompt
+    /// (`_meta.acpmux.steerOnly`): refused (`steer.unavailable`) when the
+    /// session cannot steer now (no running turn, or an agent that does not
+    /// steer).
+    pub steer_only: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.

@@ -14,6 +14,8 @@ use tokio::sync::mpsc;
 mod permission_groups;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/steer_only.rs"]
+mod steer_only;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 
@@ -1466,3 +1468,6 @@ mod quit_spawn;
 
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+
+#[path = "hub_integration/fork_through.rs"]
+mod fork_through;

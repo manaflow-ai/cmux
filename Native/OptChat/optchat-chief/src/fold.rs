@@ -327,7 +327,11 @@ impl TurnFold {
     fn time_request(&mut self, event: &AcpmuxEvent) {
         let Some(at) = event.at else { return };
         match event.kind.as_str() {
-            "claude.user" => self.request_start = Some(at),
+            // A tool result Claude Code read; its echo of a user line it
+            // read (`isReplay`) is not a start: the line went out earlier.
+            "claude.user" if event.msg.get("isReplay") != Some(&Value::Bool(true)) => {
+                self.request_start = Some(at)
+            }
             "claude.stream_event" => {
                 let ev = event.msg.get("event");
                 match ev.and_then(|e| e.get("type")).and_then(Value::as_str) {

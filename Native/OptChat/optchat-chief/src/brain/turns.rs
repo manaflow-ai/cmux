@@ -472,7 +472,7 @@ impl Brain {
     /// cursor past every handled message, then `update`). On a failed write
     /// nothing is posted for them and the host stops (the conversation's
     /// cursor stays before them).
-    fn log_items(
+    pub(super) fn log_items(
         &mut self,
         items: &[Queued],
         update: impl FnOnce(&mut HostState, &Appended),
@@ -575,22 +575,30 @@ impl Brain {
             return Vec::new();
         }
         let items: Vec<Queued> = self.queue.drain(..take).collect();
-        if items.iter().any(|i| {
-            matches!(
-                i.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        }) {
-            self.turn_remote = true;
-            self.turn_ask = !self.chief.remote_auto_approve;
-            self.interrupt.set_gate(self.turn_ask);
+        if !self.log_delivered(&items) {
+            return Vec::new();
         }
+        let images: Vec<super::images::TurnImage> = items
+            .iter()
+            .flat_map(|i| i.images.iter().cloned())
+            .collect();
+        let mut blocks: Vec<serde_json::Value> = images
+            .iter()
+            .filter_map(super::images::TurnImage::block)
+            .collect();
+        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        blocks.push(serde_json::json!({"type": "text", "text": texts.join("\n\n")}));
+        blocks
+    }
+
+    /// Logs messages delivered into the running turn as `user`, in its
+    /// batches, past the read cursor, with their images described like a
+    /// turn's own. False: the write failed (the host stops).
+    pub(super) fn log_delivered(&mut self, items: &[Queued]) -> bool {
+        self.taint_remote(items);
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
-        let logged = self.log_items(&items, move |next, _| {
+        let logged = self.log_items(items, move |next, _| {
             if let Some(turn) = next.turn.as_mut() {
                 turn.mid.push(Batch {
                     at,
@@ -600,23 +608,15 @@ impl Brain {
             }
         });
         if logged.is_none() {
-            return Vec::new();
+            return false;
         }
         self.set_cursor(self.state.logged_seq);
-        // The delivered messages' images go with them, and are described
-        // for the log like a turn's own.
         let images: Vec<super::images::TurnImage> = items
             .iter()
             .flat_map(|i| i.images.iter().cloned())
             .collect();
         self.describe_images(&images);
-        let mut blocks: Vec<serde_json::Value> = images
-            .iter()
-            .filter_map(super::images::TurnImage::block)
-            .collect();
-        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
-        blocks.push(serde_json::json!({"type": "text", "text": texts.join("\n\n")}));
-        blocks
+        true
     }
 
     /// A human message arrived during a turn (decision 2026-10-04): the
@@ -634,6 +634,10 @@ impl Brain {
         // so the turn can stop and the next one answers.
         self.deny_pending("a newer message");
         if matches!(self.settings.engine, Engine::Acpmux) {
+            // Parity item 7: between tool calls, when the session steers.
+            if self.try_steer() {
+                return;
+            }
             self.stop_wanted = true;
         }
         self.interrupt.request();
