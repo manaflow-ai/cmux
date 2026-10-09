@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import Testing
 
 /// AppKit's notification names are usually posted on the main thread, but
@@ -44,14 +45,14 @@ struct SelectorNotificationThreadTests {
             self.center = center
             super.init()
             observers = names.map { name in
-                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                     // main-proof: NotificationCenter delivers this block on the main operation queue.
-                    MainActor.assumeIsolated { self?.received(note) }
+                    MainDelivery().run { self?.received() }
                 }
             }
         }
 
-        private func received(_ note: Notification) {
+        private func received() {
             callbackThreads.append(Thread.isMainThread)
         }
 
