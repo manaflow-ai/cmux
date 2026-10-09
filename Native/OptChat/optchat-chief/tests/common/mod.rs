@@ -468,6 +468,10 @@ pub struct Agents {
     pub steer_errors: usize,
     /// Steers that failed.
     pub failed_steers: usize,
+    /// Steers are answered only when the turn ends (codex-acp).
+    pub steer_at_end: bool,
+    /// Turns whose prompt was answered.
+    pub answered_turns: usize,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -653,6 +657,8 @@ impl AgentPort for FakeAgents {
             if let Some(delay) = delay {
                 std::thread::sleep(delay);
             }
+            me.inner.lock().unwrap().answered_turns += 1;
+            me.changed.notify_all();
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
             } else if let Some(error) = error {
@@ -747,7 +753,12 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
-    fn steer(&self, session: &str, blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        _prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
         let mut inner = self.inner.lock().unwrap();
         if !inner.steering {
             return Err("steer.unavailable".into());
@@ -760,9 +771,19 @@ impl AgentPort for FakeAgents {
             return Err("steer: the connection dropped".into());
         }
         inner.steers.push((session.to_owned(), blocks));
+        let at_end = inner.steer_at_end;
+        let turn = inner.answered_turns;
         drop(inner);
         self.changed.notify_all();
-        Ok(())
+        let me = self.me.upgrade().expect("alive");
+        Ok(Box::new(move || {
+            // codex-acp answers a steer only when the turn ends.
+            let mut inner = me.inner.lock().unwrap();
+            while at_end && inner.answered_turns == turn {
+                inner = me.changed.wait(inner).unwrap();
+            }
+            Ok(())
+        }))
     }
 
     fn prewarm(

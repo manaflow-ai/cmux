@@ -36,8 +36,11 @@ stop). On the acpmux engine the brain steers the message into the running
 session (`brain/steer.rs`): acpmux's Claude Code adapter writes it to
 claude's stdin, where Claude Code reads it at its next tool boundary
 (`--replay-user-messages` confirms it), and codex-acp takes it as a steer;
-the turn's one reply answers it too, and it is logged as `user` once the
-harness read it. When the turn cannot take it (its session has not started,
+the turn's one reply answers it too. Every message is sent at once, in
+order, and logged as `user` where it arrived: when Claude Code read it, and
+at once on codex-acp (which answers a steer only at the turn's end). A
+message too big to go in whole (over the view's 128,000 bytes or 20 images)
+is not steered. When the turn cannot take it (its session has not started,
 an item of another conversation is ahead, or acpmux refuses the steer), the
 message waits at the head of the queue and the next turn starts the moment
 this one ends. The native engine delivers it after the next tool results,
