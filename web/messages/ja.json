@@ -171,6 +171,14 @@
       "message": "このマシンは Cloud の更新前に作成されたため、接続できません。",
       "action": "新しいマシンを作成し、cmux vm pull と cmux vm push でファイルを移してから、このマシンを削除してください。"
     },
+    "networkRuleCapacity": {
+      "title": "ネットワークルールの上限に達しました",
+      "message": "ネットワークポリシーは保存されましたが、適用されませんでした。cmux Cloud のネットワークルールが上限に達しています。",
+      "action": "cmux チームに通知済みです。このマシンで不要になったドメインを削除するか、サポートにお問い合わせください。それまでは、このマシンのネットワークアクセスが保存したポリシーと一致しない場合があります。"
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "ネットワークポリシーは保存されましたが、適用されませんでした。再度保存してやり直してください。"
+    },
     "unsupported": {
       "title": "Cloud VM 操作を利用できません",
       "reason": "このマシン種別ではこの操作を利用できません。",
@@ -863,7 +871,8 @@
         "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
         "ineligible": "iOS TestFlightには有効な個人Proサブスクリプションが必要です。",
         "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
-        "unavailable": "現在、TestFlight登録は利用できません。"
+        "unavailable": "現在、TestFlight登録は利用できません。",
+        "busy": "アカウントへの別の変更を処理中です。しばらくしてから再試行してください。"
       },
       "notEligible": {
         "title": "サブスクリプションが必要です",
@@ -2037,7 +2046,8 @@
     },
     "priceMonthlyNote": "月払いは${amount}/月",
     "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
-    "manageInAppStore": "App Store で管理"
+    "manageInAppStore": "App Store で管理",
+    "resumePlan": "{plan} を再開"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",

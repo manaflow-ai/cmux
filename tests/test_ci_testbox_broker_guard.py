@@ -22,6 +22,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-testbox-warmup.yml"
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "testbox-broker-guard.yml"
 JOB = "cmux-tui-rust"
 BEGIN_TESTBOX = "useblacksmith/begin-testbox"
+WARM_TARGET_KEY = "cmux-tui-target-v1"
 
 
 def load_job() -> dict:
@@ -115,6 +116,39 @@ class TestboxBrokerGuardTests(unittest.TestCase):
         script = ROOT / "scripts" / "blacksmith-testbox-keepalive.sh"
         self.assertTrue(script.is_file())
         self.assertIn("/tmp/.testbox", script.read_text(encoding="utf-8"))
+
+    def test_only_the_testbox_job_mounts_the_warm_target_disk(self) -> None:
+        # The warm target snapshot holds build output of candidate code synced
+        # onto earlier boxes. It must never feed CI, release, or nightly
+        # builds, so this job is the only one in the repository that names
+        # the key, and it mounts the disk after the trust guards.
+        mounts = [
+            (index, step)
+            for index, step in enumerate(self.steps)
+            if "useblacksmith/stickydisk" in str(step.get("uses", ""))
+        ]
+        self.assertEqual(len(mounts), 1)
+        index, step = mounts[0]
+        self.assertGreater(index, self.begin_index)
+        self.assertEqual(step["with"]["key"], WARM_TARGET_KEY)
+        self.assertEqual(step["with"]["path"], "cmux-tui/target")
+        for path in sorted((ROOT / ".github").rglob("*.y*ml")):
+            if path == WORKFLOW:
+                continue
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn(
+                "cmux-tui-target",
+                text,
+                f"{path.relative_to(ROOT)} must not mount the Testbox warm target disk",
+            )
+            # A computed key could still resolve to the Testbox key, so any
+            # other sticky disk must use a literal key.
+            for match in re.finditer(r"useblacksmith/stickydisk@[^\n]*\n((?:\s+.*\n)*)", text):
+                self.assertNotRegex(
+                    match.group(1),
+                    r"key:\s*[^\n]*\$\{\{",
+                    f"{path.relative_to(ROOT)} gives a sticky disk a computed key",
+                )
 
     def test_diagnostic_guard_uses_runner_python_without_setup_action(self) -> None:
         document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
