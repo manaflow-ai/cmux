@@ -259,7 +259,7 @@ fn socket_fds(pid: i32) -> Option<Vec<i32>> {
     if bytes <= 0 {
         return None;
     }
-    let size = std::mem::size_of::<libc::proc_fdinfo>();
+    let size = size_of::<libc::proc_fdinfo>();
     let mut fds =
         vec![libc::proc_fdinfo { proc_fd: 0, proc_fdtype: 0 }; bytes as usize / size + 16];
     let room = (fds.len() * size) as libc::c_int;
