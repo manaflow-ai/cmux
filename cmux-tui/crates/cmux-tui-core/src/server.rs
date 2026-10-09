@@ -146,6 +146,7 @@ mod remote_entry;
 mod remote_relay;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
+mod cmd_workspaces;
 mod responses;
 mod rows;
 mod screen_json;
@@ -3986,21 +3987,6 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     difference == 0
 }
 
-fn authorize_provider_workspace_command(mux: &Mux, mut authority: String) -> anyhow::Result<()> {
-    let result = mux.authorize_provider_workspace_authority(&authority);
-    zeroize_string(&mut authority);
-    result
-}
-
-fn with_provider_workspace_authority<T>(
-    mut authority: String,
-    operation: impl FnOnce(&str) -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    let result = operation(&authority);
-    zeroize_string(&mut authority);
-    result
-}
-
 fn zeroize_string(value: &mut str) {
     // NUL remains valid UTF-8, so decoded control frames can be cleared in
     // place immediately after dispatch.
@@ -5802,7 +5788,7 @@ fn handle_command_with_cancellation(
             mux.emit(MuxEvent::WindowTitleRequested(String::new()));
             Ok(json!({}))
         }
-        Command::ListWorkspaces => list_workspaces_reply(mux),
+        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             let projection = mux.get_frontend_projection(&frontend, &scope, &subject_key)?;
             Ok(match projection {
@@ -6334,33 +6320,10 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::NewWorkspace { name, cols, rows } => {
-            let surface = mux.new_workspace_as(&actor, name, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+            cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
         Command::CreateWorkspace { name, key, mutation } => {
-            if let Some(key) = key.as_deref()
-                && !crate::workspace_registry::is_canonical_workspace_key(key)
-            {
-                anyhow::bail!("workspace key must be a lowercase UUID");
-            }
-            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-            let placement = mux.create_empty_workspace_with_mutation(
-                name,
-                key,
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "workspace": placement.workspace,
-                "key": placement.key,
-                "index": placement.index,
-                "workspace_revision": placement.revision,
-                "replayed": placement.replayed,
-                "registry_id": registry_id,
-                "generation": generation,
-            }))
+            cmd_workspaces::create_workspace(mux, client, name, key, mutation)
         }
         Command::CreateTerminal {
             workspace,
@@ -7023,26 +6986,7 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::MoveWorkspace { workspace, key, index, mutation } => {
-            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-            let result = mux.move_workspace_with_mutation(
-                workspace,
-                key.as_deref(),
-                index,
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "workspace": result.workspace,
-                "key": result.key,
-                "index": result.index,
-                "workspace_revision": result.revision,
-                "changed": result.changed,
-                "replayed": result.replayed,
-                "registry_id": registry_id,
-                "generation": generation,
-            }))
+            cmd_workspaces::move_workspace(mux, client, workspace, key, index, mutation)
         }
         Command::SetWorkspaceMetadata {
             workspace,
@@ -7053,42 +6997,18 @@ fn handle_command_with_cancellation(
             pinned,
             marked_unread,
             mutation,
-        } => {
-            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-            let update = crate::workspace_registry::WorkspacePresentationUpdate {
-                group: None,
-                color,
-                icon,
-                title,
-                pinned,
-                marked_unread,
-            };
-            let result = mux.set_workspace_metadata(
-                workspace,
-                key.as_deref(),
-                update,
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
-            let presentation = mux.presentation_snapshot();
-            let record = presentation.workspace(&result.key).cloned().unwrap_or_default();
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "workspace": result.workspace,
-                "key": result.key,
-                "color": record.color,
-                "icon": record.icon,
-                "title": record.title,
-                "pinned": record.pinned,
-                "marked_unread": record.marked_unread,
-                "workspace_revision": result.revision,
-                "changed": result.changed,
-                "replayed": result.replayed,
-                "registry_id": registry_id,
-                "generation": generation,
-            }))
-        }
+        } => cmd_workspaces::set_workspace_metadata(
+            mux,
+            client,
+            workspace,
+            key,
+            color,
+            icon,
+            title,
+            pinned,
+            marked_unread,
+            mutation,
+        ),
         Command::ListPersonal => personal::list(mux),
         Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
         Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
@@ -7190,10 +7110,10 @@ fn handle_command_with_cancellation(
             personal::set_profile_follows(mux, &profile, &session_ids)
         }
         Command::PinWorkspace { session_id, workspace_key, profile } => {
-            personal::pin_workspace(mux, &session_id, &workspace_key, &profile)
+            cmd_workspaces::pin_workspace(mux, session_id, workspace_key, profile)
         }
         Command::UnpinWorkspace { session_id, workspace_key } => {
-            personal::unpin_workspace(mux, &session_id, &workspace_key)
+            cmd_workspaces::unpin_workspace(mux, session_id, workspace_key)
         }
         Command::PutSession {
             session_id,
@@ -7261,57 +7181,23 @@ fn handle_command_with_cancellation(
         Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
             personal::set_terminal(mux, &session_id, &terminal_key, theme.as_deref())
         }
-        Command::ListWorkspaceGroups => {
-            Ok(json!({ "groups": workspace_groups_json(&mux.presentation_snapshot()) }))
-        }
+        Command::ListWorkspaceGroups => cmd_workspaces::list_workspace_groups(mux),
         Command::CreateWorkspaceGroup { name, group, color, collapsed, index } => {
-            let change = mux.create_workspace_group(group, name, color, collapsed, index)?;
-            Ok(json!({
-                "group": workspace_group_json(&change.group, change.index),
-                "changed": change.changed,
-            }))
+            cmd_workspaces::create_workspace_group(mux, name, group, color, collapsed, index)
         }
         Command::UpdateWorkspaceGroup { group, name, color, collapsed } => {
-            let change = mux.update_workspace_group(&group, name, color, collapsed)?;
-            Ok(json!({
-                "group": workspace_group_json(&change.group, change.index),
-                "changed": change.changed,
-            }))
+            cmd_workspaces::update_workspace_group(mux, group, name, color, collapsed)
         }
         Command::DeleteWorkspaceGroup { group } => {
-            let ungrouped = mux.delete_workspace_group(&group)?;
-            Ok(json!({ "group": group, "ungrouped_keys": ungrouped }))
+            cmd_workspaces::delete_workspace_group(mux, group)
         }
         Command::MoveWorkspaceGroup { group, index } => {
-            let change = mux.move_workspace_group(&group, index)?;
-            Ok(json!({
-                "group": workspace_group_json(&change.group, change.index),
-                "changed": change.changed,
-            }))
+            cmd_workspaces::move_workspace_group(mux, group, index)
         }
         Command::MoveWorkspaceToGroup { workspace, key, group, index, mutation } => {
-            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-            let result = mux.move_workspace_to_group(
-                workspace,
-                key.as_deref(),
-                group.clone(),
-                index,
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "workspace": result.workspace,
-                "key": result.key,
-                "index": result.index,
-                "group": group,
-                "workspace_revision": result.revision,
-                "changed": result.changed,
-                "replayed": result.replayed,
-                "registry_id": registry_id,
-                "generation": generation,
-            }))
+            cmd_workspaces::move_workspace_to_group(
+                mux, client, workspace, key, group, index, mutation,
+            )
         }
         Command::SetDefaultColors {
             fg,
@@ -7420,49 +7306,13 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
-            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-            let result = if end_terminals {
-                mux.close_workspace_ending_terminals(
-                    workspace,
-                    key.as_deref(),
-                    mutation.expected_generation.as_deref(),
-                    mutation.expected_revision,
-                    &workspace_mutation,
-                )?
-                .0
-            } else {
-                mux.close_workspace_with_mutation(
-                    workspace,
-                    key.as_deref(),
-                    mutation.expected_generation.as_deref(),
-                    mutation.expected_revision,
-                    &workspace_mutation,
-                )?
-            };
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "workspace": result.workspace,
-                "key": result.key,
-                "index": result.index,
-                "workspace_revision": result.revision,
-                "changed": result.changed,
-                "replayed": result.replayed,
-                "registry_id": registry_id,
-                "generation": generation,
-            }))
+            cmd_workspaces::close_workspace(mux, client, workspace, key, end_terminals, mutation)
         }
         Command::MarkWorkspacesProviderManaged { authority } => {
-            authorize_provider_workspace_command(mux, authority)?;
-            Ok(json!({}))
+            cmd_workspaces::mark_workspaces_provider_managed(mux, authority)
         }
         Command::CloseProviderManagedWorkspace { workspace, key, authority } => {
-            let Some(revision) = with_provider_workspace_authority(authority, |authority| {
-                mux.close_provider_managed_workspace_authorized(&actor, workspace, &key, authority)
-            })?
-            else {
-                anyhow::bail!("unknown provider-managed workspace selector");
-            };
-            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+            cmd_workspaces::close_provider_managed_workspace(mux, actor, workspace, key, authority)
         }
         Command::RenamePane { pane, name } => {
             if !mux.rename_pane_as(&actor, pane, name) {
@@ -7483,37 +7333,12 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::RenameWorkspace { workspace, key, name, mutation } => {
-            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-            let result = mux.rename_workspace_with_mutation(
-                workspace,
-                key.as_deref(),
-                name,
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "workspace": result.workspace,
-                "key": result.key,
-                "index": result.index,
-                "workspace_revision": result.revision,
-                "changed": result.changed,
-                "replayed": result.replayed,
-                "registry_id": registry_id,
-                "generation": generation,
-            }))
+            cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
-            let Some(revision) = with_provider_workspace_authority(authority, |authority| {
-                mux.rename_provider_managed_workspace_authorized(
-                    &actor, workspace, &key, name, authority,
-                )
-            })?
-            else {
-                anyhow::bail!("unknown provider-managed workspace selector");
-            };
-            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+            cmd_workspaces::rename_provider_managed_workspace(
+                mux, actor, workspace, key, name, authority,
+            )
         }
         Command::ResizeSurface { surface, cols, rows } => {
             let (cols, rows) = clamp_terminal_size(cols, rows);
@@ -7759,8 +7584,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::SelectWorkspace { index, delta } => {
-            mux.select_workspace_as(&actor, index, delta);
-            Ok(json!({}))
+            cmd_workspaces::select_workspace(mux, actor, index, delta)
         }
         Command::ReportFocus { client_id, pane, tab } => {
             validate_client_focus_id(&client_id)?;
