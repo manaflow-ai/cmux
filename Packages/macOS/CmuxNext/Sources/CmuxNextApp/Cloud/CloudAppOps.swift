@@ -53,15 +53,6 @@ extension CloudMachine {
     /// A `CloudMachine` record of the cmux-next backend (contract 1.2), as
     /// the Cloud app server answers it.
     init?(next value: JSONValue) {
-        guard let id = value["id"]?.stringValue, !id.isEmpty else { return nil }
-        let status: Status = switch value["status"]?.stringValue {
-        case "provisioning", "starting": .provisioning
-        case "running": .running
-        case "pausing", "paused": .paused
-        case "deleting": .destroyed
-        case "failed": .failed
-        default: .unknown
-        }
-        self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue)
+        nil // red
     }
 }

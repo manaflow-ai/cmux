@@ -110,7 +110,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackProjectID: value("CMUX_STACK_PROJECT_ID") ?? developmentProjectID,
             stackPublishableClientKey: value("CMUX_STACK_PUBLISHABLE_CLIENT_KEY") ?? developmentClientKey,
             isProductionAuth: false, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild,
-            linkSource: value("CMUX_CLOUD_LINK")?.lowercased() == "legacy" ? .legacy : .appServer)
+            linkSource: value("CMUX_CLOUD_LINK")?.lowercased() == "app" ? .appServer : .legacy)
     }
 
     /// This process's configuration.
