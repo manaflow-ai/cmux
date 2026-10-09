@@ -316,22 +316,31 @@ test("New Tab acknowledges the input generation only after the field has focus",
 
 // Dogfood 2026-10-08 (01): with chat cards under it the rows box shrank to two rows, and Down
 // to a row below them selected it out of sight ("I select lowest, it doesn't jump").
-test("Down to a row out of sight scrolls it into view", async () => {
-  const proto = dom.window.HTMLElement.prototype as unknown as { scrollIntoView?: (options?: unknown) => void };
-  const original = proto.scrollIntoView;
-  const scrolled: (string | null)[] = [];
-  proto.scrollIntoView = function (this: HTMLElement) {
-    scrolled.push(this.getAttribute("data-type"));
+test("Down to a row out of sight scrolls the rows box to it, and only the box", async () => {
+  // jsdom has no layout: the box shows 100 px and each row is 40 px tall.
+  const proto = dom.window.HTMLElement.prototype;
+  const original = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    const index = /^nt-row-(\d+)$/.exec(this.id)?.[1];
+    const top = this.id === "nt-rows" ? 0 : index === undefined ? 0 : Number(index) * 40;
+    const height = this.id === "nt-rows" ? 100 : index === undefined ? 0 : 40;
+    return { top, bottom: top + height, left: 0, right: 100, width: 100, height, x: 0, y: top } as DOMRect;
   };
   try {
     const { root, type, key } = await mount();
     await type("fix the build");
+    const box = dom.window.document.getElementById("nt-rows")!;
+    let scrollTop = 0;
+    Object.defineProperty(box, "scrollTop", { get: () => scrollTop, set: (value: number) => (scrollTop = value) });
+    const screen = box.closest<HTMLElement>(".nt-screen");
     await key("ArrowDown");
+    expect(scrollTop).toBe(0);
     await key("ArrowDown");
-    expect(scrolled.at(-1)).toBe("search");
+    expect(scrollTop).toBe(20);
+    expect(screen?.scrollTop ?? 0).toBe(0);
     await act(async () => root.unmount());
   } finally {
-    proto.scrollIntoView = original;
+    proto.getBoundingClientRect = original;
   }
 });
 

@@ -99,7 +99,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        for (let step = 0; step < 8; step++) await ctx.press("ArrowDown");
+        // "release" makes six rows: five presses end on the last one.
+        for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
       },
     },
     "omnibar-row-kinds": {
