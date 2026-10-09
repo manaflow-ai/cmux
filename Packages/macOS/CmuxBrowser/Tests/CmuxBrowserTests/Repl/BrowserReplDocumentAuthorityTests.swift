@@ -178,7 +178,7 @@ struct BrowserReplDocumentAuthorityTests {
         }
         // Another port, or a host that is not loopback, is a web page.
         for other in ["http://localhost:59874/x", "http://example.com:59873/x", "http://10.0.0.1:59873/x"] {
-            #expect(BrowserReplFileSandbox.appServedRefusal(url: other, documentOrigin: nil) == nil, other)
+            #expect(BrowserReplFileSandbox.appServedRefusal(url: other, documentOrigin: nil) == nil, "\(other)")
         }
     }
 
