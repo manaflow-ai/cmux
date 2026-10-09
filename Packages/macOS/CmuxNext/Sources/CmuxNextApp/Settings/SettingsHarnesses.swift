@@ -21,6 +21,7 @@ final class SettingsHarnesses {
     @ObservationIgnored private let environment: @MainActor () -> AcpmuxEnvironment?
     @ObservationIgnored private let fetch: @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow]
     @ObservationIgnored private let openTerminal: @MainActor (String) -> Void
+    @ObservationIgnored private var generation = 0
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
          fetch: @escaping @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow] = { try await $0.harnessRows() },
@@ -44,15 +45,54 @@ final class SettingsHarnesses {
         ]
     }
 
-    /// Reads the daemon's harnesses again.
+    /// Reads the daemon's harnesses again. Only the newest read writes the rows.
     func refresh() async {
-        _ = (environment, fetch) // red
+        guard let environment = environment() else {
+            rows = []
+            problem = "unavailable"
+            return
+        }
+        generation += 1
+        let mine = generation
+        loading = true
+        let fresh: [AcpmuxHarnessRow]?
+        do { fresh = try await fetch(environment) } catch { fresh = nil }
+        guard mine == generation else { return }
+        loading = false
+        if let fresh {
+            rows = fresh
+            problem = nil
+        } else {
+            problem = "unreachable"
+        }
+    }
+
+    /// Types `line` into a new terminal tab; refuses a line that could not be typed safely.
+    private func type(_ line: String?) throws {
+        guard let line else { throw PageError.invalidParams("this acpmux path cannot be typed into a shell") }
+        openTerminal(line)
     }
 
     /// One page gesture (`cmux.settings.harnesses.run`): `refresh`, `signIn` / `check` with a
     /// listed harness `id`, or `registry`.
     func run(_ params: JSONValue) async throws -> JSONValue {
-        _ = openTerminal // red
+        let action = params["action"]?.stringValue ?? ""
+        switch action {
+        case "refresh":
+            await refresh()
+        case "signIn", "check":
+            guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id && $0.kind != "terminal" }) else {
+                throw PageError.invalidParams("id must be a listed harness")
+            }
+            guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
+            // `--`: an id is never taken for a flag.
+            try type(environment.shellLine(["harness", "login"] + (action == "check" ? ["--status"] : []) + ["--", id]))
+        case "registry":
+            guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
+            try type(environment.shellLine(["harness", "registry"]))
+        default:
+            throw PageError.invalidParams("unknown harnesses action \(action)")
+        }
         return .object([:])
     }
 }
