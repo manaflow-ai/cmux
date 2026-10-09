@@ -7,7 +7,7 @@ import UIKit
 /// it (with a user interface style derived from the background's luminance,
 /// as ChatKit's `contentDerivedUserInterfaceStyleForLuminance` does) and
 /// views that draw over the background read it: incoming bubbles turn into
-/// material, the top wash takes the background's color.
+/// material.
 struct ConversationBackdropTrait: UITraitDefinition {
     static let defaultValue = false
     static let affectsColorAppearance = true
@@ -96,13 +96,6 @@ final class ConversationBackdropView: UIView {
         let format = UIGraphicsImageRendererFormat.preferred()
         format.scale = image.scale
         return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in image.draw(at: .zero) }.cgImage
-    }
-
-    /// The color the transcript's top wash fades to over this background.
-    var washColor: UIColor? {
-        guard let background else { return nil }
-        if background.kind == .photo { return nil }
-        return background.colors.first.flatMap(ConversationBackdropLayer.cgColor(hex:)).map(UIColor.init(cgColor:))
     }
 }
 #endif
