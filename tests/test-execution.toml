@@ -21,6 +21,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_omx_hud_command_match.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
@@ -137,6 +142,10 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_cmux_cua_mcp_smoke.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cmux_cua_compat_contract.py"
 lane = "macos-cli-no-socket"
 
 [[test]]

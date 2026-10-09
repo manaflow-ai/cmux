@@ -145,6 +145,8 @@
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
 		751AA9D65BBB1979C7957BAE /* AgentHookTestNotificationPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A0C49412A8AEDDDFA20067B /* AgentHookTestNotificationPipeline.swift */; };
 		C11757000000000000000040 /* AgentHookTestNotificationPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A0C49412A8AEDDDFA20067B /* AgentHookTestNotificationPipeline.swift */; };
+		D3C184780000000000000003 /* AgentInboxPollIteration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C184780000000000000005 /* AgentInboxPollIteration.swift */; };
+		D3C184780000000000000004 /* AgentInboxPollIteration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C184780000000000000005 /* AgentInboxPollIteration.swift */; };
 		273504E8019851399CF76909 /* AgentInboxProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5AC198D412FCD62A039CB9 /* AgentInboxProjection.swift */; };
 		4D13982D1102D5B3A801C310 /* AgentInboxProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05D60F9593550244973C09F2 /* AgentInboxProjectionTests.swift */; };
 		21E7B6BF4003059DB828137A /* AgentInboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9683DEA39B85CC2D1240DC1A /* AgentInboxView.swift */; };
@@ -1366,6 +1368,7 @@
 		C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */; };
 		112950000000000000000012 /* CMUXCLIForkLegacyFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000011 /* CMUXCLIForkLegacyFallbackTests.swift */; };
 		112950000000000000000002 /* CMUXCLIForkVerbRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000001 /* CMUXCLIForkVerbRegressionTests.swift */; };
+		D3C184780000000000000001 /* CMUXCLIInboxWaitMemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C184780000000000000002 /* CMUXCLIInboxWaitMemoryTests.swift */; };
 		906900000000000000000004 /* CMUXCLIMemoryAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906900000000000000000003 /* CMUXCLIMemoryAttributionTests.swift */; };
 		A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */; };
 		C12985000000000000000004 /* CMUXCLISentryTelemetryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */; };
@@ -4763,6 +4766,7 @@
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
 		2A0C49412A8AEDDDFA20067B /* AgentHookTestNotificationPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHookTestNotificationPipeline.swift"; sourceTree = "<group>"; };
+		D3C184780000000000000005 /* AgentInboxPollIteration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentInboxPollIteration.swift; sourceTree = "<group>"; };
 		7C5AC198D412FCD62A039CB9 /* AgentInboxProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentInbox/AgentInboxProjection.swift; sourceTree = "<group>"; };
 		05D60F9593550244973C09F2 /* AgentInboxProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentInboxProjectionTests.swift"; sourceTree = "<group>"; };
 		9683DEA39B85CC2D1240DC1A /* AgentInboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentInbox/AgentInboxView.swift; sourceTree = "<group>"; };
@@ -5938,6 +5942,7 @@
 		C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIErrorOutputRegressionTests.swift; sourceTree = "<group>"; };
 		112950000000000000000011 /* CMUXCLIForkLegacyFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIForkLegacyFallbackTests.swift; sourceTree = "<group>"; };
 		112950000000000000000001 /* CMUXCLIForkVerbRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIForkVerbRegressionTests.swift; sourceTree = "<group>"; };
+		D3C184780000000000000002 /* CMUXCLIInboxWaitMemoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIInboxWaitMemoryTests.swift; sourceTree = "<group>"; };
 		906900000000000000000003 /* CMUXCLIMemoryAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIMemoryAttributionTests.swift; sourceTree = "<group>"; };
 		8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxCLIPathInstaller.swift; sourceTree = "<group>"; };
 		C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLISentryTelemetryRegressionTests.swift; sourceTree = "<group>"; };
@@ -9168,6 +9173,7 @@
 				C117570000000000000000B1 /* CLITmuxCompatBufferContentTests.swift */,
 				C117570000000000000000A1 /* CLIPasteCommandTests.swift */,
 				AE55A6E50000000000000006 /* CLIAgentMessageCommandTests.swift */,
+				D3C184780000000000000002 /* CMUXCLIInboxWaitMemoryTests.swift */,
 				AE55B7F6000000000000A001 /* CLISendDraftGuardTests.swift */,
 				C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */,
 				C1175700000000000000001D /* CLIWorkspaceGroupSafetyTests.swift */,
@@ -12311,6 +12317,7 @@
 				054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */,
 				57AE38B536A608CB2CDEE6AD /* CMUXCLI+DiffViewerReviewLabels.swift */,
 				5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */,
+				D3C184780000000000000005 /* AgentInboxPollIteration.swift */,
 				5B85EF1F8C40AF5C89F442A8 /* CMUXCLI+AgentMessageSettings.swift */,
 				6EA23FD5F4147585610132E4 /* CMUXCLI+BrowserRepl.swift */,
 				F0226FF4BE571A2BA5B5AB16 /* CMUXCLI+VPN.swift */,
@@ -14303,6 +14310,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C11757000000000000000040 /* AgentHookTestNotificationPipeline.swift in Sources */,
+				D3C184780000000000000004 /* AgentInboxPollIteration.swift in Sources */,
 				C11757000000000000000041 /* AgentJournalTestSupport.swift in Sources */,
 				C11757000000000000000027 /* BundledCLITestSupport.swift in Sources */,
 				C11757000000000000000039 /* CampfireHookNotificationTests.swift in Sources */,
@@ -14344,6 +14352,7 @@
 				C11757000000000000000048 /* CLIWorkspaceStableIDMockServer.swift in Sources */,
 				C11757000000000000000037 /* CLIWorkspaceStableIDTests.swift in Sources */,
 				0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
+				D3C184780000000000000001 /* CMUXCLIInboxWaitMemoryTests.swift in Sources */,
 				C11757000000000000000038 /* CMUXOpenHTMLFocusTests.swift in Sources */,
 				1606FB10C21C603790FEE7D3 /* CodexAutoNamingArgumentsTests.swift in Sources */,
 				C1175700000000000000004A /* CodexHookCapturedSocketCommands.swift in Sources */,
@@ -17048,6 +17057,7 @@
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
 				918100000000000000000101 /* AgentHookFailureStage.swift in Sources */,
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
+				D3C184780000000000000003 /* AgentInboxPollIteration.swift in Sources */,
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
 				394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */,
 				A10649260000000000000001 /* AutomationConfigMutationCoordinator.swift in Sources */,
