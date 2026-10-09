@@ -5,11 +5,14 @@ import type { AcpmuxSnapshot } from "./model";
 
 // The composer card and its location row (cx-lzld, Lawrence 2026-10-08: "bottom part looks bad",
 // and the folder menu drew under the card). The pane's own stylesheets, in the order the pane
-// bundle concatenates them (scripts/cmux-next/build-agent-pane-web.sh), without src/ui/ui.css,
-// which the pane does not load.
+// bundle concatenates them (scripts/cmux-next/build-agent-pane-web.sh): the shared desktop layer
+// (it defines the --layer-* tokens), the shared popup surface, then the pane's files. src/ui/ui.css
+// is not loaded, as in the pane. No hand-written layer values: the test reads the real tokens.
 const css = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const dom = new JSDOM(
-  `<!doctype html><style>:root{--layer-dropdown:50}</style><style>${[
+  `<!doctype html><style>${[
+    "../../pages/shared/desktop.css",
+    "../../ui/popupSurface.css",
     "./styles.css",
     "./composerControls.css",
     "./composerStates.css",
@@ -19,7 +22,7 @@ const dom = new JSDOM(
     "./header/header.css",
   ]
     .map(css)
-    .join("\n")} .ui-positioner{z-index:50}</style><div id=root></div>`,
+    .join("\n")}</style><div id=root></div>`,
   { url: "http://localhost/", pretendToBeVisual: true, virtualConsole: new VirtualConsole() },
 );
 const globals = globalThis as Record<string, unknown>;
@@ -103,9 +106,19 @@ const render = async () => {
   await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 };
 
+/// The element's z-index as a number. jsdom does not substitute custom properties in computed
+/// values, so a `var(--layer-*)` is resolved here through the root's computed style, the way the
+/// engine does; an unset or `auto` z-index counts as 0.
 const zIndex = (element: Element) => {
-  const value = Number.parseInt(dom.window.getComputedStyle(element).zIndex, 10);
-  return Number.isNaN(value) ? 0 : value;
+  let value = dom.window.getComputedStyle(element).zIndex.trim();
+  for (let depth = 0; depth < 4; depth++) {
+    const token = /^var\(\s*(--[\w-]+)\s*(?:,\s*([^)]+))?\)$/.exec(value);
+    if (!token) break;
+    const root = dom.window.getComputedStyle(dom.window.document.documentElement).getPropertyValue(token[1]!).trim();
+    value = root || (token[2] ?? "").trim();
+  }
+  const number = Number.parseInt(value, 10);
+  return Number.isNaN(number) ? 0 : number;
 };
 
 test("the folder and computer row is a footer inside the composer card, not a second card", async () => {
