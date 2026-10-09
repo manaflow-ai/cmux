@@ -37,9 +37,4 @@ import Foundation
     /// Toggles the same assertion used by the phone RPC and the Mac action.
     public func toggle() { setSync(enabled: !statusSync()) }
 
-    deinit {
-        if let activity {
-            ProcessInfo.processInfo.endActivity(activity)
-        }
-    }
 }
