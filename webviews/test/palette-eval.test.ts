@@ -17,6 +17,12 @@ describe("palette ranking eval", () => {
     expect(missing).toEqual([]);
   });
 
+  test("guard cases keep their row in the top 3", () => {
+    const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => c.guard) });
+    const pushedOut = report.results.filter((r) => r.rank === null || r.rank > 3).map((r) => `${r.query}: ${r.top.join(", ")}`);
+    expect(pushedOut).toEqual([]);
+  });
+
   test("ranking quality stays at or above the recorded floors", () => {
     const report = evaluate(fixture, cases);
     console.log(formatReport(report));
