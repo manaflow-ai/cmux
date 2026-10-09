@@ -37,6 +37,8 @@ final class CloudSheetWindow {
     private weak var hostWindow: NSWindow?
     private var lastHostOrigin: NSPoint?
     private var isAttachedToHost = false
+    private var isHostMovePending = false
+    private var isHostAnchorRefreshScheduled = false
     private var isApplyingFrame = false
 
     init<Content: View>(rootView: Content) {
@@ -63,7 +65,12 @@ final class CloudSheetWindow {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.recordFloatingWindowMoveIfStable()
+                guard let self else { return }
+                if self.isAttachedToHost {
+                    self.recordAttachedSheetMoveIfHostMoveIsPending()
+                } else {
+                    self.recordFloatingWindowMoveIfStable()
+                }
             }
         }
     }
@@ -83,6 +90,7 @@ final class CloudSheetWindow {
         hostWindow = host
         lastHostOrigin = host.frame.origin
         isAttachedToHost = true
+        isHostMovePending = false
         hostMoveObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification,
             object: host,
@@ -138,7 +146,7 @@ final class CloudSheetWindow {
     }
 
     private func applyPendingContentSize() {
-        guard !isOpening, let size = pendingContentSize else { return }
+        guard !isOpening, !isHostMovePending, let size = pendingContentSize else { return }
         pendingContentSize = nil
         let current = window.contentRect(forFrameRect: window.frame).size
         guard size != current else { return }
@@ -185,7 +193,29 @@ final class CloudSheetWindow {
         guard !isOpening, !isApplyingFrame else { return }
         guard host.frame.origin != lastHostOrigin else { return }
         lastHostOrigin = host.frame.origin
-        recordStableTopEdge()
+        isHostMovePending = true
+        scheduleHostAnchorRefresh()
+    }
+
+    private func recordAttachedSheetMoveIfHostMoveIsPending() {
+        guard isHostMovePending else { return }
+        guard !isOpening, !isApplyingFrame else { return }
+        let contentSize = window.contentRect(forFrameRect: window.frame).size
+        guard contentSize.width > 1, contentSize.height > 1 else { return }
+        topEdgeAnchor = window.frame.maxY
+        isHostMovePending = false
+    }
+
+    private func scheduleHostAnchorRefresh() {
+        guard !isHostAnchorRefreshScheduled else { return }
+        isHostAnchorRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isHostAnchorRefreshScheduled = false
+            guard self.isAttachedToHost, !self.isOpening, !self.isApplyingFrame else { return }
+            self.recordAttachedSheetMoveIfHostMoveIsPending()
+            self.applyPendingContentSize()
+        }
     }
 
     private func recordStableTopEdge() {
