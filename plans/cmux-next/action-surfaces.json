@@ -16159,7 +16159,8 @@
       "cli_name" : "agent zoom-in",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane"
+        "pane",
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -16190,7 +16191,8 @@
       "cli_name" : "agent zoom-out",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane"
+        "pane",
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -16221,7 +16223,8 @@
       "cli_name" : "agent actual-size",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane"
+        "pane",
+        "agentChat"
       ],
       "default_aliases" : [
 
