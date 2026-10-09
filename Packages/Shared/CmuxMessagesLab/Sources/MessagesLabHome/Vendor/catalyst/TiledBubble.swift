@@ -21,7 +21,7 @@ enum TiledBubble {
         let body = cell.tiled ?? TiledBody()
         cell.tiled = body
         body.attach(cell)
-        body.set(spec: spec, row: p, layout: LongTextStore.shared.layout(t, width: spec.width, message: p.ref.messageId), cell: cell)
+        body.set(spec: spec, row: p, layout: LongTextStore.shared.layout(t, width: spec.width, message: p.ref.messageId, markdown: p.markdownFormat), cell: cell)
         cell.bitmap.contents = emptyImage
         cell.bitmap.isHidden = true
         body.update(cell)
@@ -192,7 +192,7 @@ final class TiledBody {
     /// without a row change.
     func refresh(_ cell: RowCell) {
         guard let spec, let row, case let .text(t, _) = row.part else { return }
-        let l = LongTextStore.shared.layout(t, width: spec.width, message: row.ref.messageId)
+        let l = LongTextStore.shared.layout(t, width: spec.width, message: row.ref.messageId, markdown: row.markdownFormat)
         guard l !== layout else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         set(spec: spec, row: row, layout: l, cell: cell)

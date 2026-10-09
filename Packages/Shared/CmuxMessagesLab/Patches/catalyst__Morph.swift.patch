@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
-@@ -176,16 +176,15 @@
+@@ -179,16 +179,15 @@
          // The first 1/120 s step from 0.3 s with 12 steps in a row inside every
          // tolerance (each step's checks evaluated once; same result as testing
          // 12 steps per candidate, about 12x less spring math on the send commit).
@@ -22,7 +22,7 @@
              if run == 12 { first = i - 11; break }
          }
          let settle = 0.3 + Double(min(first, steps)) / 120
-@@ -252,7 +251,7 @@
+@@ -255,7 +254,7 @@
          let padded = UIGraphicsImageRenderer(size: CGSize(width: size.width + 2 * p, height: size.height + 2 * p), format: fmt).image { ctx in
              PartRenderer.drawText(ctx.cgContext, tl, in: CGRect(x: p, y: p, width: size.width, height: size.height), outgoing: true)
          }
@@ -31,7 +31,7 @@
      }
  
      /// The body's bottom edge in window points, `tau` seconds after the send
-@@ -336,7 +335,7 @@
+@@ -369,7 +368,7 @@
      static let peakScale: CGFloat = {
          let e = Springs.bubbleScale
          var peak = 1.0
@@ -40,7 +40,7 @@
          return CGFloat((peak * 1000).rounded(.up) / 1000)
      }()
  
-@@ -344,9 +343,10 @@
+@@ -377,9 +376,10 @@
      static func boxBlur(_ cg: CGImage, radiusPx r: Int) -> CGImage? {
          guard var format = vImage_CGImageFormat(cgImage: cg),
                var src = try? vImage_Buffer(cgImage: cg, format: format),
@@ -53,7 +53,7 @@
          for _ in 0..<3 {
              vImageBoxConvolve_ARGB8888(&src, &dst, nil, 0, 0, k, k, nil, vImage_Flags(kvImageEdgeExtend))
              swap(&src, &dst)
-@@ -357,10 +357,12 @@
+@@ -390,10 +390,12 @@
      /// The outgoing gradient's colour at a window y (pt).
      static func blue(atWindowY y: CGFloat) -> UIColor {
          let px = y * 2

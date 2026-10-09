@@ -18,6 +18,7 @@ public final class MessagesLabHomeView: NSView {
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
         MessagesLabHomeView.liveFormatting()
+        HomeMarkdownPolicy.install()
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,

@@ -33,14 +33,14 @@ enum HomeMapping {
         let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
         let messageID = id(item, aliases: aliases)
         // A person's text shows as typed, and so does a part with mentions (their offsets index
-        // the text as written): MessagesLab's Markdown engine skips the message (only an
-        // agent's text is Markdown, HomeMarkdown). Marked before the message is measured.
+        // the text as written): only an agent's text is Markdown (MessagesLab's opt-in
+        // `Message.format`; plain by default, so a local send is plain before HomeStore has it).
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
-        MarkdownStore.shared.setPlain(messageID, !isAgent(item.author, summary) || mentions)
+        let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
         return Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
                 parts: parts, replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
-                reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) })
+                reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the

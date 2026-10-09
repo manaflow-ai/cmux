@@ -32,6 +32,8 @@ final class PinningHost: SidebarDataSource, SidebarDelegate {
 /// MessagesLab v1.1 fixed a trap in SidebarController.updateHover(): unpinning the
 /// last pinned tile while the pointer rested on it read a tile index that no longer
 /// existed (Index out of range). cmux-next crashed the same way from the context menu.
+/// MessagesLab f6fa7f5 removed hover; the pointer resting on the last tile while it is
+/// unpinned must still not trap.
 @MainActor @Suite(.serialized) struct SidebarHoverTests {
     @Test func unpinningTheHoveredLastTileDoesNotTrap() {
         let host = PinningHost(count: 6)
@@ -42,9 +44,12 @@ final class PinningHost: SidebarDataSource, SidebarDelegate {
         sidebar.reloadData()
         sidebar.setPinned(true, "c1")
         #expect(sidebar.pinnedItems.count == 1)
-        sidebar.mouseMoved(sidebar.tileRect(sidebar.pinnedItems.count - 1).insetBy(dx: 10, dy: 10).origin)
+        let p = sidebar.tileRect(sidebar.pinnedItems.count - 1).insetBy(dx: 10, dy: 10).origin
+        let e = NSEvent.mouseEvent(with: .mouseMoved, location: sidebar.document.convert(p, to: nil), modifierFlags: [], timestamp: 0,
+                                   windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+        sidebar.document.mouseMoved(with: e)
         sidebar.setPinned(false, "c1")
         #expect(sidebar.pinnedItems.isEmpty)
-        sidebar.mouseMoved(nil)
+        sidebar.document.mouseMoved(with: e)
     }
 }
