@@ -111,40 +111,6 @@ struct MobileFeatureFlagsTests {
         #expect(!flags.keyboardDockRebuildRevertEnabled)
     }
 
-    @Test("Cloud tab ships on when the remote flag is unavailable")
-    func cloudTabDefaultsOn() throws {
-        let (defaults, suiteName) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let flags = MobileFeatureFlags(
-            loader: QueueClientConfigLoader([.failure(.unavailable)]),
-            request: ClientConfigRequest(distinctId: "test"),
-            defaults: defaults
-        )
-
-        #expect(flags.cloudTabEnabled)
-    }
-
-    @Test("Cloud tab remote kill switch caches the last successful value")
-    func cloudTabRemoteKillSwitchCachesLastValue() async throws {
-        let (defaults, suiteName) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let loader = QueueClientConfigLoader([
-            .success(config(cloudTabEnabled: false)),
-            .failure(.unavailable),
-        ])
-        let flags = MobileFeatureFlags(
-            loader: loader,
-            request: ClientConfigRequest(distinctId: "test"),
-            defaults: defaults
-        )
-
-        await flags.refresh()
-        #expect(!flags.cloudTabEnabled)
-        await flags.refresh()
-        #expect(!flags.cloudTabEnabled)
-    }
-
     @Test("remote keyboard revert applies live and survives an outage")
     func keyboardDockRebuildRevertCachesLastValue() async throws {
         let (defaults, suiteName) = try makeDefaults()
@@ -184,7 +150,6 @@ struct MobileFeatureFlagsTests {
         feedPerformanceEnabled: Bool = false,
         terminalFilesChipEnabled: Bool = true,
         keyboardDockRebuildRevertEnabled: Bool = false,
-        cloudTabEnabled: Bool = true,
         hasEvaluationErrors: Bool = false
     ) -> ClientConfig {
         ClientConfig(
@@ -194,7 +159,6 @@ struct MobileFeatureFlagsTests {
                 MobileFeatureFlags.keyboardDockRebuildRevertFlag.key: .bool(
                     keyboardDockRebuildRevertEnabled
                 ),
-                MobileFeatureFlags.cloudTabFlag.key: .bool(cloudTabEnabled),
             ],
             featureFlagPayloads: [:],
             errorsWhileComputingFlags: hasEvaluationErrors

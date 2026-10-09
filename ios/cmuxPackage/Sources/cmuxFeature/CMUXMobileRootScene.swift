@@ -436,7 +436,7 @@ public struct CMUXMobileRootScene: View {
             // The shell owns no Cloud code; it mounts what is supplied here.
             .environment(
                 \.mobileCloudTabContent,
-                !featureFlags.cloudTabEnabled || cloudSessionController == nil
+                cloudSessionController == nil
                     ? nil
                     : MobileCloudTabContent(
                         content: { CloudPrimaryTabView() },
@@ -558,9 +558,7 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if let cloudPreviewState = UITestConfig.cloudPreviewState {
-            CloudStatePreviewView(state: cloudPreviewState)
-        } else if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_DECISION_PREVIEW"] == "1" {
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_DECISION_PREVIEW"] == "1" {
             AgentFeedDecisionPreviewView()
         } else if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_PREVIEW"] == "1" {
             AgentFeedFullTextPreviewView(

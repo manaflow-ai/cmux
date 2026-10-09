@@ -4,7 +4,6 @@ import CmuxMobileBillingUI
 public import CmuxMobileCloud
 import CmuxMobileSupport
 import Foundation
-import StoreKit
 import SwiftUI
 
 /// The Cloud tab's machine list: where machines are listed, created and
@@ -21,11 +20,7 @@ import SwiftUI
 public struct CloudSectionView: View {
     @State private var controller: CloudSessionController
     @Environment(\.cloudSystemVPNController) private var systemVPN
-    @Environment(BillingModel.self) private var billing: BillingModel?
-    @Environment(\.openURL) private var openURL
     @State private var isCreateSheetPresented = false
-    @State private var isPlansSheetPresented = false
-    @State private var storefrontCountryCode: String?
 
     /// Creates the section over a session controller.
     public init(controller: CloudSessionController) {
@@ -45,19 +40,12 @@ public struct CloudSectionView: View {
             controller.refreshMachines()
             controller.retryConnections()
         }
-        .task {
-            await resolveStorefrontCountryCode()
-        }
         .sheet(isPresented: $isCreateSheetPresented) {
             CloudCreateMachineSheet(
                 controller: controller,
                 availableKinds: controller.availableMachineKinds,
                 limits: controller.machineLimits
             )
-        }
-        .sheet(isPresented: $isPlansSheetPresented) {
-            MobilePlansSheet(entryPoint: .cloudUpgrade)
-                .environment(billing)
         }
     }
 
@@ -115,17 +103,7 @@ public struct CloudSectionView: View {
         default:
             if machines.isEmpty {
                 Section {
-                    Text(
-                        controller.machineLimits?.creationAccess == .available
-                            ? L10n.string(
-                                "mobile.cloud.empty.create",
-                                defaultValue: "No Cloud machines yet. Create one below."
-                            )
-                            : L10n.string(
-                                "mobile.cloud.empty.unavailable",
-                                defaultValue: "No Cloud machines are available for this account yet."
-                            )
-                    )
+                    Text(L10n.string("mobile.cloud.empty.create", defaultValue: "No Cloud machines yet. Create one below."))
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("CloudMachinesEmpty")
                 }
@@ -165,79 +143,20 @@ public struct CloudSectionView: View {
                 }
             }
         }
-        cloudAccessSection
         createMachineSection
     }
 
-    @ViewBuilder
-    private var cloudAccessSection: some View {
-        let limits = controller.machineLimits
-        CloudAccessStateView(
-            access: limits?.creationAccess,
-            activeMachineCount: limits?.activeMachineCount,
-            maxActiveMachines: limits?.maxActiveMachines,
-            upgradeRoute: cloudUpgradeRoute,
-            onUpgrade: {
-                openUpgradePage(
-                    route: cloudUpgradeRoute,
-                    planID: limits?.createUpgradePlanID ?? "pro"
+    private var createMachineSection: some View {
+        Section {
+            Button {
+                isCreateSheetPresented = true
+            } label: {
+                Label(
+                    L10n.string("mobile.cloud.machines.new", defaultValue: "New cloud machine"),
+                    systemImage: "plus"
                 )
             }
-        )
-    }
-
-    @ViewBuilder
-    private var createMachineSection: some View {
-        if controller.machineLimits?.creationAccess == .available || controller.machineLimits == nil {
-            Section {
-                Button {
-                    isCreateSheetPresented = true
-                } label: {
-                    Label(
-                        L10n.string("mobile.cloud.machines.new", defaultValue: "New cloud machine"),
-                        systemImage: "plus"
-                    )
-                }
-                .accessibilityIdentifier("CloudCreateMachineButton")
-            }
-        }
-    }
-
-    private static let pricingURL = URL(string: "https://cmux.com/pricing")!
-
-    private var cloudUpgradeRoute: CloudUpgradeRoute {
-        CloudUpgradePolicy(
-            storefrontCountryCode: storefrontCountryCode,
-            hasInAppBilling: billing != nil
-        ).route
-    }
-
-    private func resolveStorefrontCountryCode() async {
-        #if DEBUG
-        if let override = UITestConfig.cloudPreviewStorefront {
-            storefrontCountryCode = override
-            return
-        }
-        #endif
-        storefrontCountryCode = await Storefront.current?.countryCode
-    }
-
-    private func openUpgradePage(route: CloudUpgradeRoute, planID: String?) {
-        switch route {
-        case .inApp:
-            isPlansSheetPresented = true
-        case .unavailable:
-            break
-        case .web:
-            guard let planID,
-                  var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
-                openURL(Self.pricingURL)
-                return
-            }
-            components.queryItems = [URLQueryItem(name: "plan", value: planID)]
-            openURL(components.url ?? Self.pricingURL)
-        case .pending:
-            break
+            .accessibilityIdentifier("CloudCreateMachineButton")
         }
     }
 
@@ -248,138 +167,6 @@ public struct CloudSectionView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("CloudMachinesLoading")
-    }
-}
-
-/// Shared access explanation used by the live Cloud list and deterministic
-/// screenshot fixtures. The server decides the state; this view only explains
-/// it and routes the upgrade action.
-struct CloudAccessStateView: View {
-    let access: CloudMachineCreationAccess?
-    let activeMachineCount: Int?
-    let maxActiveMachines: Int?
-    let upgradeRoute: CloudUpgradeRoute
-    let onUpgrade: () -> Void
-
-    @ViewBuilder
-    var body: some View {
-        switch access {
-        case .requiresPlan:
-            Section {
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(L10n.string(
-                            "mobile.cloud.access.requiresPlan.title",
-                            defaultValue: "Cloud machines require a paid plan"
-                        ))
-                        Text(L10n.string(
-                            "mobile.cloud.access.requiresPlan.body",
-                            defaultValue: "Upgrade to create a Cloud machine and use its workspaces from anywhere."
-                        ))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "lock.fill")
-                        .foregroundStyle(.tint)
-                }
-                switch upgradeRoute {
-                case .pending:
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text(L10n.string(
-                            "mobile.cloud.access.upgradeChecking",
-                            defaultValue: "Checking upgrade availability…"
-                        ))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    }
-                case .web:
-                    Button(L10n.string(
-                        "mobile.cloud.access.upgrade.web",
-                        defaultValue: "Upgrade on cmux.com"
-                    ), action: onUpgrade)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("CloudAccessUpgradeButton")
-                case .inApp:
-                    Button(L10n.string(
-                        "mobile.cloud.access.upgrade",
-                        defaultValue: "Upgrade to Pro"
-                    ), action: onUpgrade)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("CloudAccessUpgradeButton")
-                case .unavailable:
-                    Text(L10n.string(
-                        "mobile.cloud.access.upgradeUnavailable",
-                        defaultValue: "Upgrade options aren't available in this App Store region."
-                    ))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                }
-            } header: {
-                Text(L10n.string("mobile.cloud.access.header", defaultValue: "Cloud access"))
-            }
-        case .limitReached:
-            Section {
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(L10n.string(
-                            "mobile.cloud.access.limit.title",
-                            defaultValue: "Cloud machine limit reached"
-                        ))
-                        Text(limitReachedBody)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "speedometer")
-                        .foregroundStyle(.orange)
-                }
-            } header: {
-                Text(L10n.string("mobile.cloud.access.header", defaultValue: "Cloud access"))
-            }
-        case .unavailable:
-            Section {
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(L10n.string(
-                            "mobile.cloud.access.unavailable.title",
-                            defaultValue: "Cloud machine creation is unavailable"
-                        ))
-                        Text(L10n.string(
-                            "mobile.cloud.access.unavailable.body",
-                            defaultValue: "Try again later or check the Cloud service status."
-                        ))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
-            } header: {
-                Text(L10n.string("mobile.cloud.access.header", defaultValue: "Cloud access"))
-            }
-        case .available, nil:
-            EmptyView()
-        }
-    }
-
-    private var limitReachedBody: String {
-        guard let maximum = maxActiveMachines else {
-            return L10n.string(
-                "mobile.cloud.access.limit.body",
-                defaultValue: "Pause or delete a machine before creating another."
-            )
-        }
-        return String(
-            format: L10n.string(
-                "mobile.cloud.access.limit.bodyFormat",
-                defaultValue: "You are using %1$d of %2$d active machines. Pause or delete one before creating another."
-            ),
-            activeMachineCount ?? 0,
-            maximum
-        )
     }
 }
 
@@ -399,7 +186,6 @@ struct CloudCreateMachineSheet: View {
     @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var selectedMemoryMb: Int
     @State private var isPlansSheetPresented = false
-    @State private var storefrontCountryCode: String?
 
     init(
         controller: CloudSessionController,
@@ -434,15 +220,11 @@ struct CloudCreateMachineSheet: View {
                         }
                         ForEach(lockedMemoryOptions, id: \.self) { memoryMb in
                             Button {
-                                openUpgradePage(
-                                    route: cloudUpgradeRoute,
-                                    planID: upgradePlanID(for: memoryMb)
-                                )
+                                openUpgradePage(planID: upgradePlanID(for: memoryMb))
                             } label: {
                                 Label(lockedSizeMenuTitle(memoryMb), systemImage: "lock.fill")
                             }
                             .accessibilityIdentifier("CloudCreateMachineLockedSize.\(memoryMb)")
-                            .disabled(!cloudUpgradeActionAvailable)
                         }
                     } label: {
                         HStack {
@@ -465,16 +247,12 @@ struct CloudCreateMachineSheet: View {
                             Spacer(minLength: 0)
                             if let upgradeActionTitle {
                                 Button(upgradeActionTitle) {
-                                    openUpgradePage(
-                                        route: cloudUpgradeRoute,
-                                        planID: highestLockedMemoryUpgradePlanID
-                                    )
+                                    openUpgradePage(planID: highestLockedMemoryUpgradePlanID)
                                 }
                                 .controlSize(.small)
                                 .buttonStyle(.bordered)
                                 .font(.footnote.weight(.semibold))
                                 .accessibilityIdentifier("CloudCreateMachineUpgrade")
-                                .disabled(!cloudUpgradeActionAvailable)
                             }
                         }
                     }
@@ -562,9 +340,6 @@ struct CloudCreateMachineSheet: View {
             }
             .navigationTitle(L10n.string("mobile.cloud.create.title", defaultValue: "New Machine"))
             .navigationBarTitleDisplayMode(.inline)
-            .task {
-                await resolveStorefrontCountryCode()
-            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.string("mobile.cloud.cancel", defaultValue: "Cancel")) { dismiss() }
@@ -769,49 +544,19 @@ struct CloudCreateMachineSheet: View {
         }
     }
 
-    private var cloudUpgradeRoute: CloudUpgradeRoute {
-        CloudUpgradePolicy(
-            storefrontCountryCode: storefrontCountryCode,
-            hasInAppBilling: billing != nil
-        ).route
-    }
-
-    private var cloudUpgradeActionAvailable: Bool {
-        switch cloudUpgradeRoute {
-        case .web, .inApp:
-            return true
-        case .pending, .unavailable:
-            return false
-        }
-    }
-
-    private func resolveStorefrontCountryCode() async {
-        #if DEBUG
-        if let override = UITestConfig.cloudPreviewStorefront {
-            storefrontCountryCode = override
+    private func openUpgradePage(planID: String?) {
+        // App Store builds sell plans in app (Guideline 3.1.1); the web
+        // pricing page remains only for hosts without a billing model.
+        if billing != nil {
+            isPlansSheetPresented = true
             return
         }
-        #endif
-        storefrontCountryCode = await Storefront.current?.countryCode
-    }
-
-    private func openUpgradePage(route: CloudUpgradeRoute, planID: String?) {
-        switch route {
-        case .pending:
-            break
-        case .inApp:
-            isPlansSheetPresented = true
-        case .unavailable:
-            break
-        case .web:
-            guard let planID,
-                  var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
-                openURL(Self.pricingURL)
-                return
-            }
-            components.queryItems = [URLQueryItem(name: "plan", value: planID)]
-            openURL(components.url ?? Self.pricingURL)
+        guard let planID, var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
+            openURL(Self.pricingURL)
+            return
         }
+        components.queryItems = [URLQueryItem(name: "plan", value: planID)]
+        openURL(components.url ?? Self.pricingURL)
     }
 }
 
