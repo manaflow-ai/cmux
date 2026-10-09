@@ -258,6 +258,13 @@ jobs:
           # nothing (cx-f58x: every nightly-next DMG got notary status 7000
           # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
           NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
+          # `1` stops EVERY nightly-next notary submission, including builds
+          # without the import and notary tests, while Apple's queue for the
+          # team is stuck (2026-10-09: all submissions In Progress since
+          # 10:45Z). Builds and promotion continue. A nightly_next_continue_only
+          # run still publishes an earlier build Apple accepted, because it
+          # submits nothing.
+          NIGHTLY_NEXT_SUBMISSIONS_PAUSED: ${{ vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED || '' }}
           NOTARY_TEST_PASSWORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && 'true' || 'false' }}
           NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_browser_data_import && 'true' || 'false' }}
           NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_import_part || 'none' }}
@@ -646,7 +653,14 @@ jobs:
             core.setOutput('password_readers_out', browserDataOut || importVariant === 'no-passwords' ? 'true' : 'false');
             // NIGHTLY_NEXT_NOTARY_PAUSED=1 stops every nightly-next build that
             // carries browser-import code; a compiled-out build may notarize.
-            const notaryPaused = track === 'nightly-next' && process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1' && !notaryTest && !browserDataOut;
+            const importPaused = track === 'nightly-next' && process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1' && !notaryTest && !browserDataOut;
+            // NIGHTLY_NEXT_SUBMISSIONS_PAUSED=1 stops every nightly-next
+            // submission (a continuation run submits nothing and is exempt).
+            const submissionsPaused = track === 'nightly-next' && process.env.NIGHTLY_NEXT_SUBMISSIONS_PAUSED === '1' && !continueOnly;
+            const notaryPaused = importPaused || submissionsPaused;
+            if (submissionsPaused && appBuildSelected) {
+              core.notice('nightly-next notary submissions are paused (repository variable NIGHTLY_NEXT_SUBMISSIONS_PAUSED=1): this run builds and signs, makes no notary submission and publishes nothing.');
+            }
             core.setOutput('notary_paused', notaryPaused ? 'true' : 'false');
             core.setOutput('notary_test', notaryTest ? 'true' : 'false');
             // Kept name: the browser-data absence proof runs for this output.
