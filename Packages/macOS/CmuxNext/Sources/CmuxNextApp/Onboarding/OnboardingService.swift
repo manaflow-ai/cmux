@@ -178,10 +178,10 @@ final class OnboardingService {
         land(firstRun: firstRun)
     }
 
-    /// A launch that gave the tree its first workspace (`FirstWorkspace`)
-    /// shows it on its New Tab page at once, not the Home page: nothing
-    /// was chosen yet, and no window opens before it (Lawrence 2026-10-09:
-    /// "drop user into main screen asap").
+    /// A launch that gave the tree its first workspace (`FirstWorkspace`,
+    /// `freshWorkspaceID` set in `WindowManager.restore`) shows it on its New
+    /// Tab page at once, not the Home page: nothing was chosen yet (Lawrence
+    /// 2026-10-09: "drop user into main screen asap"). Else nothing.
     func landOnFirstWorkspace() {
         guard let fresh = freshWorkspaceID, services.machines.workspace(id: fresh) != nil else { return }
         _ = services.windows.reveal(workspaceID: fresh)
