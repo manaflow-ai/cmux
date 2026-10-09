@@ -201,22 +201,22 @@ public final class SidebarView: NSView {
         scrollView.contentView.postsBoundsChangedNotifications = true
         notificationObservers.append(NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
-        ) { [weak self] note in
+        ) { [weak self] _ in
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.clipBoundsChanged(note) }
+            MainActor.assumeIsolated { self?.clipBoundsChanged() }
         })
         scrollView.contentView.postsFrameChangedNotifications = true
         notificationObservers.append(NotificationCenter.default.addObserver(
             forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main
-        ) { [weak self] note in
+        ) { [weak self] _ in
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.clipFrameChanged(note) }
+            MainActor.assumeIsolated { self?.clipFrameChanged() }
         })
         notificationObservers.append(NotificationCenter.default.addObserver(
             forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] note in
+        ) { [weak self] _ in
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.scrollerStyleChanged(note) }
+            MainActor.assumeIsolated { self?.scrollerStyleChanged() }
         })
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
         addSubview(edgeFade)
@@ -230,16 +230,16 @@ public final class SidebarView: NSView {
         cardSlot.install(in: self)
     }
 
-    private func clipBoundsChanged(_ note: Notification) {
+    private func clipBoundsChanged() {
         list.realizeVisibleRows()
         PointerHover.refresh(in: window)
     }
 
-    private func clipFrameChanged(_ note: Notification) {
+    private func clipFrameChanged() {
         syncListSize()
     }
 
-    private func scrollerStyleChanged(_ note: Notification) {
+    private func scrollerStyleChanged() {
         scrollView.scrollerStyle = SystemScrollers.preferredStyle
         syncListSize()
     }

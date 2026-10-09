@@ -54,7 +54,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         scrollFit = ScrollFitElasticity(scrollView: self)
     }
 
-    deinit {
+    isolated deinit {
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
     }
 

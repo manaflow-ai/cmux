@@ -6,25 +6,24 @@ import Carbon.HIToolbox
 /// until the app is active again, which is too late for a system-wide key.
 final class KeyboardLayoutObserver: NSObject {
     private let onChange: () -> Void
-    private var observer: NSObjectProtocol?
 
     init(onChange: @escaping () -> Void) {
         self.onChange = onChange
         super.init()
-        observer = DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
-            object: nil, queue: .main
-        ) { [weak self] notification in
-            // main-proof: DistributedNotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.layoutChanged(notification) }
-        }
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(layoutChanged(_:)),
+            name: Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
     }
 
     deinit {
-        if let observer { DistributedNotificationCenter.default().removeObserver(observer) }
+        DistributedNotificationCenter.default().removeObserver(self)
     }
 
-    private func layoutChanged(_ notification: Notification) {
+    @objc private func layoutChanged(_ notification: Notification) {
         onChange()
     }
 }

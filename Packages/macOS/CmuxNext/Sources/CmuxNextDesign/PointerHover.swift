@@ -209,31 +209,33 @@ private final class KeyWindowObserver: NSObject {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                 // main-proof: NotificationCenter delivers this block on the main operation queue.
-                MainActor.assumeIsolated { self?.keyWindowChanged(notification) }
+                let window = notification.object as? NSWindow
+                Task { @MainActor [weak self] in self?.keyWindowChanged(window) }
             })
         }
         #if DEBUG
         observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] notification in
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.windowWillClose(notification) }
+            let window = notification.object as? NSWindow
+            Task { @MainActor [weak self] in self?.windowWillClose(window) }
         })
         #endif
     }
 
-    deinit {
+    isolated deinit {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
     }
 
     #if DEBUG
     /// A closed window's synthesized pointer must not pass to a new window
     /// that reuses its address.
-    private func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
+    private func windowWillClose(_ window: NSWindow?) {
+        guard let window else { return }
         PointerHover.debugPointers[ObjectIdentifier(window)] = nil
     }
     #endif
 
-    private func keyWindowChanged(_ notification: Notification) {
-        PointerHover.refresh(in: notification.object as? NSWindow)
+    private func keyWindowChanged(_ window: NSWindow?) {
+        PointerHover.refresh(in: window)
     }
 }

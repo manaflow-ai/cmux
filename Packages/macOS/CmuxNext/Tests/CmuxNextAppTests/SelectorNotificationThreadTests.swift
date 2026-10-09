@@ -57,7 +57,7 @@ struct SelectorNotificationThreadTests {
 
         func callbackThreadsSnapshot() -> [Bool] { callbackThreads }
 
-        deinit { observers.forEach(center.removeObserver) }
+        isolated deinit { observers.forEach(center.removeObserver) }
     }
 
     /// A detached post must still deliver every observed notification on main.

@@ -34,7 +34,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let displayOptionsObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver)
         }

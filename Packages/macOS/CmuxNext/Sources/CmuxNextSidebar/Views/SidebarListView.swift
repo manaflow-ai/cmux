@@ -99,13 +99,13 @@ final class SidebarListView: NSView {
         if let window {
             occlusionObserver = center.addObserver(
                 forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
-            ) { [weak self] note in
+            ) { [weak self] _ in
                 // main-proof: NotificationCenter delivers this block on the main operation queue.
-                MainActor.assumeIsolated { self?.windowOcclusionChanged(note) }
+                MainActor.assumeIsolated { self?.windowOcclusionChanged() }
             }
         }
     }
-    private func windowOcclusionChanged(_ note: Notification) {
+    private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
     }
     /// Pauses (or resumes) every row's activity animation.

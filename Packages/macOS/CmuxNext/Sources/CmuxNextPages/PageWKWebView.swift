@@ -35,7 +35,8 @@ final class PageWKWebView: WKWebView {
             forName: NSMenu.willSendActionNotification, object: nil, queue: .main
         ) { [weak self] notification in
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.menuWillSendAction(notification) }
+            let menu = notification.object as? NSMenu
+            Task { @MainActor [weak self] in self?.menuWillSendAction(menu) }
         }
     }
 
@@ -79,8 +80,8 @@ final class PageWKWebView: WKWebView {
     /// An item of this view's context menu (or one of its submenus) is about to send its action:
     /// the person chose it, so the page call it leads to (a host-built Copy) follows a gesture.
     /// AppKit posts this only for a real menu choice; page script cannot.
-    private func menuWillSendAction(_ notification: Notification) {
-        guard let opened = openedMenu, var menu = notification.object as? NSMenu else { return }
+    private func menuWillSendAction(_ menu: NSMenu?) {
+        guard let opened = openedMenu, var menu else { return }
         while menu !== opened {
             guard let parent = menu.supermenu else { return }
             menu = parent

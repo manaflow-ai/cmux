@@ -28,14 +28,14 @@ extension LayoutRootView {
         keyWindowObservers.removeAll()
         guard let window else { return }
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            keyWindowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] notification in
+            keyWindowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 // main-proof: NotificationCenter delivers this block on the main operation queue.
-                MainActor.assumeIsolated { self?.keyWindowChanged(notification) }
+                MainActor.assumeIsolated { self?.keyWindowChanged() }
             })
         }
     }
 
-    private func keyWindowChanged(_ notification: Notification) {
+    private func keyWindowChanged() {
         refreshDividerHover()
     }
 

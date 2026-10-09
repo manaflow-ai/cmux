@@ -30,9 +30,9 @@ public final class WebKitInspectorWatch: NSObject {
         container.onSubviewsChange = { [weak self] in self?.refresh() }
         windowCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main
-        ) { [weak self] notification in
+        ) { [weak self] _ in
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.windowWillClose(notification) }
+            MainActor.assumeIsolated { self?.windowWillClose() }
         }
     }
 
@@ -40,7 +40,7 @@ public final class WebKitInspectorWatch: NSObject {
         if let windowCloseObserver { NotificationCenter.default.removeObserver(windowCloseObserver) }
     }
 
-    private func windowWillClose(_ notification: Notification) { refresh() }
+    private func windowWillClose() { refresh() }
 
     /// Reads the inspector's visibility now and once more on the next turn.
     public func refresh() {

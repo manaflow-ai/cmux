@@ -121,9 +121,9 @@ final class NotificationsPanelView: NSView {
         SystemScrollers.follow(scroll)
         scrollerStyleObserver = NotificationCenter.default.addObserver(
             forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] note in
+        ) { [weak self] _ in
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.scrollerStyleChanged(note) }
+            MainActor.assumeIsolated { self?.scrollerStyleChanged() }
         }
         document.translatesAutoresizingMaskIntoConstraints = false
 
@@ -216,11 +216,11 @@ final class NotificationsPanelView: NSView {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let scrollerStyleObserver { NotificationCenter.default.removeObserver(scrollerStyleObserver) }
     }
 
-    private func scrollerStyleChanged(_ note: Notification) { scroll.scrollerStyle = SystemScrollers.preferredStyle }
+    private func scrollerStyleChanged() { scroll.scrollerStyle = SystemScrollers.preferredStyle }
 
     @objc private func markAllPressed() { onMarkAllRead?() }
     @objc private func clearAllPressed() { onClearAll?() }

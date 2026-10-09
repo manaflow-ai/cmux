@@ -10,6 +10,23 @@ import WebKit
 /// a choice in some other menu does not.
 @MainActor
 @Suite struct PageUserActivationTests {
+    private final class ThreadRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [Bool] = []
+
+        func append(_ value: Bool) {
+            lock.lock()
+            values.append(value)
+            lock.unlock()
+        }
+
+        var snapshot: [Bool] {
+            lock.lock()
+            defer { lock.unlock() }
+            return values
+        }
+    }
+
     final class Target: NSObject {
         var runs = 0
         @objc func run() { runs += 1 }
@@ -24,6 +41,28 @@ import WebKit
         let item = NSMenuItem(title: "Copy Message", action: #selector(Target.run), keyEquivalent: "")
         item.target = target
         return item
+    }
+
+    private static func postFromBackground(_ name: Notification.Name, object: Any?, on center: NotificationCenter = .default) async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            Thread.detachNewThread {
+                center.post(name: name, object: object)
+                DispatchQueue.main.async { done.resume() }
+            }
+        }
+    }
+
+    /// Regression for the selector observer in ``PageWKWebView``: a menu
+    /// notification posted away from the main thread must still reach the
+    /// main-actor activation state machine on main.
+    @Test func aMenuNotificationPostedOffMainDeliversActivationOnMain() async throws {
+        let web = PageWKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let menu = NSMenu()
+        web.willOpenMenu(menu, with: try Self.rightClick())
+        let recorder = ThreadRecorder()
+        web.onUserEvent = { recorder.append(Thread.isMainThread) }
+        await Self.postFromBackground(NSMenu.willSendActionNotification, object: menu)
+        #expect(recorder.snapshot == [true])
     }
 
     @Test func aChoiceInThePagesContextMenuIsAUserActivation() throws {

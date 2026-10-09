@@ -44,13 +44,13 @@ final class TerminalScroller: NSScrollView {
         }
         boundsObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
-        ) { [weak self] note in
+        ) { [weak self] _ in
             // main-proof: NotificationCenter delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.clipMoved(note) }
+            MainActor.assumeIsolated { self?.clipMoved() }
         }
     }
 
-    deinit {
+    isolated deinit {
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
     }
 
@@ -105,7 +105,7 @@ final class TerminalScroller: NSScrollView {
         }
     }
 
-    private func clipMoved(_ note: Notification) {
+    private func clipMoved() {
         guard !applying, let shown else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
         let row = geometry.row(forOriginY: contentView.bounds.origin.y)
