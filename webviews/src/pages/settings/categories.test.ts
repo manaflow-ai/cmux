@@ -72,7 +72,11 @@ test("the page renders the exported layout", () => {
       lead: category.lead,
       trail: category.trail,
       actions: category.actions,
-      groups: category.groups.map((group) => ({ key: group.key, title: group.title, rows: group.rows.map((row) => row.key) })),
+      groups: category.groups.map((group) => ({
+        key: group.key,
+        title: group.title,
+        rows: group.rows.map((row) => row.key),
+      })),
     })),
   ).toEqual(
     (page!.categories as Array<Record<string, unknown>>).map(({ aliases: _aliases, ...category }) => category) as never,
