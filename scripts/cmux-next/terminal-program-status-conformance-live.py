@@ -160,6 +160,22 @@ def quit_app():
             app.wait()
 
 
+def workspaces():
+    return [row for row in rows(cli_json("workspace", "list")) if isinstance(row, dict) and row.get("id")]
+
+
+def workspace_named(name):
+    found = [row["id"] for row in workspaces() if name in (row.get("name"), row.get("title"))]
+    return found[-1] if found else None
+
+
+def close_old_workspaces():
+    """This tag's daemon keeps workspaces across runs: close the ones an earlier run of this script made."""
+    for row in workspaces():
+        if str(row.get("name") or row.get("title") or "").startswith("osc7501-"):
+            cli("workspace", row["id"], "close")
+
+
 def new_workspace(name):
     before = set(terminals())
     rpc("action.run", {"action": "workspace new", "args": {"focus": True}, "origin": "script"})
@@ -253,6 +269,7 @@ teardown = TagTeardown(APP)
 teardown.install()
 try:
     launch()
+    close_old_workspaces()
     term = new_workspace("osc7501-spec")
 
     # 1. The spec's first example (Terraform waits for approval).
@@ -365,11 +382,17 @@ try:
     tui = new_workspace("osc7501-tui")
     sock = daemon_socket()
     run(tui, f"'{CLI}' attach --socket '{sock}'")
-    time.sleep(6)  # harness wait: the TUI draws its first frame
+    time.sleep(4)  # harness wait: the TUI draws its first frame
+    # The TUI follows the shared focus; focusing the deploy workspace keeps it
+    # from drawing itself, and its sidebar lists every workspace with its marks.
+    deploy_ws = workspace_named("osc7501-deploy")
+    if deploy_ws:
+        cli("workspace", deploy_ws, "focus")
+    time.sleep(3)  # harness wait: the TUI redraws
     screen = read_screen(tui)
     with open(os.path.join(OUT, "tui-screen.txt"), "w") as f:
         f.write(screen)
-    report["steps"]["tui"] = {"screen_file": os.path.join(OUT, "tui-screen.txt"), "snapshot": shot("tui")}
+    report["steps"]["tui"] = {"screen_file": os.path.join(OUT, "tui-screen.txt"), "snapshot": shot("tui-app-window")}
     print("tui screen:\n" + screen, flush=True)
     cli("terminal", tui, "write", "--text", "\x02d")  # best effort detach (prefix d)
 finally:
