@@ -5,6 +5,8 @@
 //! never again after it saw a daemon go away (a quit or End Sessions shut it
 //! down on purpose; respawning leaves an orphan).
 
+mod exe;
+
 use std::os::unix::net::UnixListener;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
@@ -13,15 +15,12 @@ use optchat_chief::acpmux_daemon::{Action, Mode, decide, ensure_with};
 
 /// An ACPMUX_BIN that would prove a spawn by writing a marker file.
 fn spawn_marker(dir: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
-    use std::os::unix::fs::PermissionsExt;
     let marker = dir.join("spawned");
     let bin = dir.join("fake-acpmux");
-    std::fs::write(
+    exe::write_executable(
         &bin,
-        format!("#!/bin/sh\ntouch '{}'\nsleep 5\n", marker.display()),
-    )
-    .unwrap();
-    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        &format!("#!/bin/sh\ntouch '{}'\nsleep 5\n", marker.display()),
+    );
     (bin, marker)
 }
 
@@ -113,16 +112,13 @@ fn a_local_host_does_not_respawn_a_daemon_it_saw_go_away() {
 /// protected folders (live incident 2026-10-09).
 #[test]
 fn a_local_host_starts_acpmux_in_its_acpmux_home() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let report = dir.path().join("cwd.txt");
     let bin = dir.path().join("fake-acpmux");
-    std::fs::write(
+    exe::write_executable(
         &bin,
-        format!("#!/bin/sh\n/bin/pwd -P > '{}'\n", report.display()),
-    )
-    .unwrap();
-    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        &format!("#!/bin/sh\n/bin/pwd -P > '{}'\n", report.display()),
+    );
     let socket = dir.path().join("acpmux.sock");
     let seen = AtomicBool::new(false);
     // The fake exits without a socket: the start fails, after it ran.
