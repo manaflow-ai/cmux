@@ -982,6 +982,19 @@ import WebKit
             return
         }
 
+        // A browser REPL session's file load commits only while the file
+        // is still where the session's check found it: before macOS 27,
+        // WebKit follows a link swapped in after the check into the user's
+        // temporary and cache directories (BrowserReplPinnedFileLoads).
+        if !BrowserReplPinnedFileLoads.shared.admitsResponse(
+            navigationResponse.response,
+            isForMainFrame: navigationResponse.isForMainFrame,
+            in: webView
+        ) {
+            decisionHandler(.cancel)
+            return
+        }
+
         if let url = navigationResponse.response.url {
             let isMainFrame = navigationResponse.isForMainFrame
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)

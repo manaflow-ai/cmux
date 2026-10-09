@@ -28,7 +28,7 @@ struct BrowserReplPinnedFileAccessTests {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let waiter = FileLoadWaiter()
         webView.navigationDelegate = waiter
-        try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)]) { readAccess in
+        try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)], in: webView) { readAccess in
             // Another session moves the checked directory away and a link
             // to a directory outside takes its name before the load starts.
             try manager.moveItem(atPath: scratch.root + "/site", toPath: scratch.root + "/site-old")
@@ -57,7 +57,7 @@ struct BrowserReplPinnedFileAccessTests {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let waiter = FileLoadWaiter()
         webView.navigationDelegate = waiter
-        try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)]) { readAccess in
+        try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)], in: webView) { readAccess in
             webView.loadFileURL(url, allowingReadAccessTo: readAccess)
         }
         try manager.moveItem(atPath: scratch.root + "/site", toPath: scratch.root + "/site-old")
@@ -65,6 +65,57 @@ struct BrowserReplPinnedFileAccessTests {
         await waiter.wait()
         let text = try? await webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
         #expect(text?.contains("outside secret") != true, "the load read a file outside the session's directories through a link swapped in after it started")
+    }
+
+    @Test("A pinned load with nothing renamed shows its own page")
+    func aPinnedLoadWithNothingRenamedShowsItsPage() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        try FileManager.default.createDirectory(atPath: scratch.root + "/site", withIntermediateDirectories: true)
+        try Data("<p>own page</p>".utf8).write(to: URL(fileURLWithPath: scratch.root + "/site/index.html"))
+        let url = URL(fileURLWithPath: scratch.root + "/site/index.html")
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let waiter = FileLoadWaiter()
+        webView.navigationDelegate = waiter
+        try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)], in: webView) { readAccess in
+            webView.loadFileURL(url, allowingReadAccessTo: readAccess)
+        }
+        await waiter.wait()
+        let text = try? await webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
+        #expect(text == "own page", "\(String(describing: text))")
+    }
+
+    /// A rename another session runs while the browser opens the file, and
+    /// one that puts the entry back before the response, leave the path as
+    /// the check found it; the browser may have opened the file through a
+    /// link meanwhile, so the response is refused.
+    @Test("A pinned load's response is refused after any REPL rename, or with a link on its path")
+    func aPinnedResponseIsRefusedAfterARenameOrThroughALink() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let manager = FileManager.default
+        try manager.createDirectory(atPath: scratch.root + "/site", withIntermediateDirectories: true)
+        try Data("<p>own page</p>".utf8).write(to: URL(fileURLWithPath: scratch.root + "/site/index.html"))
+        let url = URL(fileURLWithPath: scratch.root + "/site/index.html")
+        let roots = [BrowserReplFileRoot(path: scratch.root)]
+        func pin() throws -> BrowserReplPinnedFileLoad {
+            try BrowserReplFileSandbox.pinnedFileAccess(url.absoluteString, roots: roots) { $0 }
+        }
+        #expect(try pin().admitsResponse(url), "a response with nothing renamed was refused")
+
+        // Another session's fs.rename, then one that puts the entry back.
+        let fileSystem = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root))
+        let renamed = try pin()
+        _ = try fileSystem.perform("rename", arguments: ["from": "site", "to": "site-old"]).get()
+        _ = try fileSystem.perform("rename", arguments: ["from": "site-old", "to": "site"]).get()
+        #expect(manager.fileExists(atPath: scratch.root + "/site/index.html"))
+        #expect(!renamed.admitsResponse(url), "a response after a rename and back was admitted")
+
+        // A link on the path, put there without any REPL rename.
+        let linked = try pin()
+        try manager.moveItem(atPath: scratch.root + "/site", toPath: scratch.root + "/site-old")
+        try manager.createSymbolicLink(atPath: scratch.root + "/site", withDestinationPath: scratch.outside)
+        #expect(!linked.admitsResponse(url), "a response through a link was admitted")
     }
 
     /// A tab's own loads of a session's file (a crashed web process's
@@ -153,6 +204,21 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
         done = true
         continuation?.resume()
         continuation = nil
+    }
+
+    /// Admits a main frame's response as the app's navigation delegate
+    /// does (``BrowserReplPinnedFileLoads``).
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void
+    ) {
+        let admitted = BrowserReplPinnedFileLoads.shared.admitsResponse(
+            navigationResponse.response,
+            isForMainFrame: navigationResponse.isForMainFrame,
+            in: webView
+        )
+        decisionHandler(admitted ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish() }

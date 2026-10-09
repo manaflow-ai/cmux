@@ -307,6 +307,10 @@ public struct BrowserReplFileSystem: Sendable {
                         throw Self.movedOutOfRoot(syscall: "rename", display: pair)
                     }
                 }
+                // Noted even when it fails: a pinned file load's response
+                // commits only if no rename changed a directory on its path
+                // since its check.
+                BrowserReplFileSandbox.noteRenameLocked(between: [from.directory.fd, to.directory.fd])
                 return renameat(from.directory.fd, fromName, to.directory.fd, toName) == 0 ? 0 : errno
             }
             guard renamed == 0 else {

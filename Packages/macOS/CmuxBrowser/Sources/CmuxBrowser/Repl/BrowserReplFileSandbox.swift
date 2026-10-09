@@ -1,5 +1,6 @@
 import Darwin
 public import Foundation
+public import WebKit
 
 /// A Node-style file system error for the REPL `fs` global.
 public struct BrowserReplFileSystemError: Error, Equatable, Sendable {
@@ -397,23 +398,114 @@ public struct BrowserReplFileSandbox: Sendable {
     /// directories or remove entries.
     static let pathChangeLock = NSLock()
 
-    /// Runs `load`, which must start the browser's load of the file `url`
+    /// A directory by identity.
+    struct DirectoryIdentity: Hashable, Sendable {
+        let device: Int64
+        let inode: UInt64
+    }
+
+    /// The REPL `fs.rename`s, as the directories each changed an entry
+    /// of; read and changed under ``pathChangeLock``. Only the latest
+    /// ``maximumEntries`` are kept: a pinned load older than those is
+    /// judged as if one of them touched its path.
+    private final class RenameLog: @unchecked Sendable {
+        static let maximumEntries = 1024
+        var count: UInt64 = 0
+        var entries: [(count: UInt64, directories: [DirectoryIdentity])] = []
+    }
+
+    private static let renames = RenameLog()
+
+    /// Notes one REPL `fs.rename` between the directories open as
+    /// `directories`. The caller holds ``pathChangeLock`` and calls this in
+    /// the same hold as its `renameat`.
+    static func noteRenameLocked(between directories: [Int32]) {
+        let identities = directories.compactMap { fd -> DirectoryIdentity? in
+            var info = stat()
+            guard fstat(fd, &info) == 0 else { return nil }
+            return DirectoryIdentity(device: Int64(info.st_dev), inode: UInt64(info.st_ino))
+        }
+        renames.count &+= 1
+        renames.entries.append((renames.count, identities.count == directories.count ? identities : []))
+        if renames.entries.count > RenameLog.maximumEntries {
+            renames.entries.removeFirst(renames.entries.count - RenameLog.maximumEntries)
+        }
+    }
+
+    /// Whether a REPL `fs.rename` since `count` changed an entry of one of
+    /// `directories` (or of a directory it could not name, or one dropped
+    /// from the log). Call under ``pathChangeLock``.
+    private static func renamedSince(_ count: UInt64, in directories: Set<DirectoryIdentity>) -> Bool {
+        guard renames.count != count else { return false }
+        guard let oldest = renames.entries.first?.count, oldest <= count &+ 1 else { return true }
+        return renames.entries.contains { entry in
+            entry.count > count && (entry.directories.isEmpty || entry.directories.contains(where: directories.contains))
+        }
+    }
+
+    /// The identities of `root` and the directories below it on the way to
+    /// the file `path`, as the path names them now. Call under
+    /// ``pathChangeLock`` once ``navigationRefusal(_:roots:)`` found no link
+    /// on the path.
+    private static func directories(toward path: String, from root: String) -> Set<DirectoryIdentity> {
+        var found: Set<DirectoryIdentity> = []
+        guard let alias = aliases(of: root).first(where: { path.hasPrefix($0 + "/") }) else { return found }
+        var current = root
+        var parts = path.dropFirst(alias.count).split(separator: "/")
+        parts.removeLast()
+        for part in [Substring("")] + parts {
+            if !part.isEmpty { current += "/" + part }
+            var info = stat()
+            guard lstat(current, &info) == 0 else { break }
+            found.insert(DirectoryIdentity(device: Int64(info.st_dev), inode: UInt64(info.st_ino)))
+        }
+        return found
+    }
+
+    /// Runs `load`, which must start `webView`'s load of the file `url`
     /// before it returns, with the directory to grant the page read access
     /// to: the session root that holds the file.
     ///
-    /// The browser loads a file by path and resolves the read-access
-    /// directory's links when it grants it, so a check that runs before
-    /// the load can be raced: another REPL session sharing the directory
-    /// could rename a link in for a checked directory. Here, while no REPL
-    /// `fs.rename` can run (``pathChangeLock``), the file's path is checked
-    /// again (``navigationRefusal(_:roots:)``), the root must still be the
-    /// directory the session named (same identity, no link on its path),
-    /// and the browser is given that root. A link swapped in below it later
-    /// leads nowhere outside it: WebKit refuses a file outside the directory
-    /// it granted, as it resolved it then.
+    /// The browser loads a file by path, after this returns, so a check
+    /// that runs before the load can be raced: another REPL session sharing
+    /// the directory could rename a link in for a checked directory. Here,
+    /// while no REPL `fs.rename` can run (``pathChangeLock``), the file's
+    /// path is checked again (``navigationRefusal(_:roots:)``), the root
+    /// must still be the directory the session named (same identity, no
+    /// link on its path), and the browser is given that root.
+    ///
+    /// The browser opens the file when its load starts, later, and before
+    /// macOS 27 WebKit does not refuse a file outside the directory it
+    /// granted: its processes may read the user's temporary and cache
+    /// directories anyway, so a link swapped in meanwhile could lead the
+    /// load there. So `webView`'s load is also noted
+    /// (``BrowserReplPinnedFileLoads``), and its navigation delegate admits
+    /// the response, by when the browser holds the file open, only if no
+    /// REPL `fs.rename` since this check changed an entry of a directory on
+    /// the file's path and the path is still inside the root with no link
+    /// (``BrowserReplPinnedFileLoad/admitsResponse(_:)``).
     /// - Throws: `blocked` when the file is outside the roots or a root was
     ///   moved or replaced.
-    public static func withPinnedFileAccess<T>(_ url: String, roots: [BrowserReplFileRoot], _ load: (URL) throws -> T) throws -> T {
+    @MainActor
+    public static func withPinnedFileAccess<T>(
+        _ url: String,
+        roots: [BrowserReplFileRoot],
+        in webView: WKWebView,
+        _ load: (URL) throws -> T
+    ) throws -> T {
+        try pinnedFileAccess(url, roots: roots) { pin in
+            BrowserReplPinnedFileLoads.shared.expect(pin, in: webView)
+            return try load(pin.readAccess)
+        }
+    }
+
+    /// The check and grant of ``withPinnedFileAccess(_:roots:in:_:)``,
+    /// without noting a browser load.
+    static func withPinnedFileAccess<T>(_ url: String, roots: [BrowserReplFileRoot], _ load: (URL) throws -> T) throws -> T {
+        try pinnedFileAccess(url, roots: roots) { try load($0.readAccess) }
+    }
+
+    static func pinnedFileAccess<T>(_ url: String, roots: [BrowserReplFileRoot], _ load: (BrowserReplPinnedFileLoad) throws -> T) throws -> T {
         try pathChangeLock.withLock {
             if let reason = navigationRefusal(url, roots: roots.map(\.path)) {
                 throw BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)")
@@ -431,7 +523,25 @@ public struct BrowserReplFileSandbox: Sendable {
                     message: "\(url) is blocked: the session's directory \(root.path) was moved or replaced since the session began; start a new session there"
                 )
             }
-            return try load(URL(fileURLWithPath: root.path, isDirectory: true))
+            return try load(BrowserReplPinnedFileLoad(
+                root: root,
+                renameCount: renames.count,
+                directories: directories(toward: path, from: root.path)
+            ))
+        }
+    }
+
+    /// Whether a file response of a pinned load (`pin`) may commit: no REPL
+    /// `fs.rename` since the load's check changed an entry of a directory
+    /// on the file's path, and `url` is still inside the pinned root with
+    /// no link below it, the root in place
+    /// (``BrowserReplPinnedFileLoad/admitsResponse(_:)``).
+    static func admits(_ url: URL, pin: BrowserReplPinnedFileLoad) -> Bool {
+        pathChangeLock.withLock {
+            guard !renamedSince(pin.renameCount, in: pin.directories) else { return false }
+            let path = lexicallyNormalized(url.path(percentEncoded: false))
+            guard aliases(of: pin.root.path).contains(where: { path.hasPrefix($0 + "/") }) else { return false }
+            return navigationRefusal(url.absoluteString, roots: [pin.root.path]) == nil && pin.root.isStillInPlace
         }
     }
 

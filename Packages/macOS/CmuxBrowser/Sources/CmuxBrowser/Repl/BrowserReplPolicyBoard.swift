@@ -1,4 +1,5 @@
 public import Foundation
+public import WebKit
 
 /// The REPL sessions' domain policies as the navigation checks read them,
 /// and whether each session's content rules are on its tabs.
@@ -98,12 +99,23 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
     /// Runs `load`, which must start the browser's load of the file `url`,
     /// with the read access the governing session `sessionID` grants.
     /// Checked and granted while no REPL `fs.rename` can run
-    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:_:)``): the
+    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:in:_:)``): the
     /// grant is the session root that holds the file, never the file's
     /// parent directory as a link swapped in would resolve it.
     /// - Throws: `blocked` when the session has no directories, the file is
     ///   outside them or a link lies below them, or a root was replaced.
-    public func withPinnedFileAccess<T>(_ url: String, sessionID: String, _ load: (URL) throws -> T) throws -> T {
+    /// `webView`'s load is noted, so its response commits only when the
+    /// file is still where the check found it
+    /// (``BrowserReplPinnedFileLoads``).
+    @MainActor
+    public func withPinnedFileAccess<T>(_ url: String, sessionID: String, in webView: WKWebView, _ load: (URL) throws -> T) throws -> T {
+        let roots = lock.withLock { pinnedFileRoots[sessionID] ?? [] }
+        return try BrowserReplFileSandbox.withPinnedFileAccess(url, roots: roots, in: webView, load)
+    }
+
+    /// The check and grant of ``withPinnedFileAccess(_:sessionID:in:_:)``,
+    /// without noting a browser load.
+    func withPinnedFileAccess<T>(_ url: String, sessionID: String, _ load: (URL) throws -> T) throws -> T {
         let roots = lock.withLock { pinnedFileRoots[sessionID] ?? [] }
         return try BrowserReplFileSandbox.withPinnedFileAccess(url, roots: roots, load)
     }

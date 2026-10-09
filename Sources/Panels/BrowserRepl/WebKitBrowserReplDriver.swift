@@ -1582,16 +1582,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// Starts `panel`'s navigation to `url`. A local file loads with read
     /// access to the session directory that holds it, checked and granted
     /// while no REPL session can rename an entry
-    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:_:)``): a link
+    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:in:_:)``): a link
     /// another session swaps in after the session's check leads the load
-    /// nowhere outside that directory.
+    /// nowhere outside that directory (the navigation delegate admits the
+    /// response only if the file is still where the check found it).
     @MainActor
     private func beginNavigation(_ panel: BrowserPanel, to url: URL, raw: String) throws -> BrowserAutomationNavigationTicket {
         guard url.scheme?.lowercased() == "file" else {
             return panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
         }
         let roots = lock.withLock { fileRoots }
-        return try BrowserReplFileSandbox.withPinnedFileAccess(raw, roots: roots) { readAccess in
+        return try BrowserReplFileSandbox.withPinnedFileAccess(raw, roots: roots, in: panel.webView) { readAccess in
             panel.beginAutomationNavigation(to: url, recordTypedNavigation: false, fileReadAccessURL: readAccess)
         }
     }

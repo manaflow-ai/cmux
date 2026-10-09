@@ -756,9 +756,16 @@ native (`BrowserReplBoundary` in the session, and the driver):
   call that can put a link at a path), and gives the page read access to
   the session directory that holds the file, which must still be the
   directory the session began with (same identity, no link on its path).
-  WebKit resolves that directory when it grants it and refuses a file
-  outside it, so a link another session or process swaps in below it
-  after the check leads nowhere outside (measured on macOS 27.0). A load
+  The browser opens the file only after the load starts. On macOS 27
+  WebKit refuses a file outside the directory it granted; on macOS 26
+  (WebKit 21624) it does not, and its processes may read the user's
+  temporary and cache directories, so a link swapped in after the check
+  could lead the load there (measured on both). So the tab's navigation
+  delegate admits the load's main-frame response (by then the browser
+  holds the file open) only when no REPL `fs.rename` since the check
+  changed an entry of a directory on the file's path (a rename and back
+  counts too) and the path is still link-free inside the same root;
+  otherwise the load is cancelled before anything commits. A load
   of such a file that the tab starts without the driver (a crashed web
   process's recovery, a discarded tab's restore, a reload, the page's own
   navigation) gets the same grant under the same lock: in a tab a session

@@ -5794,7 +5794,8 @@ final class BrowserPanel: Panel, ObservableObject {
             // as a link swapped in would resolve it. A refused file loads nothing.
             startedNavigation = try? BrowserReplPolicyBoard.shared.withPinnedFileAccess(
                 originalURL.absoluteString,
-                sessionID: sessionID
+                sessionID: sessionID,
+                in: webView
             ) { readAccess in
                 browserLoadRequest(
                     effectiveRequest,
