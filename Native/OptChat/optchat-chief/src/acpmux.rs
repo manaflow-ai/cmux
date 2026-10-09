@@ -175,6 +175,13 @@ pub trait AgentPort: Send + Sync {
     ) -> Result<(), String> {
         Err("answering permissions is not supported".into())
     }
+    /// Delivers `blocks` into `session`'s running turn between its tool
+    /// calls (a steered `session/prompt`, `steerOnly`): Ok once the harness
+    /// read them. Err: the session could not take them now (no running turn,
+    /// a harness that does not steer); nothing was delivered.
+    fn steer(&self, _session: &str, _blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+        Err("steering is not supported".into())
+    }
     /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
     /// session of `harness` and `preset` in `cwd`, so the next `session/new`
     /// of exactly that shape takes a harness that is already up.
