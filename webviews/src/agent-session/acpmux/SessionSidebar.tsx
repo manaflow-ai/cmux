@@ -43,6 +43,37 @@ const PLACE_LABELS = {
   branch: "sidebar.branch",
 } as const satisfies Record<string, StringKey>;
 
+/** Move between the visible session rows without leaving the sidebar. */
+function moveSessionFocus(event: React.KeyboardEvent<HTMLButtonElement>, onSelect: (sessionId: string) => void) {
+  if (
+    !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key) ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey
+  ) {
+    return;
+  }
+  const sidebar = event.currentTarget.closest<HTMLElement>(".acpmux-sidebar");
+  const rows = sidebar ? [...sidebar.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")] : [];
+  const current = rows.indexOf(event.currentTarget);
+  if (current < 0 || rows.length === 0) return;
+  const next =
+    event.key === "ArrowUp"
+      ? Math.max(0, current - 1)
+      : event.key === "ArrowDown"
+        ? Math.min(rows.length - 1, current + 1)
+        : event.key === "Home"
+          ? 0
+          : rows.length - 1;
+  event.preventDefault();
+  if (next === current) return;
+  const target = rows[next];
+  target.focus();
+  const sessionId = target.dataset.sessionId;
+  if (sessionId) onSelect(sessionId);
+}
+
 /** What the rail switches the list to. */
 export type SidebarView = "sessions" | "history" | "pulls" | "closed";
 export type SidebarAccount = { name: string; detail?: string };
@@ -411,6 +442,7 @@ const SessionRow = memo(function SessionRow({
     <li>
       <button
         type="button"
+        data-session-id={session.sessionId}
         className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
         aria-current={selected ? "true" : undefined}
         aria-label={
@@ -421,6 +453,7 @@ const SessionRow = memo(function SessionRow({
             : undefined
         }
         title={placeLabel ? `${title}\n${placeLabel}` : title}
+        onKeyDown={(event) => moveSessionFocus(event, onSelect)}
         onClick={() => onSelect(session.sessionId)}
       >
         <span className="acpmux-session-row-title">{title}</span>
