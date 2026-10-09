@@ -7,10 +7,11 @@
 //!    catalog entry whose `modelSource` is `catalog`. For an ACP harness that
 //!    already reported its models, only the curated ones it reported (the
 //!    agent decides what it runs; the catalog adds names, order and
-//!    metadata). Claude Code reports none, so its list comes from the catalog
-//!    after the "default" choice;
+//!    metadata). Claude Code's list is the "default" choice, then the
+//!    catalog's models, then step 3;
 //! 3. the models the harness reported that the catalog does not list, marked
-//!    `curated: false` (for example an OpenCode user's own providers). A
+//!    `curated: false` (for example an OpenCode user's own providers, or the
+//!    aliases Claude Code reports at initialize: "opus" runs its newest Opus). A
 //!    `probe` entry lists no models: every reported model is shown, with the
 //!    catalog's metadata when `models` describes its id.
 //!
@@ -121,7 +122,8 @@ fn offered(
         }
     }
     for entry in reported {
-        if !curated.models.iter().any(|m| m.id == entry.0) {
+        let listed = out.iter().any(|m| m["id"] == entry.0.as_str());
+        if !listed && !curated.models.iter().any(|m| m.id == entry.0) {
             out.push(reported_json(entry, catalog));
         }
     }

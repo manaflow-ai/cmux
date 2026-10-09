@@ -11,6 +11,7 @@ import {
 import { AgentMark } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
+import { modelSections } from "./modelSections";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
@@ -31,7 +32,7 @@ type HarnessChoice = {
   id: string;
   ids: string[];
   name: string;
-  models: { id: string; name?: string; unavailable?: string }[];
+  models: { id: string; name?: string; shortName?: string; family?: string; unavailable?: string }[];
   unavailable?: string;
   acpmuxHarness?: string;
   pickable: boolean;
@@ -44,46 +45,30 @@ type HarnessChoice = {
 type ModelChoice = {
   id: string;
   name: string;
+  family?: string;
   unavailable?: string;
-  version: number[];
-  order: number;
 };
 
-function versionOf(model: { id: string; name?: string }): number[] {
-  const text = model.name ?? model.id;
-  const match = /\d+(?:\.\d+)*/.exec(text);
-  return match ? match[0].split(".").map(Number) : (model.id.match(/\d+/g) ?? []).map(Number);
-}
+/// One navigable row of the model list: a model, or the "Older models" fold.
+type Entry = { kind: "model"; model: ModelChoice } | { kind: "older"; count: number };
 
-function compareVersions(a: ModelChoice, b: ModelChoice): number {
-  const length = Math.max(a.version.length, b.version.length);
-  for (let index = 0; index < length; index += 1) {
-    const difference = (a.version[index] ?? -1) - (b.version[index] ?? -1);
-    if (difference !== 0) return difference;
-  }
-  return a.order - b.order;
-}
-
+/// The harness's models in its own order (catalog, then what the harness reported), each once.
+/// A catalog model names itself by its short name under its harness ("Opus 5.5").
 function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
   if (!entry) return [];
   const seen = new Set<string>();
-  const choices = entry.models.flatMap((model, order) => {
+  return entry.models.flatMap((model) => {
     if (seen.has(model.id)) return [];
     seen.add(model.id);
     return [
       {
         id: model.id,
-        name: isDefaultChoice(model) ? "Default" : model.name || model.id,
+        name: isDefaultChoice(model) ? "Default" : model.shortName || model.name || model.id,
+        ...(model.family ? { family: model.family } : {}),
         unavailable: model.unavailable,
-        version: versionOf(model),
-        order,
       },
     ];
   });
-  const defaults = choices.filter((choice) => isDefaultChoice(choice));
-  const models = choices.filter((choice) => !isDefaultChoice(choice)).sort(compareVersions);
-  // The list is deliberately stable. Newest and best models sit nearest the anchor at the bottom.
-  return [...defaults, ...models];
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
@@ -184,6 +169,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const [activeHarness, setActiveHarness] = useState(0);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [olderOpen, setOlderOpen] = useState(false);
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try {
       const stored = globalThis.localStorage?.getItem("cmux.model-picker.favorites");
@@ -202,14 +188,28 @@ export function ModelPicker(props: ModelPickerProps) {
   const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
   const selected = harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current;
   const models = useMemo(() => choicesFor(selected), [selected]);
-  // Starred models come first, in their own section; nothing is filtered out.
-  const visible = useMemo(() => {
-    const matching = query ? models.filter((model) => matches(model, query)) : models;
+  const sections = useMemo(() => modelSections(models, selected?.name ?? ""), [models, selected?.name]);
+  // Starred models come first, in their own section; then the defaults and each family's newest
+  // models; older versions fold under one row until it opens. A search looks through all of them.
+  const entries = useMemo((): Entry[] => {
+    const all = [...sections.latest, ...sections.older];
+    if (query) {
+      const matching = all.filter((model) => matches(model, query));
+      return [
+        ...matching.filter((model) => favorites.has(model.id)),
+        ...matching.filter((model) => !favorites.has(model.id)),
+      ].map((model) => ({ kind: "model", model }));
+    }
+    const starred = all.filter((model) => favorites.has(model.id));
+    const latest = sections.latest.filter((model) => !favorites.has(model.id));
+    const older = sections.older.filter((model) => !favorites.has(model.id));
     return [
-      ...matching.filter((model) => favorites.has(model.id)),
-      ...matching.filter((model) => !favorites.has(model.id)),
+      ...[...starred, ...latest].map((model): Entry => ({ kind: "model", model })),
+      ...(older.length > 0 ? [{ kind: "older", count: older.length } as Entry] : []),
+      ...(olderOpen ? older.map((model): Entry => ({ kind: "model", model })) : []),
     ];
-  }, [favorites, models, query]);
+  }, [favorites, olderOpen, query, sections]);
+  const visible = useMemo(() => entries.flatMap((entry) => (entry.kind === "model" ? [entry.model] : [])), [entries]);
   const starredCount = visible.filter((model) => favorites.has(model.id)).length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
@@ -255,16 +255,17 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     );
     setQuery("");
+    setOlderOpen(false);
     setActive(
       Math.max(
         0,
-        models.findIndex((model) => model.id === props.model),
+        [...sections.latest, ...sections.older].findIndex((model) => model.id === props.model),
       ),
     );
     setOpen(true);
     if (open) search.current?.focus();
     else trigger.current?.focus();
-  }, [current?.id, harness, harnesses, models, open, props.model]);
+  }, [current?.id, harness, harnesses, sections, open, props.model]);
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
@@ -301,9 +302,11 @@ export function ModelPicker(props: ModelPickerProps) {
   useEffect(() => {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);
-  useEffect(() => {
-    if (active >= visible.length) setActive(Math.max(visible.length - 1, 0));
-  }, [active, visible.length]);
+  // A row index past the end (the list shrank under a search) reads as the last row.
+  const activeIndex = Math.min(active, Math.max(entries.length - 1, 0));
+  const activeEntry = entries[activeIndex];
+  const entryId = (entry: Entry | undefined) =>
+    entry === undefined ? undefined : entry.kind === "model" ? modelRowId(entry.model.id) : `${menuId}-older`;
 
   const selectModel = (model: ModelChoice) => {
     if (model.unavailable || !selected?.pickable) return;
@@ -341,7 +344,9 @@ export function ModelPicker(props: ModelPickerProps) {
     });
   };
   const move = (step: number) =>
-    setActive((index) => (visible.length ? (index + step + visible.length) % visible.length : 0));
+    setActive((index) =>
+      entries.length ? (Math.min(index, entries.length - 1) + step + entries.length) % entries.length : 0,
+    );
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     const shortcut = event.ctrlKey && ["n", "p", "j", "k"].includes(event.key.toLowerCase());
     if (shortcut) {
@@ -358,8 +363,8 @@ export function ModelPicker(props: ModelPickerProps) {
       menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")[activeHarness]?.focus();
     } else if (event.key === "Enter") {
       event.preventDefault();
-      const model = visible[active];
-      if (model) selectModel(model);
+      if (activeEntry?.kind === "older") setOlderOpen((value) => !value);
+      else if (activeEntry) selectModel(activeEntry.model);
     } else if (
       /^[1-9]$/.test(event.key) &&
       !event.ctrlKey &&
@@ -446,7 +451,7 @@ export function ModelPicker(props: ModelPickerProps) {
               aria-label={searchText}
               aria-autocomplete="list"
               aria-controls={`${menuId}-models`}
-              aria-activedescendant={visible[active] ? modelRowId(visible[active].id) : undefined}
+              aria-activedescendant={entryId(activeEntry)}
               aria-expanded="true"
               value={query}
               placeholder={searchText}
@@ -456,64 +461,86 @@ export function ModelPicker(props: ModelPickerProps) {
               }}
               keyboard={keyDown}
             />
+            {catalogRefresh && (
+              <button
+                type="button"
+                className="acpmux-mp-refresh"
+                data-refresh-status={refreshStatus}
+                aria-label={t("picker.refreshCatalog")}
+                title={refreshTitle}
+                disabled={refreshStatus === "fetching"}
+                onClick={refreshCatalog}
+              >
+                {refreshStatus === "fetching" ? (
+                  <span className="acpmux-mp-refresh-spinner" aria-hidden="true" />
+                ) : (
+                  <Icon name="action.reload" size={14} />
+                )}
+              </button>
+            )}
           </div>
-          <div className="acpmux-mp-columns">
-            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
-            <div className="acpmux-mp-harnesses">
-              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
-              <PickerOptionList className="acpmux-mp-harness-list" aria-label={harnessText}>
-                <div className="acpmux-mp-harness-list-inner">
-                  {harnesses.map((entry, index) => [
-                    index === firstProfile && (
-                      <div key="folder-section" className="acpmux-mp-section" role="presentation">
-                        {t("picker.thisFolder")}
-                      </div>
-                    ),
-                    <PickerOption
-                      type="button"
-                      key={entry.folder ? `folder:${entry.id}` : entry.name}
-                      aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                      aria-disabled={blockedProfile(entry) || undefined}
-                      disabled={!entry.pickable}
-                      className="acpmux-mp-harness"
-                      selected={entry.ids.includes(selectedHarness ?? "")}
-                      keyboard={(event) => {
-                        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                          event.preventDefault();
-                          const step = event.key === "ArrowDown" ? 1 : -1;
-                          const next = (index + step + harnesses.length) % harnesses.length;
-                          setActiveHarness(next);
-                          setSelectedHarness(harnesses[next]?.id);
+          <div className={`acpmux-mp-columns${harnesses.length > 1 ? "" : " acpmux-mp-columns-single"}`}>
+            {/* One harness needs no harness column. */}
+            {harnesses.length > 1 && (
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states.
+              <div className="acpmux-mp-harnesses">
+                {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
+                <PickerOptionList className="acpmux-mp-harness-list" aria-label={harnessText}>
+                  <div className="acpmux-mp-harness-list-inner">
+                    {harnesses.map((entry, index) => [
+                      index === firstProfile && (
+                        <div key="folder-section" className="acpmux-mp-section" role="presentation">
+                          {t("picker.thisFolder")}
+                        </div>
+                      ),
+                      <PickerOption
+                        type="button"
+                        key={entry.folder ? `folder:${entry.id}` : entry.name}
+                        aria-selected={entry.ids.includes(selectedHarness ?? "")}
+                        aria-disabled={blockedProfile(entry) || undefined}
+                        disabled={!entry.pickable}
+                        className="acpmux-mp-harness"
+                        selected={entry.ids.includes(selectedHarness ?? "")}
+                        keyboard={(event) => {
+                          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                            event.preventDefault();
+                            const step = event.key === "ArrowDown" ? 1 : -1;
+                            const next = (index + step + harnesses.length) % harnesses.length;
+                            setActiveHarness(next);
+                            setSelectedHarness(harnesses[next]?.id);
+                            setQuery("");
+                            setOlderOpen(false);
+                            event.currentTarget.parentElement
+                              ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
+                              [next]?.focus();
+                          } else if (event.key === "Enter" && enableProfile(entry)) {
+                            event.preventDefault();
+                          } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                            event.preventDefault();
+                            search.current?.focus();
+                          }
+                        }}
+                        onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
+                        onClick={() => {
+                          if (enableProfile(entry)) return;
+                          setSelectedHarness(entry.id);
+                          setActiveHarness(index);
                           setQuery("");
-                          event.currentTarget.parentElement
-                            ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
-                            [next]?.focus();
-                        } else if (event.key === "Enter" && enableProfile(entry)) {
-                          event.preventDefault();
-                        } else if (event.key === "ArrowRight" || event.key === "Enter") {
-                          event.preventDefault();
-                          search.current?.focus();
-                        }
-                      }}
-                      onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
-                      onClick={() => {
-                        if (enableProfile(entry)) return;
-                        setSelectedHarness(entry.id);
-                        setActiveHarness(index);
-                        setQuery("");
-                        setActive(0);
-                      }}
-                      active={index === activeHarness}
-                    >
-                      <AgentMark agent={entry.mark ?? entry.id} size={16} />
-                      <span>{entry.name}</span>
-                      {folderNote(entry) && <span className="acpmux-menu-description">{folderNote(entry)}</span>}
-                      {entry.ids.includes(harness ?? "") && <CheckIcon />}
-                    </PickerOption>,
-                  ])}
-                </div>
-              </PickerOptionList>
-            </div>
+                          setOlderOpen(false);
+                          setActive(0);
+                        }}
+                        active={index === activeHarness}
+                      >
+                        <AgentMark agent={entry.mark ?? entry.id} size={16} />
+                        <span>{entry.name}</span>
+                        {folderNote(entry) && <span className="acpmux-menu-description">{folderNote(entry)}</span>}
+                        {entry.ids.includes(harness ?? "") && <CheckIcon />}
+                      </PickerOption>,
+                    ])}
+                  </div>
+                </PickerOptionList>
+              </div>
+            )}
             <PickerOptionList
               id={`${menuId}-models`}
               className="acpmux-mp-models"
@@ -540,82 +567,86 @@ export function ModelPicker(props: ModelPickerProps) {
                 >
                   <span className="acpmux-menu-label">{t("picker.newChat")}</span>
                 </button>
-              ) : visible.length === 0 ? (
+              ) : entries.length === 0 ? (
                 <div className="acpmux-mp-empty">{noMatchesText}</div>
               ) : (
-                visible.map((model, index) => [
-                  starredCount > 0 && (index === 0 || index === starredCount) && (
-                    <div key={`section-${index}`} className="acpmux-mp-section" role="presentation">
-                      {index === 0 ? starredText : selected?.name}
-                    </div>
-                  ),
-                  <div className="acpmux-mp-row-shell" key={model.id}>
-                    <PickerOption
-                      type="button"
-                      id={modelRowId(model.id)}
-                      data-key={`model:${model.id}`}
-                      selected={index === active}
-                      aria-checked={model.id === props.model}
-                      className={`acpmux-mp-row${index === active ? " acpmux-mp-active" : ""}`}
-                      onPointerEnter={() => setActive(index)}
-                      disabled={Boolean(model.unavailable)}
-                      onClick={() => selectModel(model)}
-                      active={index === active}
-                    >
-                      <span className="acpmux-menu-label">{model.name}</span>
-                      {index < 4 && <span className="acpmux-mp-hotkey">⌘{index + 1}</span>}
-                      {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
-                      {model.id === props.model && <CheckIcon />}
-                    </PickerOption>
-                    <button
-                      type="button"
-                      className="acpmux-mp-favorite"
-                      aria-label={`${modelText}: ${model.name}`}
-                      aria-pressed={favorites.has(model.id)}
-                      title={modelText}
-                      onClick={() => toggleFavorite(model.id)}
-                    >
-                      <span aria-hidden="true">{favorites.has(model.id) ? "★" : "☆"}</span>
-                    </button>
-                  </div>,
-                ])
+                entries.map((entry, index) => {
+                  if (entry.kind === "older")
+                    return (
+                      <button
+                        type="button"
+                        key="older"
+                        id={`${menuId}-older`}
+                        className={`acpmux-mp-older${index === activeIndex ? " acpmux-mp-active" : ""}`}
+                        aria-expanded={olderOpen}
+                        onPointerEnter={() => setActive(index)}
+                        onClick={() => setOlderOpen((value) => !value)}
+                      >
+                        <span className="acpmux-menu-label">{t("picker.olderModels")}</span>
+                        <span className="acpmux-mp-older-count">{entry.count}</span>
+                        <span className="acpmux-mp-older-chevron" aria-hidden="true">
+                          <ChevronIcon />
+                        </span>
+                      </button>
+                    );
+                  const model = entry.model;
+                  const modelIndex = visible.indexOf(model);
+                  return [
+                    starredCount > 0 && (modelIndex === 0 || modelIndex === starredCount) && (
+                      <div key={`section-${modelIndex}`} className="acpmux-mp-section" role="presentation">
+                        {modelIndex === 0 ? starredText : selected?.name}
+                      </div>
+                    ),
+                    <div className="acpmux-mp-row-shell" key={model.id}>
+                      <PickerOption
+                        type="button"
+                        id={modelRowId(model.id)}
+                        data-key={`model:${model.id}`}
+                        selected={index === activeIndex}
+                        aria-checked={model.id === props.model}
+                        className={`acpmux-mp-row${index === activeIndex ? " acpmux-mp-active" : ""}`}
+                        onPointerEnter={() => setActive(index)}
+                        disabled={Boolean(model.unavailable)}
+                        onClick={() => selectModel(model)}
+                        active={index === activeIndex}
+                      >
+                        <span className="acpmux-menu-label">{model.name}</span>
+                        {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
+                        {/* Fixed check and hint slots keep every row's ⌘ hint in one column. */}
+                        <span className="acpmux-mp-check">{model.id === props.model && <CheckIcon />}</span>
+                        <span className="acpmux-mp-hotkey">{modelIndex < 4 ? `⌘${modelIndex + 1}` : ""}</span>
+                      </PickerOption>
+                      <button
+                        type="button"
+                        className="acpmux-mp-favorite"
+                        aria-label={`${modelText}: ${model.name}`}
+                        aria-pressed={favorites.has(model.id)}
+                        title={modelText}
+                        onClick={() => toggleFavorite(model.id)}
+                      >
+                        <span aria-hidden="true">{favorites.has(model.id) ? "★" : "☆"}</span>
+                      </button>
+                    </div>,
+                  ];
+                })
               )}
             </PickerOptionList>
           </div>
-          {(fastMode || catalogRefresh) && (
+          {fastMode && (
             <div className="acpmux-mp-footer">
-              {fastMode && (
-                <button
-                  type="button"
-                  className="acpmux-mp-fast"
-                  aria-pressed={fastMode.currentValue === fastMode.onValue}
-                  onClick={() =>
-                    fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
-                  }
-                >
-                  <span>{fastMode.name}</span>
-                  <span className="acpmux-menu-description">
-                    {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
-                  </span>
-                </button>
-              )}
-              {catalogRefresh && (
-                <button
-                  type="button"
-                  className="acpmux-mp-refresh"
-                  data-refresh-status={refreshStatus}
-                  aria-label={t("picker.refreshCatalog")}
-                  title={refreshTitle}
-                  disabled={refreshStatus === "fetching"}
-                  onClick={refreshCatalog}
-                >
-                  {refreshStatus === "fetching" ? (
-                    <span className="acpmux-mp-refresh-spinner" aria-hidden="true" />
-                  ) : (
-                    <Icon name="action.reload" size={14} />
-                  )}
-                </button>
-              )}
+              <button
+                type="button"
+                className="acpmux-mp-fast"
+                aria-pressed={fastMode.currentValue === fastMode.onValue}
+                onClick={() =>
+                  fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
+                }
+              >
+                <span>{fastMode.name}</span>
+                <span className="acpmux-menu-description">
+                  {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
+                </span>
+              </button>
             </div>
           )}
         </PickerDialog>

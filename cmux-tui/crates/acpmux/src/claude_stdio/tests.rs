@@ -274,6 +274,9 @@ async fn the_models_claude_code_reports_at_initialize_are_the_model_choices() {
             ("claude-opus-4-7", "claude-opus-4-7"),
         ]
     );
+    // Each alias carries the concrete model the installed Claude Code runs for it.
+    let options = t.config_options_value().await;
+    assert_eq!(options[0]["options"][4]["resolvedModel"], "claude-haiku-5-5");
 }
 
 #[tokio::test]

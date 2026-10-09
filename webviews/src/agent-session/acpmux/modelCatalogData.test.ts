@@ -148,10 +148,15 @@ describe("buildPickerCatalog", () => {
     expect(picker.harnesses.some((harness) => harness.id === "corp-claude")).toBe(false);
   });
 
-  // cx-jqkx: a family's newest model is offered under the harness's alias ("opus"), so picking it
-  // runs whatever Claude Code calls its latest Opus, even after a release cmux has not catalogued.
-  test("catalog models list in order, the newest of a family under its alias; new probed models are added", () => {
-    expect(byId("claude").models.map((model) => model.id)).toEqual(["opus", "claude-sonnet-5", "claude-next-1"]);
+  // cx-jqkx: a catalog alias never names what a harness alias runs (that depends on the installed
+  // Claude Code version), so an alias the harness reports without naming a release is its own row.
+  test("catalog models list in order by their own ids; models the harness reports are added", () => {
+    expect(byId("claude").models.map((model) => model.id)).toEqual([
+      "claude-opus-5-5",
+      "claude-sonnet-5",
+      "opus",
+      "claude-next-1",
+    ]);
     expect(byId("claude").models[0]).toMatchObject({
       name: "Claude Opus 5.5",
       shortName: "Opus 5.5",
@@ -164,15 +169,26 @@ describe("buildPickerCatalog", () => {
       input: ["text", "image"],
     });
     expect(byId("claude").models[0]?.searchText).toContain("opus");
-    expect(byId("claude").models[2]).toMatchObject({ name: "Next 1", efforts: [], fast: false });
+    expect(byId("claude").models[2]).toMatchObject({ name: "Opus" });
+    expect(byId("claude").models[3]).toMatchObject({ name: "Next 1", efforts: [], fast: false });
   });
 
-  test("the version the harness names for an alias wins over the catalog's", () => {
-    const later = buildPickerCatalog({
-      catalog: CATALOG,
-      acpmux: normalizeCatalog({ harnesses: { claude: { family: "claude", models: [{ id: "opus", name: "Opus 6" }] } } }),
-    });
-    expect(later.harnesses[0]?.models[0]).toMatchObject({ id: "opus", name: "Opus 6", shortName: "Opus 6" });
+  // cx-jqkx: Claude Code names what each alias runs in its initialize reply. An alias named as a
+  // catalog release replaces that release's row (one row that follows the harness's newest); an
+  // alias named as a release the catalog lacks stays its own row with the harness's name.
+  test("an alias the harness names as a catalog release takes that release's row", () => {
+    const reported = (name: string) =>
+      buildPickerCatalog({
+        catalog: CATALOG,
+        acpmux: normalizeCatalog({ harnesses: { claude: { family: "claude", models: [{ id: "opus", name }] } } }),
+      }).harnesses[0]!.models;
+    expect(reported("Opus 5.5").map((model) => model.id)).toEqual(["opus", "claude-sonnet-5"]);
+    expect(reported("Opus 5.5")[0]).toMatchObject({ name: "Claude Opus 5.5", shortName: "Opus 5.5", fast: true });
+    expect(reported("Opus 6").map((model) => [model.id, model.name])).toEqual([
+      ["claude-opus-5-5", "Claude Opus 5.5"],
+      ["claude-sonnet-5", "Claude Sonnet 5"],
+      ["opus", "Opus 6"],
+    ]);
   });
 
   // cx-jqkx: the harness is the authority. A model the running session's own model option lists is

@@ -65,4 +65,17 @@ describe("modelSections", () => {
     expect(names(latest)).toEqual(["GPT-5.5", "o3"]);
     expect(names(older)).toEqual(["GPT-5.4"]);
   });
+
+  test("the catalog's family wins, so separate lines of one generation each keep their newest", () => {
+    const { latest, older } = modelSections(
+      [
+        { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", family: "Sol" },
+        { id: "gpt-6-astra", name: "GPT-6 Astra", family: "Astra" },
+        { id: "gpt-6-sol", name: "GPT-6 Sol", family: "Sol" },
+      ],
+      "Codex",
+    );
+    expect(names(latest)).toEqual(["GPT-6.1 Sol", "GPT-6 Astra"]);
+    expect(names(older)).toEqual(["GPT-6 Sol"]);
+  });
 });

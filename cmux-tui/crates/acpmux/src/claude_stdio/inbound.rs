@@ -257,6 +257,7 @@ impl Translator {
                     if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
                         *self.slash_commands.lock().await = cmds.clone();
                     }
+                    self.remember_reported_models(inner.get("models")).await;
                     out.push(Message::ok(id, json!({
                         "protocolVersion": 1,
                         "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null)},

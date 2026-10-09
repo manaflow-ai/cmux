@@ -151,8 +151,8 @@ describe("T3 model picker", () => {
     expect(modelRows()[1]!.getAttribute("aria-selected")).toBe("true");
     await key(input, "ArrowUp");
     expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
-    await key(input, "1");
-    expect(calls).toEqual(["model claude-opus-5-5"]);
+    await key(input, "2");
+    expect(calls).toEqual(["model claude-sonnet-5-5"]);
   });
 
   test("a different harness shows its models, then starts that harness on a model pick", async () => {
@@ -346,4 +346,3 @@ describe("T3 model picker", () => {
     for (const row of modelRows()) expect(row.lastElementChild?.className).toBe("acpmux-mp-hotkey");
   });
 });
-
