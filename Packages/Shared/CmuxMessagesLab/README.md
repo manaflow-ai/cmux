@@ -40,7 +40,8 @@ and render-server field animation, blurred header and native scrolling.
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
   `HomeLinkPreviews` (which links may fetch a preview),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
-  people's text stays plain), `HomeFlightRecorder` (the flight recorder's
+  people's text stays plain), `HomeFonts` (fonts the off-main row renderers
+  share for the life of the process), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
   unvendored MessagesLab files),
   `FixtureTheme` (cmux theme to Fixture colours), `MessagesLabHomeView`
@@ -66,7 +67,7 @@ and render-server field animation, blurred header and native scrolling.
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
-| Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced |
+| Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | Layout | below 434 pt (Messages' window minimum; a Home pane has no per-content minimum and can be 80 pt) the text column keeps its 434 pt share of the width instead of the measured rule reaching 0 pt |
 | NativeScroll | the drawn scroll indicator sits 2 pt from the scroller's own right edge (in a pane the window's edge is not the transcript's) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's; `cached(_:)` lets a HomeStore rebuild show a fetched preview again |
@@ -75,6 +76,8 @@ and render-server field animation, blurred header and native scrolling.
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 | LongText | the off-main streaming tail renders a block's tiles from its layout without a force unwrap (crash ratchet) |
 | MarkdownStore, LongText | `isPlain`/`setPlain`: a message HomeMapping marks plain (a person's text) never takes the Markdown engine; only an agent's text is Markdown |
+| MarkdownParser, MarkdownHost | `MarkdownLinkPolicy` (interim, same API as MessagesLab's coming rule): only http, https and mailto (plus `extraSchemes`, empty) become links; other, obfuscated and relative destinations are plain text; a click re-checks (`Cmux/PaneLinks.swift` for Home) |
+| ComposeAttachments, WindowView, TiledBubble | checked casts instead of `as!` (crash ratchet, cx-6so) |
 
 ## Updating
 
@@ -89,11 +92,11 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-08): every file at 7d072dd, the sidebar's included
+that are wip checkpoints. Current pins (2026-10-08): every file at 285538d (7d072dd plus 86c3cb3's sidebar row-text and
+pinned-dot fixes, cmux-next's rules taken upstream: our two patches are gone), the sidebar's included
 (7d072dd and c7b32bb, verified with verify-clean 5/5: the header avatar stays centred on the pill after a
 resize, and ChromeView's `leadingEdgeIsWindowEdge`; Home hides ChromeView, so it keeps the default;
-pinned tiles are layers and cmux places the unread dot with `SidebarDraw.tileUnreadDot`, below the
-unread bubble; cc52c46, verified with MessagesLab's tools/verify-clean.sh 5/5: selection drags its text out, the
+pinned tiles are layers and the unread dot sits below the unread bubble (`SidebarDraw.tileUnreadDot`); cc52c46, verified with MessagesLab's tools/verify-clean.sh 5/5: selection drags its text out, the
 system text menu (Services) and media placeholders in a cross-bubble copy; long Markdown in tiles
 (MarkdownLong.swift) and the off-main streaming tail, both OFF unless `--long-markdown` /
 `--long-tail-off-main`; pinned sidebar tiles as separate layers; a copied attachment says

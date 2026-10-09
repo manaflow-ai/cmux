@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// What decides whether a hover-revealed region shows its views.
 public nonisolated struct HoverRevealState: Hashable, Sendable {
@@ -285,9 +286,9 @@ private final class HoverRevealProbe: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
-        focusObservation = window.observe(\.firstResponder, options: [.initial, .new]) { [weak self] window, _ in
-            // crash-allow: AppKit changes firstResponder only on the main thread, and KVO calls back synchronously on the changing thread; a hop would reveal a focused button a turn late.
-            MainActor.assumeIsolated { self?.owner?.focusDidChange(window.firstResponder) }
+        focusObservation = window.observe(\.firstResponder, options: [.initial, .new]) { @Sendable [weak self] window, _ in
+            // KVO calls back synchronously on the changing thread: inline on main (a hop would reveal a focused button a turn late), a hop from anywhere else.
+            MainDelivery().run { self?.owner?.focusDidChange(window.firstResponder) }
         }
         // task-owner: the probe (cancelled when it leaves the window or deinits); event-driven.
         closeObserver = Task { @MainActor [weak self, weak window] in

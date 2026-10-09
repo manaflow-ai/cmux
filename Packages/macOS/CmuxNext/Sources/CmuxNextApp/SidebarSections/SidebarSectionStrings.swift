@@ -34,4 +34,14 @@ enum SidebarSectionStrings {
     static var workspacesSection: String {
         String(localized: "sidebarSections.workspaces", defaultValue: "Workspaces", table: "SidebarSections", bundle: .module)
     }
+    static var notHideable: String {
+        String(localized: "sidebarSections.notHideable", defaultValue: "only Projects and Recents can be hidden; remove this section instead",
+               table: "SidebarSections", bundle: .module)
+    }
+    static var alreadyHidden: String {
+        String(localized: "sidebarSections.alreadyHidden", defaultValue: "this section is already hidden", table: "SidebarSections", bundle: .module)
+    }
+    static var noneHidden: String {
+        String(localized: "sidebarSections.noneHidden", defaultValue: "no sidebar section is hidden", table: "SidebarSections", bundle: .module)
+    }
 }
