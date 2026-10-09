@@ -84,3 +84,49 @@ fn a_message_during_a_turn_is_steered_in_not_a_stop() {
     assert_eq!(sends.len(), 1, "{sends:?}");
     assert_eq!(sends[0].1, "Built, and the tests pass.");
 }
+
+/// Dogfood 2026-10-08 (subagent reports): a report that arrives while the
+/// turn writes its reply, with no tool call left, is steered too. Claude
+/// Code ends that answer (`result`) and answers the steered message as one
+/// more turn of the same prompt; the posted reply holds both answers.
+#[test]
+fn a_report_steered_after_the_last_tool_call_keeps_both_answers() {
+    let mut h = Harness::new(Box::new(|turn, _| {
+        assert_eq!(turn, 0, "one turn answers both");
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "a1 and a2 are done."}}),
+            ),
+        ]
+    }));
+    h.agents.inner.lock().unwrap().steering = true;
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "[a1] done\n\n[a2] done");
+    h.step(); // settled: the turn starts
+    h.step(); // the turn's session exists
+    h.agents.wait_prompts(1);
+    h.say("user_local", "[a3] done");
+    h.agents.wait_steers(1);
+    h.agents.push_events(
+        "s1",
+        vec![
+            json!({"dir": "in", "kind": "claude.result.success", "msg": {"type": "result", "subtype": "success", "result": "a1 and a2 are done."}}),
+            json!({"dir": "in", "kind": "claude.user", "msg": {"type": "user", "isReplay": true, "message": {"content": "[a3] done"}}}),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "a3 is done too."}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ],
+    );
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle();
+    assert!(h.agents.inner.lock().unwrap().cancels.is_empty());
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert_eq!(sends[0].1, "a1 and a2 are done.\n\na3 is done too.");
+}

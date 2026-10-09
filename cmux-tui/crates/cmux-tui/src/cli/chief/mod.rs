@@ -11,6 +11,7 @@
 
 mod adapter;
 mod chat;
+mod control;
 mod editor;
 mod home;
 mod launch;
@@ -43,6 +44,10 @@ pub(super) enum Input {
     Term(crossterm::event::Event),
 }
 
+/// How long pipe mode waits for the Chief's turn by default: a Chief turn
+/// can take long, but a script must never wait forever.
+pub(super) const DEFAULT_TIMEOUT_SECS: u64 = 30 * 60;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Args {
     pub prompt: Option<String>,
@@ -51,6 +56,8 @@ pub(super) struct Args {
     /// `--chief-home DIR`: an isolated Chief (its own daemon and brain).
     pub chief_home: Option<std::path::PathBuf>,
     pub help: bool,
+    /// `chief engine …` or `chief stop`.
+    pub control: Option<control::Control>,
 }
 
 /// `cmux [global options] chief …`; `None` when `args` names another scope.
@@ -61,7 +68,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 }
 
 pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
-    let mut parsed = Args { history: 20, ..Args::default() };
+    let mut parsed =
+        Args { history: 20, timeout_secs: Some(DEFAULT_TIMEOUT_SECS), ..Args::default() };
     let mut index = 0;
     while index < args.len() {
         let arg = args[index].as_str();
@@ -69,6 +77,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (arg, None),
         };
+        let first = index == 0;
         let mut value = || -> Result<String, String> {
             if let Some(value) = inline.clone() {
                 return Ok(value);
@@ -77,12 +86,23 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             args.get(index).cloned().ok_or_else(|| format!("{flag} needs a value"))
         };
         match flag {
+            "engine" if first => parsed.control = Some(control::Control::Engine(Vec::new())),
+            "stop" if first => parsed.control = Some(control::Control::Stop),
+            "--harness" | "--model" | "--effort" => {
+                let key = flag.trim_start_matches("--").to_owned();
+                let value = value()?;
+                match &mut parsed.control {
+                    Some(control::Control::Engine(changes)) => changes.push((key, value)),
+                    _ => return Err(format!("{flag} goes with `cmux chief engine`")),
+                }
+            }
             "-h" | "--help" | "help" => parsed.help = true,
             "-p" | "--prompt" => parsed.prompt = Some(value()?),
             "--timeout" => {
                 let text = value()?;
-                parsed.timeout_secs =
-                    Some(text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?);
+                let secs: u64 =
+                    text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?;
+                parsed.timeout_secs = (secs > 0).then_some(secs);
             }
             "--chief-home" => parsed.chief_home = Some(value()?.into()),
             "--history" => {
@@ -99,6 +119,12 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
 }
 
 fn run(global: GlobalArgs, args: &[String]) -> i32 {
+    // The CLI as a whole defers termination signals to its own watchers;
+    // the chat and pipe mode end at once on SIGTERM, SIGINT or SIGHUP (the
+    // chat reads Ctrl+C as a key in raw mode).
+    if crate::restore_default_termination_signals().is_err() {
+        return 130;
+    }
     let m = messages();
     let args = match parse_args(args) {
         Ok(args) => args,
@@ -110,6 +136,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     if args.help {
         println!("{}", m.usage);
         return 0;
+    }
+    if let Some(control) = &args.control {
+        return control::run(&global, control, global.output);
     }
     let stdin_tty = std::io::stdin().is_terminal();
     let pipe_mode = args.prompt.is_some() || !stdin_tty;
