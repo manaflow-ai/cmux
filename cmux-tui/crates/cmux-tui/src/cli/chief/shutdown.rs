@@ -45,8 +45,33 @@ pub(super) fn run(global: &GlobalArgs, chief_home: Option<&Path>) -> i32 {
 /// SIGTERM to the brain holding `lock`, then waits until the lock is free.
 /// `Ok(false)` when no brain holds it.
 pub(super) fn stop_brain(lock: &Path, limit: Duration) -> Result<bool, String> {
-    let _ = (lock, limit, Instant::now(), messages());
-    Ok(false)
+    if !brain_running(lock) {
+        return Ok(false);
+    }
+    let pid = std::fs::read_to_string(lock)
+        .ok()
+        .and_then(|text| text.lines().next()?.trim().parse::<i32>().ok())
+        .filter(|pid| *pid > 1)
+        .ok_or_else(|| format!("{} names no brain pid", lock.display()))?;
+    // SAFETY: kill(2) with a pid read from the lock its holder wrote; the
+    // lock is held, so the pid is the running holder.
+    if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
+        return Err(format!(
+            "SIGTERM to the brain (pid {pid}): {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let deadline = Instant::now() + limit;
+    while brain_running(lock) {
+        if Instant::now() >= deadline {
+            return Err(messages()
+                .shutdown_timeout
+                .replace("{pid}", &pid.to_string())
+                .replace("{secs}", &limit.as_secs().to_string()));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(true)
 }
 
 /// Stops the home's session daemon and its terminals (`daemon stop
