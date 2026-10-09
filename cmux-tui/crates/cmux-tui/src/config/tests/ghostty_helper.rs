@@ -275,7 +275,7 @@ fn ghostty_config_helper_cleanup_kills_descendant_process_groups() {
     command
         .args([
             "--exact",
-            "config::tests::ghostty_config_helper_cleanup_kills_descendant_process_groups",
+            "config::tests::ghostty_helper::ghostty_config_helper_cleanup_kills_descendant_process_groups",
             "--nocapture",
         ])
         .env(CHILD_MARKER, "1")
