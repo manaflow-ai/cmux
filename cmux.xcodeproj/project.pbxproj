@@ -3124,6 +3124,7 @@
 		D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00600000000000000F2 /* ScreenLockObserver.swift */; };
 		3C3FDDC0C744FA3350DA1D9B /* ScrollbackTestTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */; };
 		3865A0013865A0013865A001 /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0013865B0013865B001 /* SearchIndex.swift */; };
+		65F4FF838519F141D95CF7F3 /* SearchIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96F5C2E8168AB230514B8A01 /* SearchIndexModels.swift */; };
 		3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0043865B0043865B004 /* SearchIndexTests.swift */; };
 		C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C20000000000000002 /* SemanticVersion.swift */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
@@ -7588,6 +7589,7 @@
 		D1F0A00600000000000000F2 /* ScreenLockObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLockObserver.swift; sourceTree = "<group>"; };
 		E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ScrollbackTestTerminal.swift"; sourceTree = "<group>"; };
 		3865B0013865B0013865B001 /* SearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndex.swift; sourceTree = "<group>"; };
+		96F5C2E8168AB230514B8A01 /* SearchIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndexModels.swift; sourceTree = "<group>"; };
 		3865B0043865B0043865B004 /* SearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchIndexTests.swift; sourceTree = "<group>"; };
 		C0DEF0C20000000000000002 /* SemanticVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
@@ -12093,6 +12095,7 @@
 				D2372CBDBDF42F138982364F /* WorkspaceMergeDragRegistry.swift */,
 				BB0F83C7F2A3610B47B436EF /* CoderouterGuidePanel.swift */,
 				7BA5AFE6CBE83A6E7435775B /* Workspace+CoderouterGuidePane.swift */,
+				96F5C2E8168AB230514B8A01 /* SearchIndexModels.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16094,6 +16097,7 @@
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
 				D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */,
 				3865A0013865A0013865A001 /* SearchIndex.swift in Sources */,
+				65F4FF838519F141D95CF7F3 /* SearchIndexModels.swift in Sources */,
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
