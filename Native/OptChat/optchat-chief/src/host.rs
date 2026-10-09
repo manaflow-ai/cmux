@@ -130,13 +130,11 @@ pub fn turn_preset(
         );
     }
     // The reference's Claude Code path: no user settings (user MCP servers,
-    // hooks, plugins), no skills or slash commands; the session directory's
-    // own settings and .mcp.json stay, and the user's login still signs in.
+    // hooks, plugins), no skills or slash commands, only TURN_TOOLS of the
+    // built-ins; the session directory's own settings and .mcp.json stay,
+    // and the user's login still signs in.
     let args = if family == Family::Claude && isolate {
-        TURN_ISOLATION_ARGS
-            .iter()
-            .map(|a| (*a).to_owned())
-            .collect()
+        turn_isolation_args()
     } else {
         Vec::new()
     };
@@ -149,10 +147,30 @@ pub fn turn_preset(
     })
 }
 
+/// The built-in tools a turn is offered (an allowlist: a built-in a later
+/// Claude Code adds is not offered); the Chief's MCP tools come on top.
+pub const TURN_TOOLS: [&str; 7] = [
+    "Bash",
+    "Read",
+    "Edit",
+    "Write",
+    "WebFetch",
+    "WebSearch",
+    "ToolSearch",
+];
+
 /// The Claude Code args of an isolated turn: no user or local setting
-/// source, no skills or slash commands (acpmux's preset allowlist).
-pub const TURN_ISOLATION_ARGS: [&str; 3] =
-    ["--setting-sources", "project", "--disable-slash-commands"];
+/// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
+/// (acpmux's preset allowlist).
+pub fn turn_isolation_args() -> Vec<String> {
+    vec![
+        "--setting-sources".to_owned(),
+        "project".to_owned(),
+        "--disable-slash-commands".to_owned(),
+        "--tools".to_owned(),
+        TURN_TOOLS.join(","),
+    ]
+}
 
 /// A subagent preset `name`: the user's own environment (subagents do real
 /// work in the user's repositories), the pinned cmux env, its cache key,

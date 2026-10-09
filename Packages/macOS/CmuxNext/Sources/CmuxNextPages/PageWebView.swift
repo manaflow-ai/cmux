@@ -239,7 +239,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Keeps first-party pages proportional to native chrome as the live
     /// interface scale changes.
-    private func applyUIScale() {
+    func applyUIScale() {
         webView.pageZoom = Double(DesignSettings.shared.uiScale)
     }
 

@@ -153,9 +153,11 @@ queues the prompt; claude-sr has no steering), not between its tool calls.
 A Claude spawn of several subagents is single-flight on the shared view: the
 first subagent starts alone, its first message marked at the view's last whole
 block with the turns' TTL (`Brain::turn_cache_ttl`, 1 hour by default; none once
-a route refused our marks), and its session told the same TTL
-(`CLAUDE_CODE_PROMPT_CACHE_TTL=1h`, or `FORCE_PROMPT_CACHING_5M=1`), so the API
-never sees a 1h mark after a 5m one. The rest start when its response began
+a route refused our marks), and the subagent directory's project settings
+give Claude Code the same TTL (`promptCacheTtl`, as the turns' session
+directory; acpmux takes no TTL variable in a session's env), so the API never
+sees a 1h mark after a 5m one. A spawn in a directory of the user's gets no
+mark: that directory is not ours to write. The rest start when its response began
 streaming (the view's cache entry then exists), at most `WARM_WAIT` (20 s)
 later, and read that entry. The trace's `spawn.warm` says whether the first
 spoke and how long the wait took.
@@ -642,7 +644,9 @@ through it. Two rules keep that true:
   than 16 blocks (`MARK_REACH`) past the last turn's mark: the API looks back
   only 20 blocks from a mark, so a turn that added more than 80 view lines (a
   long tool run) would otherwise write the whole view again. Such a turn
-  writes the new lines once and the next turns catch up.
+  writes the new lines once and the next turns catch up. The last turn's
+  marked prefix (its size and hash) is saved in the host state with that
+  turn's messages, so a restart keeps the rule.
 - Every mark of one request has one TTL, since the API refuses a 1h mark
   after a 5m one. On the Claude Code path our mark is 1 hour by default
   (a human reply 5 to 60 minutes later still reads the view), and each turn

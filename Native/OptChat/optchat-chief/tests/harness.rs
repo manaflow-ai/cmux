@@ -675,7 +675,20 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
     let isolated = ["--setting-sources", "project", "--disable-slash-commands"];
     for harness in ["claude", "claude-sr"] {
         let turn = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
-        assert_eq!(turn.args, isolated, "{harness}");
+        // An allowlist of built-ins (checked on Claude Code 2.1.287: the
+        // session's init lists exactly these and the Chief's MCP tools), so
+        // a built-in a later Claude Code adds is not offered to a turn.
+        assert_eq!(
+            turn.args,
+            [
+                "--setting-sources",
+                "project",
+                "--disable-slash-commands",
+                "--tools",
+                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
+            ],
+            "{harness}"
+        );
     }
     for preset in
         optchat_chief::compactor::compactor_presets(&paths, &home, "claude", Family::Claude)
