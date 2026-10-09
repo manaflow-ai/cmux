@@ -477,11 +477,13 @@ export class TeamDO extends OwnerDO<TeamState> {
     return this.boundEntity() === entity ? homeCoMembersOf(this.bind(entity).currentState, this.rows, adder, targets) : []
   }
 
-  /** RPC from the Worker's team selection (team-select.ts): the user's role in this live team, or null. Never creates a team. */
-  async memberRole(entity: string, user: string): Promise<string | null> {
+  /** RPC from the Worker (team-select.ts): the user's role in this live team with its name and kind, or null. Never creates a team. */
+  async membership(entity: string, user: string): Promise<{ role: string; display_name: string; kind: "personal" | "stack" } | null> {
     const state = this.isBound(entity) ? this.bind(entity).currentState : undefined
-    return state?.team?.id === entity && state.team.deleted_at === undefined ? (roleOf(state, this.rows, user) ?? null) : null
+    const role = state?.team?.id === entity && state.team.deleted_at === undefined ? roleOf(state, this.rows, user) : undefined
+    return role && state?.team ? { role, display_name: state.team.display_name, kind: state.team.kind } : null
   }
+  async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
 
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {

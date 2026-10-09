@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { useLoad } from "../lib/hooks"
-import { mutate, read, type Json } from "../lib/server"
+import type { Json } from "../lib/server"
+import { useTeamApi } from "../lib/team-api"
 import { newKey, setSignedIn, useSignedIn } from "../lib/session"
 import { EnrollmentTokens } from "./-enrollment"
 
@@ -119,10 +120,11 @@ type Draft = Record<string, PolicyValue | null>
 
 function Policy() {
   const signedIn = useSignedIn()
+  const { read, mutate, team } = useTeamApi()
   const [draft, setDraft] = useState<Draft>({})
   const [reason, setReason] = useState("")
   const [status, setStatus] = useState<string | null>(null)
-  const loaded = useLoad<{ policy: TeamPolicy; history: Array<PolicyVersion> | null }>(signedIn ? "policy" : null, async () => {
+  const loaded = useLoad<{ policy: TeamPolicy; history: Array<PolicyVersion> | null }>(signedIn ? `policy:${team ?? "personal"}` : null, async () => {
     const r = await read({ data: { op: "team.policy.get", params: {} } })
     if (r.status === 401) setSignedIn(false)
     if (r.status !== 200) throw new Error(`team.policy.get failed: ${r.status} (open Devices once to create your personal team)`)
