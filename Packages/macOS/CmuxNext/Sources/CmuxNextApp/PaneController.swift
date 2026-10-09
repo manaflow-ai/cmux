@@ -79,6 +79,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // a layout move keeps the pane listed, so its tabs stay.
         services.closeGoneLocalTabs(in: daemon.store)
         currentTabKey = nil
+        view.dropParked()
         view.detachContent()
         services.surfaceInvariant.noteChange()
     }
@@ -219,6 +220,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         // Focus follows selection; the coordinator re-targets the keyboard.
         workspace?.sendTopology()
+        dropClosedParkedBrowsers(snapshot)
+    }
+
+    /// A browser parked in this pane (`PaneContentView+Parking`) whose tab
+    /// closed, moved away or got a new view leaves the window.
+    private func dropClosedParkedBrowsers(_ snapshot: Snapshot) {
+        guard !view.parked.isEmpty else { return }
+        let live = Set(snapshot.items.compactMap { services.cache.existingBrowser($0.id.rawValue)?.chrome }.map(ObjectIdentifier.init))
+        view.prunePark { live.contains(ObjectIdentifier($0)) }
     }
 
     /// Selects the tab on `surface`, which this app just created here, once

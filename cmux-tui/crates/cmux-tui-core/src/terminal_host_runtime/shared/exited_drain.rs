@@ -14,10 +14,14 @@
 
 use std::sync::{MutexGuard, PoisonError};
 
-use super::*;
+use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
+
+use super::super::*;
+use super::host_shared::HostShared;
 
 /// How long a host keeps draining its PTY after its child exited.
-pub(super) const HOST_EXITED_PTY_DRAIN_LIMIT: Duration = Duration::from_secs(30);
+pub(crate) const HOST_EXITED_PTY_DRAIN_LIMIT: Duration = Duration::from_secs(30);
 
 /// [`HOST_EXITED_PTY_DRAIN_LIMIT`], or a shorter test value from
 /// `CMUX_TUI_TEST_HOST_EXITED_DRAIN_LIMIT_MS` (never longer).
@@ -30,20 +34,20 @@ fn limit() -> Duration {
 }
 
 /// The drain deadline of one exited child.
-pub(super) struct ExitedDrain {
+pub(crate) struct ExitedDrain {
     deadline: Instant,
     forced: bool,
 }
 
 impl ExitedDrain {
     /// Start the bound when the child is observed to have exited.
-    pub(super) fn start() -> Self {
+    pub(crate) fn start() -> Self {
         Self { deadline: Instant::now() + limit(), forced: false }
     }
 
     /// Wait until the child may be reaped (drained, or a terminate finished
     /// its escalation), forcing the drain once the deadline passed.
-    pub(super) fn wait(&mut self, host: &HostShared, state: MutexGuard<'_, Option<TerminalExit>>) {
+    pub(crate) fn wait(&mut self, host: &HostShared, state: MutexGuard<'_, Option<TerminalExit>>) {
         let waiting = |_: &mut Option<TerminalExit>| {
             !host.group_escalation_complete.load(Ordering::Acquire)
                 && (host.termination_started.load(Ordering::Acquire)

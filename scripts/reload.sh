@@ -685,7 +685,7 @@ reload_write_discovery_file() {
   [[ ! -L "$target" ]] || return 1
   if [[ -e "$target" ]]; then
     local owner=""
-    owner="$(stat -f '%u' "$target" 2>/dev/null || stat -c '%u' "$target" 2>/dev/null || echo -1)"
+    owner="$(stat -c '%u' "$target" 2>/dev/null || stat -f '%u' "$target" 2>/dev/null || echo -1)"
     [[ "$owner" == "$(id -u)" ]] || return 1
   fi
   mkdir -p "$directory" || return 1
