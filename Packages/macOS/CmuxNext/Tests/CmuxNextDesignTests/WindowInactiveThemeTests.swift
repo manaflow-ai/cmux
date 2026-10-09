@@ -27,10 +27,12 @@ import Testing
     }
 
     static func resignKey(_ window: NSWindow) {
+        // global-notice-allow: this synthetic AppKit key notice drives the view lifecycle under test.
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
     }
 
     static func becomeKey(_ window: NSWindow) {
+        // global-notice-allow: this synthetic AppKit key notice drives the view lifecycle under test.
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
     }
 
