@@ -523,7 +523,9 @@ fn claude_code_marks(settings: &Value, later: bool) -> usize {
 #[test]
 fn every_turn_request_shape_stays_within_four_cache_marks() {
     use optchat_chief::prompt::CacheTtl;
-    for (lines, marked) in [(0, false), (1_200, true)] {
+    // A view with no whole block marks its header block: every turn
+    // carries our mark.
+    for (lines, marked) in [(0, true), (1_200, true)] {
         let mut h = claude_harness(None);
         fill(&h.chat, 0, lines);
         h.connect();

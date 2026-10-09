@@ -524,8 +524,9 @@ mod tests {
         }
         view.push_str("</chat>");
         let blocks = crate::prompt::turn_blocks(&view, &["new".into()]);
-        // 275 whole blocks, the rest (two lines and the end tag), the message.
-        assert_eq!(blocks.len(), 277);
+        // The header, 275 whole blocks, the rest (two lines and the end
+        // tag), the message.
+        assert_eq!(blocks.len(), 278);
         let message = Native::first_message(&blocks);
         let marked: Vec<usize> = message["content"]
             .as_array()
@@ -535,6 +536,6 @@ mod tests {
             .filter(|(_, b)| b.get("cache_control").is_some())
             .map(|(k, _)| k)
             .collect();
-        assert_eq!(marked, vec![274]);
+        assert_eq!(marked, vec![275]);
     }
 }
