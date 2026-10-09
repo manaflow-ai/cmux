@@ -38,6 +38,13 @@ extension Workspace {
         projectProgramStatus(panelId: panelId)
     }
 
+    /// Adopts the records a moved terminal carried from its previous owner.
+    func restoreProgramStatusStore(_ store: ProgramStatusRecordStore?, panelId: UUID) {
+        guard let store, panels[panelId] != nil else { return }
+        programStatusStoresByPanelId[panelId] = store
+        projectProgramStatus(panelId: panelId)
+    }
+
     func clearProgramStatusPanel(panelId: UUID) {
         programStatusStoresByPanelId.removeValue(forKey: panelId)
         programStatusUrgencyByPanelId.removeValue(forKey: panelId)

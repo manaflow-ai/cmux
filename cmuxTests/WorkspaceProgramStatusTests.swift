@@ -98,6 +98,27 @@ struct WorkspaceProgramStatusTests {
         #expect(workspace.statusEntries[Workspace.programStatusKey] == nil)
     }
 
+    @Test func movedPaneKeepsItsProgramStatusRecords() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let firstPanelId = try #require(source.focusedPanelId)
+        let movedPanel = try #require(
+            source.newTerminalSplit(from: firstPanelId, orientation: .horizontal, focus: false)
+        )
+        source.applyProgramStatus(
+            ProgramStatusReport(state: .blocked, kind: .question, app: "deploy", message: "Region?"),
+            panelId: movedPanel.id
+        )
+
+        let detached = try #require(source.detachSurface(panelId: movedPanel.id))
+        let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
+        _ = try #require(destination.attachDetachedSurface(detached, inPane: destinationPane, focus: false))
+
+        #expect(source.statusEntries[Workspace.programStatusKey] == nil)
+        #expect(destination.programStatusStoresByPanelId[movedPanel.id]?.mostUrgentRecord()?.state == .blocked)
+        #expect(destination.statusEntries[Workspace.programStatusKey]?.value == "deploy · Region?")
+    }
+
     @Test func sanitizesInvisibleFormattingAndCapsDisplay() {
         let workspace = Workspace()
         let value = workspace.sanitizedProgramStatusText("hello\u{202E}world")
