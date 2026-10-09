@@ -2,7 +2,6 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import { EffortPicker } from "./EffortPicker";
 
 const efforts = [
   { id: "low", name: "Low" },
@@ -61,6 +60,7 @@ export default componentEntry<Props>({
     },
   },
   load: async () => {
+    const { EffortPicker } = await import("./EffortPicker");
     return function GalleryEffortPicker() {
       const [current, setCurrent] = useState("medium");
       return <EffortPicker label="effort" efforts={efforts} current={current} onPick={setCurrent} />;
