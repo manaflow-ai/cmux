@@ -227,22 +227,28 @@ extension PaneController {
 
     // MARK: Context menus
 
+    /// A tab's menu, the same wherever it is opened (its strip, its row in
+    /// the sidebar): a browser tab drops what does not apply to a page.
+    static func tabMenu(_ id: String, tab: TabModel?, registry: ActionRegistry) -> NSMenu {
+        let target = ActionTargetRef(kind: .tab, id: id)
+        guard let tab, tab.kind == .browser else {
+            // Hibernation discards a page; a terminal has none.
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: ["hibernateTab", "wakeTab"])
+            return registry.makeContextMenu(for: .tab, target: target, entries: entries)
+        }
+        // A browser tab offers the engine it is not on.
+        let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
+        // Terminal themes and keep-running do not apply to a page.
+        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
+        return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
+    }
+
     func contextMenu(for target: TabContextTarget) -> NSMenu? {
         let registry = services.registry
         switch target {
         case .tab(let id, _):
             select(id)
-            let target = ActionTargetRef(kind: .tab, id: id.rawValue)
-            guard let tab = tab(id), tab.kind == .browser else {
-                // Hibernation discards a page; a terminal has none.
-                let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: ["hibernateTab", "wakeTab"])
-                return registry.makeContextMenu(for: .tab, target: target, entries: entries)
-            }
-            // A browser tab offers the engine it is not on.
-            let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
-            // Terminal themes and keep-running do not apply to a page.
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
-            return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
+            return Self.tabMenu(id.rawValue, tab: tab(id), registry: registry)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),

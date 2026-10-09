@@ -53,6 +53,7 @@ final class SidebarListView: NSView {
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
+    let tabRowDrag = SidebarTabRowDrag()
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.

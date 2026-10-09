@@ -235,7 +235,7 @@ pub fn prepare_codex_homes_at(paths: &Paths, user_home: &Path, fast: bool) -> Re
         .map_err(|e| format!("preparing {}: {e}", private_home.display()))?;
     let id = chief_installation_id(&paths.compactor_codex)
         .map_err(|e| format!("the compactor's codex installation id: {e}"))?;
-    for k in 0..crate::compactor::COMPACTOR_SESSIONS {
+    for k in 0..crate::compactor::compactor_sessions() {
         let dir = codex_slot_home(&paths.compactor_codex, k);
         let made = private_dir(&dir)
             .and_then(|()| wipe_codex_home(&dir))
