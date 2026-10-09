@@ -403,6 +403,33 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    /// CLI dogfood 7bf60bcf938a: a Chief that `cmux chief` started without the
+    /// app tried the app's missing control socket for every subagent, and no
+    /// subagent got a workspace. The opener follows E17
+    /// (schemas/chief-cmux-target): the app while its control socket and its
+    /// daemon exist, else the Chief's owner daemon, with host chief:<home id>
+    /// so the app attaches the tab to the Chief home's acpmux when it opens.
+    #[test]
+    fn without_the_app_subagent_workspaces_go_to_the_owner_daemon() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("app.sock");
+        let app_daemon = dir.path().join("app-daemon.sock");
+        assert_eq!(workspace_target(&control, &app_daemon), WorkspaceTarget::Owner);
+        let _c = std::os::unix::net::UnixListener::bind(&control).unwrap();
+        assert_eq!(workspace_target(&control, &app_daemon), WorkspaceTarget::Owner, "both must exist");
+        let _d = std::os::unix::net::UnixListener::bind(&app_daemon).unwrap();
+        assert_eq!(workspace_target(&control, &app_daemon), WorkspaceTarget::App);
+        let home = dir.path().join("mux");
+        let w = TargetWorkspaces::new(
+            AppWorkspaces { control: control.clone(), daemon: app_daemon.clone(), home: Some(home.clone()) },
+            dir.path().join("owner.sock"),
+            &home,
+            None,
+        );
+        assert_eq!(w.owner.host, chief_host(&home));
+        assert_eq!(w.owner.daemon, dir.path().join("owner.sock"));
+    }
+
     /// Live proof subp6: the app showed "This chat isn't available" for every
     /// subagent: its panes attach to the app's acpmux, the subagents run in the
     /// Chief home's. The open request names the Chief home as the tab's host.
