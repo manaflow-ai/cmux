@@ -699,6 +699,9 @@ jobs:
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
+          # Built, not packaged: the Windows acpmux port lands in steps, and
+          # this keeps it building until the daemon runs there.
+          cargo build -p acpmux --bin acpmux --release --locked --target x86_64-pc-windows-gnu
 
       - name: Test Windows long-path state handling
         working-directory: cmux-tui
