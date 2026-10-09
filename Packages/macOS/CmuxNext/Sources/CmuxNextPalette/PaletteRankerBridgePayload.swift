@@ -12,6 +12,10 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
     let queryPrefix: String?
     let hidesWhenTyping: Bool
     let sectionIndex: Int
+    let typingSectionIndex: Int?
+    let actionID: String?
+    let demoted: Bool
+    let hasShortcut: Bool
     let entersScope: Bool
 
     init(_ entry: PaletteSearchEntry) {
@@ -26,6 +30,10 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
         queryPrefix = entry.queryPrefix
         hidesWhenTyping = entry.hidesWhenTyping
         sectionIndex = entry.sectionIndex
+        typingSectionIndex = entry.typingSectionIndex
+        actionID = entry.actionID
+        demoted = entry.demoted
+        hasShortcut = entry.hasShortcut
         entersScope = entry.entersScope
     }
 }
