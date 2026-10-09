@@ -30,6 +30,17 @@ struct TerminalOutputTeeContextTests {
             ],
             scrollbackCheckpointFlags: TerminalScrollbackOutputFlags()
         )
+        func consume(_ text: String) {
+            let bytes = Array(text.utf8)
+            bytes.withUnsafeBufferPointer { context.consume($0) }
+        }
+
+        consume(">>> ")
+        consume("request\r\n")
+        consume("output\r\n>>> ")
+
+        #expect(context.forwardedSubmissionCount(for: "test-agent") == 1)
+
         let output = Array("unrelated output\n".utf8)
 
         DispatchQueue.concurrentPerform(iterations: 2_000) { _ in
@@ -38,6 +49,6 @@ struct TerminalOutputTeeContextTests {
             }
         }
 
-        #expect(true)
+        #expect(context.forwardedSubmissionCount(for: "test-agent") == 1)
     }
 }

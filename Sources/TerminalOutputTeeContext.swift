@@ -97,6 +97,12 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
     }
 
+    func forwardedSubmissionCount(for agentID: String) -> UInt64? {
+        detectorsLock.lock()
+        defer { detectorsLock.unlock() }
+        return detectors.first { $0.agentID == agentID }?.forwardedSubmissionCount
+    }
+
     private func forwardDetectorChangeIfNeeded(
         at index: Int,
         now: ContinuousClock.Instant
