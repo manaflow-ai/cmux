@@ -172,7 +172,11 @@ recover_rebooted_daemon_state() {
   if [ -n "$previous_boot_id" ] && [ "$previous_boot_id" != "$current_boot_id" ]; then
     session_state="$REMOTE_STATE_DIR/sessions/cloud"
     outcome="$session_state/shutdown.json"
-    if [ ! -e "$outcome" ] || { command -v jq >/dev/null 2>&1 && jq -e '.status == "succeeded"' "$outcome" >/dev/null 2>&1; }; then
+    if [ ! -e "$outcome" ] || {
+      command -v jq >/dev/null 2>&1 && jq -e -s \
+        'length == 1 and (.[0] | type == "object" and .version == 1 and (.lifecycle_id | type == "string" and length > 0) and .status == "succeeded")' \
+        "$outcome" >/dev/null 2>&1;
+    }; then
       rm -f "$session_state/runtime.json" "$outcome"
     fi
   fi

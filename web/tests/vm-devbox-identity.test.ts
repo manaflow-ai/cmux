@@ -180,6 +180,7 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
       const session = path.join(state, "sessions", "cloud");
       const bootFile = path.join(root, "daemon-boot-id");
       const bootSource = path.join(root, "boot-id");
+      const succeededOutcome = JSON.stringify({ version: 1, lifecycle_id: "predecessor", status: "succeeded" });
       mkdirSync(session, { recursive: true });
       writeFileSync(path.join(session, "runtime.json"), "runtime");
       writeFileSync(bootFile, "old-boot\n");
@@ -201,7 +202,7 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
       expect(readFileSync(bootFile, "utf8")).toBe("new-boot\n");
 
       writeFileSync(path.join(session, "runtime.json"), "runtime");
-      writeFileSync(path.join(session, "shutdown.json"), '{"status":"succeeded"}\n');
+      writeFileSync(path.join(session, "shutdown.json"), succeededOutcome);
       const sameBoot = await runRecovery();
       expect(sameBoot.status).toBe(0);
       expect(existsSync(path.join(session, "runtime.json"))).toBe(true);
@@ -215,20 +216,28 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
       expect(existsSync(path.join(session, "runtime.json"))).toBe(true);
       expect(existsSync(path.join(session, "shutdown.json"))).toBe(true);
 
-      writeFileSync(path.join(session, "shutdown.json"), '{"status":"succeeded"}\n');
+      writeFileSync(path.join(session, "shutdown.json"), succeededOutcome);
       writeFileSync(bootFile, "old-boot\n");
       const successfulOutcome = await runRecovery();
       expect(successfulOutcome.status).toBe(0);
       expect(existsSync(path.join(session, "runtime.json"))).toBe(false);
       expect(existsSync(path.join(session, "shutdown.json"))).toBe(false);
 
-      writeFileSync(path.join(session, "runtime.json"), "runtime");
-      writeFileSync(path.join(session, "shutdown.json"), "malformed");
-      writeFileSync(bootFile, "old-boot\n");
-      const malformedOutcome = await runRecovery();
-      expect(malformedOutcome.status).toBe(0);
-      expect(existsSync(path.join(session, "runtime.json"))).toBe(true);
-      expect(existsSync(path.join(session, "shutdown.json"))).toBe(true);
+      for (const outcome of [
+        "malformed",
+        '{"status":"succeeded"}',
+        '{"version":2,"lifecycle_id":"predecessor","status":"succeeded"}',
+        '{"version":1,"lifecycle_id":"","status":"succeeded"}',
+        `{"version":1,"lifecycle_id":"predecessor","status":"failed"}\n${succeededOutcome}`,
+      ]) {
+        writeFileSync(path.join(session, "runtime.json"), "runtime");
+        writeFileSync(path.join(session, "shutdown.json"), outcome);
+        writeFileSync(bootFile, "old-boot\n");
+        const malformedOutcome = await runRecovery();
+        expect(malformedOutcome.status).toBe(0);
+        expect(existsSync(path.join(session, "runtime.json"))).toBe(true);
+        expect(readFileSync(path.join(session, "shutdown.json"), "utf8")).toBe(outcome);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
