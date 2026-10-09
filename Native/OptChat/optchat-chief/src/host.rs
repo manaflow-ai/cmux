@@ -1210,7 +1210,26 @@ fn spawn_probe(
         .name("optchat-compact-probe".into())
         .spawn(move || {
             let started = std::time::Instant::now();
-            match probe_models(&*model, fallback.as_deref(), &system) {
+            // A transient failure (the network, an exhausted route) is
+            // retried after a backoff, quietly; a real fault is posted once.
+            let mut attempt = 0;
+            let result = loop {
+                match probe_models(&*model, fallback.as_deref(), &system) {
+                    Err(e) => match probe_retry_wait(&e, attempt) {
+                        Some(wait) => {
+                            log(format!(
+                                "compactor probe: {e}; trying again in {} s",
+                                wait.as_secs()
+                            ));
+                            std::thread::sleep(wait);
+                            attempt += 1;
+                        }
+                        None => break Err(e),
+                    },
+                    ok => break ok,
+                }
+            };
+            match result {
                 Ok(line) => {
                     log(format!(
                         "compactor probe ({}{}) built a node in {} ms: {line}",
@@ -1243,11 +1262,36 @@ fn spawn_probe(
     }
 }
 
+/// How long the start-up probe waits before it tries again after `error`
+/// (its `attempt`-th failure, from 0); None: no retry (a real fault).
+pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration> {
+    use std::time::Duration;
+    const MAX: Duration = Duration::from_secs(120);
+    if let Some(wait) = optchat_host::capacity_wait(error) {
+        return Some(wait.min(MAX));
+    }
+    let lower = error.to_ascii_lowercase();
+    let transient = [
+        "network error",
+        "check your internet connection",
+        "connection was lost",
+        "connection refused",
+        "connection reset",
+        "timed out",
+        "did not answer within",
+        "overloaded",
+    ]
+    .iter()
+    .any(|t| lower.contains(t));
+    transient.then(|| Duration::from_secs(1u64 << attempt.min(16)).min(MAX))
+}
+
 /// The notice a failed start-up probe posts in the Chief conversation;
 /// None posts none (the failure is only logged).
 pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
-    // An exhausted route is a wait, not a fault: nothing to post.
-    if optchat_host::capacity_wait(error).is_some() {
+    // An exhausted route or a transient error is a wait, not a fault:
+    // nothing to post (the probe tries again).
+    if probe_retry_wait(error, 0).is_some() {
         return None;
     }
     let remedy = match route {
