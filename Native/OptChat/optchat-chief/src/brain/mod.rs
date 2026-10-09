@@ -243,6 +243,9 @@ pub struct Settings {
     pub agent_gap: Duration,
     /// Longest a turn may run (None: no limit).
     pub turn_limit: Option<Duration>,
+    /// A turn with no harness event for this long ends with a typed error
+    /// and runs once again (`OPTCHAT_CHIEF_TURN_IDLE_MIN`, default 10).
+    pub turn_idle_limit: Option<Duration>,
     pub engine: Engine,
     /// The turn sessions' acpmux preset on a Claude harness, whose system
     /// prompt each turn sets (the cached layout); None on another harness.

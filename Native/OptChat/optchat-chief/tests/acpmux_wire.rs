@@ -234,6 +234,7 @@ fn a_turn_over_the_acpmux_wire() {
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,
+        idle_limit: None,
     };
     let outcome = turn::run(
         &*acpmux,

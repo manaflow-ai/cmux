@@ -66,10 +66,6 @@
    "CmuxNextDaemon": 4,
    "CmuxNextMobile": 1
   },
-  "objc_observer": {
-   "MessagesLabHome": 3,
-   "MessagesLabSidebar": 2
-  },
   "render_font": {
    "CmuxHomeRender": 4,
    "MessagesLabHome": 25,

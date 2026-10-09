@@ -1077,6 +1077,12 @@ fn start(
         turn_prefix: format!("optchat-{}", crate::paths::home_id(home)),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
+        turn_idle_limit: {
+            let minutes = env("OPTCHAT_CHIEF_TURN_IDLE_MIN")
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .unwrap_or(crate::turn::DEFAULT_TURN_IDLE.as_secs() / 60);
+            (minutes > 0).then(|| Duration::from_secs(minutes * 60))
+        },
         engine,
         turn_preset: claude_installed.then_some(claude_preset_name),
         chief_id: crate::paths::home_id(home),
