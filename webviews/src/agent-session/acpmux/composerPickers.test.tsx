@@ -692,6 +692,42 @@ describe("acpmux composer pickers", () => {
     expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("0% used");
     expect(pop()!.querySelector(".acpmux-context-tokens")).toBeNull();
   });
+
+  test("the context details split the agent's setup from the conversation once the chat has it", async () => {
+    const pop = () => doc.querySelector(".acpmux-context-pop");
+    const rows = () =>
+      [...pop()!.querySelectorAll(".acpmux-context-part")].map((row) => [
+        row.querySelector(".acpmux-context-part-name")!.textContent,
+        row.querySelector(".acpmux-context-part-tokens")!.textContent,
+      ]);
+    const open = async () => {
+      const ring = doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!;
+      if (ring.getAttribute("aria-expanded") !== "true") await act(async () => ring.click());
+    };
+    // The first reading of a new chat is the system prompt, the tools and the instructions,
+    // plus the first message: 25.3K of 258.4K after "a" on Codex.
+    await render(snapshot({ sessionId: "fresh", turnCount: 1, usage: { used: 25_300, size: 258_400 } }));
+    await open();
+    expect(rows()).toEqual([
+      ["Agent setup", "25.3K"],
+      ["Conversation", "0"],
+    ]);
+    expect(pop()!.querySelector(".acpmux-context-part-detail")!.textContent).toBe(
+      "System prompt, tools and instructions",
+    );
+    // Later turns add to the conversation; the setup stays what it was.
+    await render(snapshot({ sessionId: "fresh", turnCount: 3, usage: { used: 40_000, size: 258_400 } }));
+    await open();
+    expect(rows()).toEqual([
+      ["Agent setup", "25.3K"],
+      ["Conversation", "14.7K"],
+    ]);
+    // A chat first seen mid-way (resumed) has no first reading, so no split.
+    await render(snapshot({ sessionId: "resumed", turnCount: 6, usage: { used: 90_000, size: 258_400 } }));
+    await open();
+    expect(pop()!.querySelector(".acpmux-context-part")).toBeNull();
+    expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("90K of 258.4K tokens");
+  });
 });
 
 describe("acpmux composer send button", () => {
