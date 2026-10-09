@@ -233,7 +233,7 @@ pub struct PtyTerminalRuntime {
     /// Why this terminal runs in the daemon process although terminal hosts
     /// are on (cx-ko2e); unset for a hosted terminal and for every terminal
     /// where hosts are off. Set before the surface is published.
-    pub(super) host_fallback: std::sync::OnceLock<super::TerminalHostFallback>,
+    pub(super) host_fallback: std::sync::OnceLock<TerminalHostFallback>,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     pub(super) dirty: AtomicBool,

@@ -175,11 +175,8 @@ mod tests {
             .spawn()
             .unwrap();
         let mut line = String::new();
-        std::io::BufRead::read_line(
-            &mut std::io::BufReader::new(child.stdout.take().unwrap()),
-            &mut line,
-        )
-        .unwrap();
+        io::BufRead::read_line(&mut io::BufReader::new(child.stdout.take().unwrap()), &mut line)
+            .unwrap();
         assert_eq!(line.trim(), "locked");
         assert_eq!(probe(&path).unwrap(), LeaseProbe::Held, "a live holder in another process");
         child.kill().unwrap();

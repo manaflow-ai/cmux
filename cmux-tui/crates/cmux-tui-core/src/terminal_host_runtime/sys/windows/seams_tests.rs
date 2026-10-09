@@ -16,11 +16,11 @@ fn a_private_directory_proves_ownership_and_a_shared_one_does_not() {
     let dir = private_dir("owner");
     file_owner(&dir).expect("our owner-only directory");
     let shared = std::env::temp_dir().join(format!("cth-seam-wide-{}", std::process::id()));
-    std::fs::create_dir_all(&shared).unwrap();
+    fs::create_dir_all(&shared).unwrap();
     let refused = file_owner(&shared).unwrap_err();
     assert_eq!(refused.kind(), io::ErrorKind::PermissionDenied, "{refused}");
-    let _ = std::fs::remove_dir_all(&shared);
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&shared);
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -35,26 +35,26 @@ fn record_files_open_by_kind_and_are_private_in_a_private_directory() {
     );
     drop(open_private(&path, PrivateOpen::TruncateNoFollow).unwrap());
     drop(open_private(&path, PrivateOpen::ExistingNoFollow).unwrap());
-    let metadata = std::fs::symlink_metadata(&path).unwrap();
+    let metadata = fs::symlink_metadata(&path).unwrap();
     assert!(is_private_file(&metadata, owner));
     assert!(has_single_link(&metadata));
     assert!(!is_endpoint_file(&metadata));
-    assert!(!is_private_file(&std::fs::symlink_metadata(&dir).unwrap(), owner));
-    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!is_private_file(&fs::symlink_metadata(&dir).unwrap(), owner));
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn a_rename_never_replaces_an_existing_record() {
     let dir = private_dir("rename");
     let (from, to) = (dir.join("from"), dir.join("to"));
-    std::fs::write(&from, b"new").unwrap();
-    std::fs::write(&to, b"old").unwrap();
+    fs::write(&from, b"new").unwrap();
+    fs::write(&to, b"old").unwrap();
     assert_eq!(rename_no_replace(&from, &to).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
-    assert_eq!(std::fs::read(&to).unwrap(), b"old");
-    std::fs::remove_file(&to).unwrap();
+    assert_eq!(fs::read(&to).unwrap(), b"old");
+    fs::remove_file(&to).unwrap();
     rename_no_replace(&from, &to).unwrap();
-    assert_eq!(std::fs::read(&to).unwrap(), b"new");
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(fs::read(&to).unwrap(), b"new");
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn the_liveness_lease_reads_held_while_it_lives_and_free_after() {
     let other = open_private(&path, PrivateOpen::ExistingNoFollow).unwrap();
     assert_eq!(probe_lease(&other), LeaseProbe::Held, "the waited lease holds");
     drop((probe, other));
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -103,5 +103,5 @@ fn the_canonical_endpoint_is_in_this_users_endpoint_directory() {
     let owner = file_owner(&dir).unwrap();
     let id = "0123456789abcdef0123456789abcdef";
     assert_eq!(canonical_endpoint(owner, id), endpoint::endpoint_dir().join(format!("{id}.sock")));
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 }
