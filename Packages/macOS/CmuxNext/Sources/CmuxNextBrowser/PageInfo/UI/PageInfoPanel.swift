@@ -67,15 +67,11 @@ final class PageInfoCardView: NSView {
         applyColors()
     }
 
-    /// Shadow and glass tint of the bubble's theme scope (the panel adopts
+    /// The popup shadow and the glass tint of the bubble's theme scope (the panel adopts
     /// the omnibar's scope when it opens).
     private func applyColors() {
         performWithTheme {
-            let shadow = NSShadow()
-            shadow.shadowColor = Palette.shadow.withAlphaComponent(0.24)
-            shadow.shadowBlurRadius = PageInfoStyle.shadowMargin * 0.6
-            shadow.shadowOffset = NSSize(width: 0, height: -2)
-            self.shadow = shadow
+            shadow = PopupStyle.shadow()
             glass.applyTheme()
         }
     }

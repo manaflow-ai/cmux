@@ -155,7 +155,7 @@ import Testing
         ReduceTransparency.shared.override = true
         defer { ReduceTransparency.shared.override = nil }
         let card = HoverCardPanel()
-        #expect(card.contentView === card.glass)
+        #expect((card.contentView as? PopupHostView)?.card === card.glass)
         #expect(card.glass.material == .opaque)
         #expect(!(card.glass.materialDrawingView is NSGlassEffectView))
         ReduceTransparency.shared.override = false
