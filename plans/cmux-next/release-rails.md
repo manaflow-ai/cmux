@@ -286,3 +286,38 @@ contract (cmux-vm `openapi.json` through the pinned oasdiff 1.32.1; backend
 error codes, newly required params) against `--base` (origin/main for production). Change
 keys: `migrations:<tree>:<hash of every file>`, `image:<VAR>:<history snapshot id>`,
 `deploy:<tree>:<commit>`. Receipts count for 24 h.
+
+## Production runbook (ready, OFF)
+
+Status 2026-10-09: production stays OFF (Lawrence: "into feat-cmux-next is all we want rn"; the
+chief agreed). Nothing in production needs a change today. The steps below are ready for the first
+production need, the cmux-vm Worker at vm.cmux.dev, which needs cmux_vm 0001-0009 in cmux-prod main.
+An agent runs every step except step 1, which is a new production credential: the chief asks
+Lawrence for it first.
+
+1. Owner role (needs the chief's go). `pscale role create cmux-prod main <name> --org cmux` with no
+   inherited roles; verify as in "cmux_vm-only owner role" (no privilege in public, no membership,
+   no CREATEROLE/CREATEDB/BYPASSRLS/REPLICATION, no pg_* role). Never `--successor postgres`.
+   Store the login only in a 0600 file under `~/.secrets/cmux-vm-db/` (stat it; never print it).
+   Set `ownerPgRole`/`ownerRole` for production in trees.ts if the name differs.
+2. Apply, from a clean checkout whose HEAD is on origin/feat-cmux-next:
+   `bun scripts/cmux-next/release/db-release.ts apply --tree cmux-vm --target production --url-env OWNER_URL --confirm-production --allow-contract 0009_cmux_vm_mesh_device_address.sql`
+   In one run it takes the advisory lock, checks the owner (session_user and current_user, broad
+   privileges), archives the verified SHA, rehearses the exact set on a throwaway PITR branch of main
+   (deleted by exact name), runs the cmux-old gate (static contract diff + signed-in v0.65.0 replay
+   + web revision compare), then applies 0001-0009 in schema cmux_vm only under the runtime guard
+   and lock/statement timeouts, and writes a receipt. Bootstrap: the first apply creates schema
+   cmux_vm, so database CREATE is allowed only while the schema is absent.
+3. Worker grants: re-issue the cmux-vm-worker grants as the new owner (only USAGE on cmux_vm and the
+   table privileges the Worker contract names). Verify with the Worker's own schema check.
+4. Deploy the cmux-vm Worker to production through the deploy rails (ordering gate reads the DB,
+   previous version recorded, smoke, automatic `wrangler rollback` on red).
+5. Receipt (what, ids, before/after, rollback command) to the bead and to the chief.
+
+Rollback: `wrangler rollback <previous> --name cmux-vm-production`. The schema is additive and
+cmux-old never reads cmux_vm, so the migrations stay in place; if they must go, run each file's own
+`-- Rollback` section, newest first, after the code rollback.
+
+Image promotion (TEAM_VM_SNAPSHOT / CLOUD_FREESTYLE_SNAPSHOT for production) uses the same pattern
+through promote.ts (dev-smoked id, fresh-clone smoke of the channel's own id, previous kept for
+`--rollback`, new VMs only); it is not needed now either.
