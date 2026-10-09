@@ -1940,10 +1940,13 @@ final class BrowserReplTabAttachment {
     }
 
     /// Download `id` failed: its session, if it still holds it, gets
-    /// `download.finished` with the error.
+    /// `download.finished` with the error. WebKit's error text can name the
+    /// download's URL: only the tab's live creator reads its credential
+    /// values, as with `download.started`'s URL.
     func downloadDidFail(id: String, error: String) {
         guard let owner = sessionDownloads.remove(id) else { return }
-        emit(.downloadFinished, ["downloadId": id, "error": error], to: owner)
+        let text = isLiveCreator(owner) ? error : error.redactingBrowserReplEmbeddedURLCredentials()
+        emit(.downloadFinished, ["downloadId": id, "error": text], to: owner)
     }
 
     /// Reports download `id`'s end to the session that still holds it, and
