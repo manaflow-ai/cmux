@@ -33,7 +33,9 @@ class FmtChangedTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.repo = self.tmp / "repo"
-        self.write("cmux-tui/Cargo.toml", '[workspace]\nmembers = ["crates/a", "crates/b"]\n')
+        # The workspace root is a package too, as in the real tree.
+        self.write("cmux-tui/Cargo.toml", '[package]\nname = "root"\n\n[workspace]\nmembers = ["crates/a", "crates/b"]\n')
+        self.write("cmux-tui/src/main.rs", "fn main() {}\n")
         self.write("cmux-tui/rustfmt.toml", "max_width = 100\n")
         self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\n')
         self.write("cmux-tui/crates/a/src/lib.rs", "pub fn a() {}\n")
@@ -44,6 +46,9 @@ class FmtChangedTests(unittest.TestCase):
         self.write("cmux-tui/crates/ffi/Cargo.toml", '[package]\nname = "ffi"\n\n[workspace]\n')
         self.write("cmux-tui/crates/ffi/src/lib.rs", "pub fn f() {}\n")
         self.write("cmux-tui/target/debug/build/x/Cargo.toml", '[package]\nname = "built"\n')
+        # Vendored upstream code keeps upstream formatting.
+        self.write("cmux-tui/vendor/up/Cargo.toml", '[package]\nname = "up"\n')
+        self.write("cmux-tui/vendor/up/src/lib.rs", "pub fn u() {}\n")
         self.write("README.md", "readme\n")
         (self.repo / ".gitignore").write_text("cmux-tui/target/\n")
         self.git("init", "-q")
@@ -133,7 +138,8 @@ class FmtChangedTests(unittest.TestCase):
         result = self.run_check("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(sorted(self.checked()), [
-            "cmux-tui/crates/a/Cargo.toml", "cmux-tui/crates/b/Cargo.toml", "cmux-tui/crates/ffi/Cargo.toml"])
+            "cmux-tui/Cargo.toml", "cmux-tui/crates/a/Cargo.toml", "cmux-tui/crates/b/Cargo.toml",
+            "cmux-tui/crates/ffi/Cargo.toml"])
 
     def test_no_base_checks_every_tracked_package(self) -> None:
         for base in ([], ["--base", ""], ["--base", "0" * 40]):
@@ -143,7 +149,14 @@ class FmtChangedTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 # Ignored build output is never a package to check.
                 self.assertEqual(sorted(self.checked()), [
-                    "cmux-tui/crates/a/Cargo.toml", "cmux-tui/crates/b/Cargo.toml", "cmux-tui/crates/ffi/Cargo.toml"])
+                    "cmux-tui/Cargo.toml", "cmux-tui/crates/a/Cargo.toml", "cmux-tui/crates/b/Cargo.toml",
+                    "cmux-tui/crates/ffi/Cargo.toml"])
+
+    def test_a_vendored_package_is_never_checked(self) -> None:
+        self.change("cmux-tui/vendor/up/src/lib.rs")
+        result = self.run_check("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.checked(), [])
 
     def test_a_deleted_package_is_skipped(self) -> None:
         self.git("rm", "-rq", "cmux-tui/crates/b")
