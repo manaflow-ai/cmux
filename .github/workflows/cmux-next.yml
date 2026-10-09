@@ -728,6 +728,7 @@ jobs:
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
+          bash scripts/cmux-next/tests/private-bun.test.sh
           bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
