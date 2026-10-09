@@ -28,6 +28,7 @@ import { homeOps } from "./ops-home.ts"
 import { networkOps } from "./network-ops.ts"
 import { serverOps } from "./server-ops.ts"
 import { usageOps } from "./usage.ts"
+import { UserTeamsList } from "./team-member-ops.ts"
 import { teamVmOps } from "./team-vm-ops.ts"
 import { teamSshOps } from "./team-ssh-ops.ts"
 import { cloudMachineOps } from "./cloud-machine-ops.ts"
@@ -225,6 +226,7 @@ export const cloudOps = [
   InstallRevoke,
   InstallSignOut,
   InstallList,
+  UserTeamsList,
   TeamDirectory,
   TeamMembersList,
   TeamHostsList,
