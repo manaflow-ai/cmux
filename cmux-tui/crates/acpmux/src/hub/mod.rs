@@ -6,6 +6,7 @@
 
 mod adoption;
 mod catalog_reload;
+mod cursor_ext;
 mod fork;
 mod handoff;
 mod harness_view;

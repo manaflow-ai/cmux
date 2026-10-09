@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextServer
+import CmuxNextWakeups
 
 /// The Mac server's menu bar item (plans/cmux-next/server.md 3 and 14).
 ///
@@ -77,8 +78,9 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         }
     }
 
+    /// NSPopover documents no thread for its delegate: inline on main, a hop from anywhere else.
     nonisolated func popoverDidClose(_ notification: Notification) {
-        MainActor.assumeIsolated { popover = nil }
+        MainDelivery().run { self.popover = nil }
     }
 
     private func currentModel() -> ServerModel {

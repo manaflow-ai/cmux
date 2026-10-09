@@ -479,6 +479,7 @@ impl Spawner {
                             let _ = started.send(());
                         }
                     }
+                    TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;

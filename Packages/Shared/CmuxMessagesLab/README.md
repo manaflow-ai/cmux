@@ -40,7 +40,8 @@ and render-server field animation, blurred header and native scrolling.
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
   `HomeLinkPreviews` (which links may fetch a preview),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
-  people's text stays plain), `HomeFlightRecorder` (the flight recorder's
+  people's text stays plain), `HomeFonts` (fonts the off-main row renderers
+  share for the life of the process), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
   unvendored MessagesLab files),
   `FixtureTheme` (cmux theme to Fixture colours), `MessagesLabHomeView`
@@ -66,7 +67,7 @@ and render-server field animation, blurred header and native scrolling.
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
-| Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced |
+| Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | Layout | below 434 pt (Messages' window minimum; a Home pane has no per-content minimum and can be 80 pt) the text column keeps its 434 pt share of the width instead of the measured rule reaching 0 pt |
 | NativeScroll | the drawn scroll indicator sits 2 pt from the scroller's own right edge (in a pane the window's edge is not the transcript's) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's; `cached(_:)` lets a HomeStore rebuild show a fetched preview again |

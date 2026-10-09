@@ -63,7 +63,7 @@ final class WindowOverlayLayer {
         // An occluder (the sidebar) moved: pages re-read their occlusion rects.
         WindowOverlayHost.host(for: window).onOccludersChange = { [weak self] in self?.requestPageUpdate() }
         observers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.evaluate() }
+            MainActor.assumeIsolated { self?.evaluate() } // main-proof: observer on queue: .main
         })
         // Any move or resize source (drag, an Accessibility client such as
         // Rectangle, a display, Space or fullscreen change): the overlay
@@ -74,7 +74,7 @@ final class WindowOverlayLayer {
                      NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification,
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
             observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.parentGeometryDidChange() }
+                MainActor.assumeIsolated { self?.parentGeometryDidChange() } // main-proof: observer on queue: .main
             })
         }
         // A page window appears (the fork shows it inactive and adds it as a
@@ -84,7 +84,7 @@ final class WindowOverlayLayer {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let child = note.object as? NSWindow
                 let moved = note.name == NSWindow.didMoveNotification || note.name == NSWindow.didResizeNotification
-                MainActor.assumeIsolated {
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
                     guard let self, let child, child !== self.window, child.parent === self.window else { return }
                     self.evaluate()
                     if moved {
