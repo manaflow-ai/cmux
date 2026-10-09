@@ -69,6 +69,9 @@ final class MessageActionOverlay: UIView {
     private let thoughtMidDot = makeGlassView(cornerRadius: Metrics.thoughtMidDot / 2)
     private let emojiField = EmojiInputField()
     private(set) var isPickingCustomEmoji = false
+    /// Whether the custom-emoji circle and the recent-emoji slots are offered
+    /// (`ConversationFeatures.customEmojiReactions`).
+    private let offersCustomEmoji: Bool
     private let mode: Mode
     /// Long-press lifts the bubble ~1.05x; double-tap leaves it in place.
     private var previewScale: CGFloat { mode == .tapbacks ? 1 : Metrics.previewScale }
@@ -109,9 +112,11 @@ final class MessageActionOverlay: UIView {
         recentEmoji: [String] = ConversationReactionRecents.defaults,
         items: [MenuItem],
         mode: Mode,
-        reactors: [(name: String, initials: String, reaction: ConversationReaction)]
+        reactors: [(name: String, initials: String, reaction: ConversationReaction)],
+        offersCustomEmoji: Bool = ConversationFeatures.customEmojiReactions
     ) {
         self.mode = mode
+        self.offersCustomEmoji = offersCustomEmoji
         self.snapshot = snapshot
         self.sourceFrame = sourceFrame
         self.isOutgoing = isOutgoing
@@ -167,7 +172,7 @@ final class MessageActionOverlay: UIView {
         reactionScroll.clipsToBounds = false
         // Messages lists recent emoji after the classics; a custom emoji I
         // already gave leads them, selected, so tapping it removes it.
-        var recents = recentEmoji
+        var recents = offersCustomEmoji ? recentEmoji : []
         if let mine = currentReaction?.emoji {
             recents.removeAll { $0 == mine }
             recents.insert(mine, at: 0)
@@ -238,6 +243,9 @@ final class MessageActionOverlay: UIView {
             self?.onReaction?(.emoji(emoji))
         }
         addSubview(emojiField)
+        // With custom emoji off, only the six classics (and an emoji I
+        // already gave, so I can remove it) remain.
+        for view in [emojiButton, tailDot] as [UIView] { view.isHidden = !offersCustomEmoji }
 
         if let detailCard {
             // Messages: a glass strip at the top, one column per reactor with
@@ -573,7 +581,7 @@ final class MessageActionOverlay: UIView {
     @objc private func backgroundTapped(_ tap: UITapGestureRecognizer) {
         let point = tap.location(in: self)
         guard !reactionBar.frame.contains(point) || isPickingCustomEmoji, !menu.frame.contains(point) || menu.isHidden || menu.alpha == 0,
-              !emojiButton.frame.contains(point), !thoughtClose.frame.contains(point) else { return }
+              emojiButton.isHidden || !emojiButton.frame.contains(point), !thoughtClose.frame.contains(point) else { return }
         dismiss()
     }
 
@@ -633,7 +641,7 @@ final class MessageActionOverlay: UIView {
     }
 
     @objc private func customEmojiTapped() {
-        guard !isPickingCustomEmoji, !isDismissing else { return }
+        guard offersCustomEmoji, !isPickingCustomEmoji, !isDismissing else { return }
         setPickingCustomEmoji(true)
     }
 

@@ -74,6 +74,14 @@ extension ConversationViewController {
             default: store.discardFailed(rowID: message.rowID)
             }
             return "ok"
+        case "longpress", "doubletap":
+            // The long-press menu or the double-tap tapback bar on a message.
+            guard let message = labMessage(matching: argument),
+                  let indexPath = indexPath(for: message.rowID),
+                  let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
+                  let model = cell.model else { return "error no row" }
+            presentActions(for: model, cell: cell, mode: verb == "longpress" ? .menu : .tapbacks)
+            return "ok"
         case "notunsent":
             // Taps the newest "(!) Not Unsent" notice.
             guard let notice = rows.reversed().lazy.compactMap({ row -> ConversationNotice? in

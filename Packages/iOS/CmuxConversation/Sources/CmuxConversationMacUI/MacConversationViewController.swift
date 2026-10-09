@@ -2399,9 +2399,17 @@ final class MacReactionPickerView: MacFlippedView {
     private var choices: [ConversationReaction] = []
     /// Takes the system emoji picker's insertion while it is open.
     private let emojiInput = MacEmojiInputView()
+    /// Whether the emoji circle (Character Viewer) is offered
+    /// (`ConversationFeatures.customEmojiReactions`).
+    private let offersCustomEmoji: Bool
 
-    init(current: ConversationReaction?, onPick: @escaping (ConversationReaction) -> Void) {
+    init(
+        current: ConversationReaction?,
+        offersCustomEmoji: Bool = ConversationFeatures.customEmojiReactions,
+        onPick: @escaping (ConversationReaction) -> Void
+    ) {
         self.current = current
+        self.offersCustomEmoji = offersCustomEmoji
         self.onPick = onPick
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView()
@@ -2463,19 +2471,25 @@ final class MacReactionPickerView: MacFlippedView {
         circle.setAccessibilityLabel(String(localized: "conversation.tapback.customEmoji", defaultValue: "Add custom emoji reaction", bundle: .module))
         circle.setAccessibilityIdentifier("conversation.tapback.custom")
         emojiInput.onEmoji = { [weak self] emoji in self?.onPick(.emoji(emoji)) }
+        // With custom emoji off, the picker is the capsule alone.
+        for view in [circle] + dots { view.isHidden = !offersCustomEmoji }
         setAccessibilityIdentifier("conversation.reactionPicker")
     }
 
     /// Focuses an invisible text input over the circle and opens the
     /// Character Viewer there; its insertion arrives in `emojiInput`.
     @objc func openEmojiPicker() {
+        guard offersCustomEmoji else { return }
         emojiInput.frame = circle.frame
         window?.makeFirstResponder(emojiInput)
         NSApp.orderFrontCharacterPalette(nil)
     }
 
     override func accessibilityChildren() -> [Any]? {
-        (super.accessibilityChildren() ?? []).filter { ($0 as? NSView) !== emojiInput }
+        (super.accessibilityChildren() ?? []).filter { child in
+            guard let view = child as? NSView else { return true }
+            return view !== emojiInput && !view.isHidden
+        }
     }
 
     @available(*, unavailable)
@@ -2503,7 +2517,7 @@ final class MacReactionPickerView: MacFlippedView {
     }
 
     func contains(_ point: CGPoint) -> Bool {
-        capsule.frame.contains(point) || circle.frame.contains(point)
+        capsule.frame.contains(point) || (!circle.isHidden && circle.frame.contains(point))
     }
 
     /// `keepRadius` holds the current rounding while shrinking, so a
