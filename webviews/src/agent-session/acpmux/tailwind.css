@@ -8,6 +8,21 @@
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 
 @theme inline {
+  /* The type scale (pages/shared/desktop.css, ui/README.md "Type scale"): text-caption ... text-content. */
+  --text-caption: var(--text-caption);
+  --text-caption--line-height: var(--text-caption--line-height);
+  --text-detail: var(--text-detail);
+  --text-detail--line-height: var(--text-detail--line-height);
+  --text-body: var(--text-body);
+  --text-body--line-height: var(--text-body--line-height);
+  --text-control: var(--text-control);
+  --text-control--line-height: var(--text-control--line-height);
+  --text-title: var(--text-title);
+  --text-title--line-height: var(--text-title--line-height);
+  --text-heading: var(--text-heading);
+  --text-heading--line-height: var(--text-heading--line-height);
+  --text-content: var(--text-content);
+  --text-content--line-height: var(--text-content--line-height);
   --color-fg: var(--agent-text);
   --color-muted: var(--agent-muted);
   --color-dim: var(--acpmux-composer-dim);

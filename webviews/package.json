@@ -6,8 +6,9 @@
   "scripts": {
     "build": "bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
-    "check": "bun run check:browser-lanes && bun run check:layers && vp check",
+    "check": "bun run check:browser-lanes && bun run check:layers && bun run check:type-scale && vp check",
     "check:layers": "python3 ../scripts/cmux-next/check-layers.py",
+    "check:type-scale": "python3 ../scripts/cmux-next/check-type-scale.py",
     "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",

@@ -841,15 +841,10 @@ let package = Package(
             dependencies: ["CmuxNextTerminalFind"],
             swiftSettings: daemonSwiftSettings
         ),
-        // Copy mode's vim key table and cursor-box geometry. No GhosttyKit, so
-        // it has tests; CmuxNextTerminal drives Ghostty's keyboard-copy API.
+        // Copy mode's vim key table and cursor-box geometry. No GhosttyKit;
+        // CmuxNextTerminal drives Ghostty's keyboard-copy API.
         .target(
             name: "CmuxNextCopyMode",
-            swiftSettings: daemonSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextCopyModeTests",
-            dependencies: ["CmuxNextCopyMode"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
