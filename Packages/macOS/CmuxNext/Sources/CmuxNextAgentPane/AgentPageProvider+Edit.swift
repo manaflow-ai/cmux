@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextSettings
 
 extension AgentPageProvider {
     /// `pane.edit {command}`: runs the composer menu's Cut, Copy, Paste or Paste as Plain Text through
