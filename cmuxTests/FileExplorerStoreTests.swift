@@ -46,6 +46,9 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
     var homePath: Result<String, Error>
     var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
     var downloads: [String: Result<Data, Error>] = [:]
+    var deferredHomeResolution = false
+    var homeContinuation: CheckedContinuation<String, Error>?
+    private(set) var homeReturned = false
     private(set) var resolvedHomeConnections: [SSHFileExplorerConnection] = []
     private(set) var listedPaths: [String] = []
     private(set) var downloadedPaths: [String] = []
@@ -56,6 +59,11 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
 
     func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String {
         resolvedHomeConnections.append(connection)
+        if deferredHomeResolution {
+            let home = try await withCheckedThrowingContinuation { homeContinuation = $0 }
+            homeReturned = true
+            return home
+        }
         return try homePath.get()
     }
 
@@ -184,6 +192,138 @@ struct FileExplorerStoreTests {
         #expect(store.rootNodes[0].isDirectory)
         #expect(store.rootNodes[1].name == "README.md")
         #expect(!(store.rootNodes[1].isDirectory))
+    }
+
+    @Test
+    func testDirectoryNavigationTracksRelativePathsAndHistory() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/project"] = .success([
+            FileExplorerEntry(name: "src", path: "/home/user/project/src", isDirectory: true),
+        ])
+        provider.listings["/home/user/project/src"] = .success([
+            FileExplorerEntry(name: "main.swift", path: "/home/user/project/src/main.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        try await waitFor("project root loaded") { store.rootPath == "/home/user/project" && !store.isRootLoading }
+
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(store: store, state: state, onOpenFilePreview: { _ in })
+        let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
+        container.updateHeader(store: store)
+        func descendant(_ view: NSView, named identifier: String) -> NSView? {
+            if view.accessibilityIdentifier() == identifier { return view }
+            return view.subviews.lazy.compactMap { descendant($0, named: identifier) }.first
+        }
+        let field = try #require(descendant(container, named: "FileExplorerDirectoryField") as? NSTextField)
+        let back = try #require(descendant(container, named: "FileExplorerBackButton") as? NSButton)
+        let forward = try #require(descendant(container, named: "FileExplorerForwardButton") as? NSButton)
+        let parent = try #require(descendant(container, named: "FileExplorerParentButton") as? NSButton)
+        field.stringValue = "src"
+        #expect(field.delegate?.control?(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))) == true)
+        try await waitFor("src loaded") { store.rootPath == "/home/user/project/src" && !store.isRootLoading }
+        container.updateHeader(store: store)
+        #expect(store.rootNodes.map(\.name) == ["main.swift"])
+        #expect(back.isEnabled)
+        #expect(!forward.isEnabled)
+
+        back.performClick(nil)
+        try await waitFor("project root restored") { store.rootPath == "/home/user/project" && !store.isRootLoading }
+        container.updateHeader(store: store)
+        #expect(!back.isEnabled)
+        #expect(forward.isEnabled)
+
+        forward.performClick(nil)
+        try await waitFor("src restored") { store.rootPath == "/home/user/project/src" && !store.isRootLoading }
+        container.updateHeader(store: store)
+        parent.performClick(nil)
+        try await waitFor("parent directory restored") { store.rootPath == "/home/user/project" && !store.isRootLoading }
+
+    }
+
+    @Test
+    func testDirectoryNavigationNormalizesHomeParentAndRoot() async throws {
+        let provider = MockFileExplorerProvider()
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        store.navigate(to: "~/other folder/../project/./src")
+        #expect(store.rootPath == "/home/user/project/src")
+        store.navigate(to: "/")
+        #expect(!store.canNavigateToParent)
+        store.navigateToParent()
+        #expect(store.rootPath == "/")
+        store.navigate(to: "../../")
+        #expect(store.rootPath == "/")
+        store.navigateBack()
+        #expect(store.rootPath == "/home/user/project/src")
+        store.navigate(to: "../new")
+        #expect(store.rootPath == "/home/user/project/new")
+        #expect(!store.canNavigateForward)
+        try await waitFor("navigation finished") { !store.isRootLoading }
+    }
+
+    @Test
+    func testDirectoryNavigationFailureCanGoBackAndDoesNotCrossWorkspaces() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/missing"] = .failure(FileExplorerError.sshCommandFailed("missing"))
+        let store = FileExplorerStore()
+        store.setWorkspaceRootIdentity(UUID())
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        store.navigate(to: "../missing")
+        try await waitFor("missing directory error") { store.rootStatusMessage != nil && !store.isRootLoading }
+        #expect(store.canNavigateBack)
+        store.navigateBack()
+        try await waitFor("original directory restored") { store.rootStatusMessage == nil && !store.isRootLoading }
+        #expect(store.rootPath == "/home/user/project")
+        #expect(store.canNavigateForward)
+        store.setRootPath("/home/user/project")
+        #expect(store.canNavigateForward)
+        store.setWorkspaceRootIdentity(UUID())
+        store.setRootPath("/home/user/project")
+        #expect(!store.canNavigateBack)
+        #expect(!store.canNavigateForward)
+    }
+
+    @Test
+    func testDirectoryNavigationResolvesTildeOnRemoteHost() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/remote"))
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(.remoteSSH(
+            workspaceId: UUID(),
+            connection: SSHFileExplorerConnection(destination: "remote.example", port: nil, identityFile: nil, sshOptions: []),
+            displayTarget: "remote.example", rootPath: "/srv/app", isAvailable: true, unavailableDetail: nil
+        ), sshTransport: transport)
+        store.navigate(to: "~/different folder")
+        try await waitFor("remote home navigation") { store.rootPath == "/home/remote/different folder" && !store.isRootLoading }
+        #expect(transport.listedPaths.contains("/home/remote/different folder"))
+        #expect(store.canNavigateBack)
+        store.navigateBack()
+        #expect(store.rootPath == "/srv/app")
+    }
+
+    @Test
+    func testManualNavigationCancelsInitialRemoteHomeLookup() async throws {
+        let transport = MockSSHFileExplorerTransport()
+        transport.deferredHomeResolution = true
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(.remoteSSH(
+            workspaceId: UUID(),
+            connection: SSHFileExplorerConnection(destination: "remote.example", port: nil, identityFile: nil, sshOptions: []),
+            displayTarget: "remote.example", rootPath: nil, isAvailable: true, unavailableDetail: nil
+        ), sshTransport: transport)
+        try await waitFor("initial home lookup started") { transport.homeContinuation != nil }
+        store.navigate(to: "/srv/chosen")
+        try await waitFor("chosen directory loaded") { store.rootPath == "/srv/chosen" && !store.isRootLoading }
+        #expect(store.remoteHomeResolutionKey == nil)
+        #expect(store.remoteHomeResolutionTask == nil)
+        transport.homeContinuation?.resume(returning: "/home/remote")
+        transport.homeContinuation = nil
+        try await waitFor("cancelled lookup returned") { transport.homeReturned }
+        #expect(store.rootPath == "/srv/chosen")
     }
 
     @Test
