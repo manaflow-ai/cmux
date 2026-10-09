@@ -705,6 +705,34 @@ describe("acpmux composer slash menu", () => {
   });
 });
 
+describe("acpmux composer prompt recall", () => {
+  test("ArrowUp and ArrowDown recall sent prompts without replacing an edited draft", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const sent: string[] = [];
+    const prompt = () => promptField();
+    const press = async (name: string) => act(async () => prompt().element.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })));
+    const render = async () => {
+      await act(async () => root.render(createElement(Composer, { snapshot: snapshot(), chips: () => null, onSend: (value: string) => sent.push(value), onStop: () => {} })));
+      await ready();
+    };
+    const submit = async () => act(async () => dom.window.document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    try {
+      await render();
+      await act(async () => typeInto(prompt(), "first")); await submit();
+      await act(async () => typeInto(prompt(), "second")); await submit();
+      await press("ArrowUp");
+      expect(prompt().value).toBe("second");
+      await press("ArrowUp");
+      expect(prompt().value).toBe("first");
+      await press("ArrowDown");
+      expect(prompt().value).toBe("second");
+      await act(async () => typeInto(prompt(), "edited"));
+      await press("ArrowUp");
+      expect(prompt().value).toBe("edited");
+    } finally { await act(async () => root.unmount()); }
+  });
+});
+
 describe("acpmux composer draft", () => {
   test("an inherited draft fills an empty prompt once and is not sent", async () => {
     let root = createRoot(dom.window.document.getElementById("root")!);

@@ -13,11 +13,11 @@ import type { AcpmuxSnapshot } from "./model";
 import {
   dragHasFiles,
   filesFrom,
-  readAttachments,
   thumbnail,
   type AttachmentError,
   type ComposerAttachment,
 } from "./attachments";
+import { useAttachmentReads } from "./composer/useAttachmentReads";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { type ChatMove, moveAttachment } from "./shell/chatMoves";
@@ -244,18 +244,17 @@ export function Composer({
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
   const submitNow = useRef<(force: boolean) => boolean>(() => false);
-  const held = useRef(0);
-  held.current = attachments.length;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
-  const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
-  attach.current = async (files: File[]) => {
-    if (files.length === 0) return;
-    const read = await readAttachments(files, held.current, allowImages);
-    setAttachments((current) => [...current, ...read.attachments]);
-    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0], t) : undefined);
-  };
+  const attachmentReads = useAttachmentReads(
+    attachments.length,
+    allowImages,
+    (attachment) => setAttachments((current) => [...current, attachment]),
+    (error) => setAttachError(error ? attachmentErrorText(error, t) : undefined),
+  );
+  const attach = useRef(attachmentReads.add);
+  attach.current = attachmentReads.add;
   useEffect(() => {
     const over = (event: DragEvent) => {
       if (!dragHasFiles(event.dataTransfer)) return;
@@ -390,7 +389,7 @@ export function Composer({
   const planning = plan?.id === currentModeId;
   const planChoice: Choice | undefined =
     plan && onMode
-      ? { id: `plan:${plan.id}`, name: planning ? "Build" : "Plan", icon: planning ? <BuildIcon /> : <PlanIcon /> }
+      ? { id: `plan:${plan.id}`, name: planning ? t("picker.build") : t("picker.plan"), icon: planning ? <BuildIcon /> : <PlanIcon /> }
       : undefined;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
@@ -443,7 +442,7 @@ export function Composer({
     // The folder's trust question is open: the prompt stays where it is.
     if (blocked && !force) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy.
-    if (sending.current) return false;
+    if (sending.current || attachmentReads.busy()) return false;
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
@@ -740,7 +739,7 @@ export function Composer({
           />,
           form.current.parentElement,
         )}
-      <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
+      <div className="acpmux-composer-box text-fg" data-context-first={contextFirst ? "" : undefined}>
         {contextFirst && context}
         <input
           ref={importInput}
@@ -766,7 +765,7 @@ export function Composer({
             onPick={pick}
           />
         )}
-        {(attachments.length > 0 || attachError || dropping) && (
+        {(attachments.length > 0 || attachmentReads.pending.length > 0 || attachError || dropping) && (
           <fieldset className="acpmux-attachments" aria-label={t(COMPOSER_LABELS.attachments)}>
             {attachments.map((attachment) => (
               <AttachmentChip
@@ -777,6 +776,14 @@ export function Composer({
                   field.current?.focus();
                 }}
               />
+            ))}
+            {attachmentReads.pending.map((entry) => (
+              <div key={entry.id} className={`acpmux-attachment ${entry.preview ? "acpmux-attachment-image" : "acpmux-attachment-file"}`} title={entry.file.name} aria-busy="true">
+                {entry.preview ? <img src={entry.preview} alt={entry.file.name} /> : <span>{entry.file.name}</span>}
+                <button type="button" className="acpmux-attachment-remove" aria-label={t(COMPOSER_LABELS.removeAttachment, { name: entry.file.name })} onClick={() => { attachmentReads.remove(entry.id); field.current?.focus(); }}>
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
             ))}
             {dropping ? (
               <span className="acpmux-attachment-note">{t(COMPOSER_LABELS.dropFiles)}</span>
@@ -912,8 +919,8 @@ export function Composer({
                 key="send"
                 ref={sendButton}
                 type="submit"
-                disabled={Boolean(blocked) && !shell}
-                className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                disabled={(Boolean(blocked) || attachmentReads.pending.length > 0) && !shell}
+                className={`acpmux-send${(shell ? shellText.trim() : !blocked && !attachmentReads.pending.length && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
                 aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
                 title={shell ? t("composer.shellRun") : blocked?.reason ? t(blocked.reason) : t("composer.sendTooltip")}
               >
