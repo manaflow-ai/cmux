@@ -215,6 +215,9 @@ pub struct EgressRule {
     /// The check of a connected peer (a listener exists, so one this host
     /// cannot see refuses).
     connected_services: crate::egress_services::ServiceCheck,
+    /// Whether an address is this machine's own (a local interface): its
+    /// ports get the service check as loopback does.
+    own_addresses: crate::egress_services::OwnAddresses,
     /// Tests: one loopback address that counts as public (a stand-in for
     /// an internet host the test can dial).
     #[cfg(test)]
@@ -234,6 +237,7 @@ impl EgressRule {
             resolver,
             services: crate::egress_services::system_check(),
             connected_services: crate::egress_services::system_connected_check(),
+            own_addresses: crate::egress_services::system_own_addresses(),
             #[cfg(test)]
             test_public: None,
         }
@@ -246,6 +250,16 @@ impl EgressRule {
     ) -> EgressRule {
         self.connected_services = services.clone();
         self.services = services;
+        self
+    }
+
+    /// Replaces the check of this machine's own addresses (tests).
+    #[cfg(test)]
+    pub(crate) fn with_own_addresses(
+        mut self,
+        own: crate::egress_services::OwnAddresses,
+    ) -> EgressRule {
+        self.own_addresses = own;
         self
     }
 

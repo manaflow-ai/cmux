@@ -19,6 +19,14 @@ use std::sync::Arc;
 /// Why a loopback address is a cmux service's (`Some`), or `None`.
 pub type ServiceCheck = Arc<dyn Fn(SocketAddr) -> Option<String> + Send + Sync>;
 
+/// Whether an address belongs to this machine (one of its interfaces).
+pub type OwnAddresses = Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync>;
+
+/// This machine's interface addresses (stub; cx-pmq7 red).
+pub fn system_own_addresses() -> OwnAddresses {
+    Arc::new(|_| false)
+}
+
 /// Executable names of cmux services. Anything named `cmux-*` counts too.
 /// Chrome counts: cmux launches no Chrome with a DevTools port (cx-2u5k),
 /// but an agent's own automation does (agent-browser, Playwright,
