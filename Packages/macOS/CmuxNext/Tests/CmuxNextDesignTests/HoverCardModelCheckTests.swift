@@ -83,6 +83,8 @@ import Testing
         if world.armed != after.armedToken { bad.append("I1 timer \(String(describing: world.armed)) vs state \(String(describing: after.armedToken))") }
         // I2: a hover card (not pinned) is for what the last hit test found under the pointer.
         if case .shown(let target) = after.phase, after.lastHit?.id != target.id { bad.append("I2 shown \(target.id) not under pointer") }
+        // I2b: a leaving card is for a pointer on no target (any hit ends the leave window).
+        if case .leaving = after.phase, after.lastHit != nil { bad.append("I2b leaving with the pointer on \(after.lastHit!.id)") }
         // I3: a stale deadline changes nothing.
         if case .deadline(let token) = event, token != before.armedToken, after != before || !effects.isEmpty { bad.append("I3 stale token \(token) acted") }
         // I4: a removed target has no card.

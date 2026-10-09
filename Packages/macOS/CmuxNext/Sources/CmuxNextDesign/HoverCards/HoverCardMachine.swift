@@ -39,12 +39,17 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     public var pinLifetime: Duration
     /// How long a card stays after the pointer leaves every target.
     public var leaveWindow: Duration
+    /// How long a target with no delay waits when it arrives under a still
+    /// pointer (a scroll, rows reflowing): only a moving pointer gets the
+    /// instant card, so content passing under it flashes none.
+    public var stillPointerDelay: Duration
 
     public init(reshowWindow: Duration = .milliseconds(700), pinLifetime: Duration = .seconds(10),
-                leaveWindow: Duration = .milliseconds(150)) {
+                leaveWindow: Duration = .milliseconds(150), stillPointerDelay: Duration = .milliseconds(300)) {
         self.reshowWindow = reshowWindow
         self.pinLifetime = pinLifetime
         self.leaveWindow = leaveWindow
+        self.stillPointerDelay = stillPointerDelay
     }
 
     /// The target whose card is pending or shown.
@@ -146,11 +151,11 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         switch phase {
         case .idle:
             guard let target else { return [] }
-            return arm(target)
+            return arm(target, moved: moved)
         case .pending(let pending, _):
             guard let target else { return end() }
             if target.id == pending.id { return [] }
-            return arm(target)
+            return arm(target, moved: moved)
         case .grace:
             guard let target else { return [] }
             phase = .shown(target)
@@ -192,19 +197,20 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     /// another target ended).
     private mutating func resume() -> [HoverCardEffect] {
         guard phase == .idle, suppressions.isEmpty, !quiet, let target = lastHit else { return [] }
-        return arm(target)
+        return arm(target, moved: false)
     }
 
-    private mutating func arm(_ target: HoverTarget) -> [HoverCardEffect] {
-        // No delay (the workspace card): the card shows on this hit.
-        guard target.delay > .zero else {
+    private mutating func arm(_ target: HoverTarget, moved: Bool) -> [HoverCardEffect] {
+        // No delay (the workspace card): a moving pointer's card shows on
+        // this hit; content moving under a still pointer waits a moment.
+        if target.delay <= .zero, moved {
             let hadTimer = armedToken != nil
             phase = .shown(target)
             return (hadTimer ? [.cancelTimer] : []) + [.show(target, sliding: false)]
         }
         let token = takeToken()
         phase = .pending(target, token: token)
-        return [.schedule(token: token, after: target.delay)]
+        return [.schedule(token: token, after: target.delay > .zero ? target.delay : stillPointerDelay)]
     }
 
     /// Back to idle: cancels the timer and hides a shown card.

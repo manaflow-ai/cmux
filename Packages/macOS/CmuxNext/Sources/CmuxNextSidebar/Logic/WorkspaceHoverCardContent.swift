@@ -25,7 +25,7 @@ struct WorkspaceHoverCardContent: Equatable {
     static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date) -> Self {
         let remote = machine.flatMap { $0.kind == .local ? nil : $0 }
         var facts: [Fact] = []
-        if let folder = workspace.directory.map(folderName) { facts.append(Fact(icon: .folder, text: folder)) }
+        if let folder = workspace.directory.flatMap({ $0.isEmpty ? nil : folderName($0) }) { facts.append(Fact(icon: .folder, text: folder)) }
         if let branch = workspace.branch, !branch.isEmpty { facts.append(Fact(icon: .gitBranch, text: branch)) }
         if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr)) }
         if let remote { facts.append(Fact(icon: hostIcon(remote), text: remote.name)) }

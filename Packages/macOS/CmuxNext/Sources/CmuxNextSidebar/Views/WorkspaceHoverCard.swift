@@ -174,6 +174,10 @@ final class WorkspaceHoverCardView: NSView {
         kindIcon.image = NSImage.icon(content.icon, size: Self.iconSize)
         ageLabel.stringValue = content.age ?? ""
         ageLabel.isHidden = content.age == nil
+        // The width the title wraps at (the panel sizes the card in one
+        // pass): the row less its icon and the age.
+        let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4
+        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 - age
         while factViews.count < content.facts.count { addFactRow() }
         for (index, row) in factViews.enumerated() {
             let fact = index < content.facts.count ? content.facts[index] : nil
