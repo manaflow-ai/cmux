@@ -39,6 +39,8 @@ export interface Env {
   readonly ENVIRONMENT?: string;
   /** Production tenants (Stack team ids) treated as dev/test: comma or space separated. */
   readonly DEV_TEST_TENANT_IDS?: string;
+  /** The manaflow-team flag (cx-b4h.16): Stack team ids entitled without billing; comma or space separated. */
+  readonly MANAFLOW_TEAM_TENANT_IDS?: string;
   /** JSON object of Stack team id to live VM limit, overriding the default. */
   readonly TENANT_VM_QUOTAS?: string;
   /** Mesh experiment (cx-0op): "1" turns it on for the tenants in CMUX_VM_MESH_TENANT_IDS; anything else is off. */
@@ -56,6 +58,7 @@ const liveServices = (env: Env) => {
   const policy = tenantPolicyLayer({
     environment: parseEnvironment(env.ENVIRONMENT),
     devTestTenantIds: parseTenantList(env.DEV_TEST_TENANT_IDS),
+    manaflowTenantIds: parseTenantList(env.MANAFLOW_TEAM_TENANT_IDS),
     vmQuotas: parseVmQuotas(env.TENANT_VM_QUOTAS),
   });
   return Layer.mergeAll(
