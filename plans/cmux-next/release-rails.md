@@ -119,7 +119,8 @@ bun $R/db-release.ts rehearse --tree cmux-vm --target staging [--allow-contract 
 # 3. Apply to staging with the owner credentials (env var only; never print it). It rehearses again itself.
 bun $R/db-release.ts apply --tree cmux-vm --target staging --url-env OWNER_URL [--allow-contract NNNN_x.sql]
 # 4. Land the code that needs it; the staging deploy gate passes, deploys, smokes.
-# 5. Production, from a clean checkout landed on feat-cmux-next, after the compat gate:
+# 5. Production, from a clean checkout landed on feat-cmux-next, after the compat gate
+#    (its first apply runs 0001-0009; 0009 is a contract migration: add --allow-contract 0009_cmux_vm_mesh_device_address.sql):
 bun $R/db-release.ts apply --tree cmux-vm --target production --url-env PROD_OWNER_URL --staging-url-env STAGING_READ_URL --confirm-production
 ```
 

@@ -21,7 +21,8 @@
         "0005_cmux_vm_mesh_m2.sql": "12a58159148dc116cdf55a1d087dff2d5437b7185257ccef996a67e99c523b75",
         "0006_cmux_vm_mesh_m3.sql": "7657e3f456366ceb8423eaec40810f2024359a9b2a67130e82b773178f2621ee",
         "0007_cmux_vm_mesh_m4.sql": "a3525bda461b9c19f2cdf74ff3a457e90ace177b7b517e187ea5b1173b734fe7",
-        "0008_cmux_vm_mesh_m4_retries.sql": "023cbec42e3137e7c506021abfcd97d6480e30c35a994a4d044c1e4fbacf90c8"
+        "0008_cmux_vm_mesh_m4_retries.sql": "023cbec42e3137e7c506021abfcd97d6480e30c35a994a4d044c1e4fbacf90c8",
+        "0009_cmux_vm_mesh_device_address.sql": "dcd032132b00d3592058415a530b40cef240a7e22b655f7a13ccb7a81ad23d48"
       }
     },
     "backend": {

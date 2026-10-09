@@ -108,7 +108,7 @@ describe("compat receipts gate production", () => {
     const root = tempRoot()
     const before = changeKey(root, parseChange("migrations:cmux-vm"))
     expect(changeKey(root, { kind: "migrations", tree: TREES["cmux-vm"] })).toBe(before)
-    addMigration(root, "cmux-vm", "0009_x.sql", "CREATE TABLE cmux_vm.x (id text);\n")
+    addMigration(root, "cmux-vm", "0010_x.sql", "CREATE TABLE cmux_vm.x (id text);\n")
     expect(changeKey(root, parseChange("migrations:cmux-vm"))).not.toBe(before)
     expect(() => parseChange("image:OTHER_VAR:sh-1")).toThrow()
   })
