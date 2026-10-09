@@ -144,6 +144,24 @@ enum RemoteStrings {
         }
     }
 
+    /// The machine's raw failure (ssh's own words, or the install or link
+    /// error) for Copy SSH Error; nil when it has none.
+    static func sshError(_ session: SSHMachineSession) -> String? {
+        let text: String? = switch session.linkStatus {
+        case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
+             .installFailed(let message), .failed(let message): message
+        case .needsInstall(let need): needText(need, session)
+        case .offline, .connecting, .connected, .installing: session.lastError
+        }
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// The refusal of Copy SSH Error for a machine without a failure.
+    static func noSSHError(_ machine: String) -> String {
+        String(format: String(localized: "remote.copyError.none", defaultValue: "%@ has no SSH error to copy.", table: "Remote", bundle: .module), machine)
+    }
+
     static func needText(_ need: InstallNeed, _ session: SSHMachineSession) -> String {
         switch need {
         case .none: return ""

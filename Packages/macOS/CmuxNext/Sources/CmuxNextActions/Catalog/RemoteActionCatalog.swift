@@ -45,6 +45,16 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 keywords: ["ssh", "remote", "update", "upgrade", "cmux-tui"], category: .remote, symbol: "arrow.down.circle",
                 surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "remote install", destructive: true
             ),
+            // The machine's raw SSH or install error (the sidebar header's
+            // tooltip says it in a sentence), for a bug report or a search.
+            ActionDescriptor(
+                id: "remote.copyError",
+                title: String(localized: "action.remote.copyError", defaultValue: "Copy SSH Error", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "error", "copy", "machine", "permission", "denied"], category: .remote,
+                symbol: "exclamationmark.bubble", surfaces: [.palette, .contextMenu], targets: [.machine],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard),
+                                               contextMenus: [ActionSurfaceCatalog.p(.sshMachine, .inspect, 300, folder: .copy)])
+            ),
             ActionDescriptor(
                 id: "remote.forget",
                 title: String(localized: "action.remote.forget", defaultValue: "Forget Machine…", table: "RemoteActions", bundle: .module),
