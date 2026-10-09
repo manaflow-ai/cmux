@@ -455,7 +455,20 @@ struct CloudWireGuardHubTests {
 
         // A restored-link demand is explicit and must be able to retry the
         // stopped hub immediately, even though automatic preparation failed.
-        let restoredLink = try await h.hub.acquire()
+        // The final automatic failure can be observed by the enrollment
+        // counter just before the shared startup task publishes `.stopped`.
+        // Model restored-link demand as a real retry so it cannot join that
+        // last failing task and mistake the handoff race for lost demand.
+        var restoredLink: (lease: CloudWireGuardHub.Lease, ready: CloudWireGuardHub.Ready)?
+        let retryDeadline = ContinuousClock.now + .seconds(10)
+        while restoredLink == nil, ContinuousClock.now < retryDeadline {
+            do {
+                restoredLink = try await h.hub.acquire()
+            } catch {
+                await Task.yield()
+            }
+        }
+        let restoredLink = try #require(restoredLink)
         #expect(await attempts.value == 4)
         #expect(restoredLink.ready.socketPath == h.socketPath)
         #expect(await h.hub.status().leases == 2)
