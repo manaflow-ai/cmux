@@ -55,8 +55,7 @@ pub fn import_default_root_session(
     if marker.exists() || target.exists() || target_has_other_identity(default_root, target_root)? {
         return Ok(SessionStateImport::Skipped);
     }
-    fs::create_dir_all(&target_dir)
-        .with_context(|| format!("create {}", target_dir.display()))?;
+    fs::create_dir_all(&target_dir).with_context(|| format!("create {}", target_dir.display()))?;
     crate::platform::restrict_directory(target_root)?;
     crate::platform::restrict_directory(&target_dir)?;
     for name in ROOT_IDENTITY_FILES {

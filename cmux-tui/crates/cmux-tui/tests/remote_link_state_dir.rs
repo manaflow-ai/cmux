@@ -268,7 +268,11 @@ fn an_empty_state_dir_imports_the_default_root_session_once() {
             .unwrap();
     }
     fixture.link_once();
-    assert_eq!(meta(target, "import_probe").as_deref(), Some("kept"), "a second start copied again");
+    assert_eq!(
+        meta(target, "import_probe").as_deref(),
+        Some("kept"),
+        "a second start copied again"
+    );
     assert_eq!(file_bytes(&source), source_bytes);
 }
 
