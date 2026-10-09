@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import type { CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, type CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -5639,9 +5639,15 @@ function errorMessage(cause: unknown): string {
 // ---------------------------------------------------------------------------
 // Outbound network policy (services/vms/networkPolicy.ts)
 
+/**
+ * Why the last apply failed, as a stable code. Clients render localized copy
+ * from it; provider text never reaches the stored status.
+ */
+export type VmNetworkPolicyErrorCode = "network_rule_capacity" | "apply_failed";
+
 export type VmNetworkPolicyStatus = {
   readonly state: "applied" | "pending" | "failed";
-  readonly error?: string;
+  readonly errorCode?: VmNetworkPolicyErrorCode;
   readonly appliedAt?: string;
 };
 
@@ -5694,17 +5700,28 @@ function appliedNetworkStatus(): VmNetworkPolicyStatus {
 
 function storedNetworkStatus(value: unknown, hasPolicy: boolean): VmNetworkPolicyStatus {
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    const { state, error, appliedAt } = value as Record<string, unknown>;
+    const { state, appliedAt } = value as Record<string, unknown>;
     if (state === "applied" || state === "pending" || state === "failed") {
+      const errorCode = storedNetworkErrorCode(value as Record<string, unknown>);
       return {
         state,
-        ...(typeof error === "string" ? { error } : {}),
+        ...(errorCode ? { errorCode } : {}),
         ...(typeof appliedAt === "string" ? { appliedAt } : {}),
       };
     }
   }
   // A legacy row has no stored policy and was created with full egress.
   return { state: hasPolicy ? "pending" : "applied" };
+}
+
+/** A stored error code; rows written before codes carry English text under `error` and read as a generic failure. */
+function storedNetworkErrorCode(value: Record<string, unknown>): VmNetworkPolicyErrorCode | undefined {
+  if (value.errorCode === "network_rule_capacity" || value.errorCode === "apply_failed") return value.errorCode;
+  return typeof value.error === "string" ? "apply_failed" : undefined;
+}
+
+function networkPolicyErrorCode(cause: unknown): VmNetworkPolicyErrorCode {
+  return hasProviderTlsRuleLimitCause(cause) ? "network_rule_capacity" : "apply_failed";
 }
 
 function storeNetworkPolicy(
@@ -5762,7 +5779,7 @@ export function updateVmNetworkPolicy(input: ExistingVmAccessInput & {
     const applied = yield* Effect.either(providers.applyNetworkPolicy(vm.provider, input.providerVmId, plan));
     const status: VmNetworkPolicyStatus = Either.isRight(applied)
       ? appliedNetworkStatus()
-      : { state: "failed", error: errorMessage(applied.left) };
+      : { state: "failed", errorCode: networkPolicyErrorCode(applied.left) };
     yield* repo.setNetworkPolicy!({ id: vm.id, status: { ...status } });
     if (Either.isLeft(applied)) return yield* Effect.fail(applied.left);
     return { policy: input.policy, status };

@@ -64,6 +64,7 @@ import {
   vmCreateCleanupPendingCopy,
   vmGuestInstallCopy,
   vmRecreateRequiredCopy,
+  vmNetworkRuleCapacityCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
@@ -73,10 +74,11 @@ import {
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError } from "./drivers/types";
+import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderTlsRuleLimitError } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
+import { reportError } from "../observability/report";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -912,6 +914,9 @@ export const vmWorkflowErrorResponders = {
     if (providerCauseIs(error.cause, ProviderNetworkFullError)) {
       return vmNetworkFullResponse(error);
     }
+    if (providerCauseIs(error.cause, ProviderTlsRuleLimitError)) {
+      return vmNetworkRuleCapacityResponse(error, context.locale);
+    }
     if (isProviderCreateCleanupError(error.cause)) {
       return vmCreateCleanupPendingResponse(context.locale);
     }
@@ -1311,6 +1316,39 @@ function vmNetworkFullResponse(error: VmProviderOperationError): Response {
     displayTitle: "Private network full",
     displayMessage: message,
     details: { operation: error.operation, retryable: false, providerCode: "provider_network_full" },
+  });
+}
+
+/**
+ * The provider account holds its maximum number of TLS rules. The cap is
+ * shared by every machine on the account, so the user cannot free it and an
+ * immediate retry cannot succeed: a non-retryable 503 with no retryAfter, and
+ * a deduplicated operator error. The vm-alerts cron pages on the same
+ * condition from the provider's own rule count.
+ */
+async function vmNetworkRuleCapacityResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  reportError(
+    new Error("Cloud VM provider TLS rule limit reached"),
+    {
+      subsystem: "cloud_vm_alerts",
+      code: "provider_tls_rule_limit",
+      provider: error.provider,
+      operation: error.operation,
+      operatorFault: true,
+    },
+    { fingerprint: ["cmux-vm-provider-tls-rule-limit", error.provider] },
+  );
+  const copy = await vmNetworkRuleCapacityCopy(locale);
+  return vmErrorResponse({
+    error: "vm_network_rule_capacity",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false, providerCode: "provider_tls_rule_limit" },
   });
 }
 

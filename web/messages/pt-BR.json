@@ -30,6 +30,14 @@
       "message": "Esta máquina foi criada antes de uma atualização do Cloud e não pode ser conectada.",
       "action": "Crie uma nova máquina, copie seus arquivos com cmux vm pull e cmux vm push e depois exclua esta."
     },
+    "networkRuleCapacity": {
+      "title": "Regras de rede no limite",
+      "message": "Sua política de rede foi salva, mas não foi aplicada: o cmux Cloud atingiu a capacidade de regras de rede.",
+      "action": "A equipe do cmux foi alertada. Remova os domínios de que esta máquina não precisa mais ou entre em contato com o suporte. Até lá, o acesso de rede desta máquina pode não corresponder à política salva."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "A política de rede foi salva, mas não foi aplicada. Salve-a novamente para tentar outra vez."
+    },
     "unsupported": {
       "title": "Operação de Cloud VM indisponível",
       "reason": "Este tipo de máquina não oferece esta operação.",
