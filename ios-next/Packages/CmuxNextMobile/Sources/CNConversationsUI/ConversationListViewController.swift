@@ -53,7 +53,9 @@ final class ConversationListViewController: UIViewController, UICollectionViewDe
         applySnapshot(animated: false)
     }
 
-    var transitionHeaderViews: [UIView] { collapsed ? [inlineBar] : [] }
+    var transitionHeaderViews: [UIView] {
+        (collapsed ? [inlineBar] : []) + (leadingHost.map { [$0.view] } ?? [])
+    }
 
     private var leadingHost: UIHostingController<AnyView>?
 
@@ -293,7 +295,8 @@ final class ConversationListViewController: UIViewController, UICollectionViewDe
         searchIcon.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium))
         searchIcon.tintColor = style.primary
         searchIcon.contentMode = .center
-        searchField.placeholder = String(localized: "Search")
+        searchField.attributedPlaceholder = NSAttributedString(string: String(localized: "Search"),
+                                                               attributes: [.foregroundColor: style.secondary, .font: UIFont.sf(17)])
         searchField.font = .sf(17)
         searchField.textColor = style.primary
         searchField.returnKeyType = .search
@@ -421,7 +424,8 @@ final class ConversationListViewController: UIViewController, UICollectionViewDe
 
     func collectionView(_ cv: UICollectionView, didSelectItemAt ip: IndexPath) {
         cv.deselectItem(at: ip, animated: false)
-        if let open = openCell { open.close(); return }
+        if let open = openCell, open.isSwipeOpen { open.close(); return }
+        openCell = nil
         guard let item = dataSource.itemIdentifier(for: ip) else { return }
         let id: String
         switch item {
@@ -492,7 +496,7 @@ final class ConversationListViewController: UIViewController, UICollectionViewDe
         let flyer = AvatarView(frame: source)
         flyer.configure(updated)
         view.insertSubview(flyer, belowSubview: inlineBar)
-        let driver = SpringDriver(value: 0, spring: .pin) { p in flyer.frame = lerp(source, dest, p) }
+        let driver = SpringDriver(value: 0, spring: .pin, label: "pin") { p in flyer.frame = lerp(source, dest, p) }
         pinFlights.append(driver)
         driver.animate(to: 1) { [weak self, weak driver] _ in
             flyer.removeFromSuperview()

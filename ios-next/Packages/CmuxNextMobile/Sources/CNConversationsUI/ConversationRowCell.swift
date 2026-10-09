@@ -42,7 +42,7 @@ final class ConversationRowCell: UICollectionViewCell, UIGestureRecognizerDelega
     private var offset: CGFloat = 0
     private var panStart: CGFloat = 0
     private var armed = false
-    private lazy var snap = SpringDriver(value: 0, spring: .swipeSnap) { [weak self] v in self?.setOffset(v) }
+    private lazy var snap = SpringDriver(value: 0, spring: .swipeSnap, label: "swipe") { [weak self] v in self?.setOffset(v) }
     /// Keeps the pressed fill through a push; faded after the pop.
     var keepsSelection = false { didSet { updateFill(animated: false) } }
 
@@ -168,7 +168,7 @@ final class ConversationRowCell: UICollectionViewCell, UIGestureRecognizerDelega
         title.frame = CGRect(x: s.rowTextX, y: s.rowTitleTop, width: max(0, titleRight - s.rowTextX), height: 20.3)
         let pw = w - s.rowTrailing - s.rowTextX
         let ph = min(36, ceil(preview.sizeThatFits(CGSize(width: pw, height: 40)).height))
-        preview.frame = CGRect(x: s.rowTextX, y: 32.3, width: pw, height: ph)
+        preview.frame = CGRect(x: s.rowTextX, y: 34, width: pw, height: ph)
         separator.frame = CGRect(x: s.rowTextX, y: h - 1 / 3, width: w - s.rowTextX - s.rowTrailing, height: 1 / 3)
         layoutButtons()
     }

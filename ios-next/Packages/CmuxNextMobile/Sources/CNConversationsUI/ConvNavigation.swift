@@ -266,14 +266,18 @@ final class ConvTransition: NSObject, UIViewControllerAnimatedTransitioning, UIV
 
     /// `velocity` is in widths per second, positive toward completing the pop.
     func end(fraction: CGFloat, velocity: CGFloat) {
-        guard context != nil else { pendingEnd = (fraction, velocity); return }
+        guard let ctx = context else { pendingEnd = (fraction, velocity); return }
+        // The last touch can arrive with .ended only; land on it first.
+        let f = clamp01(fraction)
+        apply(1 - f)
+        ctx.updateInteractiveTransition(f)
         let projected = fraction + velocity * 0.15
         let complete = velocity > 0.3 || (velocity > -0.3 && projected > 0.5)
         run(to: complete ? 0 : 1, velocity: -velocity)
     }
 
     private func run(to target: CGFloat, velocity: CGFloat) {
-        let d = SpringDriver(value: presence, spring: operation == .push ? .push : .pop) { [weak self] q in self?.apply(q) }
+        let d = SpringDriver(value: presence, spring: operation == .push ? .push : .pop, label: operation == .push ? "push" : "pop") { [weak self] q in self?.apply(q) }
         driver = d
         if isInteractive {
             let threadHeaders = self.threadHeaders, listHeaders = self.listHeaders

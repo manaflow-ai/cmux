@@ -164,7 +164,10 @@ struct TranscriptBuilder {
         // The receipt goes under my latest message when nothing newer came in.
         let receiptTarget: Message? = {
             let lastOther = messages.lastIndex(where: { !$0.sender.isMe }) ?? -1
-            let mine = messages.enumerated().filter { $0.element.sender.isMe && $0.offset > lastOther && $0.element.status != .sending }
+            // Messages shows no "Sent" state: the receipt stays on the previous
+            // message until the new one is delivered (or fails).
+            let shown: Set<MessageStatus> = [.delivered, .read, .failed]
+            let mine = messages.enumerated().filter { $0.element.sender.isMe && $0.offset > lastOther && shown.contains($0.element.status) }
             return mine.last?.element
         }()
 
@@ -217,7 +220,7 @@ struct TranscriptBuilder {
                     case .read: text = String(localized: "Read")
                     case .failed: text = String(localized: "Not Delivered")
                     case .delivered: text = String(localized: "Delivered")
-                    default: text = String(localized: "Sent")
+                    default: text = String(localized: "Delivered")
                     }
                     // Ink top ~8 pt under the body, right edge 21 pt inside the bubble.
                     let rf = CGRect(x: 0, y: y + 5.5, width: body.maxX - 21, height: 13.3)

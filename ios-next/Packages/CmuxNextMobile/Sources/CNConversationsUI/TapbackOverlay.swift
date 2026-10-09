@@ -135,7 +135,7 @@ final class TapbackOverlay: UIView {
         }
         UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut]) { self.dim.alpha = 1 }
         let anchors = panels.map { p in CGPoint(x: bubbleFrame.midX - p.center.x, y: bubbleFrame.midY - p.center.y) }
-        let s = SpringDriver(value: 0, spring: .pop2) { t in
+        let s = SpringDriver(value: 0, spring: .pop2, label: "tapback") { t in
             for (p, a) in zip(panels, anchors) {
                 let k = lerp(0.6, 1, t)
                 p.transform = CGAffineTransform(translationX: a.x * (1 - t), y: a.y * (1 - t)).scaledBy(x: k, y: k)

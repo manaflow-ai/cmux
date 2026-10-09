@@ -62,7 +62,11 @@ final class SpringDriver {
     private var onUpdate: (CGFloat) -> Void
     private var completion: ((Bool) -> Void)?
 
-    init(value: CGFloat, spring: ConvSpring, onUpdate: @escaping (CGFloat) -> Void) {
+    /// Name in the DEBUG animation trace (`CMUX_CONV_TRACE=1`).
+    var label = ""
+
+    init(value: CGFloat, spring: ConvSpring, label: String = "", onUpdate: @escaping (CGFloat) -> Void) {
+        self.label = label
         self.value = value
         self.target = value
         self.spring = spring
@@ -86,7 +90,11 @@ final class SpringDriver {
             finish(true)
             return
         }
-        start = CACurrentMediaTime()
+        ConvTrace.shared.log(self.label, t: 0, value: value, frameTime: CACurrentMediaTime())
+        // The clock starts at the first frame actually rendered (like a Core
+        // Animation begin time at commit), so main-thread work done in the
+        // same turn (building the incoming screen) does not eat the curve.
+        start = 0
         if link == nil {
             let l = CADisplayLink(target: DisplayLinkProxy(self), selector: #selector(DisplayLinkProxy.tick(_:)))
             l.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
@@ -114,17 +122,21 @@ final class SpringDriver {
     }
 
     fileprivate func tick(_ l: CADisplayLink) {
+        if start == 0 { start = l.timestamp }
         let t = l.targetTimestamp - start
         let s = spring.state(at: max(0, t), x0: x0, v0: v0)
         value = target + CGFloat(s.x)
         velocity = CGFloat(s.v)
+        ConvTrace.shared.log(label, t: t, value: value, frameTime: l.targetTimestamp)
         let scale = max(abs(x0), 1)
         if abs(s.x) < 0.001 * scale + 0.0005, abs(s.v) < 0.01 * scale + 0.005 {
             value = target
             velocity = 0
-            onUpdate(value)
             l.invalidate()
             link = nil
+            onUpdate(value)
+            ConvTrace.shared.log(label, t: t, value: value, frameTime: l.targetTimestamp)
+            ConvTrace.shared.flush()
             finish(true)
             return
         }
@@ -166,7 +178,7 @@ final class TimedDriver {
 
     func run(completion: (() -> Void)? = nil) {
         self.completion = completion
-        start = CACurrentMediaTime()
+        start = 0
         let l = CADisplayLink(target: TimedProxy(self), selector: #selector(TimedProxy.tick(_:)))
         l.add(to: .main, forMode: .common)
         link = l
@@ -180,6 +192,7 @@ final class TimedDriver {
     }
 
     fileprivate func tick(_ l: CADisplayLink) {
+        if start == 0 { start = l.timestamp }
         let p = min(1, (l.targetTimestamp - start) / max(duration, 0.001))
         body(CGFloat(p))
         if p >= 1 {
@@ -199,6 +212,44 @@ private final class TimedProxy: NSObject {
     @objc func tick(_ l: CADisplayLink) {
         guard let owner else { l.invalidate(); return }
         owner.tick(l)
+    }
+}
+
+/// DEBUG-only trace of display-link driven animations, written to
+/// `tmp/conv-trace.txt` in the app container when `CMUX_CONV_TRACE=1`.
+/// Validation reads it to check the implemented curves frame by frame.
+@MainActor
+final class ConvTrace {
+    static let shared = ConvTrace()
+    private let enabled: Bool
+    private var lines: [String] = []
+    private let url = FileManager.default.temporaryDirectory.appendingPathComponent("conv-trace.txt")
+
+    init() {
+        #if DEBUG
+        enabled = ProcessInfo.processInfo.environment["CMUX_CONV_TRACE"] == "1"
+        #else
+        enabled = false
+        #endif
+    }
+
+    func log(_ label: String, t: Double, value: CGFloat, frameTime: CFTimeInterval) {
+        guard enabled, !label.isEmpty else { return }
+        lines.append(String(format: "%@ %.4f %.4f %.4f", label, frameTime, t, Double(value)))
+        if lines.count >= 40 { flush() }
+    }
+
+    func flush() {
+        guard enabled, !lines.isEmpty else { return }
+        let chunk = lines.joined(separator: "\n") + "\n"
+        lines.removeAll()
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile()
+            h.write(Data(chunk.utf8))
+            try? h.close()
+        } else {
+            try? Data(chunk.utf8).write(to: url)
+        }
     }
 }
 

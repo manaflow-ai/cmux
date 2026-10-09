@@ -51,7 +51,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegate, UI
     private var pendingSend: PendingSend?
     private var flights: [AnyObject] = []
 
-    private lazy var revealDriver = SpringDriver(value: 0, spring: .timestampReturn) { [weak self] v in self?.setReveal(v) }
+    private lazy var revealDriver = SpringDriver(value: 0, spring: .timestampReturn, label: "reveal") { [weak self] v in self?.setReveal(v) }
     private lazy var revealPan = UIPanGestureRecognizer(target: self, action: #selector(handleReveal(_:)))
     private lazy var pressGesture = UILongPressGestureRecognizer(target: self, action: #selector(handlePress(_:)))
     private lazy var menuGesture = UILongPressGestureRecognizer(target: self, action: #selector(handleMenuPress(_:)))
@@ -90,7 +90,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegate, UI
             guard let self else { return }
             switch change {
             case .thread(let id), .typing(let id):
-                if id == conversation.id { rebuild() }
+                guard id == conversation.id else { return }
+                rebuild()
+                // Incoming messages read while the thread is on screen.
+                if mode == .full, view.window != nil, let c = store.conversation(id), c.unread > 0 { store.markRead(id) }
             case .removed(let id):
                 if id == conversation.id, mode == .full { navigationController?.popToRootViewController(animated: true) }
             case .list:
@@ -398,7 +401,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegate, UI
         let fill = TimedDriver(duration: 0.11) { t in flyer.shape.opacity = Float(t) }
         flights.append(fill)
         let spring: ConvSpring = p.first ? .firstSendFlight : .sendFlight
-        let flight = SpringDriver(value: 0, spring: spring) { t in
+        let flight = SpringDriver(value: 0, spring: spring, label: "send") { t in
             let w = lerp(start.width, final.width, t)
             let fullH = lerp(start.height, final.height, t)
             let squash = 1 - 0.55 * sin(.pi * clamp01(t / 0.55))
