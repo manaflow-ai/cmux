@@ -150,6 +150,18 @@ import Testing
         #expect(h.list.groupEditor.shownGroup == renamed)
     }
 
+    @Test func aClickInTheListClosesTheEditorAndEndsIt() throws {
+        let h = Harness()
+        h.list.openGroupEditor(g1)
+        let row = try #require(h.list.displayed.row(for: .workspace(id("b"))))
+        let point = h.list.convert(NSPoint(x: h.list.frame(for: row).midX, y: h.list.frame(for: row).midY), to: nil)
+        let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: h.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        h.list.mouseDown(with: event)
+        #expect(h.list.groupEditor.shownGroup == nil)
+        #expect(h.intents.contains(.groupEditorEnded(g1)))
+    }
+
     @Test func theEditorClosesWhenItsGroupIsGone() throws {
         let h = Harness()
         h.list.openGroupEditor(g1)

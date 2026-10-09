@@ -9,6 +9,8 @@ extension SidebarListView {
     override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.click)
         if inlineRename.isActive { inlineRename.end(commit: true) }
+        // A click in the list closes the group editor, like a click outside it.
+        if groupEditor.isVisible { groupEditor.hide() }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard let row = displayed.row(at: point.y) else {
