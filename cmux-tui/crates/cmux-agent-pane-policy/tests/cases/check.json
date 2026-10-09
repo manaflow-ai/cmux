@@ -1376,7 +1376,7 @@
  },
  {
   "name": "an answer that is not a string or a list of strings is refused",
-  "text": "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"allow_once\",\"answers\":{\"db_engine\":{\"answers\":[\"SQLite\"]}}}}",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"allow_once\",\"answers\":{\"db_engine\":3}}}",
   "state": {
    "first": false,
    "token": null,
@@ -1394,12 +1394,27 @@
    "method": "_acpmux/permission_respond",
    "id": "38",
    "spend": null
+  }
+ },
+ {
+  "name": "Codex's {answers: [string]} answer passes and needs a gesture",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"allow_once\",\"answers\":{\"db_engine\":{\"answers\":[\"SQLite\"]}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "questions": [
+    "p1"
+   ]
   },
-  "swift_gap": "Swift accepts Codex's {answers: [string]} form; the Rust policy currently allows only strings or string lists.",
-  "swift_expect": {
+  "expect": {
    "frame": {
     "jsonrpc": "2.0",
-    "id": 38,
+    "id": 43,
     "method": "_acpmux/permission_respond",
     "params": {
      "sessionId": "s1",
@@ -1417,7 +1432,7 @@
    "facts": {
     "is_first": false,
     "method": "_acpmux/permission_respond",
-    "page_id": "38",
+    "page_id": "43",
     "ticket": null,
     "other_meta": false,
     "pick": null,

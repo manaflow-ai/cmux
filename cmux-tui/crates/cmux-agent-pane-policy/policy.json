@@ -75,10 +75,11 @@
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
     "folder", "folders", "root", "roots", "worktree", "worktreePath"],
   "question_answers": {
-    "description": "Answers are allowed only for a pending question (toolCall._meta.acpmux.question), as an object of at most 64 item ids; each id and scalar value is at most 4096 UTF-8 bytes, and list strings are counted together under that bound. Swift and Rust enforce these bounds; Swift additionally accepts Codex's {answers: [string]} wrapper, marked as a gap in tests/cases/check.json (swift_gap).",
+    "description": "Answers are allowed only for a pending question (toolCall._meta.acpmux.question), as an object of 1 to maximum_items of its item ids or prompts; each value is a string, a list of at most maximum_list_strings strings, or Codex's {answers: [string]}. Each id and each string is at most maximum_value_bytes UTF-8 bytes, and the strings of one list are counted together under that bound. Swift (AcpmuxPaneMethods+Answers.swift) and Rust (src/answers.rs) enforce the same rule.",
     "method": "_acpmux/permission_respond",
     "param": "answers",
     "maximum_items": 64,
+    "maximum_list_strings": 64,
     "maximum_value_bytes": 4096
   }
 }

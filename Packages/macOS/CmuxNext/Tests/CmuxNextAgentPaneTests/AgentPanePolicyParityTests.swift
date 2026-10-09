@@ -62,6 +62,12 @@ import Testing
         #expect(Self.set(policy["setting_methods"]) == AcpmuxPaneMethods.settingMethods)
         #expect(Self.set(policy["history_replies"]) == AcpmuxPermissionOptions.historyReplies)
         #expect(Self.set(policy["path_keys"]) == Set(AcpmuxPathPolicy.keys))
+        let answers = try #require(policy["question_answers"] as? [String: Any])
+        #expect(answers["method"] as? String == "_acpmux/permission_respond")
+        #expect(answers["param"] as? String == "answers")
+        #expect(answers["maximum_items"] as? Int == AcpmuxPaneMethods.maximumAnswerItems)
+        #expect(answers["maximum_list_strings"] as? Int == AcpmuxPaneMethods.maximumAnswerListStrings)
+        #expect(answers["maximum_value_bytes"] as? Int == AcpmuxPaneMethods.maximumAnswerBytes)
         let rules = try #require(policy["gesture_rules"] as? [String: String])
         #expect(Set(rules.keys) == Set(AcpmuxPaneMethods.gestureRules.keys))
         for (method, rule) in AcpmuxPaneMethods.gestureRules {
@@ -206,7 +212,7 @@ import Testing
     /// runs against `check_frame`) against ``AgentPaneTransport/checkOne(_:_:)``.
     @Test func fullCheckOrder() throws {
         let all = try Self.cases("check.json")
-        #expect(all.count == 41, "check.json: the full order's 41 cases")
+        #expect(all.count == 42, "check.json: the full order's 42 cases")
         for c in all {
             let name = c["name"] as? String ?? "?"
             let state = try #require(c["state"] as? [String: Any])

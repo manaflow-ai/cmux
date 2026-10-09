@@ -65,6 +65,13 @@ fn answers_are_bounded_and_codex_values_hold_one_key() {
     assert!(refused("q", json!({"name": "x".repeat(4097)})));
     assert!(!refused("q", json!({"name": vec!["a"; 64]})));
     assert!(refused("q", json!({"name": vec!["a"; 65]})));
+    let half = "x".repeat(2048);
+    assert!(!refused("q", json!({"name": [half.as_str(), half.as_str()]})));
+    assert!(
+        refused("q", json!({"name": [half.as_str(), half.as_str(), "x"]})),
+        "a list counts together"
+    );
+    assert!(refused("q", json!({"name": {"answers": [half.as_str(), half.as_str(), "x"]}})));
     assert!(refused("q", json!({"name": {"answers": ["a"], "junk": "x"}})));
     assert!(refused("q", json!({"name": {"answers": [1]}})));
     assert!(refused("q", json!({"name": 3})));

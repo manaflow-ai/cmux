@@ -29,17 +29,20 @@ pub struct KnownParams {
     pub acpmux: BTreeSet<String>,
 }
 
-/// The bounds on a question's answers (crate rule, stricter than the Swift
-/// host today): `method`'s `param` is accepted only for a pending question,
-/// and only as an object of at most `maximum_items` item ids, each mapped to a
-/// string or a list of strings of at most `maximum_value_bytes` UTF-8 bytes
-/// (a list: its strings together). The default (a policy that did not parse)
-/// accepts no answers.
+/// The bounds on a question's answers (Swift `AcpmuxPaneMethods+Answers`,
+/// enforced by [`crate::answers::breaks_answers_rule`]): `method`'s `param`
+/// is accepted only for a pending question, and only as an object of 1 to
+/// `maximum_items` of its item ids, each mapped to a string, a list of at most
+/// `maximum_list_strings` strings, or Codex's `{answers: [string]}`; each id
+/// and each string is at most `maximum_value_bytes` UTF-8 bytes (a list: its
+/// strings together). The default (a policy that did not parse) accepts no
+/// answers.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct QuestionAnswers {
     pub method: String,
     pub param: String,
     pub maximum_items: usize,
+    pub maximum_list_strings: usize,
     pub maximum_value_bytes: usize,
 }
 
