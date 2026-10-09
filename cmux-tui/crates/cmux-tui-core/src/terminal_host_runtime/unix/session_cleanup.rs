@@ -59,7 +59,7 @@ impl SessionCleanup {
         host_group: libc::pid_t,
         capture_allowed: bool,
     ) {
-        let mut captured = self.captured.lock().unwrap();
+        let mut captured = self.captured.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if signal == libc::SIGHUP
             && capture_allowed
             && matches!(&*captured, CaptureState::NotCaptured | CaptureState::ScanFailed)
@@ -78,7 +78,7 @@ impl SessionCleanup {
     }
 
     pub(super) fn wait_for_exit(&self, timeout: Duration) -> bool {
-        let mut captured = self.captured.lock().unwrap();
+        let mut captured = self.captured.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let complete = match &*captured {
             CaptureState::NotCaptured | CaptureState::Complete => true,
             CaptureState::ScanFailed => false,
