@@ -579,3 +579,23 @@ describe("rails-hardening-2 (fifth review follow-up)", () => {
     expect((await rows(w, w.staging)).at(-1)).toBe("0010_drop_idx.sql")
   })
 })
+
+describe("rehearsal login for a PlanetScale-role owner (live 2026-10-09)", () => {
+  // A PlanetScale-managed role gets a new password on a branch copy, so the main branch's login fails
+  // there ("password authentication failed", production and backend/staging applies on 2026-10-09).
+  // A SQL owner keeps its password on the copy; a PlanetScale-role owner resets its own copy record.
+  it("resets the copy's owner role instead of reusing the main branch password", async () => {
+    const w = await world()
+    ;(w.deps as { ownerPgRole?: string | null }).ownerPgRole = null
+    expect(await w.run("apply", ...S)).toBe(0)
+    expect(w.provider.calls.some((c) => c.startsWith("connect owner cmux-prod/rh-"))).toBe(true)
+    expect(w.provider.calls.some((c) => c.startsWith("copy url"))).toBe(false)
+  })
+
+  it("keeps the copied login for a SQL owner", async () => {
+    const w = await world()
+    expect(await w.run("apply", ...S)).toBe(0)
+    expect(w.provider.calls.some((c) => c.startsWith("copy url cmux-prod/rh-"))).toBe(true)
+    expect(w.provider.calls.some((c) => c.startsWith("connect owner"))).toBe(false)
+  })
+})

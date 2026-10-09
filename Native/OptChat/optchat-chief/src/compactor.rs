@@ -162,6 +162,22 @@ pub struct CompactorSpec {
 /// keeps both bounded while a burst still runs 2x the old width.
 pub const COMPACTOR_SESSIONS: usize = 16;
 
+/// The compactor sessions this host runs: `OPTCHAT_COMPACTOR_SESSIONS`
+/// (1 to the core's JOBS, 64), else `COMPACTOR_SESSIONS`. For measuring an
+/// import at other widths; the default stays 16 until those numbers are in.
+pub fn compactor_sessions() -> usize {
+    compactor_sessions_from(std::env::var("OPTCHAT_COMPACTOR_SESSIONS").ok().as_deref())
+}
+
+/// `compactor_sessions` for a setting value: a number from 1 to JOBS, else
+/// the default.
+pub fn compactor_sessions_from(value: Option<&str>) -> usize {
+    value
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| (1..=optchat_core::JOBS).contains(n))
+        .unwrap_or(COMPACTOR_SESSIONS)
+}
+
 /// Warm sessions the main compactor keeps (`with_warm`): a node takes a
 /// Claude Code process that already started instead of waiting for one.
 /// Each idle one costs a process (200-400 MB) and holds a slot; most turns
@@ -188,6 +204,44 @@ struct SlotState {
     warming: usize,
     /// Nodes blocked in `acquire`.
     waiting: usize,
+    /// Tickets of the nodes waiting in `acquire`, oldest first: the chat's
+    /// own nodes (foreground) and imported ones (background).
+    queues: [std::collections::VecDeque<u64>; 2],
+    next_ticket: u64,
+    /// Slots given to foreground nodes in a row while a background node
+    /// waited (`BACKGROUND_EVERY`).
+    foreground_run: usize,
+}
+
+/// Session hand-outs in a row the chat's own nodes may take while an
+/// imported node waits; the next goes to the import, so it never starves.
+const BACKGROUND_EVERY: usize = 4;
+
+impl SlotState {
+    /// Whether ticket `t` of queue `q` (0 foreground, 1 background) is the
+    /// one to take the next session: the oldest of its queue; foreground
+    /// first, except every `BACKGROUND_EVERY`-th hand-out while a
+    /// background node waits.
+    fn turn(&self, q: usize, t: u64) -> bool {
+        if self.queues[q].front() != Some(&t) {
+            return false;
+        }
+        let background_due = !self.queues[1].is_empty() && self.foreground_run >= BACKGROUND_EVERY;
+        match q {
+            0 => !background_due,
+            _ => self.queues[0].is_empty() || background_due,
+        }
+    }
+
+    /// Ticket `t` of queue `q` took a session.
+    fn took(&mut self, q: usize) {
+        self.queues[q].pop_front();
+        self.foreground_run = if q == 0 && !self.queues[1].is_empty() {
+            self.foreground_run + 1
+        } else {
+            0
+        };
+    }
 }
 
 /// A started session no node has prompted yet: a Claude Code process
@@ -229,29 +283,48 @@ impl Slots {
     }
 
     /// A warm session with `key`, else a free slot, else a stale warm
-    /// session's slot; waits while none is there.
-    fn acquire(&self, key: Option<u64>) -> Acquired {
+    /// session's slot; waits while none is there. Waiting nodes take
+    /// sessions in order, the chat's own (`foreground`) before imported
+    /// ones, as the reference client's background calls yield to
+    /// foreground work; every `BACKGROUND_EVERY`-th hand-out goes to a
+    /// waiting import, so it never starves.
+    fn acquire(&self, key: Option<u64>, foreground: bool) -> Acquired {
+        let q = usize::from(!foreground);
         let mut st = self.lock();
-        loop {
-            if let Some(key) = key
-                && let Some(k) = st.warm.iter().position(|w| w.key == key)
-            {
-                return Acquired::Warm(st.warm.remove(k));
+        let t = st.next_ticket;
+        st.next_ticket += 1;
+        st.queues[q].push_back(t);
+        st.waiting += 1;
+        let got = loop {
+            if st.turn(q, t) {
+                let got = if let Some(key) = key
+                    && let Some(k) = st.warm.iter().position(|w| w.key == key)
+                {
+                    Some(Acquired::Warm(st.warm.remove(k)))
+                } else if let Some(k) = st.free.iter().position(|f| *f) {
+                    st.free[k] = false;
+                    Some(Acquired::Slot(k))
+                } else {
+                    st.warm
+                        .iter()
+                        .position(|w| Some(w.key) != key)
+                        .map(|k| Acquired::Stale(st.warm.remove(k)))
+                };
+                if let Some(got) = got {
+                    st.took(q);
+                    break got;
+                }
             }
-            if let Some(k) = st.free.iter().position(|f| *f) {
-                st.free[k] = false;
-                return Acquired::Slot(k);
-            }
-            if let Some(k) = st.warm.iter().position(|w| Some(w.key) != key) {
-                return Acquired::Stale(st.warm.remove(k));
-            }
-            st.waiting += 1;
             st = self
                 .freed
                 .wait(st)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            st.waiting -= 1;
-        }
+        };
+        st.waiting -= 1;
+        drop(st);
+        // The next in line may take a session that is still free.
+        self.freed.notify_all();
+        got
     }
 
     /// Whether the caller, which holds a slot it is done with, should start
@@ -330,6 +403,44 @@ struct Live {
     error: Option<String>,
     /// The node's context as the trace records it (size, hash, pieces).
     context: Value,
+    /// Where the node's time went, for the trace: waiting for a session
+    /// slot, starting the sessions, and each prompt (first output, whole).
+    timing: Timing,
+}
+
+/// A node's time split (`node` trace event `timing`), in milliseconds.
+#[derive(Clone, Debug, Default)]
+struct Timing {
+    /// Waiting for a free session slot (`Slots::acquire`), summed over tries.
+    slot_wait_ms: u64,
+    /// Starting Claude Code sessions (0 for a warm one), summed.
+    session_start_ms: u64,
+    /// Per prompt: until its first streamed output (None: none seen).
+    ttft_ms: Vec<Option<u64>>,
+    /// Per prompt: until its answer.
+    prompt_ms: Vec<u64>,
+}
+
+impl Timing {
+    fn add(&mut self, older: Timing) {
+        self.slot_wait_ms += older.slot_wait_ms;
+        self.session_start_ms += older.session_start_ms;
+        let mut ttft = older.ttft_ms;
+        ttft.append(&mut self.ttft_ms);
+        self.ttft_ms = ttft;
+        let mut prompt = older.prompt_ms;
+        prompt.append(&mut self.prompt_ms);
+        self.prompt_ms = prompt;
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "slot_wait_ms": self.slot_wait_ms,
+            "session_start_ms": self.session_start_ms,
+            "ttft_ms": self.ttft_ms,
+            "prompt_ms": self.prompt_ms,
+        })
+    }
 }
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
@@ -637,6 +748,7 @@ impl AcpmuxCompactor {
         system: Option<&str>,
         ttl: CacheTtl,
         ours: bool,
+        foreground: bool,
     ) -> Result<String, ModelError> {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
@@ -644,7 +756,13 @@ impl AcpmuxCompactor {
         self.reap_warm();
         let route = self.harness();
         let key = self.warm_key(system, ttl, ours);
-        let (id, slot, cwd, preset) = match self.slots.acquire((self.warm > 0).then_some(key)) {
+        let asked = Instant::now();
+        let acquired = self
+            .slots
+            .acquire((self.warm > 0).then_some(key), foreground);
+        let slot_wait = asked.elapsed();
+        let got = Instant::now();
+        let (id, slot, cwd, preset) = match acquired {
             Acquired::Warm(w) => (w.id, w.slot, w.cwd, w.preset),
             other => {
                 let slot = match other {
@@ -685,6 +803,11 @@ impl AcpmuxCompactor {
                     cost: None,
                     error: None,
                     context: Value::Null,
+                    timing: Timing {
+                        slot_wait_ms: slot_wait.as_millis() as u64,
+                        session_start_ms: got.elapsed().as_millis() as u64,
+                        ..Timing::default()
+                    },
                 },
             );
         Ok(id)
@@ -856,6 +979,8 @@ impl AcpmuxCompactor {
             .get(&node)
             .map_or(0, |l| l.seq);
         let mut begun = false;
+        let asked = Instant::now();
+        let mut ttft = None;
         let prompt_id = format!("optchat-compact:{}:{}:{n}", self.stamp, node.name());
         let (tx, rx) = channel();
         self.port
@@ -872,6 +997,7 @@ impl AcpmuxCompactor {
                         })
                     {
                         begun = true;
+                        ttft = Some(asked.elapsed().as_millis() as u64);
                         started();
                     }
                 }
@@ -892,6 +1018,15 @@ impl AcpmuxCompactor {
                 }
             }
         };
+        if let Some(l) = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(&node)
+        {
+            l.timing.ttft_ms.push(ttft);
+            l.timing.prompt_ms.push(asked.elapsed().as_millis() as u64);
+        }
         // acpmux answers a refused Claude turn with a JSON-RPC error that
         // carries Claude Code's text (claude_stdio/inbound.rs), never with
         // `stopReason: "refusal"`; both are refusals.
@@ -1000,7 +1135,7 @@ impl AcpmuxCompactor {
             .blocks
             .iter()
             .any(|b| b.get("cache_control").is_some());
-        let session = self.open(node, Some(&layout.system), ttl, ours)?;
+        let session = self.open(node, Some(&layout.system), ttl, ours, !request.imported)?;
         let has_marker = layout
             .blocks
             .iter()
@@ -1020,7 +1155,8 @@ impl AcpmuxCompactor {
                 if let Some(note) = note {
                     layout.blocks.push(text_block(note));
                 }
-                let session = self.open(node, Some(&layout.system), ttl, false)?;
+                let session =
+                    self.open(node, Some(&layout.system), ttl, false, !request.imported)?;
                 self.prompt(node, &session, layout.blocks, started)
             }
             other => other,
@@ -1056,6 +1192,7 @@ impl AcpmuxCompactor {
         {
             l.opened = old.opened;
             l.prompts += old.prompts;
+            l.timing.add(old.timing);
             l.cost = match (l.cost, old.cost) {
                 (Some(a), Some(b)) => Some(a + b),
                 (a, b) => a.or(b),
@@ -1088,7 +1225,13 @@ impl AcpmuxCompactor {
         if let Some(note) = note {
             blocks.push(text_block(note));
         }
-        let session = self.open(request.node, None, self.cache_ttl.get(), false)?;
+        let session = self.open(
+            request.node,
+            None,
+            self.cache_ttl.get(),
+            false,
+            !request.imported,
+        )?;
         self.prompt(request.node, &session, blocks, started)
     }
 
@@ -1192,6 +1335,7 @@ impl AcpmuxCompactor {
                 "ok": live.error.is_none(),
                 "error": live.error.as_deref().map(|e| self.trace.text(e)),
                 "context": live.context,
+                "timing": live.timing.json(),
             }),
         );
         // Purged: a node's session holds the chat's text, and nothing reads it again.
@@ -1285,7 +1429,8 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
         let n = self.describes.fetch_add(1, Ordering::SeqCst);
         let node = NodeId::new(0, u64::MAX - n);
         let session = self
-            .open(node, None, self.cache_ttl.get(), false)
+            // A user's image: foreground work, ahead of an import.
+            .open(node, None, self.cache_ttl.get(), false, true)
             .map_err(|e| e.message)?;
         let reply = self.prompt(node, &session, blocks, &|| {});
         self.end_node(node);
@@ -1602,7 +1747,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     let base = format!("optchat-compact-{}", home_id(home));
     if family == Family::Codex {
         // Codex: the slot's own CODEX_HOME and the Chief's compactor cache key.
-        return (0..COMPACTOR_SESSIONS)
+        return (0..compactor_sessions())
             .map(|k| Preset {
                 name: slot_preset(&base, k),
                 harness: harness.to_owned(),
@@ -1667,10 +1812,11 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }
+    env.extend(crate::session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
-    (0..COMPACTOR_SESSIONS)
+    (0..compactor_sessions())
         .map(|k| Preset {
             name: slot_preset(&base, k),
             harness: harness.to_owned(),
@@ -1802,5 +1948,44 @@ pub fn compact_route(choice: Option<&str>, config: &Config) -> Result<CompactRou
             let _ = config;
             Ok(CompactRoute::Acpmux)
         }
+    }
+}
+
+#[cfg(test)]
+mod slot_order_tests {
+    use super::*;
+
+    /// No starvation: while chat nodes keep coming, a waiting import node
+    /// still takes every `BACKGROUND_EVERY + 1`-th session, and each queue
+    /// keeps its own order.
+    #[test]
+    fn an_import_node_takes_a_session_between_chat_nodes() {
+        let mut st = SlotState::default();
+        st.queues[1].extend([100, 101]);
+        st.queues[0].extend(1..=10);
+        let mut order = Vec::new();
+        while !st.queues[0].is_empty() || !st.queues[1].is_empty() {
+            let q = (0..2)
+                .find(|&q| st.queues[q].front().is_some_and(|&t| st.turn(q, t)))
+                .expect("someone's turn");
+            order.push(*st.queues[q].front().unwrap());
+            st.took(q);
+        }
+        assert_eq!(order, vec![1, 2, 3, 4, 100, 5, 6, 7, 8, 101, 9, 10]);
+    }
+}
+
+#[cfg(test)]
+mod session_count_tests {
+    use super::*;
+
+    #[test]
+    fn the_session_count_setting_takes_1_to_jobs_else_the_default() {
+        assert_eq!(compactor_sessions_from(None), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("32")), 32);
+        assert_eq!(compactor_sessions_from(Some(" 1 ")), 1);
+        assert_eq!(compactor_sessions_from(Some("0")), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("65")), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("lots")), COMPACTOR_SESSIONS);
     }
 }

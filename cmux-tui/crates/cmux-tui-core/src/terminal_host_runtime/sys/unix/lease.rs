@@ -159,6 +159,34 @@ pub(crate) fn lock_terminal_host_publication_file(
     }
 }
 
+/// Try the exclusive lease on `file` once without waiting. True when it was
+/// free (the lease is then released at once); false when it is held or the
+/// try failed.
+pub(crate) fn lease_was_free(file: &File) -> bool {
+    // SAFETY: flock only probes the advisory lock of this owned fd.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        // SAFETY: same descriptor; release the probe lock at once.
+        let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        return true;
+    }
+    false
+}
+
+/// Block until the exclusive lease on `file` is ours (retrying EINTR). It is
+/// held until `file` closes.
+pub(crate) fn wait_lease_exclusive(file: &File) -> std::io::Result<()> {
+    loop {
+        // SAFETY: a blocking exclusive lock on an owned descriptor.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
 impl Drop for TerminalHostResetLock {
     fn drop(&mut self) {
         // SAFETY: flock only changes the advisory lock on this valid descriptor.

@@ -611,6 +611,13 @@ xctests = os.environ["FAKE_XCTESTS"].split()
 swift_tests = os.environ["FAKE_SWIFT_TESTS"].split()
 if args[:2] == ["test", "list"]:
     listed = xctests if "--disable-swift-testing" in args else sorted(xctests + swift_tests)
+    if "--disable-swift-testing" in args and os.environ.get("FAKE_EVENTS"):
+        import time
+        with open(os.environ["FAKE_EVENTS"], "a") as events:
+            events.write(f"start xctest-list {time.monotonic()}\n")
+        time.sleep(float(os.environ.get("FAKE_LIST_SECONDS", "0")))
+        with open(os.environ["FAKE_EVENTS"], "a") as events:
+            events.write(f"end xctest-list {time.monotonic()}\n")
     print("\n".join(listed))
     raise SystemExit(0)
 if args[:1] == ["build"] and "--show-bin-path" in args:
@@ -785,6 +792,78 @@ class DirectBundleSuiteTests(unittest.TestCase):
                 self.assertEqual(pathlib.Path(call["cwd"]).resolve(), package.resolve())
             self.assertIn("Swift test suites: 3 passed, 0 failed", completed.stdout)
 
+    def test_catalogs_compile_while_the_xctest_list_runs(self) -> None:
+        """hq11 fixed-cost profile (2026-10-09, CmuxNext at 5f12dad9, 4 shards):
+        after the build each shard spent 5-12 s compiling the string catalogs and
+        then 7-17 s in a second `swift test list` for the XCTest names, one after
+        the other. Neither needs the other: the catalogs compile while the XCTest
+        list runs, given the bin path so they ask SwiftPM nothing."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir).resolve()
+            package, env = self._setup(temp)
+            (package / "Sources" / "Example").mkdir(parents=True)
+            (package / "Sources" / "Example" / "Localizable.xcstrings").write_text("{}", encoding="utf-8")
+            events = temp / "events.txt"
+            compile_catalogs = temp / "compile"
+            compile_catalogs.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, time\n"
+                "with open(os.environ['FAKE_EVENTS'], 'a') as e:\n"
+                "    e.write(f\"start catalogs {time.monotonic()} {os.environ.get('CMUX_SWIFT_BIN_PATH', '-')}\\n\")\n"
+                "time.sleep(1.5)\n"
+                "with open(os.environ['FAKE_EVENTS'], 'a') as e:\n"
+                "    e.write(f'end catalogs {time.monotonic()}\\n')\n",
+                encoding="utf-8",
+            )
+            compile_catalogs.chmod(0o755)
+            env["CMUX_COMPILE_STRING_CATALOGS"] = str(compile_catalogs)
+            env["FAKE_EVENTS"] = str(events)
+            env["FAKE_LIST_SECONDS"] = "1.5"
+
+            completed = run_runner(package, env)
+
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            spans: dict[str, list[float]] = {}
+            bin_path = ""
+            for line in events.read_text(encoding="utf-8").splitlines():
+                kind, name, at, *rest = line.split()
+                spans.setdefault(name, [0.0, 0.0])[0 if kind == "start" else 1] = float(at)
+                if name == "catalogs" and kind == "start":
+                    bin_path = rest[0]
+            self.assertEqual(bin_path, env["FAKE_BIN_PATH"])
+            catalogs, listing = spans["catalogs"], spans["xctest-list"]
+            self.assertTrue(catalogs[0] < listing[1] and listing[0] < catalogs[1], spans)
+            self.assertIn("Swift test suites: 3 passed, 0 failed", completed.stdout)
+
+    def test_a_failed_catalog_compile_or_xctest_list_fails_before_the_suites(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir).resolve()
+            package, env = self._setup(temp)
+            (package / "Sources" / "Example").mkdir(parents=True)
+            (package / "Sources" / "Example" / "Localizable.xcstrings").write_text("{}", encoding="utf-8")
+            compile_catalogs = temp / "compile"
+            compile_catalogs.write_text("#!/bin/sh\nexit 4\n", encoding="utf-8")
+            compile_catalogs.chmod(0o755)
+            env["CMUX_COMPILE_STRING_CATALOGS"] = str(compile_catalogs)
+
+            completed = run_runner(package, env)
+
+            self.assertNotEqual(completed.returncode, 0, completed.stdout)
+            self.assertEqual(self._direct_calls(temp), [], completed.stdout)
+
+            compile_catalogs.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            swift = temp / "bin" / "swift"
+            swift.write_text(
+                swift.read_text(encoding="utf-8").replace(
+                    'if args[:2] == ["test", "list"]:',
+                    'if "--disable-swift-testing" in args:\n    raise SystemExit(5)\nif args[:2] == ["test", "list"]:', 1),
+                encoding="utf-8",
+            )
+            completed = run_runner(package, env)
+
+            self.assertNotEqual(completed.returncode, 0, completed.stdout)
+            self.assertEqual(self._direct_calls(temp), [], completed.stdout)
+
     def test_failures_and_crashes_keep_swift_test_exit_status(self) -> None:
         """swift test exits 1 for a failed test and for a crashed test process
         ("Exited with unexpected signal code"); the summary keeps that."""
@@ -875,6 +954,51 @@ class DirectBundleSuiteTests(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 2, completed.stdout)
             self.assertIn("CMUX_SWIFT_TEST_DIRECT", completed.stdout)
+            self.assertFalse((temp / "swift-calls.txt").exists())
+
+    def test_debug_info_option_reaches_every_swift_call(self) -> None:
+        """aws-m4pro-8, Xcode 26.6 (2026-10-09): dsymutil of the 444 MB CmuxNext
+        test bundle took 8.1 s of every test build. CMUX_SWIFT_TEST_DEBUG_INFO=none
+        passes -debug-info-format none to the list build and to every later swift
+        call (with other flags they would plan a different build); dwarf adds none.
+        none is the default."""
+        for value, want in (("none", True), ("dwarf", False), (None, True)):
+            for direct in ("1", "0"):
+                with self.subTest(value=value, direct=direct), tempfile.TemporaryDirectory() as temp_dir:
+                    temp = pathlib.Path(temp_dir).resolve()
+                    package, env = self._setup(temp)
+                    env.pop("CMUX_SWIFT_TEST_DEBUG_INFO", None)
+                    if value is not None:
+                        env["CMUX_SWIFT_TEST_DEBUG_INFO"] = value
+                    env["CMUX_SWIFT_TEST_DIRECT"] = direct
+                    if direct == "0":
+                        # The fallback runs the suites through the fake swift.
+                        (temp / "bin" / "swift").write_text(
+                            "#!/usr/bin/env bash\n"
+                            "printf 'swift %s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                            "if [[ \"$*\" == *\"test list\"* ]]; then echo 'Example.StSuite/one()'; exit 0; fi\n"
+                            "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                            encoding="utf-8",
+                        )
+
+                    completed = run_runner(package, env, default_direct=None)
+
+                    self.assertEqual(completed.returncode, 0, completed.stdout)
+                    swift_calls = (temp / "swift-calls.txt").read_text(encoding="utf-8").splitlines()
+                    self.assertGreaterEqual(len(swift_calls), 2, swift_calls)
+                    for call in swift_calls:
+                        self.assertEqual("-debug-info-format none" in call, want, call)
+
+    def test_invalid_debug_info_value_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir).resolve()
+            package, env = self._setup(temp)
+            env["CMUX_SWIFT_TEST_DEBUG_INFO"] = "line-tables"
+
+            completed = run_runner(package, env)
+
+            self.assertEqual(completed.returncode, 2, completed.stdout)
+            self.assertIn("CMUX_SWIFT_TEST_DEBUG_INFO must be", completed.stdout)
             self.assertFalse((temp / "swift-calls.txt").exists())
 
 

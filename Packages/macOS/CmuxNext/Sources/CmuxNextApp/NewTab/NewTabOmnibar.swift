@@ -79,3 +79,14 @@ enum NewTabOmnibar {
         return true
     }
 }
+
+extension NewTabPage {
+    /// Where Focus Location Bar (Cmd-L) puts the keyboard (cx-e2aa, chief decision 2026-10-09: "so
+    /// people can just cmd+l to explicitly do new tab"): a browser's own bar, a New Tab page's
+    /// omnibar, else a new New Tab page with its omnibar focused.
+    enum LocationTarget: Equatable { case browserAddressBar, newTabOmnibar, openNewTabWithOmnibar }
+
+    static func locationTarget(showsBrowser: Bool, showsNewTabPage: Bool) -> LocationTarget {
+        showsBrowser ? .browserAddressBar : showsNewTabPage ? .newTabOmnibar : .openNewTabWithOmnibar
+    }
+}
