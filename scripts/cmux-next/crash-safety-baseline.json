@@ -84,9 +84,7 @@
    "CmuxNextRemoteView": 1,
    "CmuxNextSidebar": 3,
    "CmuxNextTabs": 5,
-   "CmuxNextTasks": 3,
-   "CmuxNextTerminal": 16,
-   "CmuxNextWakeups": 1
+   "CmuxNextTasks": 3
   },
   "dynamic_dispatch": {
    "CmuxNextAgentActivity": 2,
