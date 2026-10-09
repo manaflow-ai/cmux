@@ -4,7 +4,7 @@ const NOW: u64 = 100 * DAY_MS;
 
 fn temp_root(label: &str) -> std::path::PathBuf {
     std::env::temp_dir()
-        .join(format!("cmux-command-history-{label}-{}", super::super::new_uuid_v4()))
+        .join(format!("cmux-command-history-{label}-{}", crate::workspace_registry::new_uuid_v4()))
 }
 
 fn command(text: &str, started_at_ms: u64) -> FinishedCommand {

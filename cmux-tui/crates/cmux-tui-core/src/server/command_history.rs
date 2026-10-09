@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::{Command, Mux};
 use crate::resource::ResourceError;
-use crate::workspace_registry::command_history_store::{CommandDeletion, MAX_COMMAND_LIST_LIMIT};
+use crate::state::command_history_store::{CommandDeletion, MAX_COMMAND_LIST_LIMIT};
 
 /// `set-terminal-command-history`.
 #[derive(Deserialize)]

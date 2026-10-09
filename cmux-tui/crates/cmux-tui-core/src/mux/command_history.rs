@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use super::Mux;
 use crate::resource::TerminalPublicId;
 use crate::shell_history::{FinishedCommand, MAX_QUEUED_COMMANDS};
-use crate::workspace_registry::command_history_store::{
+use crate::state::command_history_store::{
     CommandDeletion, CommandExpiry, CommandHistoryPage, CommandHistoryRow,
 };
 use crate::workspace_registry::unix_epoch_ms;

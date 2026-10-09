@@ -6,6 +6,8 @@
 //! same order. Runtime pane/surface ids deliberately never enter this store.
 
 use std::borrow::Cow;
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -28,7 +30,6 @@ use crate::resource::{
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
-pub(crate) mod command_history_store;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
@@ -717,7 +718,7 @@ pub struct WorkspaceRegistry {
     /// Projection and commit spans for `server-stats`; the mux keeps a clone.
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
-    resource_patch_failures_remaining: std::cell::Cell<u64>,
+    resource_patch_failures_remaining: Cell<u64>,
     #[cfg(test)]
     journal_before_commit: Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     #[cfg(test)]
@@ -2771,7 +2772,7 @@ impl WorkspaceRegistry {
             public_fold: None,
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
-            resource_patch_failures_remaining: std::cell::Cell::new(0),
+            resource_patch_failures_remaining: Cell::new(0),
             #[cfg(test)]
             journal_before_commit: None,
             #[cfg(test)]
@@ -3883,7 +3884,6 @@ fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
 fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     presentation_store::create_presentation_schema(transaction)?;
     screen_store::create_screen_schema(transaction)?;
-    command_history_store::create_command_history_schema(transaction)?;
     crate::state::store::create_state_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (

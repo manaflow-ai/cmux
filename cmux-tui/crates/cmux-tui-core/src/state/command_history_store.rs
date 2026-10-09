@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use super::{WorkspaceRegistry, meta_value};
+use crate::workspace_registry::{WorkspaceRegistry, meta_value};
 use crate::shell_history::FinishedCommand;
 
 /// Days a command record is kept when no client set a retention.
@@ -219,7 +219,7 @@ impl WorkspaceRegistry {
             deletions: meta_value(&self.connection, DELETIONS_KEY)?
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(0),
-            registry_id: self.registry_id.clone(),
+            registry_id: self.registry_id().to_owned(),
             retention_days,
         })
     }
@@ -295,7 +295,7 @@ impl WorkspaceRegistry {
     /// still holds the text of deleted rows. Never waits for readers: returns
     /// false when one blocked it, and the caller tries again later.
     pub(crate) fn checkpoint_terminal_command_deletes(&mut self) -> anyhow::Result<bool> {
-        if self.database_path.is_none() {
+        if self.session_journal_database_path().is_none() {
             return Ok(true);
         }
         self.connection.busy_timeout(Duration::ZERO)?;
