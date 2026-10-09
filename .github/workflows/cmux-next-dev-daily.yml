@@ -137,7 +137,7 @@ jobs:
           if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$SOURCE_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
           else
-            gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
+            gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --target "$SOURCE_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
           fi
           gh release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
           echo "Published $RELEASE_TAG for $SOURCE_SHA"
