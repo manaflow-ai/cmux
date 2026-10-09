@@ -611,6 +611,19 @@ fn a_cef_tab_has_the_agents_virtual_clipboard() {
     assert_eq!(read["items"], items, "{read}");
 }
 
+/// `tab.bringToFront` on a Chromium tab goes to the app, which owns tab
+/// selection, as `tabs.activate` does. Before, it went to the tab's page
+/// relay, where CDP cannot activate a target (bringToFront: ok false).
+#[test]
+fn a_cef_bring_to_front_goes_to_the_app() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let cef = engine(&provider, "cef");
+    cef.call("tab.bringToFront", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(calls(&app, "tab.bringToFront"), 1);
+    assert!(app.cdp_messages("c1").iter().all(|m| m["method"] != "Target.activateTarget"));
+}
+
 /// A WebKit session's URL still goes to the app (its driver navigates).
 #[test]
 fn a_webkit_tabs_open_passes_the_url_to_the_app() {
