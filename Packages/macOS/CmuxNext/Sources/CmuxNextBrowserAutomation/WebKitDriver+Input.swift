@@ -146,7 +146,7 @@ extension WebKitDriver {
         let imp = unsafeBitCast(webView.method(for: selector), to: AfterIMP.self)
         // Bounded like every WebKit block wait: a page whose web process
         // never answers (not loaded yet, suspended) must not hang the call.
-        _ = await WebKitPrivateCalls.awaitCallback(bound: WebKitPrivateCalls.callbackBound, clock: clock) { done in
+        _ = await privateCalls.awaitCallback { done in
             imp(webView, selector) { done() }
         }
     }

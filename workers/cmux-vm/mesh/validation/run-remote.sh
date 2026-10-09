@@ -8,7 +8,8 @@
 set -euo pipefail
 HOST="${MESH_HOST:-cmux-lawrence-2}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-KEY_FILE="${MESH_KEY_FILE:-$HOME/.secrets/freestyle-cmux-next-dev-20261004.key}"
+# MESH_KEY_FILE, else the one Freestyle dev key (scripts/lib/freestyle-dev-key.mjs), piped, never printed.
+freestyle_key() { if [ -n "${MESH_KEY_FILE:-}" ]; then cat "$MESH_KEY_FILE"; else node "$HERE/../../../../scripts/lib/freestyle-dev-key.mjs"; fi; }
 RUN_ID="${MESH_RUN_ID:?set MESH_RUN_ID}"
 
 if [[ "${1:-}" == "--key-remove" ]]; then
@@ -22,7 +23,7 @@ ssh "$HOST" 'mkdir -p ~/mesh-validation && chmod 700 ~/mesh-validation'
 git -C "$HERE" ls-files -z --cached -- . \
   | rsync -a --from0 --files-from=- "$HERE/" "$HOST:mesh-validation/"
 ssh "$HOST" 'test -x ~/mesh-validation/wgprobe/wgprobe || (cd ~/mesh-validation/wgprobe && PATH=/opt/homebrew/bin:$PATH go build -o wgprobe .)'
-ssh "$HOST" 'test -s ~/mesh-validation/.key' || ssh "$HOST" 'umask 077; cat > ~/mesh-validation/.key' < "$KEY_FILE"
+ssh "$HOST" 'test -s ~/mesh-validation/.key' || ssh "$HOST" 'umask 077; cat > ~/mesh-validation/.key' < <(freestyle_key)
 set +e
 ssh "$HOST" "cd ~/mesh-validation && PATH=/opt/homebrew/bin:\$PATH MESH_KEY_FILE=\$HOME/mesh-validation/.key MESH_RUN_ID=$RUN_ID ${MESH_EXTRA_ENV:-} bun $script"
 rc=$?
