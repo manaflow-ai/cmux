@@ -21,6 +21,31 @@ final class MessageActionOverlay: UIView {
         var symbol: String
         var isDestructive = false
         var handler: () -> Void
+        /// Reply: Messages opens the thread as the menu finishes closing,
+        /// so the item takes over from the lifted bubble (its window frame).
+        var handoff: ((CGRect) -> Void)? = nil
+    }
+
+    /// How far into the close Messages' Reply hands over (iOS 26.5 and 27.0:
+    /// the keyboard starts up ~0.1 s after the tap, the menu gone at ~0.15 s).
+    static let replyHandoffDelay: TimeInterval = 0.12
+    private var handedOff = false
+
+    /// Closes as usual but hands the bubble to `handoff` part way through.
+    func dismissHandingOff(_ handoff: @escaping (CGRect) -> Void) {
+        dismiss()
+        let timer = UIViewPropertyAnimator(duration: Self.replyHandoffDelay, curve: .linear)
+        timer.addAnimations {}
+        timer.addCompletion { [weak self] _ in
+            guard let self, self.superview != nil else { return }
+            let clip = self.snapshotClip.layer.presentation()?.frame ?? self.snapshotClip.frame
+            let frame = self.convert(clip, to: nil)
+            self.handedOff = true
+            self.removeFromSuperview()
+            self.onDismiss?()
+            handoff(frame)
+        }
+        timer.startAnimation()
     }
 
     /// Geometry and timing measured from iOS 26.3 Messages (see the parity notes in the PR).
@@ -289,7 +314,11 @@ final class MessageActionOverlay: UIView {
                 menuStack.addArrangedSubview(wrapper)
             }
             menuStack.addArrangedSubview(MenuRow(item: item) { [weak self] in
-                self?.dismiss { item.handler() }
+                if let handoff = item.handoff {
+                    self?.dismissHandingOff(handoff)
+                } else {
+                    self?.dismiss { item.handler() }
+                }
             })
         }
         menu.isHidden = mode != .menu
@@ -558,6 +587,7 @@ final class MessageActionOverlay: UIView {
             self.snapshotClip.transform = .identity
             self.snapshotClip.center = CGPoint(x: home.midX, y: home.minY + self.snapshotClip.bounds.height / 2)
         } completion: { _ in
+            guard !self.handedOff else { return }
             self.removeFromSuperview()
             self.onDismiss?()
             completion?()
@@ -811,9 +841,11 @@ extension ConversationViewController {
         let message = model.message
         let mine = message.reactions.first { $0.participantID == store.meID }?.reaction
         var items: [MessageActionOverlay.MenuItem] = [
-            .init(title: String(localized: "conversation.menu.reply", defaultValue: "Reply", bundle: .module), symbol: "arrowshape.turn.up.left") { [weak self] in
+            .init(title: String(localized: "conversation.menu.reply", defaultValue: "Reply", bundle: .module), symbol: "arrowshape.turn.up.left", handler: { [weak self] in
                 self?.enterReplyMode(for: message)
-            },
+            }, handoff: { [weak self] bubble in
+                self?.enterReplyMode(for: message, anchorStart: bubble)
+            }),
             .init(title: String(localized: "conversation.menu.copy", defaultValue: "Copy", bundle: .module), symbol: "doc.on.doc") {
                 UIPasteboard.general.string = message.text
             },

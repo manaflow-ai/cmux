@@ -120,3 +120,29 @@ public enum ConversationReplyMotion {
     public static let backingOutgoingTextAlpha: CGFloat = 0.7
     public static let backingAttachmentAlpha: CGFloat = 0.4
 }
+
+extension ConversationReplyMotion {
+    /// Core Animation's ease in-out (cubic Bézier 0.42, 0, 0.58, 1) at `x`.
+    public static func easeInOut(_ x: CGFloat) -> CGFloat {
+        cubicBezierY(x: x, c1: CGPoint(x: 0.42, y: 0), c2: CGPoint(x: 0.58, y: 1))
+    }
+
+    /// y of the unit cubic Bézier through (0,0), `c1`, `c2`, (1,1) where its x is `x`.
+    public static func cubicBezierY(x: CGFloat, c1: CGPoint, c2: CGPoint) -> CGFloat {
+        let x = min(1, max(0, x))
+        func coordinate(_ t: CGFloat, _ a: CGFloat, _ b: CGFloat) -> CGFloat {
+            let u = 1 - t
+            return 3 * u * u * t * a + 3 * u * t * t * b + t * t * t
+        }
+        var low: CGFloat = 0
+        var high: CGFloat = 1
+        var t = x
+        for _ in 0..<40 {
+            let value = coordinate(t, c1.x, c2.x)
+            if abs(value - x) < 1e-6 { break }
+            if value < x { low = t } else { high = t }
+            t = (low + high) / 2
+        }
+        return coordinate(t, c1.y, c2.y)
+    }
+}

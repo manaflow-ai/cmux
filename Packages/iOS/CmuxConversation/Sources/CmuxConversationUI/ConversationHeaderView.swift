@@ -127,7 +127,7 @@ final class ConversationHeaderView: UIView {
         UIView.animate(withDuration: 0.25) { self.statusLabel.alpha = text == nil ? 0 : 1 }
     }
 
-    func setTrailingMode(_ mode: TrailingMode, animated: Bool) {
+    func setTrailingMode(_ mode: TrailingMode, animated: Bool, delay: TimeInterval = 0, duration: TimeInterval = 0.2) {
         trailingMode = mode
         let isX = mode != .action
         let symbol = isX ? "xmark" : trailingSymbol
@@ -142,7 +142,18 @@ final class ConversationHeaderView: UIView {
                     : String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module))
         }
         guard animated else { apply(); return }
-        UIView.transition(with: trailingButton, duration: 0.2, options: .transitionCrossDissolve, animations: apply)
+        guard delay > 0 else {
+            UIView.transition(with: trailingButton, duration: duration, options: .transitionCrossDissolve, animations: apply)
+            return
+        }
+        // A delayed change fades the old glyph out and the new one in.
+        UIView.animate(withDuration: 0.05, delay: delay, options: [.beginFromCurrentState]) {
+            self.trailingButton.alpha = 0
+        } completion: { _ in
+            guard self.trailingMode == mode else { return }
+            apply()
+            UIView.animate(withDuration: duration) { self.trailingButton.alpha = 1 }
+        }
     }
 
     /// The name grows with Dynamic Type up to XXL, then holds (Messages caps it there).
@@ -205,12 +216,12 @@ final class ConversationHeaderView: UIView {
     }
 
     /// Select mode hides the back button; the trailing X (Cancel) is the way out.
-    func setBackHidden(_ hidden: Bool, animated: Bool) {
+    func setBackHidden(_ hidden: Bool, animated: Bool, delay: TimeInterval = 0, duration: TimeInterval = 0.2) {
         let apply = { self.backGlass.alpha = hidden ? 0 : 1 }
         backGlass.isUserInteractionEnabled = !hidden
         backGlass.accessibilityElementsHidden = hidden
         guard animated else { apply(); return }
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState], animations: apply)
+        UIView.animate(withDuration: duration, delay: delay, options: [.beginFromCurrentState], animations: apply)
     }
 
     /// The avatar (or group cluster) and name capsule, which the details

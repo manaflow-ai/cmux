@@ -53,4 +53,11 @@ import Testing
         // One 60 Hz frame covers 1 - easing of the remaining distance.
         #expect(abs(ConversationReplyMotion.step(easing: 0.89, frameDuration: 1.0 / 60) - 0.11) < 0.0001)
     }
+
+    @Test func easeInOutMatchesCoreAnimation() {
+        #expect(ConversationReplyMotion.easeInOut(0) == 0)
+        #expect(abs(ConversationReplyMotion.easeInOut(0.5) - 0.5) < 0.0001)
+        #expect(abs(ConversationReplyMotion.easeInOut(1) - 1) < 0.0001)
+        #expect(ConversationReplyMotion.easeInOut(0.25) < 0.25)
+    }
 }

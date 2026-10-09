@@ -876,6 +876,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             cell.timestampRevealDistance = timestampRevealDistance
             cell.timestampReveal = timestampReveal
             cell.setSelectionMode(isSelecting, selected: selectedRowIDs.contains(model.rowID), animated: false)
+            applyReplyBacking(to: cell, model: model)
             cell.accessibilityIdentifier = "conversation.message.\(model.message.id)"
             configureAccessibility(cell, model: model)
             return cell
