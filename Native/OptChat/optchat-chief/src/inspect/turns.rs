@@ -115,7 +115,25 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     let view_text = view.as_deref().unwrap_or("");
     let (system, blocks) = if layout == "cached" {
         let marker = start["layout"]["marker"].as_bool().unwrap_or(true);
-        let l = crate::prompt::cached_layout(system_text, view_text, &tail, marker);
+        // The traced mark and TTL; a trace from before them: the last whole
+        // block at 5 minutes.
+        let ttl = start["layout"]["ttl"]
+            .as_str()
+            .and_then(crate::prompt::CacheTtl::parse)
+            .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
+        let mark = match start["layout"]["mark"].as_u64() {
+            Some(piece) => Some(crate::prompt::Mark {
+                piece: piece as usize,
+                ttl,
+            }),
+            None => crate::prompt::Mark::last_whole(view_text, ttl),
+        };
+        let l = crate::prompt::cached_layout_marked(
+            system_text,
+            view_text,
+            &tail,
+            mark.filter(|_| marker),
+        );
         (l.system, l.blocks)
     } else {
         let texts: Vec<String> = messages.iter().map(|m| m.2.clone()).collect();
