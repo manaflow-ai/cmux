@@ -19,6 +19,22 @@ use std::sync::Arc;
 /// Why a loopback address is a cmux service's (`Some`), or `None`.
 pub type ServiceCheck = Arc<dyn Fn(SocketAddr) -> Option<String> + Send + Sync>;
 
+/// The DevTools probe (crate::egress_devtools), on a connected peer only
+/// (a pre-dial probe would take a one-shot server's single request, an
+/// OAuth callback for one) and only for node, bun and deno holders.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn probe(
+    addr: SocketAddr,
+    connected: bool,
+    holders: &[crate::egress_holders::Holder],
+) -> Option<String> {
+    if !connected || !crate::egress_devtools::wants_probe(holders) {
+        return None;
+    }
+    let pids: Vec<i32> = holders.iter().map(|holder| holder.pid).collect();
+    crate::egress_devtools::refusal(addr, &pids)
+}
+
 /// Whether an address belongs to this machine (one of its interfaces).
 pub type OwnAddresses = Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync>;
 
@@ -143,8 +159,8 @@ fn service_refusal(addr: SocketAddr, connected: bool) -> Option<String> {
             "the process that listens on loopback port {port} cannot be identified"
         ));
     }
-    let pids: Vec<i32> = holders.iter().flatten().map(|(holder, _)| holder.pid).collect();
-    crate::egress_devtools::refusal(addr, &pids)
+    let holders: Vec<_> = holders.into_iter().flatten().map(|(holder, _)| holder).collect();
+    probe(addr, connected, &holders)
 }
 
 /// App bundle executable names (macOS names them with spaces): cmux
@@ -175,16 +191,14 @@ fn service_refusal(addr: SocketAddr, connected: bool) -> Option<String> {
     if let Some(why) = verdict(addr, &table, &own, own_uid, connected) {
         return Some(why);
     }
-    let pids: Vec<i32> = own
-        .iter()
+    let holders: Vec<_> = own
+        .into_iter()
         .filter(|held| crate::egress_listeners::covers(&held.listener, addr))
-        .map(|held| held.pid)
+        .filter_map(|held| {
+            held.holder.map(|holder| crate::egress_holders::Holder { pid: held.pid, ..holder })
+        })
         .collect();
-    // Nobody this host sees listens: nothing to probe.
-    if pids.is_empty() {
-        return None;
-    }
-    crate::egress_devtools::refusal(addr, &pids)
+    probe(addr, connected, &holders)
 }
 
 #[cfg(target_os = "macos")]
@@ -265,7 +279,8 @@ fn holders(inodes: &[u64]) -> (usize, Vec<Option<(crate::egress_holders::Holder,
             // (snap, Flatpak): look beside it through its root.
             exes.push(crate::egress_holders::system_holder(pid).map(|holder| {
                 let seen = format!("/proc/{pid}/root{}", holder.path);
-                let family = crate::egress_holders::dir_is_chromium_family(&seen);
+                let family = crate::egress_holders::dir_is_chromium_family(&seen)
+                    || crate::egress_holders::dir_is_chromium_family(&holder.path);
                 (holder, family)
             }));
         }

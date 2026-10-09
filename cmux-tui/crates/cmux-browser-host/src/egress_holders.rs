@@ -163,6 +163,19 @@ fn debug_ports(holder: &Holder) -> Option<DebugPorts> {
     (!ports.is_empty()).then_some(DebugPorts::Known(ports))
 }
 
+/// Whether the holder is node, bun or deno (a versioned name such as
+/// `node22` too, and a deleted binary): a runtime that can open a V8
+/// inspector with no flag. Its executable path does not change with
+/// `process.title`.
+pub(crate) fn is_inspector_runtime(holder: &Holder) -> bool {
+    let path = holder.path.as_str();
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let name = name.strip_suffix(" (deleted)").unwrap_or(name);
+    INSPECTOR_RUNTIMES.iter().any(|runtime| {
+        name.strip_prefix(runtime).is_some_and(|rest| rest.bytes().all(|b| b.is_ascii_digit()))
+    })
+}
+
 /// Why a listener on `port` held by `holder` is refused, or `None`.
 /// `family`: the holder belongs to the Chromium family (Electron, CEF).
 pub(crate) fn holder_refusal(holder: &Holder, port: u16, family: bool) -> Option<String> {
@@ -190,14 +203,7 @@ pub(crate) fn holder_refusal(holder: &Holder, port: u16, family: bool) -> Option
         }
         _ => {}
     }
-    let name = name.strip_suffix(" (deleted)").unwrap_or(name);
-    let runtime = INSPECTOR_RUNTIMES.iter().any(|runtime| {
-        name == *runtime
-            || name
-                .strip_prefix(runtime)
-                .is_some_and(|rest| rest.bytes().all(|b| b.is_ascii_digit()))
-    });
-    (runtime && DEFAULT_INSPECTOR_PORTS.contains(&port))
+    (is_inspector_runtime(holder) && DEFAULT_INSPECTOR_PORTS.contains(&port))
         .then(|| format!("loopback port {port} is the default inspector port of {name}"))
 }
 
@@ -228,13 +234,25 @@ fn ships_chromium(app: &std::path::Path) -> bool {
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-/// macOS: whether the executable at `path` sits in an app bundle (at any
-/// depth: helpers live inside the app's frameworks) that ships Chromium.
+/// macOS: whether the executable at `path` is an app's own executable (in
+/// some `X.app/Contents/MacOS/`) inside an app bundle, at any depth (helpers
+/// live inside the app's frameworks), that ships Chromium. A tool in an
+/// app's `Resources` (Rancher Desktop's port forwarder) is not.
 pub(crate) fn bundle_is_chromium_family(path: &str) -> bool {
-    std::path::Path::new(path)
-        .ancestors()
-        .filter(|p| p.extension().is_some_and(|e| e == "app"))
-        .any(ships_chromium)
+    let path = std::path::Path::new(path);
+    let mut up = path.ancestors().skip(1);
+    let own_executable = matches!(
+        (up.next(), up.next(), up.next()),
+        (Some(macos), Some(contents), Some(app))
+            if macos.file_name().is_some_and(|n| n == "MacOS")
+                && contents.file_name().is_some_and(|n| n == "Contents")
+                && app.extension().is_some_and(|e| e == "app")
+    );
+    own_executable
+        && path
+            .ancestors()
+            .filter(|p| p.extension().is_some_and(|e| e == "app"))
+            .any(ships_chromium)
 }
 
 /// Linux: whether the executable at `path` sits beside Chromium's V8
