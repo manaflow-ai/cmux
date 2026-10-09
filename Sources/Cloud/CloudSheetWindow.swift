@@ -39,6 +39,7 @@ final class CloudSheetWindow {
     private var isAttachedToHost = false
     private var isHostMovePending = false
     private var isHostAnchorRefreshScheduled = false
+    private var isAnchorCorrectionScheduled = false
     private var isApplyingFrame = false
 
     init<Content: View>(rootView: Content) {
@@ -156,6 +157,7 @@ final class CloudSheetWindow {
         frame.origin.x = oldFrame.midX - frame.width / 2
         frame.origin.y = (topEdgeAnchor ?? oldFrame.maxY) - frame.height
         setFrameInternally(frame)
+        scheduleAttachedSheetAnchorCorrection()
     }
 
     private func restoreInitialContentSizeIfNeeded() {
@@ -178,6 +180,22 @@ final class CloudSheetWindow {
         isApplyingFrame = true
         window.setFrame(frame, display: window.isVisible, animate: false)
         isApplyingFrame = false
+    }
+
+    private func scheduleAttachedSheetAnchorCorrection() {
+        guard isAttachedToHost, topEdgeAnchor != nil, !isAnchorCorrectionScheduled else { return }
+        isAnchorCorrectionScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isAnchorCorrectionScheduled = false
+            guard self.isAttachedToHost, !self.isOpening, !self.isApplyingFrame,
+                  let anchor = self.topEdgeAnchor else { return }
+            let delta = anchor - self.window.frame.maxY
+            guard abs(delta) > 0.5 else { return }
+            var frame = self.window.frame
+            frame.origin.y += delta
+            self.setFrameInternally(frame)
+        }
     }
 
     private func recordFloatingWindowMoveIfStable() {
