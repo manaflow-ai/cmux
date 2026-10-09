@@ -242,6 +242,10 @@ pub enum ControlRequest {
     Set(String, String),
     /// The policy floor for a child spawned now: `ask`, or empty for none.
     SpawnPolicy,
+    /// chief.engine.get / chief.engine.set: answers the brain's JSON value.
+    Engine(crate::brain::EngineRequest),
+    /// chief.stop: answers `{"stopped": bool}`.
+    Stop,
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -323,6 +327,44 @@ fn connection(conn: UnixStream, served: &Served) {
                             Err(e) => json!({"error": e}),
                         },
                         None => json!({"error": "settings are not served here"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                // chief.engine.get / chief.engine.set / chief.stop: the
+                // brain's JSON value as the answer line (the daemon's
+                // owner-gated chief-control forwards these lines).
+                if tool == "engine" || tool == "stop" {
+                    let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
+                    let ask = match (tool, field("action").as_deref()) {
+                        ("stop", _) => Some(ControlRequest::Stop),
+                        (_, Some("show") | None) => {
+                            Some(ControlRequest::Engine(crate::brain::EngineRequest::Show))
+                        }
+                        (_, Some("set")) => {
+                            Some(ControlRequest::Engine(crate::brain::EngineRequest::Set {
+                                harness: field("harness"),
+                                model: field("model"),
+                                effort: field("effort"),
+                            }))
+                        }
+                        _ => None,
+                    };
+                    let answer = match (ask, control) {
+                        (None, _) => {
+                            json!({"error": {"code": "bad_request", "message": "engine action is show or set"}})
+                        }
+                        (Some(_), None) => {
+                            json!({"error": {"code": "unavailable", "message": "the engine control is not served here"}})
+                        }
+                        (Some(ask), Some(control)) => match control(ask) {
+                            Ok(text) => serde_json::from_str(&text).unwrap_or_else(
+                                |_| json!({"error": {"code": "internal", "message": text}}),
+                            ),
+                            Err(e) => json!({"error": {"code": "unavailable", "message": e}}),
+                        },
                     };
                     if writeln!(out, "{answer}").is_err() {
                         return;
