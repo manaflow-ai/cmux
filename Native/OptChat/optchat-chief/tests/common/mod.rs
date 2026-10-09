@@ -435,6 +435,9 @@ pub struct Agents {
     /// The next prompt fails with this JSON-RPC error message, used once
     /// (acpmux answers a refused or failed Claude turn this way).
     pub answer_error: Option<String>,
+    /// The next prompt never answers and sends no more events (a hung
+    /// harness); taken by that prompt.
+    pub answer_never: bool,
     /// Names looked up with `find`, in order.
     pub finds: Vec<String>,
     /// The next this many `cancel` calls are recorded but change nothing
@@ -646,6 +649,9 @@ impl AgentPort for FakeAgents {
                     inner = me.changed.wait(inner).unwrap();
                 }
             }
+            if std::mem::take(&mut me.inner.lock().unwrap().answer_never) {
+                return;
+            }
             let (lose, answer, error, delay) = {
                 let mut inner = me.inner.lock().unwrap();
                 (
@@ -852,6 +858,7 @@ pub fn settings(dir: &Path) -> Settings {
         turn_prefix: TURN_PREFIX.into(),
         agent_gap: Duration::from_millis(30),
         turn_limit: None,
+        turn_idle_limit: None,
         engine: Engine::Acpmux,
         turn_preset: Some(TURN_PRESET.into()),
         chief_id: "h0me".into(),

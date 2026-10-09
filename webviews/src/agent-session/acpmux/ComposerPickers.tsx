@@ -27,6 +27,7 @@ export const PICKER_LABELS = {
   plan: "picker.plan",
   build: "picker.build",
   planHint: "picker.planHint",
+  fullAccessWarning: "picker.fullAccessWarning",
   /// `{percent}` is the share of the context window used.
   context: "picker.context",
 } as const satisfies Record<string, StringKey>;
@@ -97,6 +98,8 @@ type Props = {
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
   onHarnessEnable?(folder: string, id: string): void;
+  /// The model picker's + (see ModelPickerProps.onAddAgent).
+  onAddAgent?(): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
@@ -123,6 +126,7 @@ export function ComposerPickers({
   onHarness,
   onHarnessHint,
   onHarnessEnable,
+  onAddAgent,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
@@ -337,6 +341,7 @@ export function ComposerPickers({
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
+          onAddAgent={onAddAgent}
           fastMode={fastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={
@@ -373,7 +378,14 @@ export function ComposerPickers({
       )}
       <span className="acpmux-chips-spacer" />
       {modes.length > 0 && (
-        <AccessMenu label={t(PICKER_LABELS.mode)} modes={modes} current={mode?.id} onMode={onMode} />
+        <AccessMenu
+          label={t(PICKER_LABELS.mode)}
+          modes={modes}
+          current={mode?.id}
+          sessionId={summary?.sessionId}
+          warning={t(PICKER_LABELS.fullAccessWarning)}
+          onMode={onMode}
+        />
       )}
       {showPlan && plan && (
         <button
@@ -397,18 +409,30 @@ function AccessMenu({
   label,
   modes,
   current,
+  sessionId,
+  warning,
   onMode,
 }: {
   label: string;
   modes: Choice[];
   current?: string;
+  sessionId?: string;
+  warning: string;
   onMode(modeId: string): void;
 }) {
   const [open, setOpen] = useState(false);
-  const value = current ?? modes[0]?.id ?? "";
+  const [optimistic, setOptimistic] = useState<{ sessionId?: string; modeId: string }>();
+  useEffect(() => {
+    if (optimistic && optimistic.sessionId !== sessionId) setOptimistic(undefined);
+  }, [optimistic, sessionId]);
+  useEffect(() => {
+    if (optimistic?.sessionId === sessionId && optimistic?.modeId === current) setOptimistic(undefined);
+  }, [current, optimistic, sessionId]);
+  const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
+  const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
   return (
-    <span className={`acpmux-mode acpmux-access${current && unrestricted(current) ? " acpmux-unrestricted" : ""}`}>
+    <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />
@@ -419,6 +443,7 @@ function AccessMenu({
           <MenuRadioGroup
             value={value}
             onValueChange={(next) => {
+              setOptimistic({ sessionId, modeId: next });
               onMode(next);
               setOpen(false);
             }}
@@ -434,7 +459,9 @@ function AccessMenu({
                 </span>
                 <span className="acpmux-menu-text">
                   <span className="acpmux-menu-label">{choice.name}</span>
-                  {choice.description ? <span className="acpmux-menu-description">{choice.description}</span> : null}
+                  {choice.description || unrestricted(choice.id) ? (
+                    <span className="acpmux-menu-description">{choice.description ?? warning}</span>
+                  ) : null}
                 </span>
               </MenuRadioItem>
             ))}
