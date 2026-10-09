@@ -8,7 +8,7 @@ import { FrameKind, type Tab } from "../../protocol.ts";
 import { RpcError, type ClientSession, type RpcServer, encodeBrowserFramePayload, num, optStr, str } from "../../rpc/index.ts";
 import type { Logger } from "../../util.ts";
 import { CdpConnection } from "./cdp.ts";
-import { fetchVersion, findChromeBinaries, ownEndpoint, resolveCdpEndpoint } from "./chrome.ts";
+import { fetchVersion, findChromeBinaries, ownEndpoint, resolveCdpEndpoint, retireUnsafeProfileChrome } from "./chrome.ts";
 
 export const MAX_UNACKED = 2;
 
@@ -31,6 +31,15 @@ interface TabState {
   cast?: Cast;
   refreshTimer?: NodeJS.Timeout;
   lastShot?: Buffer;
+  /** Tail of the per-tab attach/detach/viewport chain. */
+  chain?: Promise<unknown>;
+}
+
+/** Runs `fn` after every earlier attach/detach/viewport of the same tab. */
+function serialized<T>(t: TabState, fn: () => Promise<T>): Promise<T> {
+  const run = (t.chain ?? Promise.resolve()).catch(() => {}).then(fn);
+  t.chain = run.catch(() => {});
+  return run;
 }
 
 export interface BrowserProviderOptions {
@@ -63,7 +72,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     this.log = opts.log ?? (() => {});
     // A browser this host launched earlier (still running) counts as capable.
     if (!opts.resolveEndpoint && !opts.cdp) {
-      void ownEndpoint().then((v) => {
+      void retireUnsafeProfileChrome(this.log).then(() => ownEndpoint()).then((v) => {
         if (v) this.endpointSeen = true;
       });
     }
@@ -343,35 +352,53 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   async attach(session: ClientSession, tabId: string, width: number, height: number, scale: number): Promise<{ streamId: number; tab: Tab }> {
     const { cdp, t, sid } = await this.session(tabId);
-    // One screencast per tab: a new attachment takes over. Tell the displaced
-    // phone, and fully stop the old screencast before starting the new one.
-    const displaced = t.cast;
-    if (displaced) {
-      t.cast = undefined;
-      displaced.session.removeStream(displaced.streamId);
-      if (displaced.session.open) {
-        displaced.session.sendEvent("browser.detached", { streamId: displaced.streamId, tabId, reason: "displaced" });
-      }
-      await this.stopCast(t);
-    }
-    const cast: Cast = { session, streamId: 0, width, height, scale, seq: 0, unacked: [], pendingCdpAck: null };
-    cast.streamId = session.addStream({
-      kind: "browser",
-      target: tabId,
-      dispose: () => {
-        if (t.cast !== cast) return;
+    // Attach/detach/viewport of one tab run one at a time, so two concurrent
+    // attaches cannot both start a screencast and orphan a stream.
+    return serialized(t, async () => {
+      // One screencast per tab: a new attachment takes over. Tell the
+      // displaced phone, and fully stop the old screencast first.
+      const displaced = t.cast;
+      if (displaced) {
         t.cast = undefined;
-        void this.stopCast(t).catch(() => {});
-      },
+        displaced.session.removeStream(displaced.streamId);
+        if (displaced.session.open) {
+          displaced.session.sendEvent("browser.detached", { streamId: displaced.streamId, tabId, reason: "displaced" });
+        }
+        await this.stopCast(t);
+      }
+      if (!session.open) throw new RpcError("unavailable", "client disconnected");
+      const cast: Cast = { session, streamId: 0, width, height, scale, seq: 0, unacked: [], pendingCdpAck: null };
+      cast.streamId = session.addStream({
+        kind: "browser",
+        target: tabId,
+        dispose: () => {
+          // Link closed or explicit detach: stop through the same chain.
+          if (t.cast !== cast) return;
+          t.cast = undefined;
+          void serialized(t, () => this.stopCast(t)).catch(() => {});
+        },
+      });
+      t.cast = cast;
+      await cdp.send("Target.activateTarget", { targetId: tabId }).catch(() => {});
+      await cdp.send("Page.bringToFront", {}, sid).catch(() => {});
+      this.lastActivated = tabId;
+      this.updateActive();
+      await this.applyViewport(cdp, sid, cast);
+      await this.startCast(cdp, sid, cast);
+      return { streamId: cast.streamId, tab: { ...t.tab } };
     });
-    t.cast = cast;
-    await cdp.send("Target.activateTarget", { targetId: tabId }).catch(() => {});
-    await cdp.send("Page.bringToFront", {}, sid).catch(() => {});
-    this.lastActivated = tabId;
-    this.updateActive();
-    await this.applyViewport(cdp, sid, cast);
-    await this.startCast(cdp, sid, cast);
-    return { streamId: cast.streamId, tab: { ...t.tab } };
+  }
+
+  /** Ends a screencast stream and waits until the tab's screencast is stopped. */
+  async detach(session: ClientSession, streamId: number): Promise<void> {
+    const sink = session.streams.get(streamId);
+    if (!sink || sink.kind !== "browser") {
+      session.removeStream(streamId);
+      return;
+    }
+    const t = this.tabs.get(sink.target);
+    session.removeStream(streamId); // dispose queues stopCast on the tab chain
+    if (t?.chain) await t.chain;
   }
 
   private async applyViewport(cdp: CdpConnection, sid: string, cast: Cast): Promise<void> {
@@ -456,6 +483,10 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   async viewport(tabId: string, width: number, height: number, scale: number): Promise<void> {
     const { cdp, t, sid } = await this.session(tabId);
+    return serialized(t, () => this.applyViewportChange(cdp, t, sid, width, height, scale));
+  }
+
+  private async applyViewportChange(cdp: CdpConnection, t: TabState, sid: string, width: number, height: number, scale: number): Promise<void> {
     const cast = t.cast;
     if (!cast) {
       await this.applyViewport(cdp, sid, { width, height, scale } as Cast);
@@ -565,8 +596,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     server.register("browser.attach", (p, session) =>
       this.attach(session, str(p, "tabId"), num(p, "width", 390), num(p, "height", 844), num(p, "scale", 3)),
     );
-    server.register("browser.detach", (p, session) => {
-      session.removeStream(num(p, "streamId"));
+    server.register("browser.detach", async (p, session) => {
+      await this.detach(session, num(p, "streamId"));
       return {};
     });
     server.register("browser.close", async (p) => {

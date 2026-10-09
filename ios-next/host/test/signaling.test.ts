@@ -19,6 +19,8 @@ interface FakeBackendOptions {
   iceDelayMs?: number;
   /** Tokens the backend rejects with 401. */
   revokedTokens?: Set<string>;
+  /** Stamp offers with this session family, like the real backend. */
+  family?: string;
 }
 
 async function fakeBackend(opts: FakeBackendOptions = {}) {
@@ -71,7 +73,7 @@ async function fakeBackend(opts: FakeBackendOptions = {}) {
       if (f.type === "ping") return ws.send('{"type":"pong"}');
       const target = sockets.get(f.to);
       if (!target) return ws.send(JSON.stringify({ type: "error", code: "host_offline", sessionId: f.sessionId }));
-      target.send(JSON.stringify({ ...f, from: address }));
+      target.send(JSON.stringify({ ...f, from: address, ...(f.type === "offer" && opts.family ? { family: opts.family } : {}) }));
     });
     ws.on("close", () => sockets.delete(address));
   });
@@ -228,6 +230,65 @@ describe("signaling credentials", () => {
     revokedTokens.add("host-token");
     backend.sockets.get("h_1")!.close(1011, "restart");
     expect(await revoked).toMatch(/401/);
+    backend.close();
+  });
+});
+
+describe("phone session families and peer routing", () => {
+  async function linkedPhone(backend: Awaited<ReturnType<typeof fakeBackend>>, sessionId: string) {
+    const api = new ApiClient(backend.base, "user-token");
+    const signaling = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer });
+    const welcome = signaling.waitWelcome();
+    signaling.start();
+    await welcome;
+    const peer = new WebRtcPeer({
+      role: "offerer",
+      iceServers: [],
+      onSignal: (s) => {
+        if (s.type === "description") signaling.send({ type: "offer", to: "h_1", sessionId, sdp: s.sdp });
+        else signaling.send({ type: "candidate", to: "h_1", sessionId, candidate: s.candidate, sdpMid: s.sdpMid, sdpMLineIndex: 0 });
+      },
+    });
+    signaling.on("frame", (f: any) => {
+      if (f.sessionId !== sessionId) return;
+      if (f.type === "answer") peer.setRemoteDescription(f.sdp, "answer");
+      if (f.type === "candidate") peer.addRemoteCandidate(f.candidate, f.sdpMid);
+    });
+    await new Promise<void>((r) => peer.link.on("state", (s) => s === "open" && r()));
+    return { api, signaling, peer };
+  }
+
+  it("drops every link of a revoked family and follows a phone's new peerId", async () => {
+    const backend = await fakeBackend({ family: "fam_1" });
+    const { core } = await connectedCore();
+    const agent = new HostAgent({ api: new ApiClient(backend.base, "host-token"), core, log: () => {} });
+    const open = new Promise<void>((r) => agent.signaling.once("open", () => r()));
+    agent.start();
+    await open;
+    const a = await linkedPhone(backend, "s_a");
+    const opened = Date.now() + 3000;
+    while (!agent.sessions()[0]?.open && Date.now() < opened) await new Promise((r) => setTimeout(r, 20));
+    expect(agent.sessions()).toEqual([expect.objectContaining({ sessionId: "s_a", family: "fam_1", open: true, remotePeerId: "p_1" })]);
+
+    // The phone's signaling reconnects (new peerId) and keeps talking about s_a.
+    const again = await linkedPhone(backend, "s_b");
+    again.signaling.send({ type: "candidate", to: "h_1", sessionId: "s_a", candidate: "candidate:1 1 UDP 1 192.0.2.1 9 typ relay raddr 0.0.0.0 rport 0", sdpMid: "0", sdpMLineIndex: 0 });
+    const deadline = Date.now() + 3000;
+    while (agent.sessions().find((x) => x.sessionId === "s_a")?.remotePeerId !== "p_2" && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    expect(agent.sessions().find((x) => x.sessionId === "s_a")?.remotePeerId).toBe("p_2");
+
+    const closed = new Promise<void>((r) => a.peer.link.on("state", (s) => s === "closed" && r()));
+    backend.sockets.get("h_1")!.send(JSON.stringify({ type: "revoked", family: "fam_1" }));
+    const until = Date.now() + 3000;
+    while (agent.peerCount > 0 && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+    expect(agent.peerCount).toBe(0);
+    await closed;
+    for (const x of [a, again]) {
+      x.peer.close();
+      x.signaling.stop();
+    }
+    agent.stop();
+    core.shutdown();
     backend.close();
   });
 });

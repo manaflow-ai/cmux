@@ -56,6 +56,27 @@ describe("TerminalProvider", () => {
     await waitFor(() => out.includes("second-3")).catch(() => { throw new Error("no second: " + JSON.stringify(out)); });
   });
 
+  it("applies backpressure end to end when the phone stops draining the link", async () => {
+    const { core, client, phone } = await connectedCore({ terminal: { shell: "/bin/sh", args: [] } });
+    try {
+      const { terminal } = await client.request("term.create", { cols: 80, rows: 24 });
+      const { streamId } = await client.request("term.attach", { terminalId: terminal.id, cols: 80, rows: 24 });
+      let received = 0;
+      client.onStream(streamId, (d) => (received += d.byteLength));
+      await waitFor(() => received > 0);
+      phone.holdDelivery(true);
+      client.sendInput(streamId, "head -c 3000000 /dev/zero | tr '\\0' x; echo; echo done-$((40+2))\r");
+      const inst = core.terminals.get(terminal.id);
+      await waitFor(() => inst.paused, 15_000);
+      expect(received).toBeLessThan(1000); // nothing reached the held phone
+      phone.holdDelivery(false);
+      await waitFor(() => received > 3_000_000, 30_000);
+      await waitFor(() => !inst.paused, 15_000);
+    } finally {
+      core.shutdown();
+    }
+  });
+
   it("reports exit", async () => {
     const p = new TerminalProvider({ shell: "/bin/sh", args: ["-c", "exit 3"] });
     providers.push(p);

@@ -143,7 +143,7 @@ Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, a
 ## 5. Backend HTTP API (Cloudflare Worker, base `https://<worker>/v1`)
 
 JSON bodies. Phone auth: `Authorization: Bearer <accessToken>` (HS256 JWT,
-15 min, `sub`=userId, `typ`="user"). Host auth: `Bearer <hostToken>` (opaque,
+15 min, `sub`=userId, `typ`="user", `fam`=refresh-token family, one per sign-in). Host auth: `Bearer <hostToken>` (opaque,
 stored hashed). Errors: `{error:{code,message}}` with HTTP status: 400
 `bad_request`, 401 `unauthorized`, 403 `forbidden`, 404 `not_found` (410 for an
 expired or claimed pairing), 429 `rate_limited`, 501 `unsupported`, 503
@@ -151,11 +151,11 @@ expired or claimed pairing), 429 `rate_limited`, 501 `unsupported`, 503
 
 | Method | Path | Auth | Body -> Result |
 | --- | --- | --- | --- |
-| POST | `/auth/stack` | - | `{accessToken, projectId}` -> `Tokens`. Primary sign-in: the Stack Auth access token cmux iOS uses. Verified against the project JWKS (ES256 or RS256), `iss`=`https://api.stack-auth.com/api/v1/projects/<projectId>`, `aud`=projectId, unexpired, not anonymous. Prod `9790718f-14cd-4f7e-824d-eaf527a82b82` always; dev `454ecd03-1db2-4050-845e-4ce5b0cd9895` only while the backend enables it (Debug builds). Identity is `stack:<projectId>` + Stack user id; only prod links to an existing account by verified email |
+| POST | `/auth/stack` | - | `{accessToken, projectId}` -> `Tokens`. Primary sign-in: the Stack Auth access token cmux iOS uses. Verified against the project JWKS (ES256 or RS256), `iss`=`https://api.stack-auth.com/api/v1/projects/<projectId>`, `aud`=projectId, unexpired, not anonymous. Production accepts only prod `9790718f-14cd-4f7e-824d-eaf527a82b82`; dev `454ecd03-1db2-4050-845e-4ce5b0cd9895` only on a separate dev deployment. Identity is `stack:<projectId>` + Stack user id; only prod links to an existing account by verified email |
 | POST | `/auth/test` | - | `{email, secret}` -> `Tokens`. Only when the `TEST_LOGIN_SECRET` secret is set (else 404) and only for `@test.cmux.dev` emails; automated simulator runs |
 | POST | `/auth/email/start` | - | `{email}` -> `{nonce}` (6-char code mailed) |
 | POST | `/auth/email/verify` | - | `{email, code, nonce}` -> `Tokens` |
-| POST | `/auth/apple` | - | `{identityToken, fullName?, nonce?}` -> `Tokens`; when `nonce` (raw) is sent, the token's `nonce` claim must be its SHA-256 hex (or the raw value) |
+| POST | `/auth/apple` | - | `{identityToken, nonce, fullName?}` -> `Tokens`. Disabled (501 `unsupported`) unless the backend sets `APPLE_AUDIENCES`; the app signs in with Apple through Stack. `nonce` (raw) is required (else 501) and the token's `nonce` claim must be its SHA-256 hex (or the raw value) |
 | GET | `/auth/oauth/:provider/start?redirect=<app scheme url>&code_challenge=<S256>&code_challenge_method=S256` | - | 302 to GitHub/Google. PKCE S256 is required |
 | GET | `/auth/oauth/:provider/callback` | - | 302 to `redirect?code=<one-time>` (or `?error=`) |
 | POST | `/auth/oauth/exchange` | - | `{code, codeVerifier}` -> `Tokens` (verifier required) |
@@ -165,10 +165,10 @@ expired or claimed pairing), 429 `rate_limited`, 501 `unsupported`, 503
 | DELETE | `/me` | user | -> `{}` |
 | POST | `/hosts/pair/start` | - | `{name, os}` -> `{deviceCode, userCode, expiresAt, interval}` |
 | POST | `/hosts/pair/poll` | - | `{deviceCode}` -> `{status:"pending"}` or `{status:"approved", hostId, hostToken, userId, approverEmail}` (token returned once; the host should confirm `approverEmail` with its user before using it) |
-| POST | `/hosts/pair/approve` | user | `{userCode}` -> `{host}`; 10 attempts per user per 10 min (429) |
+| POST | `/hosts/pair/approve` | user | `{userCode}` -> `{host}`; 403 `forbidden` "account has no email" when the user has no email; 10 attempts per user per 10 min (429) |
 | GET | `/hosts` | user | -> `{hosts:[{id,name,os,online,lastSeenAt,createdAt}]}` |
 | DELETE | `/hosts/:id` | user | -> `{}` |
-| GET | `/ice` | user or host | -> `{iceServers:[{urls:[...],username?,credential?}], ttl:3600}`. A user must have at least one paired host (else 403); 60 per hour per user, and per host (429) |
+| GET | `/ice` | user or host | -> `{iceServers:[{urls:[...],username?,credential?}], ttl:3600}`. A user must have at least one paired host (else 403); 300 per hour per sign-in family, and per host (429). Cache until `ttl` |
 | GET | `/signal` (WebSocket) | user or host (`Authorization: Bearer`) | signaling, below. `?token=` is still accepted but deprecated |
 
 `Tokens = {accessToken, refreshToken, expiresIn, user:{id,email,name}}`.
@@ -190,12 +190,21 @@ Each socket is a peer: `{peerId, role:"phone"|"host", hostId?}`. JSON frames:
 ```
 
 `presence` for a host deleted with `DELETE /hosts/:id` carries `"removed":true`.
+
+The server stamps every phone -> host `offer` with `"family":"rf_.."`, the
+phone's sign-in family (access token `fam`; anything the phone sends there is
+overwritten). When a family is revoked (logout, refresh-token reuse, account
+deletion) every host socket of the user gets
+`{"type":"revoked","family":"rf_.."}` and must drop links whose offer carried
+that family. Phone sockets of that family close with 4005 (not on account
+deletion, which closes everything with 4004 after the `revoked` frames).
 Error codes: `host_offline` (no socket for that hostId), `peer_offline` (no
 phone with that peerId), `forbidden` (phones send offers, hosts send answers),
 `bad_request` (malformed frame). `{"type":"ping"}` gets `{"type":"pong"}`.
 Close codes: 4001 replaced by a newer connection of the same host, 4002 phone
 access token expired (refresh, then reconnect), 4003 host deleted, 4004 account
-deleted. On 4003 and 4004 a host drops its live WebRTC peers.
+deleted, 4005 phone sign-in revoked. On 4003 and 4004 a host drops its live
+WebRTC peers.
 
 The phone is always the offerer. The host answers. ICE is trickled.
 

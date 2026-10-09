@@ -7,7 +7,8 @@ import WebSocket from "ws";
 export type SignalFrame =
   | { type: "welcome"; peerId: string; hosts?: { hostId: string; online: boolean }[] }
   | { type: "presence"; hostId: string; online: boolean }
-  | { type: "offer"; to?: string; from?: string; sessionId: string; sdp: string; policy?: "all" | "relay" }
+  | { type: "offer"; to?: string; from?: string; sessionId: string; sdp: string; policy?: "all" | "relay"; family?: string }
+  | { type: "revoked"; family: string }
   | { type: "answer"; to?: string; from?: string; sessionId: string; sdp: string }
   | { type: "candidate"; to?: string; from?: string; sessionId: string; candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null }
   | { type: "bye"; to?: string; from?: string; sessionId: string }

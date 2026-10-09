@@ -3,7 +3,7 @@
 // 127.0.0.1:9222, an installed Chrome/Chromium (launched with our profile),
 // a Chrome for Testing build under ~/.cmux-next-host/chrome.
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -178,6 +178,54 @@ export async function launchChrome(opts: LaunchOptions, log: Logger): Promise<st
   return null;
 }
 
+/** Pids and command lines of processes using `profileDir` as Chrome's user data dir. */
+export function profileChromeProcesses(profileDir = defaultProfileDir()): Promise<{ pid: number; command: string }[]> {
+  return new Promise((resolve) => {
+    execFile("/bin/ps", ["-ax", "-o", "pid=,command="], { maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+      if (err) return resolve([]);
+      const needle = `--user-data-dir=${profileDir}`;
+      const out: { pid: number; command: string }[] = [];
+      for (const line of String(stdout).split("\n")) {
+        const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+        if (!m || !m[2]!.includes(needle)) continue;
+        // Only the exact profile path, not a longer sibling path.
+        const after = m[2]!.slice(m[2]!.indexOf(needle) + needle.length);
+        if (after && !/^(\s|$)/.test(after)) continue;
+        out.push({ pid: Number(m[1]), command: m[2]! });
+      }
+      resolve(out);
+    });
+  });
+}
+
+/**
+ * Older host versions launched Chrome with --remote-allow-origins=* (any web
+ * origin could drive it) on port 9222. Such a browser on the host's profile
+ * is never adopted: it is stopped so a safe one can be launched.
+ */
+export async function retireUnsafeProfileChrome(log: Logger, profileDir = defaultProfileDir()): Promise<boolean> {
+  const procs = await profileChromeProcesses(profileDir);
+  const unsafe = procs.filter((p) => p.command.includes("--remote-allow-origins"));
+  if (unsafe.length === 0) return false;
+  log(`stopping a browser launched by an older host with --remote-allow-origins (pids ${unsafe.map((p) => p.pid).join(", ")})`);
+  for (const p of procs) {
+    try {
+      process.kill(p.pid, "SIGTERM");
+    } catch {}
+  }
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline && (await profileChromeProcesses(profileDir)).length > 0) await new Promise((r) => setTimeout(r, 200));
+  for (const p of await profileChromeProcesses(profileDir)) {
+    try {
+      process.kill(p.pid, "SIGKILL");
+    } catch {}
+  }
+  try {
+    rmSync(join(profileDir, "DevToolsActivePort"), { force: true });
+  } catch {}
+  return true;
+}
+
 export interface EndpointOptions {
   cdp?: string;
   launch?: boolean;
@@ -194,6 +242,7 @@ export interface EndpointOptions {
 export async function resolveCdpEndpoint(opts: EndpointOptions): Promise<string | null> {
   const explicit = opts.cdp ?? process.env.CMUX_NEXT_CDP;
   if (explicit) return (await fetchVersion(explicit)) ? explicit.replace(/\/+$/, "") : null;
+  await retireUnsafeProfileChrome(opts.log);
   const own = await ownEndpoint();
   if (own) return own;
   if (opts.launch === false) return null;

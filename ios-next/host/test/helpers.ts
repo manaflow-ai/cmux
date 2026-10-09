@@ -42,10 +42,10 @@ export async function connectedCore(opts: HostCoreOptions = {}) {
   return { core, client, phone, dir };
 }
 
-export async function waitFor<T>(fn: () => T | undefined | null | false, timeoutMs = 10_000): Promise<T> {
+export async function waitFor<T>(fn: () => T | undefined | null | false | Promise<T | undefined | null | false>, timeoutMs = 10_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const v = fn();
+    const v = await fn();
     if (v) return v;
     if (Date.now() > deadline) throw new Error("waitFor timed out");
     await new Promise((r) => setTimeout(r, 20));

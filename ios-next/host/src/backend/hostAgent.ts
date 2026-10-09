@@ -11,7 +11,10 @@ interface PeerEntry {
   /** Set once ICE servers are known; candidates before that are buffered. */
   peer?: WebRtcPeer;
   pendingCandidates: { candidate: string; mid: string }[];
+  /** Latest phone peerId seen for this session (changes if its signaling reconnects). */
   remotePeerId: string;
+  /** Backend-stamped phone session family; revoking it drops the link. */
+  family?: string;
   createdAt: number;
   closed: boolean;
 }
@@ -85,9 +88,33 @@ export class HostAgent {
     return this.peers.size;
   }
 
+  /** Session ids and their current phone peer (tests, diagnostics). */
+  sessions(): { sessionId: string; remotePeerId: string; family?: string; open: boolean }[] {
+    return [...this.peers.entries()].map(([sessionId, e]) => ({
+      sessionId,
+      remotePeerId: e.remotePeerId,
+      family: e.family,
+      open: e.peer?.link.state === "open",
+    }));
+  }
+
   private async onFrame(f: SignalFrame): Promise<void> {
     const log = this.opts.log;
+    // A phone whose signaling reconnected has a new peerId: follow it.
+    if ("sessionId" in f && f.sessionId && "from" in f && f.from && f.type !== "offer") {
+      const e = this.peers.get(f.sessionId);
+      if (e && e.remotePeerId !== f.from) {
+        log(`[${f.sessionId}] phone signaling moved ${e.remotePeerId} -> ${f.from}`);
+        e.remotePeerId = f.from;
+      }
+    }
     switch (f.type) {
+      case "revoked": {
+        const doomed = [...this.peers.entries()].filter(([, e]) => e.family !== undefined && e.family === f.family);
+        log(`phone session family ${f.family} revoked; dropping ${doomed.length} link(s)`);
+        for (const [sessionId] of doomed) this.dropPeer(sessionId, false);
+        return;
+      }
       case "welcome":
         log(`signaling welcome as ${f.peerId}`);
         return;
@@ -102,7 +129,9 @@ export class HostAgent {
         }
         // Register before awaiting ICE servers so trickled candidates that
         // arrive meanwhile are buffered instead of dropped.
-        const entry: PeerEntry = { pendingCandidates: [], remotePeerId, createdAt: Date.now(), closed: false };
+        const family = typeof f.family === "string" && f.family ? f.family : undefined;
+        if (!family) log(`[${sessionId}] offer without a session family (older app build); allowing for now`);
+        const entry: PeerEntry = { pendingCandidates: [], remotePeerId, family, createdAt: Date.now(), closed: false };
         this.peers.set(sessionId, entry);
         const iceServers = await this.ice.get();
         if (entry.closed || this.peers.get(sessionId) !== entry) return;
@@ -115,9 +144,9 @@ export class HostAgent {
           log: (m) => log(`[${sessionId}] ${m}`),
           onSignal: (sig) => {
             if (sig.type === "description") {
-              this.signaling.send({ type: "answer", to: remotePeerId, sessionId, sdp: sig.sdp });
+              this.signaling.send({ type: "answer", to: entry.remotePeerId, sessionId, sdp: sig.sdp });
             } else {
-              this.signaling.send({ type: "candidate", to: remotePeerId, sessionId, candidate: sig.candidate, sdpMid: sig.sdpMid, sdpMLineIndex: sig.sdpMLineIndex });
+              this.signaling.send({ type: "candidate", to: entry.remotePeerId, sessionId, candidate: sig.candidate, sdpMid: sig.sdpMid, sdpMLineIndex: sig.sdpMLineIndex });
             }
           },
         });

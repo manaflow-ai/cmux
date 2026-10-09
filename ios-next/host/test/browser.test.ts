@@ -8,7 +8,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostClient } from "../src/client.ts";
-import { ownEndpoint } from "../src/providers/browser/chrome.ts";
+import { spawn } from "node:child_process";
+import { ownEndpoint, profileChromeProcesses, retireUnsafeProfileChrome } from "../src/providers/browser/chrome.ts";
 import { createOpenLoopbackPair } from "../src/transport/loopback.ts";
 import { connectedCore, waitFor } from "./helpers.ts";
 
@@ -187,6 +188,50 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     const order = cdp.calls.map((c) => c.method).filter((m) => m === "Page.startScreencast" || m === "Page.stopScreencast");
     expect(order).toEqual(["Page.startScreencast", "Page.stopScreencast", "Page.startScreencast"]);
     await expect(client.request("browser.ack", { streamId: first.streamId, seq: 1 })).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("serializes concurrent attaches and makes detach wait for the screencast to stop", async () => {
+    const cdp = await startFakeCdp();
+    cleanups.push(() => cdp.close());
+    const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false } });
+    cleanups.push(() => core.shutdown());
+    const [phone2, host2] = createOpenLoopbackPair();
+    core.attach(host2);
+    const client2 = new HostClient(phone2);
+    await client2.hello("second");
+    const detached: any[] = [];
+    for (const c of [client, client2]) c.peer.on("event", (t, p) => t === "browser.detached" && detached.push(p));
+    await client.request("browser.list");
+    const [r1, r2] = await Promise.all([
+      client.request("browser.attach", { tabId: "T1", width: 390, height: 844, scale: 3, mobile: true }),
+      client2.request("browser.attach", { tabId: "T1", width: 400, height: 800, scale: 2, mobile: true }),
+    ]);
+    await waitFor(() => detached.length === 1);
+    expect(detached[0]).toEqual({ streamId: r1.streamId, tabId: "T1", reason: "displaced" });
+    const casts = () => cdp.calls.map((c) => c.method).filter((m) => m === "Page.startScreencast" || m === "Page.stopScreencast");
+    expect(casts()).toEqual(["Page.startScreencast", "Page.stopScreencast", "Page.startScreencast"]);
+    await client2.request("browser.detach", { streamId: r2.streamId });
+    // detach resolved only after the screencast stopped and the viewport was restored
+    expect(casts().at(-1)).toBe("Page.stopScreencast");
+    expect(cdp.calls.at(-1)!.method).toBe("Emulation.setTouchEmulationEnabled");
+    expect(cdp.calls.some((c) => c.method === "Emulation.clearDeviceMetricsOverride")).toBe(true);
+  });
+
+  it("stops a profile browser an older host launched with --remote-allow-origins", async () => {
+    const profile = mkdtempSync(join(tmpdir(), "cnh-profile-"));
+    const spawnFake = (extra: string[]) =>
+      spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", `--user-data-dir=${profile}`, ...extra], { stdio: "ignore" });
+    const safe = spawnFake(["--remote-debugging-port=0"]);
+    await waitFor(async () => (await profileChromeProcesses(profile)).length === 1);
+    expect(await retireUnsafeProfileChrome(() => {}, profile)).toBe(false);
+    expect(safe.exitCode).toBeNull();
+    safe.kill();
+    await new Promise((r) => safe.once("exit", r));
+    const unsafe = spawnFake(["--remote-debugging-port=9222", "--remote-allow-origins=*"]);
+    await waitFor(async () => (await profileChromeProcesses(profile)).length === 1);
+    const exited = new Promise((r) => unsafe.once("exit", r));
+    expect(await retireUnsafeProfileChrome(() => {}, profile)).toBe(true);
+    await exited;
   });
 
   it("only adopts a CDP endpoint the host launched (DevToolsActivePort in its profile)", async () => {
