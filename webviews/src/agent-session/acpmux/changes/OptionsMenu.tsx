@@ -13,6 +13,13 @@ export type OptionsRow = { label: string; disabled?: boolean; run: () => unknown
 export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
   const t = useT();
   const button = useRef<HTMLButtonElement>(null);
+  const run = (row: Exclude<OptionsRow, null>) => {
+    // Keep the trigger as the menu's focus target even when a command completes asynchronously.
+    // Resolve the callback in a microtask so a synchronous throw also goes through `finally`.
+    void Promise.resolve()
+      .then(() => row.run())
+      .finally(() => button.current?.focus());
+  };
   return (
     <span className="acpmux-file-menu">
       <Menu>
@@ -26,7 +33,7 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
                 key={row.label}
                 className="acpmux-file-menu-item"
                 disabled={row.disabled}
-                onSelect={() => void Promise.resolve(row.run()).finally(() => button.current?.focus())}
+                onSelect={() => run(row)}
               >
                 {row.label}
               </MenuItem>
