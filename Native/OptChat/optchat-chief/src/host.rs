@@ -883,14 +883,14 @@ fn start(
     // calls for Claude models with 429 (it serves Claude Code clients), so
     // the native engine needs an endpoint that takes API calls
     // (OPTCHAT_ANTHROPIC_BASE_URL plus a key). Checked live on 2026-10-04.
-    // OPTCHAT_CACHE_TTL (5m or 1h) over the Chief's cache.ttl setting.
-    let cache_ttl_env = env("OPTCHAT_CACHE_TTL").and_then(|v| {
-        let ttl = crate::prompt::CacheTtl::parse(&v);
-        if ttl.is_none() {
-            log(format!("OPTCHAT_CACHE_TTL={v:?} is not 5m or 1h; ignored"));
-        }
-        ttl
-    });
+    // The host env's TTL (Claude Code's own switches, then
+    // OPTCHAT_CACHE_TTL) over the Chief's cache.ttl setting.
+    let cache_ttl_env = crate::prompt::cache_ttl_from_env(&|k: &str| env(k));
+    if let Some(v) = env("OPTCHAT_CACHE_TTL")
+        && crate::prompt::CacheTtl::parse(&v).is_none()
+    {
+        log(format!("OPTCHAT_CACHE_TTL={v:?} is not 5m or 1h; ignored"));
+    }
     let engine = match engine_choice.as_deref() {
         Some("native") => {
             let native_config = NativeConfig {

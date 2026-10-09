@@ -278,12 +278,28 @@ fn run(ttl: f64, total: u64) -> Run {
             let resumed =
                 Memory::resume(&checkpoint, memory.len(), frontier, VIEW, &store).unwrap();
             let again = render_view(&resumed, &store).text;
-            assert_eq!(again, view, "a resumed view differs at {} bytes", view.len());
+            assert_eq!(
+                again,
+                view,
+                "a resumed view differs at {} bytes",
+                view.len()
+            );
             assert_eq!(mark_piece(&again, None), mark_piece(&view, None));
             resumes_checked += 1;
-            next_resume = if next_resume >= 120_000 { usize::MAX } else { next_resume + 20_000 };
+            next_resume = if next_resume >= 120_000 {
+                usize::MAX
+            } else {
+                next_resume + 20_000
+            };
         }
-        log(&mut memory, Kind::User, ask, now, &mut cache, &mut busy_until);
+        log(
+            &mut memory,
+            Kind::User,
+            ask,
+            now,
+            &mut cache,
+            &mut busy_until,
+        );
         // Most turns take a few tool steps; one in twenty takes 30 to 60
         // (60 to 120 view lines, past the API's 20-block lookback).
         let steps = match rng.range(0, 20) {
@@ -299,12 +315,33 @@ fn run(ttl: f64, total: u64) -> Run {
             tail.push(result.clone());
             let r = turn_request(&harness, &system, &pieces, mark, &tail, &env);
             cache.send(&r, now);
-            log(&mut memory, Kind::Tool, call, now, &mut cache, &mut busy_until);
-            log(&mut memory, Kind::Echo, result, now, &mut cache, &mut busy_until);
+            log(
+                &mut memory,
+                Kind::Tool,
+                call,
+                now,
+                &mut cache,
+                &mut busy_until,
+            );
+            log(
+                &mut memory,
+                Kind::Echo,
+                result,
+                now,
+                &mut cache,
+                &mut busy_until,
+            );
         }
         now += rng.range(3, 20) as f64;
         let reply = "Done: ".to_string() + &"a".repeat(rng.range(50, 900) as usize);
-        log(&mut memory, Kind::Talk, reply, now, &mut cache, &mut busy_until);
+        log(
+            &mut memory,
+            Kind::Talk,
+            reply,
+            now,
+            &mut cache,
+            &mut busy_until,
+        );
         // The user's pace: one turn in six comes at once (the compactor may
         // still run), most within minutes, some after 5 to 50 minutes, a few
         // after hours.
@@ -378,14 +415,21 @@ fn ten_thousand_messages_keep_warm_turns_at_95_percent_with_one_hour_marks() {
     assert!(r.resumes_checked >= 3);
     // A batch merge costs one rewrite of the view after it, not one per
     // message; no other warm turn misses the view.
-    assert_eq!(cold(&r.turns, false), 0, "warm turns that missed the cache with no merge before them");
+    assert_eq!(
+        cold(&r.turns, false),
+        0,
+        "warm turns that missed the cache with no merge before them"
+    );
     assert!(
         cold(&r.turns, true) <= r.merges,
         "{} cold turns for {} merges",
         cold(&r.turns, true),
         r.merges
     );
-    assert!(min >= 95.0, "warm turns read {min:.2}% in their worst window");
+    assert!(
+        min >= 95.0,
+        "warm turns read {min:.2}% in their worst window"
+    );
 }
 
 #[test]
@@ -398,11 +442,7 @@ fn five_minute_marks_lose_the_turns_after_a_coffee_break_and_one_hour_marks_keep
             r.turns.iter().map(|t| t.1).sum(),
         )
     };
-    eprintln!(
-        "all turns: 5m {:.2}%, 1h {:.2}%",
-        rate(&five),
-        rate(&hour)
-    );
+    eprintln!("all turns: 5m {:.2}%, 1h {:.2}%", rate(&five), rate(&hour));
     assert!(rate(&hour) > rate(&five) + 5.0);
     // Within the TTL both read the same.
     assert!((min_window(&five.turns) - min_window(&hour.turns)).abs() < 1.0);
