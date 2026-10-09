@@ -88,7 +88,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeWorkspace()
         observeRoom()
         observeSidebarHidden()
-        followTopPageForBack()
+        followContentChanges()
     }
 
     @available(*, unavailable)
