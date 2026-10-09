@@ -350,3 +350,25 @@ fn a_five_minute_setting_forces_claude_codes_marks_to_five_minutes() {
         assert_eq!(session_settings(&h, file)["env"]["FORCE_PROMPT_CACHING_5M"], "1", "{file}");
     }
 }
+
+#[test]
+fn the_host_env_picks_the_ttl_and_a_forced_five_minute_harness_wins() {
+    use optchat_chief::prompt::{CacheTtl, cache_ttl_from_env};
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+    };
+    assert_eq!(cache_ttl_from_env(&env(&[])), None);
+    assert_eq!(cache_ttl_from_env(&env(&[("OPTCHAT_CACHE_TTL", "1h")])), Some(CacheTtl::OneHour));
+    assert_eq!(cache_ttl_from_env(&env(&[("OPTCHAT_CACHE_TTL", "5m")])), Some(CacheTtl::FiveMinutes));
+    assert_eq!(cache_ttl_from_env(&env(&[("OPTCHAT_CACHE_TTL", "2h")])), None);
+    // Claude Code's own switches reach every turn's harness through the
+    // host env: our marks follow them, or the API refuses the request.
+    assert_eq!(
+        cache_ttl_from_env(&env(&[("OPTCHAT_CACHE_TTL", "1h"), ("FORCE_PROMPT_CACHING_5M", "1")])),
+        Some(CacheTtl::FiveMinutes)
+    );
+    assert_eq!(
+        cache_ttl_from_env(&env(&[("CLAUDE_CODE_PROMPT_CACHE_TTL", "5m")])),
+        Some(CacheTtl::FiveMinutes)
+    );
+}
