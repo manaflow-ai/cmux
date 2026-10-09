@@ -62,7 +62,7 @@ final class LinkPreviews: LinkPreviewFetching {
             if hit?.title == nil { enqueueFallback(url) }
             return
         }
-        if waiting[url] != nil { waiting[url]!.append(done); return }
+        if waiting[url] != nil { waiting[url]?.append(done); return } // cmux: no force unwrap
         guard let u = URL(string: url), u.scheme == "https" || u.scheme == "http" else { done(nil); return }
         waiting[url] = [done]
         let file = dir.appendingPathComponent(String(format: "%016llx.png", LinkPreviews.fnv1a(url)))
@@ -107,9 +107,11 @@ final class LinkPreviews: LinkPreviewFetching {
     /// `<meta property|name="…" content="…">` (either attribute order), entities decoded.
     static func metaTags(_ html: String) -> [String: String] {
         var out: [String: String] = [:]
-        let re = try! NSRegularExpression(pattern: "<meta\\s+[^>]*>", options: [.caseInsensitive])
-        let key = try! NSRegularExpression(pattern: "(?:property|name)\\s*=\\s*[\"']([^\"']+)[\"']", options: [.caseInsensitive])
-        let val = try! NSRegularExpression(pattern: "content\\s*=\\s*(\"([^\"]*)\"|'([^']*)')", options: [.caseInsensitive])
+        // cmux: no try! (crash program); a pattern that fails to compile reads no tags.
+        guard let re = try? NSRegularExpression(pattern: "<meta\\s+[^>]*>", options: [.caseInsensitive]),
+              let key = try? NSRegularExpression(pattern: "(?:property|name)\\s*=\\s*[\"']([^\"']+)[\"']", options: [.caseInsensitive]),
+              let val = try? NSRegularExpression(pattern: "content\\s*=\\s*(\"([^\"]*)\"|'([^']*)')", options: [.caseInsensitive])
+        else { return out }
         let ns = html as NSString
         for m in re.matches(in: html, range: NSRange(location: 0, length: min(ns.length, 400_000))) {
             let tag = ns.substring(with: m.range) as NSString

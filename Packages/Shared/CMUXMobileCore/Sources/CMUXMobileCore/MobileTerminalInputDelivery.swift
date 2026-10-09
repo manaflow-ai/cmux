@@ -39,10 +39,13 @@ public struct MobileTerminalInputDelivery: Equatable, Hashable, Sendable {
     /// Decodes exactly ``encodedByteCount`` bytes; nil for any other length.
     public init?(decoding data: Data) {
         guard data.count == Self.encodedByteCount else { return nil }
-        let bytes = [UInt8](data)
-        self.surfaceID = UUID(uuidBytes: Array(bytes[0..<16]))
-        self.streamID = UUID(uuidBytes: Array(bytes[16..<32]))
-        self.sequence = bytes[32..<40].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        var reader = WireByteReader(data)
+        guard let surfaceID = reader.uuid(),
+              let streamID = reader.uuid(),
+              let sequence = reader.bigEndian(UInt64.self) else { return nil }
+        self.surfaceID = surfaceID
+        self.streamID = streamID
+        self.sequence = sequence
     }
 
     /// RPC parameters for this identity; the caller also sends `surface_id`.
@@ -129,12 +132,16 @@ public struct MobileTerminalInputAcknowledgement: Equatable, Sendable {
 
     public init?(decoding data: Data) {
         guard data.count == Self.encodedByteCount else { return nil }
-        let bytes = [UInt8](data)
-        guard bytes[0] == 1, let status = Status(rawValue: bytes[1]) else { return nil }
+        var reader = WireByteReader(data)
+        guard reader.byte() == 1,
+              let status = reader.byte().flatMap(Status.init(rawValue:)),
+              let streamID = reader.uuid(),
+              let sequence = reader.bigEndian(UInt64.self),
+              let expected = reader.bigEndian(UInt64.self) else { return nil }
         self.status = status
-        self.streamID = UUID(uuidBytes: Array(bytes[2..<18]))
-        self.sequence = bytes[18..<26].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
-        self.expected = bytes[26..<34].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        self.streamID = streamID
+        self.sequence = sequence
+        self.expected = expected
     }
 
     /// RPC response payload keys.
@@ -338,20 +345,26 @@ public struct MobileTerminalInputOutbox<Item: Sendable>: Sendable {
 
     public mutating func markSent(_ sequence: UInt64) {
         guard let index = entries.firstIndex(where: { $0.delivery.sequence == sequence }) else { return }
-        entries[index].isSent = true
+        entries.modify(checked: index) { $0.isSent = true }
     }
 
     /// Marks every unit from `sequence` on unsent (a gap report, or an
     /// ambiguous failure of the path that carried them).
     public mutating func rewind(from sequence: UInt64) {
-        for index in entries.indices where entries[index].delivery.sequence >= sequence {
-            entries[index].isSent = false
+        entries = entries.map { entry in
+            var entry = entry
+            if entry.delivery.sequence >= sequence { entry.isSent = false }
+            return entry
         }
     }
 
     /// Marks every pending unit unsent (a new connection or lane).
     public mutating func rewindAll() {
-        for index in entries.indices { entries[index].isSent = false }
+        entries = entries.map { entry in
+            var entry = entry
+            entry.isSent = false
+            return entry
+        }
     }
 
     /// Drops every unit through `sequence`: the host applied them.
@@ -473,10 +486,15 @@ public struct MobileTerminalInputOutbox<Item: Sendable>: Sendable {
         addingBytes byteCount: Int = 0,
         _ merge: (inout Item) -> Bool
     ) -> Bool {
-        guard let index = entries.indices.last, !entries[index].isSent,
-              pendingBytes + byteCount <= maximumPendingBytes,
-              merge(&entries[index].item) else { return false }
-        entries[index].byteCount += byteCount
+        guard let index = entries.indices.last, entries.last?.isSent == false,
+              pendingBytes + byteCount <= maximumPendingBytes else { return false }
+        var merged = false
+        entries.modify(checked: index) { entry in
+            guard merge(&entry.item) else { return }
+            entry.byteCount += byteCount
+            merged = true
+        }
+        guard merged else { return false }
         pendingBytes += byteCount
         return true
     }
@@ -497,7 +515,9 @@ extension UUID {
         ]
     }
 
-    init(uuidBytes bytes: [UInt8]) {
+    /// Nil unless `bytes` holds exactly 16 bytes.
+    init?(uuidBytes bytes: [UInt8]) {
+        guard bytes.count == 16 else { return nil }
         self.init(uuid: (
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
             bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]

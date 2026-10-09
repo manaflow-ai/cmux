@@ -38,7 +38,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 /// Back, Look Up, Share...) never shows: Open Image and WebKit's Copy Image on an image, Cut, Copy
 /// and Paste where WebKit offers them (Copy on a selection, Cut and Paste in the composer), Copy
 /// Message and Copy as Markdown for the message under the pointer, Fork from Here when its turn can
-/// be forked, and Inspect Element in builds with developer tools.
+/// be forked, the chat's menu (Change Background, zoom, Find...) on empty space, and Inspect Element
+/// in builds with developer tools.
 @MainActor
 enum AgentPaneContextMenu {
     /// WebKit's edit items the pane keeps, in WebKit's order.
@@ -49,11 +50,12 @@ enum AgentPaneContextMenu {
     struct Actions {
         var copy: (String) -> Void
         var fork: (Int) -> Void
-        var openImage: () -> Void
+        var openImage: () -> Void = {}
     }
 
     /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators.
-    static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, devTools: Bool, actions: Actions) {
+    static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, devTools: Bool, chatMenu: [NSMenuItem] = [],
+                        actions: Actions) {
         let edits = menu.items.filter { editItems.contains($0.identifier?.rawValue ?? "") }
         let inspect = devTools ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         let copyImage = menu.items.first { $0.identifier?.rawValue == copyImageItem }
@@ -73,7 +75,9 @@ enum AgentPaneContextMenu {
         let fork: [NSMenuItem] = target?.forkSeq.map { seq in
             [AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) }]
         } ?? []
-        let groups: [[NSMenuItem]] = [image, copies, fork, inspect.map { [$0] } ?? []]
+        // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
+        let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
+        let groups: [[NSMenuItem]] = [image, copies, fork, chat, inspect.map { [$0] } ?? []]
         for group in groups where !group.isEmpty {
             if menu.numberOfItems > 0 { menu.addItem(.separator()) }
             group.forEach(menu.addItem)

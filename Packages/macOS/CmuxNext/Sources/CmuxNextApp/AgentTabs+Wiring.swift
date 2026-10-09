@@ -94,6 +94,14 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
         }
+        tabs.remoteHost = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key), let session = tab.agentSession?.session else { return nil }
+            let daemon = services.machines.daemon(forTab: tab)
+            guard !daemon.isLocal, daemon.supports(DaemonCapabilities.shared.agentSessionAttach),
+                  let endpoint = daemon.remoteEndpoint else { return nil }
+            return AgentTabRemoteHost(surface: tab.surface.rawValue, session: session,
+                                      machine: tab.agentSession?.hostName ?? daemon.machineID, endpoint: endpoint)
+        }
         tabs.listTabs = { [weak services] in
             guard let services else { return [] }
             return services.machines.allWorkspaces.flatMap { workspace, _ in

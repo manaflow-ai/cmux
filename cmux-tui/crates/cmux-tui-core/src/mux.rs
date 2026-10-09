@@ -2489,6 +2489,8 @@ pub struct Mux {
     pub(crate) machine_public_id: crate::resource::MachinePublicId,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    /// Clone of the registry's projection spans, read without its lock.
+    resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
     pub(crate) state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
@@ -2985,11 +2987,13 @@ impl Mux {
                 registry.session_journal_database_path().is_some(),
             );
         Self::rebuild_split_screen_index(&mut state);
+        let resource_projection_stats = registry.resource_projection_stats().clone();
         let mux = Arc::new(Mux {
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,
             connection_stats: Arc::default(),
+            resource_projection_stats,
             started_at: Instant::now(),
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
@@ -6247,6 +6251,12 @@ impl Mux {
     /// durable journal.
     pub fn journal_writer_stats(&self) -> Option<crate::diagnostics::JournalWriterSnapshot> {
         self.journal_ingress.enabled().then(|| self.journal_ingress.stats().snapshot())
+    }
+
+    /// Resource projection and commit spans, see
+    /// [`crate::diagnostics::ResourceProjectionStats`].
+    pub fn resource_projection_stats(&self) -> crate::diagnostics::ResourceProjectionSnapshot {
+        self.resource_projection_stats.snapshot()
     }
 
     pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {
@@ -11105,7 +11115,7 @@ impl Mux {
     }
 
     /// Post what a program in `surface`'s terminal asked for with OSC 9,
-    /// OSC 777 or OSC 99. Called by the terminal's output reader after it
+    /// OSC 777 or OSC 99, or an OSC 7501 record's alert. Called by the terminal's output reader after it
     /// released the terminal lock; the reader already applied the rate limit.
     pub(crate) fn post_terminal_notifications(
         &self,
@@ -11118,7 +11128,7 @@ impl Mux {
                     &Actor::Daemon,
                     notification.title,
                     notification.body,
-                    NotificationLevel::Info,
+                    notification.level,
                     Some(surface),
                     NotificationSource::Terminal,
                 )
@@ -12189,7 +12199,10 @@ impl Mux {
         self.begin_session_shutdown();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
-        if !self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT) {
+        if !self.wait_for_terminal_host_closes(
+            TERMINAL_HOST_CLOSE_WAIT,
+            Instant::now() + TERMINAL_HOST_CLOSE_WAIT,
+        ) {
             eprintln!("cmux-tui: closed terminal hosts did not exit before shutdown");
         }
         self.config_reload_changed.notify_all();

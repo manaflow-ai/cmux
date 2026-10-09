@@ -107,7 +107,7 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .tryTip, .dismissTip:
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .tryTip, .dismissTip, .openWhatsNew, .shareCmux, .dismissUpdated:
             SidebarCardFeed.handle(intent, services: services)
         case .layout(let op):
             applyLayoutOp(op)
@@ -115,7 +115,7 @@ extension SidebarBridge {
             PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: index)
         case .toggleLayoutSection:
             model.apply(intent)
-        case .setIcon, .setGroupPinned, .setGroupIcon, .openGroup:
+        case .setIcon, .setGroupPinned, .setGroupIcon, .openGroup, .groupEditorEnded:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.
             model.apply(intent)
@@ -165,7 +165,9 @@ extension SidebarBridge {
     private func run(_ commands: [WorkspaceMovePlan.Command], on daemon: DaemonService) {
         let keys = Dictionary(daemon.store.workspaces.compactMap { model in model.key.map { (model.id, $0) } },
                               uniquingKeysWith: { first, _ in first })
-        Task {
+        // [services] pins the app's services while the commands run, so a
+        // re-sync after a rejection never reads a freed owner (cx-6so P1b).
+        Task { [weak self, services] in
             for command in commands {
                 let ok: Bool
                 switch command {
@@ -179,7 +181,7 @@ extension SidebarBridge {
                     ok = false
                 }
                 if !ok {
-                    resync()
+                    withExtendedLifetime(services) { self?.resync() }
                     return
                 }
             }
@@ -196,19 +198,20 @@ extension SidebarBridge {
     func resync() {
         guard let state else { return }
         model.ungroupedFirst = !usesMixedOrder
-        model.setSections(Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
-                                        hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
-                                        newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces))
+        rows.show(Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
+                                       hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                       newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces))
         model.profiles = Self.profiles(services.machines.local.store)
+        groupFlow.openPendingEditor()
     }
 
     /// Sends one command, shown at once through the store's intent log when
     /// it has an `intent`; a failure re-syncs the sidebar.
     private func command(_ label: String, on daemon: DaemonService, intent: Intent? = nil,
                          _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
-        Task {
+        Task { [weak self, services] in
             let ok = if let intent { await daemon.intend(label, intent, body) } else { await daemon.request(label, body) != nil }
-            if !ok { resync() }
+            if !ok { withExtendedLifetime(services) { self?.resync() } }
         }
     }
 }

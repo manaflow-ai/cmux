@@ -31,7 +31,7 @@ public final class SidebarView: NSView {
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private var edgeFade: ScrollEdgeFadeView!
+    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
@@ -45,8 +45,9 @@ public final class SidebarView: NSView {
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
-    var aboveFade: ScrollEdgeFadeView!
-    var belowFade: ScrollEdgeFadeView!
+    // Built in the sections setup (no IUOs).
+    lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
+    lazy var belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
     /// The hairline between the top band and the list (quiet look). The
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
@@ -60,7 +61,7 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    let updateCardView = SidebarUpdateCardView(), tipCardView = SidebarTipCardView() // SidebarBottomCards
+    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardView(), tipCardView = SidebarTipCardView()
     /// Back, in the footer band's spot while a destination is open (`SidebarView+Footer`).
     let backButton = SidebarBackButton()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
@@ -201,7 +202,6 @@ public final class SidebarView: NSView {
         NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
-        edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
         buildBands()
@@ -347,7 +347,7 @@ public final class SidebarView: NSView {
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
                     showsBack: model.showsBack,
-                    cards: SidebarBottomCards(update: model.updateCard, tip: model.tipCard)
+                    cards: SidebarBottomCards(update: model.updateCard, updated: model.updatedCard, tip: model.tipCard)
                 )
             }) {
                 self?.render(state)
@@ -367,9 +367,7 @@ public final class SidebarView: NSView {
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
-            || lastState?.preferences.workspaceRow != state.preferences.workspaceRow
-            || lastState?.preferences.groupsByComputer != state.preferences.groupsByComputer
+            || state.preferences.changesList(from: lastState?.preferences)
         let previous = lastState?.sections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.

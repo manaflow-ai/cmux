@@ -82,6 +82,18 @@ private func waitUntil(sourceLocation: SourceLocation = #_sourceLocation, _ cond
         #expect(abs(low.next().inSeconds - 0.8) < 0.001)
         #expect(abs(high.next().inSeconds - 1.2) < 0.001)
     }
+
+    /// Settings outside the documented ranges used to trap in the initializer.
+    @Test func outOfRangeSettingsAreCorrectedInsteadOfTrapping() {
+        var backoff = Backoff(initial: .zero, maximum: .zero, multiplier: 0.5, jitter: 2, random: { 0.5 })
+        #expect(backoff.initial == .milliseconds(100))
+        #expect(backoff.maximum == .milliseconds(100))
+        #expect(backoff.multiplier == 1)
+        #expect(backoff.jitter == 1)
+        #expect(backoff.next() == .milliseconds(100))
+        let nanJitter = Backoff(jitter: .nan)
+        #expect(nanJitter.jitter == 0)
+    }
 }
 
 @Suite struct DemandTimerTests {

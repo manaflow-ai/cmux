@@ -45,6 +45,14 @@ impl Translator {
                         }
                     }
                     method::SESSION_PROMPT => {
+                        let steer =
+                            p.pointer("/_meta/steer").and_then(Value::as_bool) == Some(true);
+                        if steer && !self.in_turn.load(Ordering::SeqCst) {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params(super::STEER_NO_TURN),
+                            ));
+                        }
                         let blocks =
                             p.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
                         let content: Vec<Value> = blocks
@@ -67,12 +75,20 @@ impl Translator {
                                 _ => json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")}),
                             })
                             .collect();
+                        // Claude Code echoes the line with this uuid when it reads it.
+                        let uuid = uuid::Uuid::now_v7().to_string();
+                        let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
+                        if steer {
+                            // Claude Code reads it at its next tool boundary
+                            // and echoes it; the echo answers this request.
+                            self.steers.lock().await.push_back((uuid, id.to_string()));
+                            return Outbound::Lines(vec![line]);
+                        }
                         self.in_turn.store(true, Ordering::SeqCst);
+                        *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
                         self.pending.lock().await.insert(id.to_string(), Pending::Prompt);
-                        Outbound::Lines(vec![
-                            json!({"type": "user", "message": {"role": "user", "content": content}}),
-                        ])
+                        Outbound::Lines(vec![line])
                     }
                     method::SESSION_SET_MODE => {
                         let mode =

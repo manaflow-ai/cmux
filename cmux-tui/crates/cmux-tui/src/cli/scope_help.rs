@@ -1,4 +1,5 @@
-//! Help for the scopes `browser`, `notification`, `room`, `closed` and `git`,
+//! Help for the scopes `browser`, `notification`, `room`, `closed`, `git` and
+//! `conversation`,
 //! kept out of `cli.rs` for its line budget.
 
 pub(super) const BROWSER_HELP: &str = "\
@@ -150,3 +151,19 @@ pub(super) fn edit_distance(left: &str, right: &str) -> usize {
     }
     previous[right.len()]
 }
+
+pub(super) const CONVERSATION_HELP: &str = "\
+USAGE
+  cmux conversation list
+  cmux conversation <conv_id> get [--tail <0..500>]
+  cmux conversation <conv_id> history --before-seq <n> --limit <1..500>
+  cmux conversation search <words>... [--limit <1..100>]
+  cmux conversation <conv_id> send --text <text> | --parts-json <json>
+    [--reply-to <msg_id> [--reply-part <n>]]
+  cmux conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
+
+The conversations of this session that you take part in (Home and the Chief).
+send writes as you; Home shows it at once. events streams the conversation:
+a snapshot, then each commit, typing and the Chief's live reply drafts, one
+JSON line each with --jsonl. `cmux chief` is the chat on top of these.
+";

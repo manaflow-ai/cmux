@@ -1,6 +1,7 @@
 public import AppKit
 public import QuartzCore
 import SwiftUI
+import CmuxNextWakeups
 
 /// AppKit entry points. `NSAnimationContext.animate(_:)` with a SwiftUI
 /// animation is retargetable: a new change starts from the view's current
@@ -106,7 +107,7 @@ extension Motion {
             context.timingFunction = curve ?? fadeCurve
             context.allowsImplicitAnimation = duration > 0
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainActor.assumeIsolated { done() } } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
     }
 
     /// Applies `animator()` changes at once (a zero-length group, so implicit
@@ -116,7 +117,7 @@ extension Motion {
             context.duration = 0
             context.allowsImplicitAnimation = false
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainActor.assumeIsolated { done() } } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
     }
 
     // MARK: Core Animation
@@ -194,7 +195,7 @@ extension Motion {
         guard MotionTrace.isEnabled else { return layer.add(animation, forKey: keyPath) }
         MotionTrace.begin(trace)
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { MotionTrace.end(trace) } }
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { MotionTrace.end(trace) } } // main-proof: CATransaction.h: the completion block is called on the main thread
         layer.add(animation, forKey: keyPath)
         CATransaction.commit()
     }

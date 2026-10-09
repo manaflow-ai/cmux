@@ -108,7 +108,7 @@ final class ChromiumWarmup {
             guard menuObserver == nil else { return }
             menuObserver = NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil,
                                                                   queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
                     guard let self else { return }
                     self.removeMenuObserver()
                     self.armIdle(after: self.policy.idleInput)

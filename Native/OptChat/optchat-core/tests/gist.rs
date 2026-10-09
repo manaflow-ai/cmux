@@ -25,7 +25,11 @@ impl Store for Mem {
 }
 
 fn summary(node: NodeId) -> String {
-    let len = if node.l == 0 { 240 } else { 380 + (node.l as usize * 9).min(120) };
+    let len = if node.l == 0 {
+        240
+    } else {
+        380 + (node.l as usize * 9).min(120)
+    };
     let mut s = format!("sum {}: ", node.name());
     while s.len() < len {
         s.push_str("item; ");
@@ -124,10 +128,7 @@ fn the_most_due_pair_at_t_10_is_8_and_9() {
     ];
     assert_eq!(most_due(&view, 10, |_| true), Some(2));
     // A pair whose parent is not built is passed over.
-    assert_eq!(
-        most_due(&view, 10, |n| n != NodeId::new(1, 4)),
-        Some(0)
-    );
+    assert_eq!(most_due(&view, 10, |n| n != NodeId::new(1, 4)), Some(0));
 }
 
 /// Spec 3.2, when: each message only appends its line; once the view passes
@@ -143,8 +144,8 @@ fn the_view_is_a_sawtooth_from_the_budget_down_to_half() {
         let before = memory.view().to_vec();
         let size_before = memory.view_size();
         add(&mut memory, &store, k);
-        let appended = memory.view().len() == before.len() + 1
-            && memory.view()[..before.len()] == before[..];
+        let appended =
+            memory.view().len() == before.len() + 1 && memory.view()[..before.len()] == before[..];
         if !appended {
             batches += 1;
             assert!(
@@ -156,7 +157,11 @@ fn the_view_is_a_sawtooth_from_the_budget_down_to_half() {
         }
         let view = memory.view().to_vec();
         drain(&mut memory, &store);
-        assert_eq!(memory.view(), &view[..], "building nodes changed the view at {k}");
+        assert_eq!(
+            memory.view(),
+            &view[..],
+            "building nodes changed the view at {k}"
+        );
     }
     assert!(batches >= 10, "only {batches} batches");
 }
@@ -193,7 +198,10 @@ fn a_batch_that_cannot_reach_half_goes_on_at_each_message() {
     let stuck = memory.view().to_vec();
     assert_eq!(memory.view(), &stuck[..]);
     add(&mut memory, &store, k);
-    assert!(memory.view_size() <= budget / 2, "the next message finishes the batch");
+    assert!(
+        memory.view_size() <= budget / 2,
+        "the next message finishes the batch"
+    );
 }
 
 /// Spec 4: the compaction view is the chat's view merged further, a 1/8 to
@@ -223,10 +231,13 @@ fn compactions_see_their_own_smaller_view_up_to_the_node() {
                     store.nodes.borrow_mut().insert(node, text);
                 }
                 Work::Model { node } => {
-                    let request =
-                        compact_request(&memory, &store, node, "SYSTEM".into()).unwrap();
+                    let request = compact_request(&memory, &store, node, "SYSTEM".into()).unwrap();
                     assert!(!request.context.contains(PLACEHOLDER));
-                    let upto = if node.l == 0 { node.start() } else { node.end() };
+                    let upto = if node.l == 0 {
+                        node.start()
+                    } else {
+                        node.end()
+                    };
                     for line in request.context.lines().filter(|l| l.contains('|')) {
                         let name = line.split('|').next().unwrap();
                         let (id, n) = name.split_once('+').unwrap();
@@ -244,13 +255,14 @@ fn compactions_see_their_own_smaller_view_up_to_the_node() {
     }
 }
 
-/// Spec 4, the order: a message's node starts once fewer than 8 lines before
-/// it are unbuilt, merges once both halves are built.
+/// Spec 4, the order: a message's node starts once fewer than `AHEAD` lines
+/// before it are unbuilt, merges once both halves are built.
 #[test]
-fn up_to_eight_message_nodes_run_and_merges_start_when_both_halves_are_built() {
+fn up_to_ahead_message_nodes_run_and_merges_start_when_both_halves_are_built() {
+    let a = AHEAD as u64;
     let store = Mem::default();
     let mut memory = Memory::new(VIEW);
-    for k in 0..20 {
+    for k in 0..2 * a + 4 {
         add(&mut memory, &store, k);
     }
     let first: Vec<NodeId> = memory
@@ -261,10 +273,10 @@ fn up_to_eight_message_nodes_run_and_merges_start_when_both_halves_are_built() {
             other => panic!("{other:?}"),
         })
         .collect();
-    assert_eq!(first, (0..8).map(|i| NodeId::new(0, i)).collect::<Vec<_>>());
-    // 1..8 finish while 0 runs: one unbuilt line before 8..15, so they start
-    // (seven slots), and the merges of built pairs too.
-    for i in 1..8 {
+    assert_eq!(first, (0..a).map(|i| NodeId::new(0, i)).collect::<Vec<_>>());
+    // 1..AHEAD finish while 0 runs: one unbuilt line before AHEAD..2*AHEAD-1,
+    // so they start (AHEAD - 1 slots), and the merges of built pairs too.
+    for i in 1..a {
         let n = NodeId::new(0, i);
         store.nodes.borrow_mut().insert(n, summary(n));
         memory.complete(n, &summary(n)).unwrap();
@@ -277,7 +289,12 @@ fn up_to_eight_message_nodes_run_and_merges_start_when_both_halves_are_built() {
             Work::Free { .. } => None,
         })
         .collect();
-    assert_eq!(models, (8..15).map(|i| NodeId::new(0, i)).collect::<Vec<_>>());
+    assert_eq!(
+        models,
+        (a..2 * a - 1)
+            .map(|i| NodeId::new(0, i))
+            .collect::<Vec<_>>()
+    );
     let free: Vec<NodeId> = work
         .iter()
         .filter_map(|w| match w {
@@ -285,7 +302,10 @@ fn up_to_eight_message_nodes_run_and_merges_start_when_both_halves_are_built() {
             Work::Model { .. } => None,
         })
         .collect();
-    assert_eq!(free, vec![NodeId::new(1, 1), NodeId::new(1, 2), NodeId::new(1, 3)]);
+    assert_eq!(
+        free,
+        (1..a / 2).map(|i| NodeId::new(1, i)).collect::<Vec<_>>()
+    );
     assert_eq!(memory.busy().count(), JOBS);
 }
 
@@ -306,7 +326,12 @@ fn a_resumed_memory_goes_on_exactly_as_the_live_one() {
         .nodes
         .borrow()
         .iter()
-        .filter(|(id, _)| checkpoint.low.get(id.l as usize).is_none_or(|low| id.i >= *low))
+        .filter(|(id, _)| {
+            checkpoint
+                .low
+                .get(id.l as usize)
+                .is_none_or(|low| id.i >= *low)
+        })
         .map(|(id, t)| (*id, t.len()))
         .collect();
     let mut resumed = Memory::resume(&checkpoint, live.len(), frontier, budget, &store).unwrap();
@@ -327,7 +352,11 @@ fn a_resumed_memory_goes_on_exactly_as_the_live_one() {
             work = resumed.pump(&store);
         }
         assert_eq!(resumed.view(), live.view(), "diverged at {k}");
-        assert_eq!(resumed.compact_view(), live.compact_view(), "diverged at {k}");
+        assert_eq!(
+            resumed.compact_view(),
+            live.compact_view(),
+            "diverged at {k}"
+        );
     }
 }
 
@@ -372,7 +401,9 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         add(&mut memory, &store, k);
     }
     let work = memory.pump(&store);
-    let Work::Model { node } = work[2].clone() else { panic!() };
+    let Work::Model { node } = work[2].clone() else {
+        panic!()
+    };
     let request = compact_request(&memory, &store, node, "SYSTEM".into()).unwrap();
     assert_eq!(
         request.step,
@@ -421,7 +452,9 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         )
     );
     let long = "y".repeat(600);
-    let SizeCheck::Retry(retry) = size_check(std::slice::from_ref(&long)) else { panic!() };
+    let SizeCheck::Retry(retry) = size_check(std::slice::from_ref(&long)) else {
+        panic!()
+    };
     assert_eq!(
         retry,
         format!(

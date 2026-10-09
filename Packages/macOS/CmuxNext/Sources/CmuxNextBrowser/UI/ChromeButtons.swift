@@ -36,7 +36,8 @@ final class ChromeIconButton: NSButton {
             density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
         ])
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applySymbol()
         }
@@ -162,7 +163,8 @@ class ChromeTextButton: NSButton {
         wantsLayer = true
         density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight }.isActive = true
         titleText = title
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             layer?.cornerRadius = BrowserMetrics.controlCornerRadius
             applyTitle()
             invalidateIntrinsicContentSize()
@@ -250,7 +252,8 @@ class ChromeTextField: NSTextField {
         lineBreakMode = .byTruncatingTail
         cell?.isScrollable = true
         cell?.wraps = false
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             font = BrowserMetrics.bodyFont
             applyPlaceholder()
         }

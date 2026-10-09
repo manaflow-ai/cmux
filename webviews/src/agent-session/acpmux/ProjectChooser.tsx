@@ -3,7 +3,7 @@ import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
 import { ProjectBadge } from "./ProjectBadge";
-import { usePopoverTrigger } from "./popoverTrigger";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 export type Project = { cwd: string; label: string };
 
