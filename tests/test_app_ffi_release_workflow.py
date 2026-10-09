@@ -239,6 +239,7 @@ class RePin(unittest.TestCase):
         # An App token's push runs CI on the re-pin, unlike GITHUB_TOKEN's.
         self.assertIn("app-ffi-repin", script)
         self.assertIn("gh pr create", script)
+        self.assertIn("--jq '.[0].number // empty'", script)
         self.assertIn("gh pr edit", script)
         self.assertIn('--title "cmux-next: pin CCmuxAppFFI to $TAG"', script)
         self.assertIn('--body "$body"', script)

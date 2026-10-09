@@ -517,7 +517,7 @@ jobs:
             echo "::warning title=Open the re-pin pull request::the release App has no pull-requests permission; open $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/feat-cmux-next...$branch?expand=1"
             exit 0
           fi
-          pr_number="$(gh pr list --head "$branch" --base feat-cmux-next --state open --json number --jq '.[0].number')"
+          pr_number="$(gh pr list --head "$branch" --base feat-cmux-next --state open --json number --jq '.[0].number // empty')"
           if [[ -n "$pr_number" ]]; then
             gh pr edit "$pr_number" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body"
             echo "updated the open re-pin pull request #$pr_number"
