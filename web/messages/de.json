@@ -30,6 +30,14 @@
       "message": "Diese Maschine wurde vor einem Cloud-Update erstellt und kann nicht verbunden werden.",
       "action": "Erstelle eine neue Maschine, kopiere deine Dateien mit cmux vm pull und cmux vm push hinüber und lösche dann diese."
     },
+    "networkRuleCapacity": {
+      "title": "Netzwerkregeln ausgeschöpft",
+      "message": "Ihre Netzwerkrichtlinie wurde gespeichert, aber nicht angewendet: cmux Cloud hat seine Kapazität für Netzwerkregeln erreicht.",
+      "action": "Das cmux-Team wurde benachrichtigt. Entfernen Sie Domains, die diese Maschine nicht mehr benötigt, oder wenden Sie sich an den Support. Bis dahin entspricht der Netzwerkzugriff dieser Maschine möglicherweise nicht der gespeicherten Richtlinie."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Die Netzwerkrichtlinie wurde gespeichert, aber nicht angewendet. Speichern Sie sie erneut, um es noch einmal zu versuchen."
+    },
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",
       "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",

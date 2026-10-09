@@ -30,6 +30,14 @@
       "message": "这台机器创建于 Cloud 更新之前，无法连接。",
       "action": "请创建一台新机器，用 cmux vm pull 和 cmux vm push 复制文件，然后删除这台机器。"
     },
+    "networkRuleCapacity": {
+      "title": "网络规则已达上限",
+      "message": "网络策略已保存，但未应用：cmux Cloud 的网络规则已达上限。",
+      "action": "已通知 cmux 团队。请移除这台机器不再需要的域名，或联系支持团队。在此之前，这台机器的网络访问可能与已保存的策略不一致。"
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "网络策略已保存，但未应用。请再次保存以重试。"
+    },
     "unsupported": {
       "title": "云端虚拟机操作不可用",
       "reason": "此机器类型不提供此操作。",

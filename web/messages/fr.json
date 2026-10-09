@@ -30,6 +30,14 @@
       "message": "Cette machine a été créée avant une mise à jour de Cloud et ne peut pas être connectée.",
       "action": "Créez une nouvelle machine, copiez vos fichiers avec cmux vm pull et cmux vm push, puis supprimez celle-ci."
     },
+    "networkRuleCapacity": {
+      "title": "Règles réseau à saturation",
+      "message": "Votre politique réseau est enregistrée mais n'a pas été appliquée : cmux Cloud a atteint sa capacité de règles réseau.",
+      "action": "L'équipe cmux a été alertée. Supprimez les domaines dont cette machine n'a plus besoin, ou contactez le support. D'ici là, l'accès réseau de cette machine peut ne pas correspondre à la politique enregistrée."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "La politique réseau est enregistrée mais n'a pas été appliquée. Enregistrez-la à nouveau pour réessayer."
+    },
     "unsupported": {
       "title": "Opération de Cloud VM indisponible",
       "reason": "Ce type de machine ne propose pas cette opération.",

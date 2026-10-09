@@ -30,6 +30,14 @@
       "message": "Ta maszyna została utworzona przed aktualizacją Cloud i nie można się z nią połączyć.",
       "action": "Utwórz nową maszynę, skopiuj pliki za pomocą cmux vm pull i cmux vm push, a potem usuń tę."
     },
+    "networkRuleCapacity": {
+      "title": "Osiągnięto limit reguł sieciowych",
+      "message": "Twoja polityka sieciowa została zapisana, ale nie została zastosowana: cmux Cloud osiągnął limit reguł sieciowych.",
+      "action": "Zespół cmux został powiadomiony. Usuń domeny, których ta maszyna już nie potrzebuje, lub skontaktuj się z pomocą techniczną. Do tego czasu dostęp sieciowy tej maszyny może nie odpowiadać zapisanej polityce."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Polityka sieciowa została zapisana, ale nie została zastosowana. Zapisz ją ponownie, aby spróbować jeszcze raz."
+    },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",
       "reason": "Ten typ maszyny nie udostępnia tej operacji.",

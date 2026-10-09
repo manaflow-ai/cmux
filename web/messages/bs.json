@@ -30,6 +30,14 @@
       "message": "Ova mašina je kreirana prije ažuriranja Clouda i ne može se povezati.",
       "action": "Kreirajte novu mašinu, kopirajte datoteke pomoću cmux vm pull i cmux vm push, a zatim obrišite ovu."
     },
+    "networkRuleCapacity": {
+      "title": "Mrežna pravila su na kapacitetu",
+      "message": "Vaša mrežna politika je sačuvana, ali nije primijenjena: cmux Cloud je dostigao kapacitet mrežnih pravila.",
+      "action": "Tim cmux je obaviješten. Uklonite domene koje ova mašina više ne treba ili kontaktirajte podršku. Do tada mrežni pristup ove mašine možda neće odgovarati sačuvanoj politici."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Mrežna politika je sačuvana, ali nije primijenjena. Sačuvajte je ponovo da pokušate opet."
+    },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",
       "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
