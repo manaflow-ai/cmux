@@ -120,7 +120,8 @@ INT_CONVERSION = re.compile(
 DECLARED_TYPE = re.compile(r"\b(?:var|let)\s+(\w+)\s*(?::\s*(\S.*)|=\s*(\S.*))")
 # Parameters (`func f(m: [K: V])`, `init(_ m: [K: V])`): only on func/init lines, so call
 # labels (`reduce(into: [:])`) are not read as declarations.
-PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(\[.*|(?:Dictionary|Array)\s*<.*)")
+# The type is read from the match end, so a later parameter on the same line is found too.
+PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(?=\[|(?:Dictionary|Array)\s*<)")
 FUNC_OR_INIT = re.compile(r"\b(?:func\s+\w+|init\??)\s*(?:<[^>]*>)?\s*\(")
 
 
@@ -196,7 +197,7 @@ def collection_names(lines):
         code = swift_code(line)
         found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
         if FUNC_OR_INIT.search(code):
-            found += [(m.group(1), m.group(2).strip()) for m in PARAMETER_TYPE.finditer(code)]
+            found += [(m.group(1), code[m.end():].strip()) for m in PARAMETER_TYPE.finditer(code)]
         for name, text in found:
             (dicts if bracket_kind(text) == "dict" else others).add(name)
     return dicts, others
