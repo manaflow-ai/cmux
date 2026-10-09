@@ -4,35 +4,52 @@ import Foundation
 import Testing
 @testable import CmuxNextApp
 
-/// The provider channel over a recorded link: registration per connection,
-/// a retry after a taken family, cancellation on a new connection, and the
-/// organization policy.
+/// The provider channel over a recorded link: one registration per
+/// connection, retried with backoff; answers on the connection a request
+/// arrived on; cancellation on a new connection; the organization policy.
 @MainActor
 @Suite struct AppsProviderChannelTests {
-    /// A link that records every registration and answer; registrations
-    /// answer with the next queued refusal (nil: accepted).
+    /// One daemon connection of the recorded link.
+    final class Connection {
+        let name: String
+        init(_ name: String) { self.name = name }
+    }
+
+    /// A link that records every registration and answer, by connection;
+    /// registrations answer with the next queued refusal (nil: accepted).
     final class RecordedLink {
-        var registrations: [[String]] = []
+        var current: Connection? = Connection("A")
+        var registrations: [(connection: String, families: [String])] = []
         var refusals: [String?] = []
-        var answers: [(id: UInt64, ok: Bool, body: AppJSON)] = []
+        var answers: [(connection: String, id: UInt64, ok: Bool, body: AppJSON)] = []
         var link: AppsProviderLink {
-            AppsProviderLink(register: { [self] families in
-                registrations.append(families)
+            AppsProviderLink(connection: { [self] in current }, register: { [self] connection, families in
+                registrations.append(((connection as? Connection)?.name ?? "?", families))
                 return refusals.isEmpty ? nil : refusals.removeFirst()
-            }, answer: { [self] id, ok, body in answers.append((id, ok, body)) })
+            }, answer: { [self] connection, id, ok, body in
+                answers.append(((connection as? Connection)?.name ?? "?", id, ok, body))
+            })
         }
     }
 
-    /// Answers `slow.*` only after `release()`; `echo.*` at once.
+    /// Answers `slow.*` only after `release()` and counts the slow calls that
+    /// returned; `echo.*` at once.
     nonisolated final class GatedOps: AppHostCapabilityHandler, Sendable {
         private let gate = AsyncStream<Void>.makeStream()
+        private let done = AsyncStream<Void>.makeStream()
         var families: Set<String> { ["echo", "slow"] }
 
         func release() { gate.continuation.yield() }
 
+        /// Waits until one slow call returned from its handler.
+        func waitForSlowReturn() async {
+            for await _ in done.stream { return }
+        }
+
         func handle(_ request: AppHostCapabilityRequest) async throws(AppHostCapabilityError) -> AppJSON {
             if request.op.hasPrefix("slow.") {
                 for await _ in gate.stream { break }
+                done.continuation.yield()
             }
             return ["op": .string(request.op)]
         }
@@ -43,45 +60,67 @@ import Testing
                  "op": .string(op), "params": .object([:]), "origin": .string("user")])
     }
 
+    private func channel(_ recorded: RecordedLink, _ ops: GatedOps = GatedOps()) -> AppsProviderChannel {
+        let channel = AppsProviderChannel(link: recorded.link, backoff: { _ in .zero })
+        channel.attach(AppHostCapabilities([ops]))
+        return channel
+    }
+
     @Test func registersOncePerConnectionAndAnswersACall() async {
         let recorded = RecordedLink()
-        let channel = AppsProviderChannel(link: recorded.link)
-        channel.attach(AppHostCapabilities([GatedOps()]))
+        let channel = channel(recorded)
         channel.connectionChanged(epoch: 1)
         channel.connectionChanged(epoch: 1)
         #expect(await eventually { channel.isRegistered })
-        #expect(recorded.registrations == [["echo", "slow"]])
+        #expect(recorded.registrations.map(\.families) == [["echo", "slow"]])
         #expect(channel.handle(name: "apps-provider-request", payload: request(1, "echo.ping")))
         #expect(await eventually { recorded.answers.count == 1 })
         #expect(recorded.answers.first?.ok == true && recorded.answers.first?.body == ["op": "echo.ping"])
     }
 
-    /// A family another live connection still holds: the next supervisor
-    /// event tries the registration again; another refusal waits for the next
-    /// connection.
-    @Test func aTakenFamilyIsRegisteredAgainOnTheNextEvent() async {
+    /// A result goes to the connection its request arrived on, never to a newer one.
+    @Test func aResultGoesToTheConnectionTheRequestArrivedOn() async {
         let recorded = RecordedLink()
-        recorded.refusals = ["apps.provider.taken"]
-        let channel = AppsProviderChannel(link: recorded.link)
-        channel.attach(AppHostCapabilities([GatedOps()]))
+        let ops = GatedOps()
+        let channel = channel(recorded, ops)
         channel.connectionChanged(epoch: 1)
-        #expect(await eventually { recorded.registrations.count == 1 })
-        #expect(!channel.isRegistered)
-        _ = channel.handle(name: "apps-changed", payload: .object(["event": .string("apps-changed")]))
+        _ = channel.handle(name: "apps-provider-request", payload: request(3, "slow.wait"))
+        recorded.current = Connection("B")
+        ops.release()
+        await ops.waitForSlowReturn()
+        #expect(await eventually { recorded.answers.contains { $0.id == 3 } })
+        #expect(recorded.answers.filter { $0.id == 3 }.map(\.connection) == ["A"])
+    }
+
+    /// Taken families and transient failures are retried on the same
+    /// connection with backoff, one registration at a time; supervisor events
+    /// never start one. A refusal for good waits for the next connection.
+    @Test func aRefusedRegistrationIsRetriedWithBackoff() async {
+        let recorded = RecordedLink()
+        recorded.refusals = ["apps.provider.taken", "failed", "not_connected", "timeout"]
+        let channel = channel(recorded)
+        channel.connectionChanged(epoch: 1)
         #expect(await eventually { channel.isRegistered })
-        #expect(recorded.registrations.count == 2)
+        #expect(recorded.registrations.count == 5)
 
         let forbidden = RecordedLink()
         forbidden.refusals = ["apps.provider.forbidden"]
-        let other = AppsProviderChannel(link: forbidden.link)
-        other.attach(AppHostCapabilities([GatedOps()]))
+        let other = self.channel(forbidden)
         other.connectionChanged(epoch: 1)
         #expect(await eventually { forbidden.registrations.count == 1 })
-        _ = other.handle(name: "apps-changed", payload: .object(["event": .string("apps-changed")]))
+        for _ in 0..<5 { _ = other.handle(name: "apps-changed", payload: .object(["event": .string("apps-changed")])) }
         other.connectionChanged(epoch: 1)
-        #expect(forbidden.registrations.count == 1, "only a taken family is retried on the same connection")
+        await Task.yield()
+        #expect(forbidden.registrations.count == 1, "no registration per event, none after a refusal for good")
         other.connectionChanged(epoch: 2)
         #expect(await eventually { other.isRegistered })
+    }
+
+    @Test func theBackoffDoublesUpToItsCap() {
+        #expect(AppsProviderChannel.backoff(0) == .milliseconds(500))
+        #expect(AppsProviderChannel.backoff(1) == .seconds(1))
+        #expect(AppsProviderChannel.backoff(3) == .seconds(4))
+        #expect(AppsProviderChannel.backoff(20) == .seconds(30))
     }
 
     /// A reconnect (epoch N to N+1, also inside one frame) cancels the old
@@ -89,37 +128,41 @@ import Testing
     @Test func aNewConnectionCancelsTheOldConnectionsCalls() async {
         let recorded = RecordedLink()
         let ops = GatedOps()
-        let channel = AppsProviderChannel(link: recorded.link)
-        channel.attach(AppHostCapabilities([ops]))
+        let channel = channel(recorded, ops)
         channel.connectionChanged(epoch: 1)
         _ = channel.handle(name: "apps-provider-request", payload: request(7, "slow.wait"))
         #expect(channel.runningCount == 1)
+        recorded.current = Connection("B")
         channel.connectionChanged(epoch: 2)
         #expect(channel.runningCount == 0)
         ops.release()
+        await ops.waitForSlowReturn()
         _ = channel.handle(name: "apps-provider-request", payload: request(8, "echo.ping"))
         #expect(await eventually { recorded.answers.contains { $0.id == 8 } })
         #expect(!recorded.answers.contains { $0.id == 7 })
     }
 
-    /// While an administrator turned apps off, no handler runs: every call
-    /// answers `apps.disabled`, and running calls are cancelled.
+    /// While an administrator turned apps off, no handler runs: every call,
+    /// the running ones included, answers `apps.disabled` once.
     @Test func turnedOffAnswersEveryCallDisabled() async {
         let recorded = RecordedLink()
         let ops = GatedOps()
-        let channel = AppsProviderChannel(link: recorded.link)
-        channel.attach(AppHostCapabilities([ops]))
+        let channel = channel(recorded, ops)
         channel.connectionChanged(epoch: 1)
         _ = channel.handle(name: "apps-provider-request", payload: request(1, "slow.wait"))
         channel.turnedOff = "Turned off by your organization"
         #expect(channel.runningCount == 0)
         _ = channel.handle(name: "apps-provider-request", payload: request(2, "echo.ping"))
-        #expect(await eventually { recorded.answers.contains { $0.id == 2 } })
-        let answer = recorded.answers.first { $0.id == 2 }
-        #expect(answer?.ok == false && answer?.body["code"] == "apps.disabled")
-        #expect(answer?.body["message"] == "Turned off by your organization")
+        #expect(await eventually { recorded.answers.contains { $0.id == 1 } && recorded.answers.contains { $0.id == 2 } })
+        for id: UInt64 in [1, 2] {
+            let answer = recorded.answers.first { $0.id == id }
+            #expect(answer?.ok == false && answer?.body["code"] == "apps.disabled", "\(id)")
+            #expect(answer?.body["message"] == "Turned off by your organization")
+        }
         ops.release()
-        #expect(!recorded.answers.contains { $0.id == 1 })
+        await ops.waitForSlowReturn()
+        await Task.yield()
+        #expect(recorded.answers.filter { $0.id == 1 }.count == 1, "the cancelled call sends no second answer")
     }
 }
 
