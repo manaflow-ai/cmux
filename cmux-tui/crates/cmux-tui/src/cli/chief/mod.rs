@@ -138,7 +138,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         return 0;
     }
     if let Some(control) = &args.control {
-        return control::run(&global, control, global.output);
+        return control::run(&global, args.chief_home.as_deref(), control, global.output);
     }
     let stdin_tty = std::io::stdin().is_terminal();
     let pipe_mode = args.prompt.is_some() || !stdin_tty;
@@ -257,7 +257,7 @@ impl Session {
 }
 
 /// Where `cmux chief` connects.
-enum Target {
+pub(super) enum Target {
     /// `--socket` or `--session`: connect only, start nothing.
     Explicit(std::path::PathBuf, bool),
     /// The Chief home's conversation owner, started with its brain when

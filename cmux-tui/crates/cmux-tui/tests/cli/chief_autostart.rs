@@ -146,17 +146,18 @@ impl Sandbox {
 impl Drop for Sandbox {
     fn drop(&mut self) {
         let home = self.isolated();
-        if let Ok(pid) = fs::read_to_string(home.join("brain.pid")) {
-            if let Ok(pid) = pid.trim().parse::<i32>() {
-                // SAFETY: kill(2) of the stand-in brain this test started.
-                unsafe { libc::kill(pid, libc::SIGKILL) };
-            }
+        if let Ok(pid) = fs::read_to_string(home.join("brain.pid"))
+            && let Ok(pid) = pid.trim().parse::<i32>()
+        {
+            // SAFETY: kill(2) of the stand-in brain this test started.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
         }
         // The daemon the CLI started for the home ends with its terminals.
         let started = fs::read_to_string(home.join("daemon-socket")).ok().map(PathBuf::from);
         for socket in sockets(&self.dir.join("run")).into_iter().chain(started) {
             // shutdown-daemon names the daemon's pid and generation (identify).
-            let identity = try_json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "identify"}));
+            let identity =
+                try_json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "identify"}));
             if let Some(identity) = identity {
                 let _ = try_json_socket_request(
                     &socket,

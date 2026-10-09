@@ -42,6 +42,9 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         initial_host_colors: None,
         terminal_reap_grace: Some(std::time::Duration::from_secs(30)),
         install_key: None,
+        // An owner this call starts serves chief.engine.* and chief.stop
+        // through the home's brain.
+        chief_tools_socket: Some(home.root.join("optchat/tools.sock")),
     };
     match ensure_owner(&spec, Some(&session), Instant::now() + ENSURE_DEADLINE) {
         Ok(Ensured::Running(_)) => {}

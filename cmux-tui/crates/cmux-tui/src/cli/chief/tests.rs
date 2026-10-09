@@ -310,6 +310,9 @@ fn the_acpmux_socket_follows_acpmux_length_rule() {
     let long = ChiefHome { root: format!("/{}", "x".repeat(100)).into(), isolated: true };
     let socket = long.acpmux_socket(501).to_string_lossy().into_owned();
     assert!(socket.starts_with("/tmp/acpmux-501/") && socket.ends_with(".sock"), "{socket}");
+}
+
+#[test]
 fn engine_and_stop_are_one_call_each() {
     use super::control::{Control, engine_line};
     let parsed = parse_args(&strings(&["engine", "--model", "m", "--effort=high"])).unwrap();

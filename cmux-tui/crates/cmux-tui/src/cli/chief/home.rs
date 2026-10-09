@@ -8,7 +8,7 @@
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ChiefHome {
+pub(in crate::cli) struct ChiefHome {
     pub root: PathBuf,
     /// A test or preflight home, never the person's Chief.
     pub isolated: bool,
