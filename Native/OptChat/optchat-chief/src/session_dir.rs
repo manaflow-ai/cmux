@@ -4,12 +4,14 @@
 //!
 //! A turn should see only what this directory holds (section 7: a fresh call,
 //! nothing carried over; section 7.2: MASTER, then VIEW_DOC, then the
-//! instructions at the end). The turn sessions' acpmux preset points
-//! `CLAUDE_CONFIG_DIR` at `optchat/claude`, whose settings turn auto-memory
-//! off and hold no hooks, so the user's own ~/.claude/CLAUDE.md, settings,
-//! hooks and project memory never reach a turn. What stays outside our
-//! control: Claude Code's own system prompt (with its date and environment
-//! lines) and any machine-wide managed settings.
+//! instructions at the end). The turn sessions sign in with the user's own
+//! Claude login, so they use the user's Claude home; their acpmux preset
+//! turns auto-memory and CLAUDE.md files off (its system prompt carries the
+//! instructions), and this directory's project settings turn hooks off, so
+//! the user's own ~/.claude/CLAUDE.md, hooks and project memory never reach
+//! a turn. What stays outside our control: Claude Code's own system prompt
+//! (with its date and environment lines), the user's other settings and
+//! any machine-wide managed settings.
 //!
 //! Deviation: acpmux drops `mcpServers` from `session/new` (it always starts
 //! the agent with `[]`), so mux/host's way of passing MCP servers reaches no
@@ -195,13 +197,15 @@ pub fn claude_settings() -> Value {
     json!({"autoMemoryEnabled": false, "hooks": {}, "cleanupPeriodDays": TURN_TRANSCRIPT_DAYS})
 }
 
-/// The env of the turn sessions' acpmux preset.
-pub fn isolation_env(paths: &Paths) -> BTreeMap<String, String> {
+/// The env of the turn and subagent sessions' acpmux presets: no
+/// auto-memory. No `CLAUDE_CONFIG_DIR` of their own: Claude Code finds the
+/// user's login through the user's Claude home, and a plain `claude`
+/// session pointed at another directory is signed out (`claude auth
+/// status`: loggedIn false). The session directory's project settings keep
+/// hooks off and deny the tools a session must not use, as they did for
+/// claude-sr, which resets the variable anyway.
+pub fn isolation_env(_paths: &Paths) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
-    env.insert(
-        "CLAUDE_CONFIG_DIR".to_owned(),
-        paths.claude_config.display().to_string(),
-    );
     env.insert("CLAUDE_CODE_DISABLE_AUTO_MEMORY".to_owned(), "1".to_owned());
     env
 }
