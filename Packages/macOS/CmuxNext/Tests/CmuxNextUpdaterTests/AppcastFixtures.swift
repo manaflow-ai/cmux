@@ -38,18 +38,3 @@ enum AppcastFixtures {
     }
 }
 
-/// Serves one fixed response and records the URLs asked for.
-final class FixtureFetcher: AppcastFetching, @unchecked Sendable {
-    let data: Data?
-    private(set) var requested: [URL] = []
-
-    init(_ data: Data?) {
-        self.data = data
-    }
-
-    func fetch(_ url: URL) async throws -> Data {
-        requested.append(url)
-        guard let data else { throw AppcastParseError(message: "offline") }
-        return data
-    }
-}

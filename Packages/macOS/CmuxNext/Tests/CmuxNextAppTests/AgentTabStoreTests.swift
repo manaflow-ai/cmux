@@ -280,36 +280,3 @@ struct AgentTabLifecycleTests {
     }
 }
 
-/// The one-time import of the agent tabs an older build recorded in the window document.
-@MainActor
-@Suite struct AgentTabImportTests {
-    @Test func theImportEmptiesTheRecordsAndSelectsTheStoreTabs() {
-        var document = WindowStateDocument(
-            windows: [WindowRecord(id: "w1", workspaceKey: nil, selectedTabs: ["pane_p": "local-agent:one", "pane_q": "tab_x"])],
-            legacyAgentTabs: ["pane_p": [AgentTabRecord(id: "local-agent:one", session: "s-1")],
-                              "pane_q": [AgentTabRecord(id: "local-agent:two", session: "s-2")]]
-        )
-        let kept = ["pane_q": [AgentTabRecord(id: "local-agent:two", session: "s-2")]]
-        AgentTabImport.finish(&document, imported: ["local-agent:one": "tab_new"], remaining: kept)
-        #expect(document.legacyAgentTabs == kept, "a record the daemon refused stays for the next launch")
-        #expect(document.windows[0].selectedTabs == ["pane_p": "tab_new", "pane_q": "tab_x"])
-        AgentTabImport.finish(&document, imported: ["local-agent:two": "tab_two"], remaining: [:])
-        #expect(document.legacyAgentTabs.isEmpty)
-    }
-
-    @Test func theDocumentWritesTheRecordsOnlyWhileItHasSome() throws {
-        var document = WindowStateDocument()
-        let empty = try #require(String(data: try JSONEncoder().encode(document), encoding: .utf8))
-        #expect(!empty.contains("agent_tabs"))
-        document.legacyAgentTabs["pane-a"] = [AgentTabRecord(id: "local-agent:one", session: "s-1")]
-        let data = try JSONEncoder().encode(document)
-        #expect(try JSONDecoder().decode(WindowStateDocument.self, from: data).legacyAgentTabs == document.legacyAgentTabs)
-        let old = try JSONDecoder().decode(WindowStateDocument.self, from: Data(#"{"windows":[]}"#.utf8))
-        #expect(old.legacyAgentTabs.isEmpty)
-    }
-
-    @Test func importKeysAreStablePerOldTab() {
-        #expect(AgentTabImport.key(for: "local-agent:one") == AgentTabImport.key(for: "local-agent:one"))
-        #expect(AgentTabImport.key(for: "local-agent:one") != AgentTabImport.key(for: "local-agent:two"))
-    }
-}

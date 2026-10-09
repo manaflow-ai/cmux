@@ -3,8 +3,7 @@ import CmuxNextOnboarding
 import Testing
 
 /// Asking for the computer use step while another onboarding window shows
-/// opens it: the window is rebuilt with the step. (The step itself is
-/// offered without a running helper: ComputerUseSetupEntryTests.)
+/// opens it: the window is rebuilt with the step.
 @MainActor
 @Suite struct OnboardingComputerUseOfferTests {
     @Test func askingForAStepTheOpenWindowLacksRebuildsIt() {
