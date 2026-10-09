@@ -51,7 +51,8 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer, type ComposerHandle } from "./Composer";
 import type { ComposerAttachment } from "./attachments";
-import { ComposerPickers } from "./ComposerPickers";
+import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
+import { openPicker } from "./pickerOpeners";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
@@ -61,7 +62,7 @@ import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./question/QuestionCard";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
-import { type Translate, useT } from "./i18n";
+import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -1753,6 +1754,9 @@ function AcpmuxPane() {
       toggleInspector,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
+        // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
+        // ends with the keyboard in its search field.
+        if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
         if (
           [
             "permissionAllowOnce",

@@ -141,3 +141,41 @@ impl Surface {
         Ok(())
     }
 }
+
+pub(super) fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, bool)) {
+    let (offset, at_bottom) = position;
+    let mut render = pty.render.lock().unwrap();
+    render.taps.retain(|tap| tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom }));
+}
+
+pub(super) fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
+    match term.scrollbar() {
+        Some(scrollbar) => (scrollbar.offset, !scrollbar.scrolled_back()),
+        None => (0, true),
+    }
+}
+
+pub(super) fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) -> bool {
+    let Some(scrollbar) = term.scrollbar() else { return target == 0 };
+    let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+    let target = target.min(bottom);
+    if target == bottom {
+        term.scroll_to_bottom();
+        return term.scrollbar().is_some_and(|scrollbar| scrollbar.offset == target);
+    }
+    let mut current = scrollbar.offset;
+    let mut remaining = current.abs_diff(target);
+    while current != target {
+        let difference = i128::from(target) - i128::from(current);
+        let step = difference.clamp(isize::MIN as i128, isize::MAX as i128) as isize;
+        term.scroll_delta(step);
+        let Some(next) = term.scrollbar().map(|scrollbar| scrollbar.offset) else { return false };
+        let next_remaining = next.abs_diff(target);
+        if next_remaining >= remaining {
+            return false;
+        }
+        current = next;
+        remaining = next_remaining;
+    }
+    true
+}

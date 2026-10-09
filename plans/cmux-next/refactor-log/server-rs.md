@@ -15,6 +15,9 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 1b52d5bb65e8: client registry -> server/client_registry.rs (978 lines) + server/client_registry_views.rs (604, second impl block). server.rs 21604 -> 20137. Gate 8 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
 - 2026-10-09 f4f28165249f: workspace command arms (19) + provider-authority helpers -> server/cmd_workspaces.rs (381 lines); check-spec-inventory.py follows arms into cmd_* handlers. server.rs 20137 -> 19961. Gate 8 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
 - 2026-10-09 cf5a716a616f: tab and tab-group command arms (33) + resolve_pane_ref, surface_placement -> server/cmd_tabs.rs (551 lines). server.rs 19961 -> 19792. Gate 9 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
+- 2026-10-09 b3bdc8ea5862: inline unit tests (250 tests, 11.4k lines) -> server/tests.rs (fixtures, 587 lines) + 11 server/tests/<family>.rs files (591-1340 lines); test count 250 before == 250 after. server.rs 19792 -> 8329. Gate 5 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
+- 2026-10-09 ab2f172f7d53: pane and layout command arms (19) + export_layout_json -> server/cmd_panes.rs (349 lines). server.rs 8329 -> 8175. Gate 6 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
+- 2026-10-09 77afbf4f3b66: screen and screen-group command arms (19) -> server/cmd_screens.rs (251 lines). server.rs 8175 -> 8079. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 
 ## Map: cmux-tui-core/src/server.rs (lane refactor-server-rs, base 2dba648cdbde, 27,370 lines)
 
