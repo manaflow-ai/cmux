@@ -8,6 +8,7 @@
   "swift.index_subscript@CMUXMobileCore",
   "swift.index_subscript@CmuxHomeRender",
   "swift.index_subscript@CmuxIrohTransport",
+  "swift.index_subscript@CmuxIrxTransport",
   "swift.index_subscript@CmuxNextControl",
   "swift.index_subscript@CmuxNextDaemon",
   "swift.index_subscript@CmuxNextMobile",

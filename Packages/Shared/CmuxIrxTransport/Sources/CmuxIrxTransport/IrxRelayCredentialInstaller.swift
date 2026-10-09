@@ -33,7 +33,7 @@ actor IrxRelayCredentialInstaller {
 
     func replace(with credentials: [IrxRelayCredential], ownership: IrxRelayCredentialInstallOwnership? = nil) {
         guard !stopped else { return }
-        let next = Self.index(credentials)
+        let next: [String: IrxRelayCredential] = Self.index(credentials)
         guard next != desired || self.ownership != ownership else { return }
         desired = next
         self.ownership = ownership
