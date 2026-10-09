@@ -159,7 +159,7 @@ const blockedProfile = (entry: HarnessChoice | undefined) =>
 
 /// A rail tab: one icon in a rounded square, filled while its models show.
 const railTab =
-  "grid size-9 flex-none cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
+  "acpmux-mp-rail grid size-9 flex-none cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
@@ -231,6 +231,13 @@ export function ModelPicker(props: ModelPickerProps) {
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
   const harnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
+  const navigableHarnesses = useMemo(
+    () =>
+      harnesses
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => entry.pickable && !blockedProfile(entry)),
+    [harnesses],
+  );
   const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
   // The rail's first tab lists the starred models of every harness; each row keeps its harness.
   const starredView = selectedHarness === STARRED;
@@ -415,6 +422,39 @@ export function ModelPicker(props: ModelPickerProps) {
     if (index >= 0) setActiveHarness(index);
     setActive(0);
   };
+  // The rail is Starred, then the pickable harnesses. Disabled or blocked profiles stay visible
+  // for context but are never a keyboard stop. Reaching either end returns to Starred.
+  const nextRailIndex = (from: number, step: number) => {
+    if (!navigableHarnesses.length) return -1;
+    if (from < 0) return step > 0 ? navigableHarnesses[0]!.index : navigableHarnesses.at(-1)!.index;
+    const position = navigableHarnesses.findIndex(({ index }) => index === from);
+    if (position < 0) {
+      const nearby =
+        step > 0
+          ? navigableHarnesses.find(({ index }) => index > from)
+          : [...navigableHarnesses].reverse().find(({ index }) => index < from);
+      return nearby?.index ?? -1;
+    }
+    const next = position + step;
+    return next < 0 || next >= navigableHarnesses.length ? -1 : navigableHarnesses[next]!.index;
+  };
+  const focusRail = (index: number) => {
+    if (index < 0) {
+      menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-rail[aria-label]")?.focus();
+      return;
+    }
+    menu.current?.querySelector<HTMLElement>(`[data-harness-index="${index}"]`)?.focus();
+  };
+  const moveRail = (from: number, step: number) => {
+    const next = nextRailIndex(from, step);
+    if (next < 0) {
+      showTab(STARRED, -1);
+      focusRail(-1);
+    } else {
+      showTab(harnesses[next]?.id, next);
+      focusRail(next);
+    }
+  };
   const move = (step: number) => {
     // Moving down past the last row opens the "Older models" fold, so keys reach every model.
     if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1) {
@@ -437,7 +477,8 @@ export function ModelPicker(props: ModelPickerProps) {
       move(-1);
     } else if (event.key === "ArrowLeft" && !query) {
       event.preventDefault();
-      menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")[activeHarness]?.focus();
+      if (starredView) focusRail(-1);
+      else focusRail(activeHarness);
     } else if (event.key === "Enter") {
       event.preventDefault();
       const model = visible[active];
@@ -530,6 +571,19 @@ export function ModelPicker(props: ModelPickerProps) {
               aria-selected={starredView}
               selected={starredView}
               active={starredView}
+              keyboard={(event) => {
+                if (!harnesses.length) return;
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  moveRail(-1, 1);
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  moveRail(-1, -1);
+                } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                  event.preventDefault();
+                  search.current?.focus();
+                }
+              }}
               onPointerEnter={() => showTab(STARRED, -1)}
               onClick={() => showTab(STARRED, -1, true)}
             >
@@ -549,6 +603,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 aria-selected={entry.ids.includes(selectedHarness ?? "")}
                 aria-disabled={blockedProfile(entry) || undefined}
                 disabled={!entry.pickable}
+                data-harness-index={index}
                 className={`acpmux-mp-harness ${railTab}`}
                 title={[entry.name, folderNote(entry)].filter(Boolean).join(" · ")}
                 selected={entry.ids.includes(selectedHarness ?? "")}
@@ -556,11 +611,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                     event.preventDefault();
                     const step = event.key === "ArrowDown" ? 1 : -1;
-                    const next = (index + step + harnesses.length) % harnesses.length;
-                    showTab(harnesses[next]?.id, next);
-                    event.currentTarget.parentElement
-                      ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
-                      [next]?.focus();
+                    moveRail(index, step);
                   } else if (event.key === "Enter" && enableProfile(entry)) {
                     event.preventDefault();
                   } else if (event.key === "ArrowRight" || event.key === "Enter") {
