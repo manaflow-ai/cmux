@@ -267,4 +267,9 @@ printf 'func f(a: [String: Int], b: [String: String]) -> Bool { b[k] == nil }\n'
 out="$(ratchet)" || fail "the second dictionary parameter counted: $out"
 reset
 
+# 17. A parameter list that continues on later lines declares its dictionaries too.
+printf 'func f(\n    a: Int,\n    base: [String: String] = [:]\n) -> String? {\n    base[k]\n}\nlet x = foo(\n    base: other\n)\n' > "$shared/Sources/MessagesLabHome/F.swift"
+out="$(ratchet)" || fail "a dictionary parameter on a continuation line counted: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
