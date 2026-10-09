@@ -294,9 +294,7 @@ final class HomeCloudLink {
     /// earlier calls started ended (tests). A timer deadline that passed is
     /// not covered: wait for it with `timersFired(atLeast:)`.
     func settle() async {
-        // The probe resumes this wait when a callback hop changes the count;
-        // the second pass handles work queued while the lease settled.
-        // wakeup-allow: probe.wait is an event wait and does not poll.
+        // wakeup-allow: each pass awaits probe and lease signals; repeat only when another callback hop was queued.
         repeat {
             await probe.wait { hops, _ in hops == 0 }
             await lease.settle()
