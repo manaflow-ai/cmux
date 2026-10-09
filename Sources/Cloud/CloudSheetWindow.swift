@@ -28,8 +28,8 @@ final class CloudSheetWindow {
     private var isResizeScheduled = false
 
     init<Content: View>(rootView: Content) {
-        // The root view retains this object through `report`; the window is
-        // weakly reachable from here only through `window`, so no cycle.
+        // The presenter retains this wrapper while the window is presented;
+        // the root view retains the reporter that points back to this owner.
         let reporter = SizeReporter()
         let controller = NSHostingController(rootView: CloudSheetContent(content: rootView, report: reporter))
         controller.sizingOptions = []
