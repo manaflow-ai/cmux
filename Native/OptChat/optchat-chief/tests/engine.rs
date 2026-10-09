@@ -154,3 +154,42 @@ fn the_compactor_harness_follows_the_engine_file_turn_harness() {
         None
     );
 }
+
+/// Engine speed: engine.json's `speed` reaches a codex turn session as the
+/// fast tier; `default` (or none) leaves it off. Claude Code has no fast
+/// mode, so a Claude harness refuses `fast` with the reason.
+#[test]
+fn a_fast_codex_turn_runs_fast_and_claude_refuses_fast() {
+    use optchat_chief::engine::check_speed;
+    let (mut h, file, _traces) = harness();
+    save(
+        &file,
+        &EngineChoice {
+            harness: Some("codex".into()),
+            speed: Some("fast".into()),
+            ..EngineChoice::default()
+        },
+    )
+    .unwrap();
+    h.say("user_local", "one");
+    h.settle();
+    save(&file, &EngineChoice { harness: Some("codex".into()), ..EngineChoice::default() }).unwrap();
+    h.say("user_local", "two");
+    h.settle();
+    let fast: Vec<bool> = h.agents.inner.lock().unwrap().specs.iter().map(|s| s.fast).collect();
+    assert_eq!(fast, [true, false]);
+    assert!(check_speed("fast", Family::Codex).is_ok());
+    assert!(check_speed("default", Family::Claude).is_ok());
+    let refused = check_speed("fast", Family::Claude).unwrap_err();
+    assert!(refused.contains("Claude Code"), "{refused}");
+    assert!(check_speed("ultrafast", Family::Codex).is_err());
+    // engine set flags take both speeds.
+    let args: Vec<String> = ["engine", "set", "--speed", "fast", "--compactor-speed", "fast"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let flags = optchat_chief::cli::Flags::parse(&args);
+    let choice = optchat_chief::engine::apply_flags(EngineChoice::default(), &flags).unwrap();
+    assert_eq!(choice.speed.as_deref(), Some("fast"));
+    assert_eq!(choice.compactor_speed.as_deref(), Some("fast"));
+}

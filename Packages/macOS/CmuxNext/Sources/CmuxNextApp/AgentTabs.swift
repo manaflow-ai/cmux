@@ -109,8 +109,6 @@ final class AgentTabStore {
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
     var firstPageNewTab: ((String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
-    /// Gives every new pane view the App's chrome (the New Tab omnibar row, NewTabOmnibar).
-    var decorateView: ((AgentPaneView) -> Void)?
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
@@ -134,6 +132,8 @@ final class AgentTabStore {
     private var shortcutObservation: Task<Void, Never>?
     /// `labs.previewFeatures` and `agentPane.editedFiles.*`, pushed to every page like the shortcuts.
     private let pageSettings = AgentPanePageSettings()
+    /// The device chats every page's New Tab cards show (``AgentPageChats``).
+    let pageChats = AgentPageChats()
     weak var actionRegistry: ActionRegistry?
     var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
@@ -328,6 +328,7 @@ final class AgentTabStore {
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
             return await handler.listProjects(query)
         }
+        model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
         model.onImportAndSync = { [weak self] in
             guard let self else { return }
             if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
@@ -350,8 +351,8 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
-        decorateView?(view)
-        pageSettings.apply(to: view)
+        pageSettings.apply(to: NewTabOmnibar.installed(on: view))
+        view.deviceChats = pageChats.chats
         customization.start()
         return view
     }

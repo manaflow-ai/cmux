@@ -7,6 +7,7 @@ import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from
 import { sessionMark } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
+import type { DeviceChat } from "./deviceChats";
 
 export type ScreenAgent = { id: string; name: string };
 
@@ -104,6 +105,9 @@ export function shellEntry(
 
 export type ChatCard = {
   sessionId: string;
+  /// A device chat from the acpmux chat index (`harness:sessionId`): opens through the host's
+  /// shared Open Chat path (`chats.open`), not as an acpmux session.
+  chatKey?: string;
   title: string;
   harness?: string;
   age: string;
@@ -111,12 +115,35 @@ export type ChatCard = {
   state: "idle" | "input" | "running" | "error" | "unread";
 };
 
-/// The newest chats, the ones waiting on the user first; a dropped chat is an error card.
+/// The newest chats, the ones waiting on the user first; a dropped chat is an error card. acpmux's
+/// own sessions come first (they carry live state); the device chat index (the sidebar's All
+/// chats source) fills the rest, newest first, without a chat whose title a session card shows.
 export function recentChatCards(
   sessions: AcpmuxSnapshot["sessions"],
   now = Date.now(),
   t: Translate = translate,
+  device: DeviceChat[] = [],
 ): ChatCard[] {
+  const live = liveChatCards(sessions, now, t);
+  const shown = new Set(live.map((card) => card.title.trim().toLowerCase()));
+  const fill = [...device]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
+    .slice(0, Math.max(0, CHAT_CARD_COUNT - live.length))
+    .map(
+      (chat): ChatCard => ({
+        sessionId: chat.key,
+        chatKey: chat.key,
+        title: chat.title ?? t("sidebar.newChat"),
+        harness: chat.harness,
+        age: ageLabel(chat.updatedAt, now, t),
+        state: "idle",
+      }),
+    );
+  return [...live, ...fill];
+}
+
+function liveChatCards(sessions: AcpmuxSnapshot["sessions"], now: number, t: Translate): ChatCard[] {
   return recentSessions(sessions, CHAT_CARD_COUNT).map((session) => ({
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,

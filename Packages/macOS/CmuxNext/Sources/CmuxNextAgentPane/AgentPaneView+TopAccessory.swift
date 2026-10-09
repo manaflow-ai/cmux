@@ -36,12 +36,12 @@ struct TopAccessorySlot {
         return NSRect(x: bounds.minX, y: flipped ? bounds.minY + inset : bounds.minY, width: bounds.width, height: bounds.height - inset)
     }
 
-    /// Lays the bar out on top of `pane` (the pane's `layout`).
-    @MainActor func layout(in pane: NSView, shows newTab: Bool) {
-        guard let bar = view, newTab else { return }
-        let inset = min(height, pane.bounds.height)
-        bar.frame = NSRect(x: pane.bounds.minX, y: pane.isFlipped ? pane.bounds.minY : pane.bounds.maxY - inset,
-                           width: pane.bounds.width, height: inset)
+    /// Puts the bar on top of `pane`; autoresizing keeps it there, full width, as the pane resizes.
+    @MainActor func place(in pane: NSView) {
+        guard let bar = view else { return }
+        bar.autoresizingMask = [.width, pane.isFlipped ? .maxYMargin : .minYMargin]
+        bar.frame = NSRect(x: pane.bounds.minX, y: pane.isFlipped ? pane.bounds.minY : pane.bounds.maxY - height,
+                           width: pane.bounds.width, height: height)
     }
 
     /// The page became a New Tab page or a chat: the bar shows or leaves, and a bar that leaves
@@ -52,6 +52,7 @@ struct TopAccessorySlot {
             window.makeFirstResponder(page)
         }
         bar.isHidden = !newTab
+        place(in: pane)
         pane.needsLayout = true
         pane.layoutSubtreeIfNeeded()
     }

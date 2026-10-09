@@ -5,6 +5,7 @@ import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
 import { ChatCards } from "./ChatCards";
+import { useDeviceChats } from "./deviceChats";
 import {
   defaultHarness,
   initialSelection,
@@ -28,6 +29,8 @@ export type NewTabScreenActions = {
   onShell(command: string): void;
   onJump(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
+  /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
+  onOpenChat?(key: string): void;
   onShowAll(): void;
   onRunAction?(id: string): void;
   onInputReady?(token: string): void;
@@ -111,7 +114,13 @@ export function NewTabScreen(props: Props) {
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected < rows.length ? selected : -1;
   const t = useT();
-  const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
+  const device = useDeviceChats();
+  const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t, device), [snapshot.sessions, now, t, device]);
+  const openCard = (id: string) => {
+    const key = cards.find((card) => card.sessionId === id)?.chatKey;
+    if (key && props.onOpenChat) return props.onOpenChat(key);
+    props.onOpenSession(id);
+  };
   const list = useRef<HTMLDivElement>(null);
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
   // screen around it, as scrollIntoView would). A callback ref: it runs when a row becomes the
@@ -332,7 +341,7 @@ export function NewTabScreen(props: Props) {
         </div>
       )}
       {sections.chats !== "none" && (
-        <ChatCards cards={cards} variant={sections.chats} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
+        <ChatCards cards={cards} variant={sections.chats} onOpen={openCard} onShowAll={props.onShowAll} />
       )}
       {sections.tools && props.onAddHarness && (
         <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>

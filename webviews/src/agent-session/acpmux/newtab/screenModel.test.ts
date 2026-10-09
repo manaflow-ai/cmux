@@ -117,3 +117,29 @@ test("chat cards: the three newest, waiting chats first, a dropped chat as an er
   expect(cards[2]).toMatchObject({ title: "Dropped", state: "error" });
   expect(cards[0]).toMatchObject({ state: "input" });
 });
+
+test("chat cards read the device chat index too: no acpmux session still shows the newest chats", () => {
+  const now = 1_000_000_000;
+  const device = [
+    { key: "codex:1", harness: "codex", title: "Older", updatedAt: now - 7200_000 },
+    { key: "claude-code:2", harness: "claude-code", title: "Newest", updatedAt: now - 60_000 },
+    { key: "opencode:3", harness: "opencode", updatedAt: now - 3600_000 },
+    { key: "pi:4", harness: "pi", title: "Oldest", updatedAt: now - 9 * 3600_000 },
+  ];
+  const cards = recentChatCards([], now, undefined, device);
+  expect(cards.map((card) => card.chatKey)).toEqual(["claude-code:2", "opencode:3", "codex:1"]);
+  expect(cards[0]).toMatchObject({ title: "Newest", age: "1m", state: "idle", harness: "claude-code" });
+  expect(cards[1]?.title).toBe("New chat");
+});
+
+test("live acpmux sessions lead; the device index fills the rest without repeating a shown chat", () => {
+  const now = 1_000_000_000;
+  const sessions = [{ sessionId: "s", title: "Fix the build", updatedAt: now - 60_000 }];
+  const device = [
+    { key: "claude-code:x", harness: "claude-code", title: "Fix the build", updatedAt: now },
+    { key: "codex:y", harness: "codex", title: "Docs", updatedAt: now - 120_000 },
+  ];
+  const cards = recentChatCards(sessions, now, undefined, device);
+  expect(cards.map((card) => card.sessionId)).toEqual(["s", "codex:y"]);
+  expect(cards[0]?.chatKey).toBeUndefined();
+});

@@ -520,6 +520,7 @@ impl Brain {
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
                 env: Default::default(),
+                fast: self.turn_fast(&engine, family),
             },
             blocks,
             system_prompt,
@@ -819,6 +820,22 @@ impl Brain {
 
     /// This turn's engine: engine.json over the defaults. A harness acpmux
     /// does not know keeps the default harness, and says so.
+    /// Whether this turn runs at the fast tier: `speed` fast on a harness
+    /// that has it; on another one the turn runs at the default speed and
+    /// the log says why.
+    fn turn_fast(&self, engine: &crate::engine::TurnEngine, family: crate::acpmux::Family) -> bool {
+        let Some(speed) = engine.speed.as_deref() else {
+            return false;
+        };
+        match crate::engine::check_speed(speed, family) {
+            Ok(()) => crate::engine::is_fast(Some(speed)),
+            Err(reason) => {
+                (self.log)(&format!("{reason}; this turn runs at the default speed"));
+                false
+            }
+        }
+    }
+
     fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
         let (engine, unknown) = self.next_engine();
         if let Some(named) = unknown {

@@ -41,6 +41,8 @@ public final class AgentPaneView: NSView {
     public var previewFeatures = false {
         didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
     }
+    /// The newest device chats (acpmux chat index) for the New Tab cards (``AgentPaneDeviceChat``).
+    public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
     /// `agentPane.editedFiles.*`: pushed like ``previewFeatures``.
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
@@ -80,8 +82,7 @@ public final class AgentPaneView: NSView {
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     let loadingView = AgentPaneLoadingView()
-    /// The App's bar over a New Tab page (its omnibar, cx-e2aa; AgentPaneView+TopAccessory.swift).
-    var topBar = TopAccessorySlot()
+    var topBar = TopAccessorySlot() // the App's bar over a New Tab page (omnibar, cx-e2aa; +TopAccessory.swift)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
 
@@ -111,7 +112,7 @@ public final class AgentPaneView: NSView {
         let webView: WKWebView
         if pageHost, case .bundled(let index) = source {
             let provider = AgentPageProvider { [weak model] _ in model }
-            guard let page = Self.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
+            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -248,7 +249,6 @@ public final class AgentPaneView: NSView {
         super.layout()
         if let page { page.frame = contentFrame } else { webView.frame = contentFrame }
         if loadingView.superview === self { loadingView.frame = contentFrame }
-        topBar.layout(in: self, shows: model.newTab != nil)
     }
 
     /// WebKit's feature that renders a page at the display-rate divisor

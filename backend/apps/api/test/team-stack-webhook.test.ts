@@ -116,7 +116,8 @@ describe("Stack team webhooks into TeamDO (cx-3bi.43)", { timeout: 60_000 }, () 
     const other = await deliver("user.updated", { id: crypto.randomUUID() })
     expect(other.status).toBe(200)
     expect(other.body).toMatchObject({ ok: true, ignored: "user.updated" })
-    expect((await deliver("team_membership.created", { team_id: "not-a-uuid", user_id: "x" })).status).toBe(400)
+    // A signed body we cannot use is a logged 200 no-op (a 4xx makes Svix disable the endpoint).
+    expect((await deliver("team_membership.created", { team_id: "a/b", user_id: "x" })).body).toMatchObject({ ok: true, ignored: "shape" })
   })
 })
 

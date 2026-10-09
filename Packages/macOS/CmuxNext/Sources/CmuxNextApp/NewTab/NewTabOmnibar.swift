@@ -22,6 +22,15 @@ enum NewTabOmnibar {
     }
 
     static let identifier = "newTab.omnibar"
+    /// The app the rows serve (its suggestions, tabs and pages); set once at launch.
+    @MainActor static weak var services: AppServices?
+
+    /// `view` with its omnibar row (every pane view the agent tabs make; a spare, adopted,
+    /// recycled or restored page shows it while it is a New Tab page).
+    @MainActor static func installed(on view: AgentPaneView) -> AgentPaneView {
+        if let services { install(on: view, services: services) }
+        return view
+    }
 
     static func outcome(for event: OmnibarEvent) -> Outcome {
         switch event {
