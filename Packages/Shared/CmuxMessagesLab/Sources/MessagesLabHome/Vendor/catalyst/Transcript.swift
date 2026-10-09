@@ -147,7 +147,8 @@ final class TranscriptModel {
 
     private func rebuild() {
         defer {
-            connectors = rows.enumerated().compactMap { (i: Int, row: Row) -> (reply: Int, root: Int?)? in // cmux: no index math
+            connectors = rows.enumerated().compactMap { entry -> (reply: Int, root: Int?)? in // cmux: no index math
+                let (i, row) = entry
                 guard !row.ghost, case let .part(p) = row.spec.kind, let root = p.connectorRoot else { return nil }
                 return (i, self.index.value(for: root)) // cmux: dictionary read
             }

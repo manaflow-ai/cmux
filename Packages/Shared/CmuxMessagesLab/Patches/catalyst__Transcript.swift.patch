@@ -103,14 +103,15 @@
          rebuild()
      }
  
-@@ -149,21 +147,25 @@
+@@ -149,21 +147,26 @@
  
      private func rebuild() {
          defer {
 -            connectors = rows.indices.compactMap { i in
 -                guard !rows[i].ghost, case let .part(p) = rows[i].spec.kind, let root = p.connectorRoot else { return nil }
 -                return (i, index[root])
-+            connectors = rows.enumerated().compactMap { (i: Int, row: Row) -> (reply: Int, root: Int?)? in // cmux: no index math
++            connectors = rows.enumerated().compactMap { entry -> (reply: Int, root: Int?)? in // cmux: no index math
++                let (i, row) = entry
 +                guard !row.ghost, case let .part(p) = row.spec.kind, let root = p.connectorRoot else { return nil }
 +                return (i, self.index.value(for: root)) // cmux: dictionary read
              }
@@ -138,7 +139,7 @@
          liveCount = rows.count - rows.lazy.filter(\.ghost).count
          lowestGhost = rows.firstIndex(where: \.ghost) ?? rows.count
      }
-@@ -171,32 +173,35 @@
+@@ -171,32 +174,35 @@
      /// `rebuild` for a tail update from `m0` (no ghost before it): index entries of the replaced
      /// rows go, the tail's are added; offsets and connectors before `m0` stay.
      private func rebuild(from m0: Int, previous: [Row]) {
@@ -186,7 +187,7 @@
      }
  
      /// Rows whose content may intersect [lo, hi] (relative to the first slot).
-@@ -211,7 +216,7 @@
+@@ -211,7 +217,7 @@
          var lo = 0, hi = rows.count
          while lo < hi {
              let mid = (lo + hi) / 2
@@ -195,7 +196,7 @@
          }
          return lo
      }
-@@ -223,8 +228,7 @@
+@@ -223,8 +229,7 @@
          var rows: [Row]
          func contentTop(_ key: String) -> CGFloat? {
              guard let i = index[key] else { return nil }
@@ -205,7 +206,7 @@
          }
      }
      var snapshot: Snapshot { Snapshot(index: index, offsets: offsets, rows: rows) }
-@@ -243,10 +247,10 @@
+@@ -243,10 +248,10 @@
          init(_ m: TranscriptModel, from: Int) {
              model = m; self.from = from; count = m.rows.count
              if from == 0 { rows = m.rows; offsets = m.offsets; tailIndex = m.index; return }
@@ -218,7 +219,7 @@
              tailIndex = idx
          }
          func index(_ key: String) -> Int? {
-@@ -254,15 +258,16 @@
+@@ -254,15 +259,16 @@
              if from > 0, let j = model.index[key], j < from { return j }
              return nil
          }
@@ -241,7 +242,7 @@
      }
      func tailSnapshot(from: Int) -> TailSnapshot { TailSnapshot(self, from: from) }
  }
-@@ -295,7 +300,7 @@
+@@ -295,7 +301,7 @@
      func contentTop(_ i: Int) -> CGFloat { rowsTop + model.contentTop(i) }
  
      func frame(for i: Int) -> CGRect {
@@ -250,7 +251,7 @@
          return CGRect(x: 0, y: contentTop(i) - RowDraw.margin, width: width, height: h + 2 * RowDraw.margin)
      }
  
-@@ -338,7 +343,7 @@
+@@ -338,7 +344,7 @@
          let a = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: i, section: 0))
          a.frame = frame(for: i)
          a.zIndex = i
@@ -259,7 +260,7 @@
          return a
      }
  
-@@ -346,7 +351,7 @@
+@@ -346,7 +352,7 @@
      /// Content y of a connector's top (the root's vertical center).
      func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
          guard let r = c.root else { return rowsTop }
@@ -268,7 +269,7 @@
      }
  
      override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-@@ -412,14 +417,14 @@
+@@ -412,14 +418,14 @@
          guard let list = entries[key] else { return [] }
          let holds = list.filter { $0.hold != nil }.map(\.id)
          let keep = list.filter { $0.hold == nil }
@@ -285,7 +286,7 @@
          }
      }
  
-@@ -519,7 +524,7 @@
+@@ -519,7 +525,7 @@
      deinit {
          RowCell.destroyed += 1
          if ProcessInfo.processInfo.environment["ML_CELLS"] != nil, RowCell.destroyed % 500 == 7 {
@@ -294,7 +295,7 @@
          }
      }
  
-@@ -541,8 +546,7 @@
+@@ -541,8 +547,7 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
          connector.lineCap = .round
@@ -304,7 +305,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -556,11 +560,11 @@
+@@ -556,11 +561,11 @@
              let d = CALayer()
              d.actions = noActions
              // Dot levels over the 13 lossless typing stills: dim (91, 91, 94), lit (133, 133, 135).
@@ -318,7 +319,7 @@
              hi.cornerRadius = 3.25
              hi.opacity = 0
              hi.name = "hi"
-@@ -604,7 +608,7 @@
+@@ -604,7 +609,7 @@
              guard let spec else { return nil }
              switch spec.kind {
              case let .part(p): return p.text?.text ?? p.part.plainText
@@ -327,7 +328,7 @@
              case let .receipt(b, r): return b + " " + r
              case let .label(text, _, _): return text
              default: return nil
-@@ -633,7 +637,11 @@
+@@ -633,7 +638,11 @@
              }
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor
@@ -340,7 +341,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -683,7 +691,7 @@
+@@ -683,7 +692,7 @@
              let t0 = CACurrentMediaTime()
              let img = RowBitmaps.render(spec)
              RowCell.mainDrawSpent += CACurrentMediaTime() - t0
@@ -349,7 +350,7 @@
              RowCell.syncRenders += 1
              Reclaimer.release(bitmap.contents)
              MediaPlaceholder.clear(bitmap)
-@@ -735,7 +743,9 @@
+@@ -735,7 +744,9 @@
          guard let spec else { return }
          let img: CGImage
          if let cached = RowBitmaps.shared.image(for: spec) { img = cached } else {
@@ -360,7 +361,7 @@
              RowBitmaps.shared.insert([(spec, img)])
              RowCell.syncRenders += 1
          }
-@@ -789,7 +799,7 @@
+@@ -789,7 +800,7 @@
              if let badge, !badge.isHidden { badge.isHidden = true; badgeState = "" }
              return
          }
@@ -369,7 +370,7 @@
          let side: CGFloat = p.outgoing ? -1 : 1
          let c = PartRenderer.badgeCenter(body: RowDraw.bodyRect(spec), outgoing: p.outgoing, index: i)
          let pop = RowCell.badgePop.flatMap { $0.0 == p.ref ? $0.1 : nil }
-@@ -827,12 +837,12 @@
+@@ -827,12 +838,12 @@
              mask.path = PartRenderer.badgePath(center: CGPoint(x: 20, y: 20), side: side, tails: i == 0).cgPath
          }
          let key = "\(kind)|\(Fixture.renderScale)|\(Fixture.paletteGeneration)"
@@ -384,7 +385,7 @@
          }
          glyph.contents = img
          glyph.contentsScale = Fixture.renderScale
-@@ -852,7 +862,7 @@
+@@ -852,7 +863,7 @@
      static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.6298, bounce: 0.596))
      private static func pop(box: CALayer, glyph: CALayer, begin: CFTimeInterval) {
          func keyframes(_ f: (Double) -> Double, until end: Double) -> CAKeyframeAnimation {
@@ -393,7 +394,7 @@
              let a = CAKeyframeAnimation(keyPath: "transform.scale")
              a.values = (0...n).map { NSNumber(value: max(0.001, f(Double($0) / 240))) }
              a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
-@@ -965,6 +975,16 @@
+@@ -965,6 +976,16 @@
          CATransaction.commit()
      }
  

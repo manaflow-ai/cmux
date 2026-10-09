@@ -361,10 +361,20 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         st.failing.insert(node, error.message.clone());
     }
     // A request error repeats on every try; a transient one may pass, up to
-    // COMPACT_TRIES. Either way, past that the node stops holding turns.
+    // COMPACT_TRIES; an exhausted route (a capacity error naming a wait past
+    // MAX_RETRY_WAIT) will not clear soon. In each case the node stops
+    // holding turns; only the first two post a notice (the turn's).
     let permanent = class.as_ref().is_some_and(|c| c.permanent());
-    let stuck = permanent || tries >= crate::COMPACT_TRIES;
-    if stuck && st.stuck.insert(node) {
+    let capacity = crate::model::capacity_wait(&error.message);
+    let exhausted = capacity.is_some_and(|w| w > crate::MAX_RETRY_WAIT);
+    let stuck = permanent || exhausted || tries >= crate::COMPACT_TRIES;
+    if exhausted && st.stuck.insert(node) {
+        st.recovered = false;
+        st.reports.push(Report::NodeWaiting {
+            node,
+            wait: capacity.unwrap_or_default(),
+        });
+    } else if stuck && st.stuck.insert(node) {
         st.recovered = false;
         let class = match &class {
             Some(c) if permanent => c.to_string(),
@@ -379,17 +389,24 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
     shared.changed.notify_all();
     shared.unlock(st);
     if stuck {
-        shared.clock.sleep(crate::STUCK_RETRY);
+        // An exhausted route is tried again when its wait ends, at most
+        // STUCK_RETRY from now.
+        let wait = match capacity {
+            Some(w) if exhausted => w.min(crate::STUCK_RETRY),
+            _ => crate::STUCK_RETRY,
+        };
+        shared.clock.sleep(wait);
     } else {
         let backoff = shared.retry.saturating_mul(1 << (tries - 1).min(16));
         let wait = error
             .retry_after
+            .or_else(|| crate::model::retry_after_in(&error.message))
             .unwrap_or(backoff)
             .min(crate::MAX_RETRY_WAIT);
         shared.clock.sleep(wait);
         // A rate limit or an overload: a turn waiting on the same account
         // goes first.
-        if class.is_some_and(|c| c.status == 429 || c.status == 529) {
+        if capacity.is_some() {
             crate::rate::background_wait(crate::MAX_RETRY_WAIT);
         }
     }
