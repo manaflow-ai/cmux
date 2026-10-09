@@ -366,16 +366,13 @@ impl Brain {
                     .then(|| optchat_core::mark_piece(&view.text, self.last_mark.as_deref()))
                     .flatten()
                     .map(|piece| Mark { piece, ttl });
-                self.last_mark = mark.map(|m| {
-                    optchat_core::block_pieces(&view.text)[..=m.piece].concat()
-                });
+                self.last_mark =
+                    mark.map(|m| optchat_core::block_pieces(&view.text)[..=m.piece].concat());
                 // Claude Code's own marks take the same TTL: the API refuses
                 // a 1h mark after a 5m one. A session the pool started
                 // before a cache.ttl change still has the old one.
-                self.ttl_stale.store(
-                    self.prewarm_ttl.is_some_and(|p| p != ttl),
-                    Ordering::SeqCst,
-                );
+                self.ttl_stale
+                    .store(self.prewarm_ttl.is_some_and(|p| p != ttl), Ordering::SeqCst);
                 if let Err(e) =
                     crate::session_dir::set_prompt_cache_ttl(&self.settings.session_dir, ttl)
                 {

@@ -733,7 +733,8 @@ impl Brain {
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
             self.chief = next;
-            self.ttl_refused.store(false, std::sync::atomic::Ordering::SeqCst);
+            self.ttl_refused
+                .store(false, std::sync::atomic::Ordering::SeqCst);
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
