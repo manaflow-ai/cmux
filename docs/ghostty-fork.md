@@ -17,7 +17,7 @@ When we change the fork, update this document and the parent submodule SHA.
 - Branch: `feat-osc7501-program-status`, based on cmux pin `76f5f8c7c`.
 - Commits: upstream `bae2c3cdbf73f2ac33a67e4b0b7811165f0f62d4` was cherry-picked
   with `-x` as `abfda426093`; cmux-specific protocol forwarding and C ABI work
-  follows on this branch.
+  follows through Ghostty `7e880f6b63e`.
 - Summary: OSC 7501 queries echo the fixed query body and terminator, validated
   reports reach the full-app surface action path, prompt-start and RIS clear
   events are emitted, and Ghostty terminfo advertises `Pst`.
@@ -26,8 +26,11 @@ When we change the fork, update this document and the parent submodule SHA.
   adding the parser, dispatch, callback, and ABI pieces. `kitty_metadata.zig`
   was restored as the shared parser helper required by the upstream parser.
 - Coverage: upstream parser and stream-terminal behavior tests are present, with
-  an added `build-ghosttykit.yml` filtered `program_status` lane. Hosted CI is
-  required before recording the GhosttyKit artifact URL and checksum.
+  an added `build-ghosttykit.yml` filtered `program_status` lane. Hosted run
+  [37878143382](https://github.com/manaflow-ai/cmux/actions/runs/37878143382)
+  passed all tests and published
+  [GhosttyKit 7e880f6b63e](https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7e880f6b63ef63f3e3a1b7618e6e13283f155c61-crashsubdir-cmux-crash-sentry-off-noi18n-v2).
+  The archive SHA-256 is `a06ac56041f5624c7f16b6a28a6ed552593aabc31d12f007e23fecf64690ba9b`.
 
 ### CJK fallback avoids repeated font collection scans
 
