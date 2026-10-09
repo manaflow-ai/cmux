@@ -125,6 +125,10 @@ pub enum TurnSignal {
     /// New events that matter for the log (not text chunks, but for a
     /// prompt's first, which says its response started): fetch them.
     Changed,
+    /// New events that are not the harness's own (acpmux's echo of a
+    /// prompt or steer we sent, its status), or a timer: fetch them, but
+    /// they are no progress of the turn (the idle watchdog, `turn.rs`).
+    Noted,
     /// The prompt's answer: the turn ended (or never started, on an error).
     Done(Result<Value, String>),
     /// The acpmux connection ended during the turn.
@@ -218,6 +222,11 @@ pub trait AgentPort: Send + Sync {
     /// `start_steer`, then its wait.
     fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
         self.start_steer(session, blocks, prompt_id)?()
+    }
+    /// Records `cwd` as trusted (`acp.trust.set`, level trusted), so the
+    /// app's pane never asks about a folder the host made itself.
+    fn trust_folder(&self, _cwd: &std::path::Path) -> Result<(), String> {
+        Err("trusting folders is not supported".into())
     }
     /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
     /// session of `harness` and `preset` in `cwd`, so the next `session/new`
@@ -594,6 +603,19 @@ pub(crate) fn is_output(kind: &str) -> bool {
     )
 }
 
+/// The signal of a turn's event that matters for the log: `Changed` when
+/// the harness sent it (`session/update`, or an acpmux event `dir: in`),
+/// else `Noted` (acpmux's own: the echo of our prompt or steer, a status).
+pub fn event_signal(method: &str, params: &Value) -> TurnSignal {
+    let from_agent = method == "session/update"
+        || params.get("dir").and_then(Value::as_str) == Some("in");
+    if from_agent {
+        TurnSignal::Changed
+    } else {
+        TurnSignal::Noted
+    }
+}
+
 fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification) {
     let session = n
         .params
@@ -618,7 +640,7 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
                 let first = is_output(kind) && !turn.spoke;
                 turn.spoke |= is_output(kind);
                 if first || !is_noise(kind) {
-                    let _ = turn.tx.send(TurnSignal::Changed);
+                    let _ = turn.tx.send(event_signal(&n.method, &n.params));
                 } else if kind == "agent_message_chunk" {
                     let _ = turn.tx.send(TurnSignal::Streamed);
                 }
@@ -857,6 +879,16 @@ impl AgentPort for Acpmux {
         self.client()?
             .request("_acpmux/harnesses", json!({}))
             .map_err(|e| format!("harnesses: {e}"))
+    }
+
+    fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
+        self.client()?
+            .request(
+                "acp.trust.set",
+                json!({"cwd": cwd.display().to_string(), "level": "trusted"}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("acp.trust.set: {e}"))
     }
 
     fn respond_permission(

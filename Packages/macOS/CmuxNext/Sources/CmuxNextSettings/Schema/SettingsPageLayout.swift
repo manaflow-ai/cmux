@@ -6,7 +6,7 @@ import Foundation
 /// page and the GPUI client render it from the export and copy nothing
 /// (layer-ownership.md L5). A row's key, section and CLI stay as they are;
 /// only where the page draws it is decided here. Every row the page shows has
-/// exactly one card (`SettingsPageLayoutTests`).
+/// exactly one card.
 public nonisolated struct SettingsPageLayout: Sendable {
     /// A part of a category that is not a schema row (host lists, the theme
     /// studio, file actions). Raw values are the export's card ids.
