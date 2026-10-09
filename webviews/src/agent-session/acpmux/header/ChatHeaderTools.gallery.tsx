@@ -107,8 +107,15 @@ export default componentEntry<HeaderToolsProps>({
   anchors: [{ selector: ".acpmux-header-tools" }],
   covers: ["agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools"],
   load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
-  styles: () => import("./header.css"),
+  // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
+  // the shared popup surface, then the header's rules. With header.css alone every popup was
+  // see-through in the gallery and the "Continue in" submenu bug did not show as it does in the app.
+  styles: () => Promise.all([import("../styles.css"), import("../../../ui/popupSurface.css"), import("./header.css")]),
   checks: {
+    popupLayer: {
+      value: true,
+      reason: "The chat menu and its Continue in submenu must each be the top, unclipped, opaque layer.",
+    },
     anchorMovePx: {
       value: 0,
       reason: "Opening the chat menu uses a portal and must not move the header tool row.",
