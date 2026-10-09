@@ -62,6 +62,11 @@ final class AppBrowserHost {
             driver.agentBundle = bundle
         }
         provider.onTabGone = { [driver] targetID in driver.tabClosed(BrowserTabID(rawValue: targetID)) }
+        services.cache.pageRequests.openers.onChildPlaced = { [weak services, weak provider] child, opener in
+            guard let services, let provider, let tab = services.locateTab(surface: child),
+                  let parent = services.locateTab(surface: opener) else { return }
+            provider.reportTabCreated(targetID: tab.id, openerTargetID: parent.id)
+        }
         leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
             cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
         }

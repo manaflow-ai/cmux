@@ -30,6 +30,11 @@ export const stackWorld = () => {
       calls++
       return teams.has(t) ? { display_name: teams.get(t)! } : null
     },
+    listTeamMembers: async (t: string) => {
+      calls++
+      if (!teams.has(t)) return "team_gone" as const
+      return [...members.entries()].filter(([k]) => k.startsWith(`${t}:`)).map(([k, name]) => ({ user_id: k.slice(t.length + 1), display_name: name }))
+    },
     getTeamMember: async (t: string, u: string) => {
       calls++
       if (!teams.has(t)) return "team_gone" as const

@@ -249,7 +249,9 @@ impl TabSource for ProviderSource {
     }
 
     fn tab_call(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
-        if call.engine == "cef" && !matches!(call.method, "tabs.close" | "tabs.activate") {
+        if call.engine == "cef"
+            && !matches!(call.method, "tabs.close" | "tabs.activate" | "tab.bringToFront")
+        {
             self.0.drive_tab(call.session, call.target_id);
             self.0.call_cef(call.method, call.target_id, call.params, call.agent_source)
         } else if let Some(evaluate) = call.observe {
