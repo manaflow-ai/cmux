@@ -139,7 +139,12 @@ public struct CloudPortShareService: Sendable {
     /// If the publication becomes public during the request, the app receives
     /// a safe-method readiness check rather than a POST that could mutate data.
     public static let signedOutStatus: Probe = { url in
-        let configuration = URLSessionConfiguration.ephemeral
+        await signedOutStatus(url, configuration: .ephemeral)
+    }
+
+    /// The configuration overload keeps the transport test deterministic while
+    /// production continues to use an ephemeral, cookie-free session.
+    static func signedOutStatus(_ url: URL, configuration: URLSessionConfiguration) async -> Int? {
         configuration.timeoutIntervalForRequest = 5
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false

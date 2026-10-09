@@ -48,7 +48,9 @@ struct CloudPortShareServiceTests {
         try #require(URLProtocol.registerClass(PortShareProbeProtocol.self))
         defer { URLProtocol.unregisterClass(PortShareProbeProtocol.self) }
         let url = try #require(URL(string: "https://port-share-probe-test.invalid/"))
-        let status = await CloudPortShareService.signedOutStatus(url)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PortShareProbeProtocol.self]
+        let status = await CloudPortShareService.signedOutStatus(url, configuration: configuration)
         #expect(status == 200)
         let request = try #require(PortShareProbeProtocol.capturedRequest())
         #expect(request.httpMethod == "HEAD")
