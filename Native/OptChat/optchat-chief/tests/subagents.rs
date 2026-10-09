@@ -68,6 +68,16 @@ fn script() -> Script {
                 json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
             ];
         }
+        if last.ends_with("long work") {
+            // A turn whose tool call runs until the test ends it.
+            return vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                update(
+                    "tool_call",
+                    json!({"toolCallId": "lw", "title": "Bash", "status": "in_progress", "rawInput": {"command": "make"}, "_meta": {"claude": {"tool": "Bash"}}}),
+                ),
+            ];
+        }
         if last.starts_with("more:") {
             return vec![
                 json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": "optchat-tell:x", "text": last}}),
@@ -824,4 +834,46 @@ fn a_claude_spawn_in_the_users_directory_takes_no_mark() {
         !theirs.path().join(".claude").exists(),
         "nothing written there"
     );
+}
+
+/// Live proof subp5: a report steered into the running turn left the queue
+/// before it was logged, so the next subagent's finish queued it again and
+/// the Chief read `[a2] 5` twice. A report on its way is never queued again.
+#[test]
+fn a_report_steered_into_a_running_turn_is_logged_once() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().steering = true;
+    spawn(&mut s, &["one", "two"]).unwrap();
+    s.h.agents.hold(true);
+    s.h.say("user_local", "long work");
+    s.h.step(); // settled: the turn starts
+    s.h.step(); // the turn's session exists
+    s.h.agents.wait_prompts(3);
+    // a1 finishes: its report is steered into the running turn.
+    finish(&mut s, "s1", "s1", "a1");
+    s.h.agents.wait_steers(1);
+    // a2 finishes before the brain hears that the steer was read.
+    finish(&mut s, "s2", "s1", "a2");
+    s.h.agents.push_events(
+        "s3",
+        vec![
+            update(
+                "tool_call_update",
+                json!({"toolCallId": "lw", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "ok"}}]}),
+            ),
+            update("agent_message_chunk", json!({"content": {"type": "text", "text": "answer long"}})),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ],
+    );
+    s.h.agents.hold(false);
+    s.h.agents.release();
+    s.h.settle();
+    let log = s.h.log();
+    let count = |id: &str| {
+        log.iter()
+            .filter(|(k, t)| k == "user" && t.starts_with(&format!("[{id}] ")))
+            .count()
+    };
+    assert_eq!(count("a1"), 1, "{log:?}");
+    assert_eq!(count("a2"), 1, "{log:?}");
 }
