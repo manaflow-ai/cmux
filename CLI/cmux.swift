@@ -28272,6 +28272,10 @@ struct CMUXCLI {
                !cwd.isEmpty {
                 params["working_directory"] = resolvePath(cwd)
             }
+            let startupEnvironment = tmuxRespawnStartupEnvironment()
+            if !startupEnvironment.isEmpty {
+                params["startup_environment"] = startupEnvironment
+            }
             _ = try client.sendV2(method: "surface.respawn", params: params)
 
         case "send-keys", "send":
@@ -29343,6 +29347,10 @@ struct CMUXCLI {
                 "command": tmuxShellInvokedStartCommand(finalCommand),
                 "tmux_start_command": finalCommand
             ]
+            let startupEnvironment = tmuxRespawnStartupEnvironment()
+            if !startupEnvironment.isEmpty {
+                params["startup_environment"] = startupEnvironment
+            }
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsHandle = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)

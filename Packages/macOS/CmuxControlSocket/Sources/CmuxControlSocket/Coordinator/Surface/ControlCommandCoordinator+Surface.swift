@@ -470,7 +470,8 @@ extension ControlCommandCoordinator {
             hasSurfaceIDParam: hasSurfaceIDParam,
             requestedSurfaceID: requestedSurfaceID,
             hasFocusParam: hasFocusParam,
-            requestedFocus: bool(params, "focus") ?? false
+            requestedFocus: bool(params, "focus") ?? false,
+            startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"])
         )
 
         let resolution = context?.controlSurfaceRespawn(routing: routing, inputs: inputs)
