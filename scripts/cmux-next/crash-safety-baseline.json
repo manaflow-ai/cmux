@@ -62,9 +62,6 @@
   }
  },
  "swift": {
-  "assume_isolated": {
-   "CmuxHomeRender": 3
-  },
   "dynamic_dispatch": {
    "CmuxNextAgentActivity": 2,
    "CmuxNextAgentCursor": 1,
@@ -154,14 +151,12 @@
   },
   "unowned": {
    "CMUXMobileCore": 2,
-   "CmuxNextApp": 70,
-   "CmuxNextBrowser": 16,
-   "CmuxNextOnboarding": 1,
-   "CmuxNextPalette": 4,
+   "CmuxNextApp": 63,
+   "CmuxNextBrowser": 6,
+   "CmuxNextPalette": 1,
    "CmuxNextSidebar": 2,
    "CmuxNextTerminal": 1,
-   "CmuxNextWakeups": 1,
-   "MessagesLabHome": 11
+   "MessagesLabHome": 2
   }
  }
 }
