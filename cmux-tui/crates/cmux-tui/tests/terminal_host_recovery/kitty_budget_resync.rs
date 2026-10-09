@@ -123,10 +123,7 @@ fn kitty_budget_doubling_that_evicts_images_reconnects_that_host_only() {
     };
     let mut counts = existing.iter().map(new_reconnects).collect::<Vec<_>>();
     counts.sort_unstable();
-    assert_eq!(
-        counts[0], 0,
-        "the terminal without images must not reconnect: {counts:?}"
-    );
+    assert_eq!(counts[0], 0, "the terminal without images must not reconnect: {counts:?}");
     assert!(counts[1] >= 1, "the host that evicted images must reconnect: {counts:?}");
 
     for (index, surface) in surfaces.into_iter().enumerate() {
