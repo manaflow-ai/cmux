@@ -94,27 +94,55 @@ describe("FreestyleDriver.retireVm (cx-009a)", () => {
   }
 
   it("spends the run budget before the pause, so no inbound packet can resume the VM between the two calls", async () => {
-    const p = provider([[200, { state: "running", maxRunTotalSeconds: 1 }], [200, { state: "paused" }]])
+    const p = provider([[200, { id: "vm-1", state: "paused" }], [200, { state: "paused", maxRunTotalSeconds: 1 }], [200, { state: "paused" }]])
     await p.driver.retireVm("vm-1")
     expect(p.calls).toEqual([
+      { method: "GET", path: "/v5/vms/vm-1", body: undefined },
       { method: "PATCH", path: "/v5/vms/vm-1", body: { maxRunTotalSeconds: 1 } },
       { method: "POST", path: "/v5/vms/vm-1/pause", body: undefined }
     ])
   })
 
-  it("a VM the budget already paused counts as retired (the provider refuses a second pause with 409)", async () => {
-    const p = provider([[200, {}], [409, { code: "CONFLICT" }], [200, { id: "vm-1", state: "paused" }]])
+  /**
+   * cx-lyvg, measured 2026-10-09 on the dev account: the provider's file API reads a paused VM's
+   * disk image, not the guest's page cache. A file written seconds before the pause read back as
+   * 0 bytes (stat size 0); after a `sync` in the guest it read back whole. So a running VM is
+   * synced before the fence, or team_vm.retired.export would miss the newest team files.
+   */
+  it("a running VM is synced before its run budget is spent, so the retired disk holds every write", async () => {
+    const p = provider([[200, { id: "vm-1", state: "running" }], [200, { statusCode: 0, stdout: "" }], [200, {}], [200, { state: "paused" }]])
     await p.driver.retireVm("vm-1")
-    expect(p.calls.map((c) => c.method)).toEqual(["PATCH", "POST", "GET"])
+    expect(p.calls).toEqual([
+      { method: "GET", path: "/v5/vms/vm-1", body: undefined },
+      { method: "POST", path: "/v5/vms/vm-1/exec-await", body: { command: "sync", timeoutMs: 15_000, linuxUser: "root" } },
+      { method: "PATCH", path: "/v5/vms/vm-1", body: { maxRunTotalSeconds: 1 } },
+      { method: "POST", path: "/v5/vms/vm-1/pause", body: undefined }
+    ])
+  })
+
+  it("a failed sync never holds the fence back, and a paused VM is never woken to sync", async () => {
+    const failed = provider([[200, { id: "vm-1", state: "running" }], [500, { code: "INTERNAL" }], [200, {}], [200, { state: "paused" }]])
+    await failed.driver.retireVm("vm-1")
+    expect(failed.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET /v5/vms/vm-1", "POST /v5/vms/vm-1/exec-await", "PATCH /v5/vms/vm-1", "POST /v5/vms/vm-1/pause"])
+    vi.unstubAllGlobals()
+    const unknown = provider([[500, {}], [200, {}], [200, { state: "paused" }]])
+    await unknown.driver.retireVm("vm-1")
+    expect(unknown.calls.map((c) => c.method)).toEqual(["GET", "PATCH", "POST"])
+  })
+
+  it("a VM the budget already paused counts as retired (the provider refuses a second pause with 409)", async () => {
+    const p = provider([[200, { id: "vm-1", state: "paused" }], [200, {}], [409, { code: "CONFLICT" }], [200, { id: "vm-1", state: "paused" }]])
+    await p.driver.retireVm("vm-1")
+    expect(p.calls.map((c) => c.method)).toEqual(["GET", "PATCH", "POST", "GET"])
   })
 
   it("a VM that is gone answers vm_missing; a refused budget is an error and nothing is paused", async () => {
     const gone = provider([[404, { code: "NOT_FOUND" }]])
     await expect(gone.driver.retireVm("vm-1")).rejects.toMatchObject({ code: "team_vm.vm_missing" })
     vi.unstubAllGlobals()
-    const refused = provider([[500, { code: "INTERNAL" }]])
+    const refused = provider([[200, { id: "vm-1", state: "paused" }], [500, { code: "INTERNAL" }]])
     const err = await refused.driver.retireVm("vm-1").catch((e) => e)
     expect(err).toBeInstanceOf(DriverError)
-    expect(refused.calls.map((c) => c.method)).toEqual(["PATCH"])
+    expect(refused.calls.map((c) => c.method)).toEqual(["GET", "PATCH"])
   })
 })

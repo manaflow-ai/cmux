@@ -75,13 +75,14 @@ final class HeaderView: UIView {
         // Outside the window there is nothing to blur, so pad with the
         // background colour (this gives the darker fringe at the edges).
         let rect = CGRect(x: -pad, y: -pad, width: bounds.width + 2 * pad, height: bounds.height + 2 * pad)
-        let img = WideBitmap.make(size: rect.size, scale: scale, opaque: true) { c in
+        // cmux: a backdrop that could not be allocated keeps the previous one (BitmapFailure logged it).
+        guard let img = WideBitmap.make(size: rect.size, scale: scale, opaque: true, { c in
             c.setFillColor(Fixture.background.cgColor)
             c.fill(CGRect(origin: .zero, size: rect.size))
             c.translateBy(x: -rect.minX + source.frame.minX - source.bounds.minX, y: -rect.minY + source.frame.minY - source.bounds.minY)
             source.layer.displayRecursively()
             source.layer.render(in: c)
-        }
+        }) else { return }
         let cg = img
         let input = CIImage(cgImage: cg).clampedToExtent()
         let w = HeaderView.blurWeight1

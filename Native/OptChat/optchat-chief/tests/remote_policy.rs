@@ -157,15 +157,6 @@ fn traces(h: &Harness) -> Vec<Value> {
     out
 }
 
-fn release_after_cancel(agents: &Arc<FakeAgents>) {
-    let agents = agents.clone();
-    std::thread::spawn(move || {
-        agents.wait_cancels(1);
-        agents.hold(false);
-        agents.release();
-    });
-}
-
 #[test]
 fn a_local_turn_keeps_its_policy() {
     let mut h = harness(default_script());
@@ -297,20 +288,23 @@ fn a_remote_message_cannot_turn_on_remote_auto_approve() {
 #[test]
 fn a_mixed_origin_turn_stays_ask() {
     let mut h = harness(started());
+    h.agents.inner.lock().unwrap().steering = true;
     h.agents.hold(true);
     deliver(&mut h, true, "deploy the site");
     h.step();
     h.agents.wait_prompts(1);
     wait_session(&mut h);
-    // A local message mid-turn stops the turn; the turn that answers both
-    // keeps the remote turn's policy.
-    release_after_cancel(&h.agents);
+    // A local message mid-turn is steered in (never a stop); the turn keeps
+    // the remote turn's policy.
     deliver(&mut h, false, "and tell me when done");
+    h.agents.wait_steers(1);
+    h.agents.hold(false);
+    h.agents.release();
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
-    assert_eq!(inner.specs.len(), 2);
+    assert!(inner.cancels.is_empty());
+    assert_eq!(inner.specs.len(), 1);
     assert_eq!(inner.specs[0].policy, "ask");
-    assert_eq!(inner.specs[1].policy, "ask", "the strictest origin wins");
 }
 
 /// A child that an approved spawn of an `ask` turn started: the `chief

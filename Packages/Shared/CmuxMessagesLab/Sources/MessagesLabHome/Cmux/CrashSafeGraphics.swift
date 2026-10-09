@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import os
 
 // cmux (crash program, plans/cmux-next/crash-elimination.md): Core Graphics and Core
 // Text constructors MessagesLab force-unwrapped. Each returns a working value or a
@@ -26,5 +27,24 @@ extension CGContext {
     func drawLinearGradient(_ gradient: CGGradient?, start: CGPoint, end: CGPoint, options: CGGradientDrawingOptions) {
         guard let gradient else { return }
         drawLinearGradient(gradient, start: start, end: end, options: options)
+    }
+}
+
+/// A row, tile or glyph bitmap that could not be allocated (a huge size, memory
+/// pressure): the caller draws nothing, and the first failure in a process is logged
+/// as a fault (failure is data, no stand-in image hides it).
+enum BitmapFailure {
+    private static let logged = OSAllocatedUnfairLock(initialState: false)
+    private static let log = Logger(subsystem: "ai.manaflow.cmux", category: "messageslab-bitmap")
+
+    /// `image` unchanged; logs the first nil.
+    static func checked(_ image: CGImage?, size: CGSize) -> CGImage? {
+        if image == nil, logged.withLock({ alreadyLogged in
+            defer { alreadyLogged = true }
+            return !alreadyLogged
+        }) {
+            log.fault("bitmap allocation failed at \(size.width, privacy: .public) x \(size.height, privacy: .public) pt; drawing nothing")
+        }
+        return image
     }
 }

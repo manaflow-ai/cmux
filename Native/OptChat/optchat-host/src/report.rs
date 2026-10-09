@@ -50,6 +50,12 @@ pub enum Report {
     /// try (`ErrorClass::permanent`): turns stop waiting for it; reported
     /// once per node with the error's class (status, type, message head).
     NodeStuck { node: NodeId, class: String },
+    /// A compactor node's route is exhausted (a 429, 503 or 529, the wait
+    /// it named): turns do not wait for it, and nothing is posted.
+    NodeWaiting {
+        node: NodeId,
+        wait: std::time::Duration,
+    },
     /// A write failed (its transaction rolled back); the chat stops writing
     /// until a restart.
     Fatal { error: String },
@@ -108,6 +114,12 @@ impl fmt::Display for Report {
             Report::Checkpoint { error } => {
                 write!(f, "saving the memory checkpoint failed: {error}")
             }
+            Report::NodeWaiting { node, wait } => write!(
+                f,
+                "compactor node {}: summaries wait for the model: ready in ~{}m (its route is exhausted); turns go on without that summary",
+                node.name(),
+                wait.as_secs().div_ceil(60)
+            ),
             Report::NodeStuck { node, class } => write!(
                 f,
                 "compactor node {} cannot be built ({class}); turns no longer wait for it, retried every {} s",

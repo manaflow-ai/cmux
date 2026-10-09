@@ -115,7 +115,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 41, "check.json: the full order's 41 cases");
+    assert_eq!(all.as_array().unwrap().len(), 43, "check.json: the full order's 43 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -477,10 +477,11 @@ fn the_built_in_policy_parses() {
     assert_eq!(p.requests.len(), v["requests"].as_array().unwrap().len());
 }
 
-/// Which pending permissions are questions (crate only: the Swift host does
-/// not track it yet): `toolCall._meta.acpmux.question` an object, read from
-/// `_acpmux/permission_pending`, a recorded `permission_request` event and a
-/// history reply; a permission ever seen without it is not a question.
+/// Which pending permissions are questions: `toolCall._meta.acpmux.question`
+/// an object, read from `_acpmux/permission_pending`, a recorded
+/// `permission_request` event and a history reply; a permission ever seen
+/// without it is not a question, so it has no question keys
+/// ([`PermissionOptions::question_keys`] is None).
 #[test]
 fn question_permissions() {
     let pending = |id: &str, question: Value| {
@@ -515,6 +516,6 @@ fn question_permissions() {
         ("forged", false),
         ("never", false),
     ] {
-        assert_eq!(options.is_question(id), question, "{id}");
+        assert_eq!(options.question_keys(id).is_some(), question, "{id}");
     }
 }

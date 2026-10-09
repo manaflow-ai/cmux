@@ -5,6 +5,7 @@ import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ChatCards } from "./ChatCards";
 import { recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
 import { type NewTabTranslate, useNt } from "./strings";
+import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 
 /// What the screen asks the host to do. Agent rows stay in the page (the tab becomes the chat).
@@ -36,6 +37,8 @@ type Props = NewTabScreenActions & {
   tools?: NewTabHost["tools"];
   inputToken?: string;
   now?: number;
+  /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
+  template?: ScreenTemplate;
 };
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): one field that reads what is
@@ -44,6 +47,8 @@ type Props = NewTabScreenActions & {
 export function NewTabScreen(props: Props) {
   const nt = useNt();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, tools = [], inputToken } = props;
+  const template = props.template ?? "default";
+  const sections = screenSections(template);
   const enrichedOmnibar = useMemo(
     () => ({
       ...omnibar,
@@ -84,6 +89,18 @@ export function NewTabScreen(props: Props) {
   const t = useT();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
   useEffect(() => setSelected(0), [rows]);
+  const list = useRef<HTMLDivElement>(null);
+  // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
+  // screen around it, as scrollIntoView would).
+  useEffect(() => {
+    const box = list.current;
+    const row = box?.querySelector<HTMLElement>(`#nt-row-${selected}`);
+    if (!box || !row) return;
+    const inner = box.getBoundingClientRect();
+    const at = row.getBoundingClientRect();
+    if (at.top < inner.top) box.scrollTop -= inner.top - at.top;
+    else if (at.bottom > inner.bottom) box.scrollTop += at.bottom - inner.bottom;
+  }, [selected, rows]);
 
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
   // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT).
@@ -173,12 +190,18 @@ export function NewTabScreen(props: Props) {
   };
 
   return (
-    <div className="nt-screen" data-shell={shell || undefined}>
+    <div className="nt-screen" data-shell={shell || undefined} data-template={template}>
       <div className="nt-box">
-        {shell && (
+        {shell ? (
           <span className="nt-shell-glyph" aria-hidden="true">
             !
           </span>
+        ) : (
+          sections.prompt && (
+            <span className="nt-prompt-glyph" aria-hidden="true">
+              &gt;
+            </span>
+          )
         )}
         <input
           ref={field}
@@ -203,7 +226,7 @@ export function NewTabScreen(props: Props) {
       </div>
       {rows.length > 0 && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
+        <div ref={list} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
           {rows.map((row, index) => (
             <div
               key={rowKey(row)}
@@ -237,13 +260,15 @@ export function NewTabScreen(props: Props) {
           ))}
         </div>
       )}
-      <ChatCards cards={cards} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
-      {props.onAddHarness && (
+      {sections.chats !== "none" && (
+        <ChatCards cards={cards} variant={sections.chats} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
+      )}
+      {sections.tools && props.onAddHarness && (
         <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>
           {t("newtab.addHarness")}
         </button>
       )}
-      <ToolsSection tools={tools} onRunAction={props.onRunAction} />
+      {sections.tools && <ToolsSection tools={tools} onRunAction={props.onRunAction} />}
     </div>
   );
 }

@@ -41,10 +41,19 @@ struct Spawned {
 /// Create a terminal with `command` and the caller `env`, and return the
 /// environment its child saw.
 fn spawn_with_env(command: &str, caller_env: &[(&str, &str)]) -> Spawned {
+    spawn_with_options(daemon_options(), command, caller_env)
+}
+
+/// [`spawn_with_env`] with these daemon `options`.
+fn spawn_with_options(
+    options: crate::SurfaceOptions,
+    command: &str,
+    caller_env: &[(&str, &str)],
+) -> Spawned {
     // A real-runtime mux: the test runtime starts no child process.
     let nanos =
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let mux = Mux::new(format!("daemon-env-{}-{nanos}", std::process::id()), daemon_options());
+    let mux = Mux::new(format!("daemon-env-{}-{nanos}", std::process::id()), options);
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound, control: None });
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -236,4 +245,92 @@ fn frontend_integration_keys_reach_the_child_unchanged() {
     for (key, value) in keys {
         assert_eq!(spawned.env.get(key).map(String::as_str), Some(value), "{key}");
     }
+}
+
+/// A temp app bundle `Resources/bin` with an executable `cmux`.
+#[cfg(unix)]
+fn bundled_bin_dir(name: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let bin = std::env::temp_dir()
+        .join(format!("cmux-daemon-env-{name}-{}-{nanos}", std::process::id()))
+        .join("Resources/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("cmux"), "#!/bin/sh\necho bundled\n").unwrap();
+    std::fs::set_permissions(bin.join("cmux"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    bin
+}
+
+/// The daemon options `main.rs` makes when the app started the daemon with
+/// its bundled CLI (`CMUX_BUNDLED_CLI_PATH`, its bin dir first on `PATH`).
+#[cfg(unix)]
+fn daemon_options_with_bundled_cli(bin: &Path) -> crate::SurfaceOptions {
+    let mut options = daemon_options();
+    let path = format!("{SHIM_DIR}:{}:/usr/bin:/bin", bin.display());
+    crate::daemon_env::set_env(&mut options.extra_env, "PATH", &path);
+    let cli = bin.join("cmux").to_string_lossy().into_owned();
+    crate::daemon_env::set_env(&mut options.extra_env, "CMUX_BUNDLED_CLI_PATH", &cli);
+    options.bundled_cli = Some(cli);
+    options
+}
+
+/// An agent terminal runs a command with its own PATH, which lists an older
+/// `cmux` first (`~/.local/bin`). The app's bundled `cmux` stays first after
+/// the `claude` shim, and `CMUX_BUNDLED_CLI_PATH` names it, for every
+/// terminal-creating command.
+#[cfg(unix)]
+#[test]
+fn a_caller_path_keeps_the_bundled_cli_first() {
+    let bin = bundled_bin_dir("bundled");
+    let bin_dir = bin.to_string_lossy().into_owned();
+    for command in ["new-tab", "create-terminal", "new-screen"] {
+        let caller = [("PATH", "/home/me/.local/bin:/usr/bin:/bin")];
+        let spawned = spawn_with_options(daemon_options_with_bundled_cli(&bin), command, &caller);
+        assert_eq!(
+            spawned.env.get("PATH").map(String::as_str),
+            Some(format!("{SHIM_DIR}:{bin_dir}:/home/me/.local/bin:/usr/bin:/bin").as_str()),
+            "{command}"
+        );
+        assert_eq!(
+            spawned.env.get("CMUX_BUNDLED_CLI_PATH"),
+            Some(&format!("{bin_dir}/cmux")),
+            "{command}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(bin.parent().unwrap().parent().unwrap());
+}
+
+/// A caller's `CMUX_BUNDLED_CLI_PATH` (an older app's CLI) does not win over
+/// the bundled CLI the app started the daemon with.
+#[cfg(unix)]
+#[test]
+fn the_daemon_bundled_cli_wins_over_a_caller_value() {
+    let bin = bundled_bin_dir("caller");
+    let spawned = spawn_with_options(
+        daemon_options_with_bundled_cli(&bin),
+        "new-tab",
+        &[("CMUX_BUNDLED_CLI_PATH", "/Applications/Old.app/Contents/Resources/bin/cmux")],
+    );
+    assert_eq!(spawned.env.get("CMUX_BUNDLED_CLI_PATH"), Some(&format!("{}/cmux", bin.display())));
+    let _ = std::fs::remove_dir_all(bin.parent().unwrap().parent().unwrap());
+}
+
+/// Without a bundled CLI (an older app) a caller's PATH and
+/// `CMUX_BUNDLED_CLI_PATH` reach the child as before.
+#[test]
+fn without_a_bundled_cli_the_caller_values_stay() {
+    let caller = [
+        ("PATH", "/home/me/.local/bin:/usr/bin:/bin"),
+        ("CMUX_BUNDLED_CLI_PATH", "/Applications/Old.app/Contents/Resources/bin/cmux"),
+    ];
+    let spawned = spawn_with_env("new-tab", &caller);
+    assert_eq!(
+        spawned.env.get("PATH").map(String::as_str),
+        Some("/daemon/cmux-tui/shims:/home/me/.local/bin:/usr/bin:/bin")
+    );
+    assert_eq!(
+        spawned.env.get("CMUX_BUNDLED_CLI_PATH").map(String::as_str),
+        Some("/Applications/Old.app/Contents/Resources/bin/cmux")
+    );
 }

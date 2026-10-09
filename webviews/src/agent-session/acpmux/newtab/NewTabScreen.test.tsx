@@ -1,4 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "../model";
 
@@ -310,5 +311,79 @@ test("New Tab acknowledges the input generation only after the field has focus",
     },
   });
   expect(seen).toEqual(["opening-1"]);
+  await act(async () => root.unmount());
+});
+
+// Dogfood 2026-10-08 (01): with chat cards under it the rows box shrank to two rows, and Down
+// to a row below them selected it out of sight ("I select lowest, it doesn't jump").
+test("Down to a row out of sight scrolls the rows box to it, and only the box", async () => {
+  // jsdom has no layout: the box shows 100 px and each row is 40 px tall.
+  const proto = dom.window.HTMLElement.prototype;
+  const original = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    const index = /^nt-row-(\d+)$/.exec(this.id)?.[1];
+    const top = this.id === "nt-rows" ? 0 : index === undefined ? 0 : Number(index) * 40;
+    const height = this.id === "nt-rows" ? 100 : index === undefined ? 0 : 40;
+    return { top, bottom: top + height, left: 0, right: 100, width: 100, height, x: 0, y: top } as DOMRect;
+  };
+  try {
+    const { root, type, key } = await mount();
+    await type("fix the build");
+    const box = dom.window.document.getElementById("nt-rows")!;
+    let scrollTop = 0;
+    Object.defineProperty(box, "scrollTop", { get: () => scrollTop, set: (value: number) => (scrollTop = value) });
+    const screen = box.closest<HTMLElement>(".nt-screen");
+    await key("ArrowDown");
+    expect(scrollTop).toBe(0);
+    await key("ArrowDown");
+    expect(scrollTop).toBe(20);
+    expect(screen?.scrollTop ?? 0).toBe(0);
+    await act(async () => root.unmount());
+  } finally {
+    proto.getBoundingClientRect = original;
+  }
+});
+
+test("the rows box keeps its height when chat cards and tools fill the screen", () => {
+  const css = readFileSync(new URL("./screen.css", import.meta.url), "utf8");
+  const rows = css.match(/\.nt-rows\{([^}]*)\}/)?.[1] ?? "";
+  expect(rows.split(";")).toContain("flex:none");
+});
+
+test("each screen template keeps the field and changes only what shows around it", async () => {
+  const tools = [{ id: "openDiffViewer", title: "Changes", symbol: "plusminus", menu: [] }];
+  const shown = async (template?: string) => {
+    const { container, root, field } = await mount({ template, tools, onAddHarness: () => undefined });
+    const result = {
+      focused: dom.window.document.activeElement === field,
+      cards: container.querySelectorAll(".nt-card").length,
+      variant: container.querySelector(".nt-cards")?.getAttribute("data-variant") ?? null,
+      tools: container.querySelector(".nt-tools") !== null,
+      harness: container.querySelector(".nt-add-harness") !== null,
+      prompt: container.querySelector(".nt-prompt-glyph")?.textContent ?? null,
+      template: container.querySelector(".nt-screen")!.getAttribute("data-template"),
+    };
+    await act(async () => root.unmount());
+    return result;
+  };
+  expect(await shown()).toEqual({
+    focused: true, cards: 2, variant: "cards", tools: true, harness: true, prompt: null, template: "default",
+  });
+  expect(await shown("composer")).toEqual({
+    focused: true, cards: 0, variant: null, tools: false, harness: false, prompt: null, template: "composer",
+  });
+  expect(await shown("threads")).toEqual({
+    focused: true, cards: 2, variant: "list", tools: false, harness: false, prompt: null, template: "threads",
+  });
+  expect(await shown("console")).toEqual({
+    focused: true, cards: 2, variant: "list", tools: false, harness: false, prompt: ">", template: "console",
+  });
+});
+
+test("the Console prompt glyph gives way to shell mode's !", async () => {
+  const { container, root, type } = await mount({ template: "console" });
+  await type("!");
+  expect(container.querySelector(".nt-prompt-glyph")).toBeNull();
+  expect(container.querySelector(".nt-shell-glyph")?.textContent).toBe("!");
   await act(async () => root.unmount());
 });

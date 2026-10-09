@@ -446,6 +446,11 @@ pub enum HarnessCmd {
     /// Print the guide an agent follows to integrate a harness (schema,
     /// doctor loop, examples, security rules).
     Guide,
+    /// Move a profile file from your harness folder to a backup
+    /// (~/.acpmux/harness-backups); `restore` brings it back.
+    Remove { id: String },
+    /// Move a backup that `remove` made back into your harness folder.
+    Restore { backup: String },
 }
 
 #[derive(Subcommand)]
