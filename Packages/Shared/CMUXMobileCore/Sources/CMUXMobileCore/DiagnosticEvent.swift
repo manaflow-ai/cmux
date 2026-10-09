@@ -45,6 +45,10 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
     /// Opaque operation identifier for correlating a bounded terminal trace.
     public var traceID: UInt64?
 
+    /// Event-local sequence number for bounded diagnostics that need an
+    /// ordering token without carrying user or workspace identifiers.
+    public var sequence: UInt64?
+
     /// Creates an event with an explicit timestamp.
     ///
     /// - Parameters:
@@ -57,6 +61,7 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
     ///   - c: Third optional integer payload slot.
     ///   - terminalWork: Content-free terminal phase metadata.
     ///   - traceID: Opaque terminal operation correlation identifier.
+    ///   - sequence: Optional event-local ordering token.
     public init(
         code: DiagnosticEventCode,
         tNanos: UInt64,
@@ -66,7 +71,8 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
         b: Int? = nil,
         c: Int? = nil,
         terminalWork: TerminalWorkDiagnostic? = nil,
-        traceID: UInt64? = nil
+        traceID: UInt64? = nil,
+        sequence: UInt64? = nil
     ) {
         self.code = code
         self.tNanos = tNanos
@@ -77,6 +83,7 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
         self.c = c
         self.terminalWork = terminalWork
         self.traceID = traceID
+        self.sequence = sequence
     }
 
     /// Creates an event stamped with the current monotonic time.
@@ -92,6 +99,7 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
     ///   - a: First optional integer payload slot.
     ///   - b: Second optional integer payload slot.
     ///   - c: Third optional integer payload slot.
+    ///   - sequence: Optional event-local ordering token.
     public init(
         _ code: DiagnosticEventCode,
         surface: UInt32? = nil,
@@ -99,7 +107,8 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
         a: Int? = nil,
         b: Int? = nil,
         c: Int? = nil,
-        traceID: UInt64? = nil
+        traceID: UInt64? = nil,
+        sequence: UInt64? = nil
     ) {
         self.init(
             code: code,
@@ -109,7 +118,8 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
             a: a,
             b: b,
             c: c,
-            traceID: traceID
+            traceID: traceID,
+            sequence: sequence
         )
     }
 }

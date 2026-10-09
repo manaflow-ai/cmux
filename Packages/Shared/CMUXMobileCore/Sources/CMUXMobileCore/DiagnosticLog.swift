@@ -229,6 +229,32 @@ public final class DiagnosticLog: Sendable {
         ))
     }
 
+    /// Records one published terminal viewport report without retaining the
+    /// terminal ID, workspace name, pixel geometry, or terminal content.
+    ///
+    /// - Parameters:
+    ///   - correlationID: Opaque terminal identifier reduced to a process-local
+    ///     surface handle before recording.
+    ///   - columns: Logical column capacity.
+    ///   - rows: Logical row capacity.
+    ///   - reportID: Monotonic report sequence assigned by the surface.
+    public nonisolated func recordTerminalViewportReport(
+        correlationID: String?,
+        columns: Int,
+        rows: Int,
+        reportID: UInt64
+    ) {
+        guard columns > 0, rows > 0, reportID > 0 else { return }
+        record(DiagnosticEvent(
+            .appFeatureAction,
+            surface: correlation.handle(for: correlationID),
+            a: DiagnosticAppEventKind.terminalViewportReportPublished.rawValue,
+            b: min(columns, Int(UInt32.max)),
+            c: min(rows, Int(UInt32.max)),
+            sequence: reportID
+        ))
+    }
+
     /// Records one terminal-operation phase with a per-minute admission cap.
     /// The ring and AppLog still provide their existing bounded retention.
     public nonisolated func recordTerminalTrace(

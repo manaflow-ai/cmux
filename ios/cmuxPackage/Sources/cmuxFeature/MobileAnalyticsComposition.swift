@@ -43,6 +43,8 @@ public struct MobileAnalyticsComposition {
     public let terminalLatencyReporter: MobileTerminalLatencyReporter
     /// Slow and failed terminal-operation summaries sent to the same Axiom bridge.
     public let terminalTraceReporter: MobileTerminalTraceReporter
+    /// Logical terminal viewport reports and bounded same-capacity loop candidates.
+    public let terminalViewportReporter: MobileTerminalViewportReporter
     /// The network emitter owns the same consent provider and revocation
     /// observer as the product emitter, so opt-out cancels both upload paths.
     public let networkOutcomeEmitter: AnalyticsEmitter
@@ -154,6 +156,7 @@ public struct MobileAnalyticsComposition {
             onAnomaly: onFeedScrollAnomaly
         )
         self.terminalTraceReporter = MobileTerminalTraceReporter(emitter: networkOutcomeEmitter)
+        self.terminalViewportReporter = MobileTerminalViewportReporter(emitter: networkOutcomeEmitter)
         self.clientConfigContext = ClientConfigEvaluationContext(
             personProperties: Self.clientConfigDeviceProperties(anonymousID: anonymousID),
             anonDistinctId: anonymousID,

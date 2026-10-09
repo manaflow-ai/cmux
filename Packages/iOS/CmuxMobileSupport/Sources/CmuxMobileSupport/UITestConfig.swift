@@ -79,6 +79,86 @@ public struct UITestConfig {
         #endif
     }
 
+    /// A deterministic Cloud access-state preview selected by
+    /// `CMUX_UITEST_CLOUD_PREVIEW`. Supported values are `requires-plan`,
+    /// `available`, `machines`, `limit-reached`, and `unavailable`.
+    public static var cloudPreviewState: String? {
+        cloudPreviewStateValue(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// A storefront country-code override for the deterministic Cloud preview.
+    /// DEBUG-only; production uses StoreKit's current App Store storefront.
+    public static var cloudPreviewStorefront: String? {
+        cloudPreviewStorefrontValue(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Hides billing from the deterministic Cloud preview so the unavailable
+    /// storefront state can be reviewed without a StoreKit configuration.
+    /// DEBUG-only; production always uses the billing model.
+    public static var cloudPreviewNoBilling: Bool {
+        cloudPreviewNoBillingValue(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves the deterministic Cloud preview billing override.
+    public static func cloudPreviewNoBillingValue(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> Bool {
+        #if DEBUG
+        let value = env["CMUX_UITEST_CLOUD_NO_BILLING"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_CLOUD_NO_BILLING=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        return value?.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Resolves the Cloud preview storefront override from explicit process inputs.
+    public static func cloudPreviewStorefrontValue(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
+        #if DEBUG
+        let value = env["CMUX_UITEST_CLOUD_STOREFRONT"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_CLOUD_STOREFRONT=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        let trimmed = value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+        #else
+        return nil
+        #endif
+    }
+
+    /// Resolves a Cloud preview state from explicit process inputs.
+    public static func cloudPreviewStateValue(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
+        #if DEBUG
+        let value = env["CMUX_UITEST_CLOUD_PREVIEW"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_CLOUD_PREVIEW=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+        #else
+        return nil
+        #endif
+    }
+
     /// Forces the legacy keyboard-dock path on any simulator. Legacy is the
     /// shipping default, so this pin exists for explicit-path tests and
     /// debugging. DEBUG-only.
