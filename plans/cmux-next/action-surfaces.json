@@ -16183,8 +16183,8 @@
         "title_table" : "Localizable"
       },
       "title" : "Agent Chat: Zoom In",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.agentPaneZoomIn",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -16215,8 +16215,8 @@
         "title_table" : "Localizable"
       },
       "title" : "Agent Chat: Zoom Out",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.agentPaneZoomOut",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -16247,8 +16247,8 @@
         "title_table" : "Localizable"
       },
       "title" : "Agent Chat: Actual Size",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.agentPaneZoomReset",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
