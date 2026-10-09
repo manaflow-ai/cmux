@@ -10,6 +10,13 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "bubble.left.and.text.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
+            ActionDescriptor(
+                id: "agentPane.toggleInspector",
+                title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Show ACP Inspector", bundle: .module),
+                keywords: ["agent", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
+                surfaces: [.palette], targets: [.pane], cliName: "agent toggle-acp-inspector",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
             {
                 var quick = ActionDescriptor(
                     id: "palette.quickAgentChat",
@@ -24,6 +31,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 quick.isGlobalHotKey = true
                 return quick
             }(),
+            ActionDescriptor(
+                id: "palette.addHarness",
+                title: String(localized: "action.palette.addHarness", defaultValue: "Add Harness…", bundle: .module),
+                keywords: ["agent", "harness", "integrate", "acp", "acpmux", "custom", "bring your own"],
+                category: .agents, symbol: "puzzlepiece.extension", surfaces: [.palette, .menu], mainMenu: .file,
+                // Opens a chat that walks the user through `cmux harness guide`. Agents and
+                // scripts run that guide (and `cmux harness add|doctor`) directly.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "palette.toggleDictation",
                 title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),

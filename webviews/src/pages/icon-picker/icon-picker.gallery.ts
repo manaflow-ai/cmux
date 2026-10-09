@@ -26,6 +26,18 @@ const symbols = [
 
 const session = { id: "gallery-session", tab: "emoji", canClear: true, assets: true, symbols } as const;
 
+/** Saved prefs with recent picks, so the grid opens on Frequently Used (emoji and symbols). */
+const recent = ["😎", "🎉", "🐮", "🎈", "🥲", "🍑", "🤨", "🫡", "💜", "🩸", "🙏", "🤔", "🤦"];
+const prefs = {
+  tone: 0,
+  recents: [
+    ...recent.map((emoji, rank) => ({ key: `emoji:${emoji}`, count: 40 - rank * 2, last: Date.parse("2026-10-08") })),
+    { key: "symbol:terminal", count: 6, last: Date.parse("2026-10-08") },
+    { key: "symbol:folder.fill", count: 5, last: Date.parse("2026-10-08") },
+    { key: "symbol:bolt", count: 4, last: Date.parse("2026-10-08") },
+  ],
+};
+
 const assetPlay =
   (failed: boolean): IconPickerPageVariant["play"] =>
   async (ctx) => {
@@ -41,8 +53,8 @@ export default iconPickerPageEntry({
   id: "pages.icon-picker",
   title: "Icon picker",
   area: "Pages",
-  height: 560,
-  widths: { narrow: 420, normal: 640, wide: 820 },
+  height: 520,
+  widths: { narrow: 440, normal: 600, wide: 760 },
   covers: [
     "page:cmux.icon-picker",
     "icon-picker/IconPicker.tsx",
@@ -50,8 +62,14 @@ export default iconPickerPageEntry({
     "icon-picker/VirtualGrid.tsx",
   ],
   variants: {
+    emoji: {
+      note: "All Categories: Frequently Used (emoji and symbols), then the emoji groups, with the first tile selected.",
+      session,
+      prefs,
+    },
     "long-content": {
       session,
+      prefs,
       note: "A long search query in the real search field.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".icon-picker-search"));
@@ -60,12 +78,42 @@ export default iconPickerPageEntry({
         });
       },
     },
+    search: { note: "A search over emoji and SF Symbols in one grid.", session, prefs, query: "star" },
+    symbols: {
+      note: "The SF Symbols category, chosen in the All Categories menu.",
+      session: { ...session, tab: "symbol" },
+      prefs,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-category-button"));
+        await ctx.click({ selector: ".icon-category-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-category-menu"));
+        await ctx.click({ selector: '.icon-category-menu [role="menuitemradio"]:last-of-type' });
+      },
+    },
+    categories: {
+      note: "The All Categories menu open, with counts.",
+      session,
+      prefs,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-category-button"));
+        await ctx.click({ selector: ".icon-category-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-category-menu"));
+      },
+    },
+    actions: {
+      note: "The Actions menu (Cmd-K) over the bottom bar.",
+      session,
+      prefs,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-picker-search"));
+        await ctx.press("Meta+k");
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-actions-menu"));
+      },
+    },
     loading: { session: { ...session, tab: "image" }, assetState: "loading", play: assetPlay(false) },
     error: { session: { ...session, tab: "image" }, assetState: "error", play: assetPlay(true) },
-    emoji: { note: "Emoji search with a focused field and selected cell.", session, active: 12 },
-    symbols: { note: "The SF Symbols tab with a selected symbol.", session: { ...session, tab: "symbol" }, active: 8 },
-    image: { note: "The image asset sheet with paste, file and URL actions.", session: { ...session, tab: "image" } },
-    svg: { note: "The SVG asset sheet.", session: { ...session, tab: "svg" } },
+    image: { note: "The image sheet with paste, file and URL actions.", session: { ...session, tab: "image" } },
+    svg: { note: "The SVG sheet.", session: { ...session, tab: "svg" } },
     empty: { note: "A search with no matching icons.", mode: "empty", session },
     "no-clear": { note: "A picker session without a remove action.", session: { ...session, canClear: false } },
   },

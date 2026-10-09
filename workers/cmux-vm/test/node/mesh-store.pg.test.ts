@@ -64,7 +64,7 @@ describe("migration 0004", () => {
 
   it("audits mesh ids", async () => {
     await run(
-      Effect.flatMap(AuditStore, (store) => store.append({ tenantId: A, actor: "key:x", action: "mesh.create", cmuxId: newMeshId(), outcome: "ok", at })),
+      Effect.flatMap(AuditStore, (store) => store.append({ tenantId: A, actor: "key:x", ownerActor: null, action: "mesh.create", cmuxId: newMeshId(), outcome: "ok", at })),
     );
   });
 });

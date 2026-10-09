@@ -1,5 +1,6 @@
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { ReadResult } from "./owner-do.ts"
+import { personalTeamIdFor } from "./domains/user.ts"
 import { cloudDriver } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
@@ -8,6 +9,8 @@ import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGe
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import { statusApplied } from "./cloud-do-core.ts"
 import { CloudIdle } from "./cloud-do-idle.ts"
+import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
+import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -23,6 +26,8 @@ const STATE_CHECK_EVERY_MS = 30_000
 export class CloudDO extends CloudIdle {
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    // G8 (cx-wb5.65): the person's own session reads the exact Cloud request it is asked to approve.
+    if (op === "integration.approval.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(readCloudApproval(this.ctx.storage.sql, principal, params))
     if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
     if (op === "cloud.machine.connect_info") {
       if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
@@ -39,11 +44,26 @@ export class CloudDO extends CloudIdle {
     return super.readOp(entity, principal, op, params)
   }
 
+  /** The person's approval answers (G8, cloud-approvals.ts) run here; other items go to the engine. */
+  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    const answers = items.filter((i) => i.op === "integration.approval.answered")
+    const rest = items.filter((i) => i.op !== "integration.approval.answered")
+    const done = rest.length ? [...(await super.systemDeliver(entity, source, rest)).done] : []
+    if (answers.length) done.push(...(await deliverCloudAnswers(this.approvalHost(entity), source, answers, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))).done)
+    return { done }
+  }
+
   /**
    * 5.8 item 2, RPC from POST /v1/cloud/bind: the VM's bind agent spends its one-time token. The
    * token is hashed here, so the committed op, its event and the ledger never see it. Any token
    * problem is one auth.forbidden; an object nobody created answers the same without being created.
    */
+  /** TeamDO's member-only read for `user` (tests replace it). */
+  creatorIsMember = async (team: string, user: string): Promise<boolean> => {
+    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
+    return (await stub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team.members.list", { limit: 1 })).ok
+  }
+
   async bindMachine(entity: string, body: unknown): Promise<BindReply> {
     const forbidden = { ok: false as const, code: "auth.forbidden", message: "bind refused" }
     if (!this.isBound(entity)) return forbidden
@@ -61,7 +81,10 @@ export class CloudDO extends CloudIdle {
     // Without the link signing keyset a bound VM could never check a link token: refuse, token unspent.
     if (!keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
     const keyset = await publicKeyset(keys)
-    const reg = { creator: m.creator, team: entity, machine: req.machine, epoch: m.epoch ?? 1, jwk: req.install_public_jwk, ...(m.creator_sso_team ? { ssoTeam: m.creator_sso_team } : {}) }
+    // A creator who left this team gets no VM install bound to it (cx-44j.51); their personal team they never leave.
+    if (entity !== personalTeamIdFor(m.creator) && !(await this.creatorIsMember(entity, m.creator))) return forbidden
+    // The machine's creator_sso_team was seen fresh at its create (sso_seen_at), so UserDO stamps it unless the creator left that team later.
+    const reg = { creator: m.creator, team: entity, machine: req.machine, epoch: m.epoch ?? 1, jwk: req.install_public_jwk, ...(m.creator_sso_team ? { ssoTeam: m.creator_sso_team, ssoSeenAt: m.created_at } : {}) }
     this.vmRevokes.beginRegister(reg, now)
     const vm = await registerVmInstall(this.env, reg)
     if (!vm.ok) return (vm.code !== "owner.unreachable" && this.vmRevokes.endRegister(reg), { ok: false, code: "owner.unreachable", message: "the VM install could not be registered; retry the bind" })
@@ -117,6 +140,9 @@ export class CloudDO extends CloudIdle {
         }
       }, now)
       if (applied) await this.considerIdlePause(entity, applied.machine, applied.report, now)
+      // A held report commits nothing, so nothing moved the alarm: arm it for the end of the window
+      // (VmStatusQueue.dueAt) so the latest held report applies then, not at an unrelated wake.
+      else if (r.ok) this.scheduleAlarm()
       return r
     }
     return vmEventEmit(entity, principal, params, rows, this.vmEvents, (f) => sendEphemeral(this.ctx.getWebSockets(), f, (ws, a) => this.socketLive(ws, a as never) && a.principal.team === entity && a.principal.install_kind !== "vm"), now)
@@ -166,9 +192,10 @@ export class CloudDO extends CloudIdle {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
+  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string }; edge_host?: string | null }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
+    if (cmd.edge_host !== undefined) this.edge.testHost = cmd.edge_host
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys
     if (cmd.fail_revokes !== undefined) this.failRevokes = cmd.fail_revokes
@@ -193,6 +220,7 @@ export class CloudDO extends CloudIdle {
     const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number; snapshot: string | null }>(`SELECT name, id, idle, cpu, memory, snapshot FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
     const snapshots = this.sqlStore.exec<{ slug: string; source: string }>(`SELECT slug, source FROM cloud_fake_snapshot ORDER BY slug`)
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
-    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
+    const tls = this.sqlStore.exec<{ vm: string; domain: string; rule: string }>(`SELECT vm, domain, rule FROM cloud_fake_tls ORDER BY vm`).map((r) => ({ vm: r.vm, domain: r.domain, rule: JSON.parse(r.rule) as unknown }))
+    return { tls, files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
   }
 }

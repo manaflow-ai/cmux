@@ -3,6 +3,7 @@
 // read. The header's summary popover lists them (SummaryPopover).
 import { turnFiles, type TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { isSubagentGroup } from "../subagents/subagentRows";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -64,15 +65,26 @@ function pullRequests(all: readonly Tool[]): SummaryPullRequest[] {
   return [...found.values()];
 }
 
-/// Claude's Task tool arrives as a `think` tool call titled with the subagent's description.
-function subagents(all: readonly Tool[]): SummarySubagent[] {
-  return all
+/// The session's own subagents, from its subagent groups (subagents/subagentFold.ts); records
+/// from before acpmux reported subagents carry Claude's Task tool as a `think` tool call titled
+/// with the subagent's description instead.
+function subagents(rows: readonly AcpmuxRow[], all: readonly Tool[]): SummarySubagent[] {
+  const grouped = rows
+    .filter(isSubagentGroup)
+    .flatMap((row) => row.subagents ?? [])
+    .map((agent): SummarySubagent => ({
+      id: agent.id,
+      title: agent.name,
+      state: agent.state === "running" ? "running" : agent.state === "completed" ? "done" : "failed",
+    }));
+  const tasks = all
     .filter((tool) => tool.kind === "think" && tool.title.trim() !== "")
-    .map((tool) => ({
+    .map((tool): SummarySubagent => ({
       id: tool.id,
       title: tool.title,
       state: tool.status === "completed" ? "done" : tool.status === "failed" ? "failed" : "running",
     }));
+  return [...grouped, ...tasks];
 }
 
 /// A tool call's input: `inputSummary` carries its `rawInput` as JSON.
@@ -122,7 +134,7 @@ export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
     scheduled: scheduled(all),
     pullRequests: pullRequests(all),
     outputs: turnFiles(rows as AcpmuxRow[]),
-    subagents: subagents(all),
+    subagents: subagents(rows, all),
     sources: sources(all),
   };
 }

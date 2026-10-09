@@ -25,6 +25,59 @@ import Testing
         #expect(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .newTab)).contains(.newAgentChat))
     }
 
+    @Test func showACPInspectorIsBoundAndRunsWithItsTarget() throws {
+        let registry = ActionRegistry.standard()
+        var toggled: [ActionTargetRef?] = []
+        #expect(registry.bindAgentPaneInspector { toggled.append($0.target) })
+        #expect(registry.isBound(.toggleAcpInspector))
+        let pane = ActionTargetRef(kind: .pane, id: "pane-1")
+        #expect(registry.perform(.toggleAcpInspector, invocation: ActionInvocation(target: pane)))
+        #expect(toggled == [pane])
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == .toggleAcpInspector })
+        #expect(descriptor.surfaces.contains(.palette))
+        #expect(descriptor.cliName == "agent toggle-acp-inspector")
+        #expect(descriptor.targets == [.pane])
+        #expect(descriptor.defaultShortcut == nil)
+    }
+
+    @Test func inspectorRefusesAutomationWithoutFocusAndAllowsExplicitFocus() {
+        let registry = ActionRegistry.standard()
+        var toggled = 0
+        var refusal: String?
+        registry.refusalObserver = { reason, _ in refusal = reason }
+        #expect(registry.bindAgentPaneInspector { _ in toggled += 1 })
+
+        #expect(registry.perform(.toggleAcpInspector, invocation: ActionInvocation(origin: .cli)))
+        #expect(toggled == 0)
+        #expect(refusal == "Opening the ACP inspector requires focus.")
+
+        #expect(registry.perform(.toggleAcpInspector, invocation: ActionInvocation(origin: .cli, focusRequested: true)))
+        #expect(toggled == 1)
+
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .user, allowsViewChange: false)) {
+            #expect(registry.perform(.toggleAcpInspector, invocation: ActionInvocation(origin: .cli, focusRequested: true)))
+        }
+        #expect(toggled == 1)
+    }
+
+    /// The action and `debug.agent_pane inspector` call the page's bridge,
+    /// which ignores the call until the page has loaded it.
+    @Test func togglingTheInspectorCallsThePageBridge() throws {
+        let page = FileManager.default.temporaryDirectory.appendingPathComponent("agent-pane-inspector-test.html")
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { view.close() }
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        view.toggleInspector()
+        view.toggleInspector(open: true)
+        view.toggleInspector(open: false)
+        #expect(scripts == [
+            "window.cmuxAcpmuxBridge?.toggleInspector?.();",
+            "window.cmuxAcpmuxBridge?.toggleInspector?.(true);",
+            "window.cmuxAcpmuxBridge?.toggleInspector?.(false);"
+        ])
+    }
+
     /// The changed files' open is the catalog's `file.open`, so the page, the
     /// palette and `cmux file open` share one action.
     @Test func fileOpenIsACatalogAction() throws {
@@ -70,6 +123,9 @@ import Testing
         var scripts: [String] = []
         view.evaluateScript = { scripts.append($0) }
         _ = await view.model.respond(to: .ready)
+        // Theme setup may arrive while the async ready handshake is resolving;
+        // the assertion below is about the reveal commands themselves.
+        scripts.removeAll()
         view.revealTurn("turn-1")
         view.revealTurn("a\");alert(1);//")
         #expect(scripts == [

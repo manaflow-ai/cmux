@@ -81,59 +81,17 @@ struct WindowTrafficLightsTests {
         withExtendedLifetime(services) {}
     }
 
-    /// Lawrence (nxdog41): with the sidebar hidden, the window's controls (traffic lights and the
-    /// titlebar band) collapse at rest so the top-left strip's tabs start at the left edge, and come
-    /// back while the pointer is over the top-left corner or the band has keyboard focus. With the
-    /// sidebar shown they never collapse.
-    @Test func hiddenSidebarCollapsesTheWindowControlsUntilTheCornerIsHovered() {
+    /// With the sidebar hidden the traffic lights stay shown at rest, in their place, with no hover
+    /// (the band after them collapses: `TitlebarBandCollapseTests`).
+    @Test func hiddenSidebarKeepsTheWindowControlsShown() {
         let services = ActionBindingCoverageTests.boundServices()
         let controller = makeWindow(services)
         let root = controller.root
         root.layoutSubtreeIfNeeded()
-        #expect(!root.windowControlsCollapsed, "sidebar shown: never collapsed")
-        root.sidebarHidden = true
-        #expect(root.windowControlsCollapsed, "sidebar hidden, pointer elsewhere: collapsed")
-        #expect((controller.window as? TitlebarAccessoryHosting)?.windowControlsCollapsed == true)
-        // The corner region covers the traffic lights, so a move straight to Close reveals first.
-        if let window = controller.window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
-            let corner = root.cornerRegionFrameInWindow
-            #expect(corner.contains(lights), "corner \(corner) covers the traffic lights \(lights)")
-        }
-        root.cornerReveal.setPointerInside(true)
-        #expect(!root.windowControlsCollapsed, "pointer on the top-left corner: shown")
-        root.cornerReveal.setPointerInside(false)
-        #expect(root.windowControlsCollapsed)
-        root.sidebarHidden = false
-        #expect(!root.windowControlsCollapsed)
-        controller.teardown()
-        controller.window?.close()
-        withExtendedLifetime(services) {}
-    }
-
-    /// nxdog43: a hover that leaves the corner re-collapses the controls (the pointer's exit reaches
-    /// the corner region's tracking area). Driven through DebugHover, the same events a real pointer
-    /// crossing causes, over the tracking areas the corner really has.
-    @Test func leavingTheCornerCollapsesTheControlsAgain() {
-        let services = ActionBindingCoverageTests.boundServices()
-        let controller = makeWindow(services)
-        let root = controller.root
-        guard let window = controller.window else {
-            Issue.record("no window")
-            return
-        }
-        root.layoutSubtreeIfNeeded()
         root.sidebarHidden = true
         root.layoutSubtreeIfNeeded()
-        // An offscreen test window gets no tracking areas until asked; the live window builds them
-        // the same way when the probe joins it.
-        root.cornerRegion.subviews.forEach { $0.updateTrackingAreas() }
-        let corner = root.cornerRegionFrameInWindow
-        #expect(corner.width > 0, "corner \(corner)")
-        _ = DebugHover.move(to: NSPoint(x: corner.minX + 10, y: corner.midY), in: window)
-        #expect(!root.windowControlsCollapsed, "hovering the corner shows the controls")
-        _ = DebugHover.move(to: NSPoint(x: corner.maxX + 300, y: corner.minY - 200), in: window)
-        #expect(root.cornerReveal.state.pointerInside == false, "the exit reached the corner region")
-        #expect(root.windowControlsCollapsed, "leaving the corner collapses them again")
+        #expect(!root.trafficLightButtons.isEmpty)
+        for button in root.trafficLightButtons { #expect(button.alphaValue == 1, "traffic light shown at rest") }
         controller.teardown()
         controller.window?.close()
         withExtendedLifetime(services) {}

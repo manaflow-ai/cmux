@@ -326,6 +326,7 @@ async fn dispatch_request(
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
+        method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
             let requested: Vec<String> = params
                 .get("sessionIds")
@@ -404,6 +405,8 @@ async fn dispatch_request(
             }
             Ok(cat)
         }
+        crate::catalog::RPC_GET => Ok(hub.catalog.get()),
+        crate::catalog::RPC_REFRESH => Ok(hub.catalog.refresh(false).await),
         "_acpmux/peer_add" => {
             hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))
@@ -421,7 +424,7 @@ async fn dispatch_request(
             hub.remove_peer(name).await?;
             Ok(json!({"peers": hub.peers()}))
         }
-        method::MUX_HARNESSES => Ok(hub.harnesses_view().await),
+        method::MUX_HARNESSES => hub.harnesses_reply(&params, conn.origin.web_class()).await,
         method::MUX_RELOAD_CONFIG => hub.reload_catalog().await,
         // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
         method::MUX_DEFAULTS => {

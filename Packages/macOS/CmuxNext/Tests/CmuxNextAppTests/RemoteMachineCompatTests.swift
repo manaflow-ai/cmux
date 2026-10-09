@@ -101,7 +101,10 @@ import Testing
         let header = SidebarBridge.machine(for: service, name: "vm", kind: .cloud)
         #expect(header.status != .connecting, "an incompatible machine must not look like it is still connecting")
         #expect(header.status == .updateRequired)
-        #expect(header.detail?.contains("view-attachment-detach-v1") == true)
+        // Capability ids stay in machine-readable diagnostics; the sidebar gives
+        // the human update instruction without exposing an internal protocol key.
+        #expect(header.detail?.localizedCaseInsensitiveContains("update") == true)
+        #expect(header.detail?.contains("view-attachment-detach-v1") == false)
         #expect(service.compatibility?.level == .incompatible)
 
         // The machine is updated in place: same link socket, newer daemon.

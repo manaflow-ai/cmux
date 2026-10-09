@@ -61,16 +61,16 @@
   "to": 300.0,
   "components": [
    {
-    "delay": -0.0152,
-    "duration": 0.3724,
-    "bounce": 0.2721,
-    "delta": -607.4958
+    "delay": 0.0063,
+    "duration": 0.3496,
+    "bounce": 0.2888,
+    "delta": -695.128
    },
    {
-    "delay": 0.0287,
-    "duration": 0.137,
+    "delay": 0.0309,
+    "duration": 0.1403,
     "bounce": 0.8,
-    "delta": -144.5042
+    "delta": -56.872
    }
   ],
   "residual": {
@@ -92,10 +92,17 @@
   "frames": 30,
   "droppedTorn": [],
   "refit": {
-   "rmsPt": 2.95,
-   "maxPt": 15.3,
-   "frames": 56,
-   "method": "2026-10-06: refit on the lossless send-typed-take1 and send-typed-media-take1 at Messages' own new frames 0-0.32 s after its first send frame. Target width = ours' width (current springs) plus ours' left edge minus Messages' left edge (mid-row, blue mask), divided by bubble.scale; right edge, centerY and scale unchanged (ours' right edge already within 1.5 pt). Curve time = our first send frame + 14.3 ms (fitted on ours takes 81, rms 0.78 pt). The previous joint fit (lossy original) gave rms 10.7 pt on these frames."
+   "rmsPt": {
+    "send-typed-take1": 8.0,
+    "send-typed-media-take1": 7.0,
+    "typing-unfocused-take1": 5.1
+   },
+   "rmsPtBefore": {
+    "send-typed-take1": 11.0,
+    "send-typed-media-take1": 9.7,
+    "typing-unfocused-take1": 9.2
+   },
+   "method": "2026-10-06: joint refit on the lossless send-typed-take1, send-typed-media-take1 (mid-row left edge, Messages' own new frames 0-0.32 s after its first send frame) and typing-unfocused-take1 (left edge on the row 1030 pt, 0-0.1 s), each take weighted equally. Target width = ours' width (previous springs, takes 81) plus ours' left edge minus Messages' left edge, divided by bubble.scale; right edge, centerY and scale unchanged (ours' right edge was within 1.5 pt). Curve time = our first send frame + 14.3 ms (fitted on ours takes 81, rms 0.78 pt). A fit to send-typed alone gives 2.4 / 3.2 pt there but 30 pt on typing-unfocused (Messages narrows more slowly in that take)."
   }
  },
  "bubble.centerY": {
@@ -202,7 +209,7 @@
   "to": 1.0,
   "components": [
    {
-    "delay": 0.055,
+    "delay": 0.0595,
     "duration": 0.035,
     "bounce": 0.0,
     "curve": [
@@ -214,7 +221,7 @@
     "delta": -0.43
    },
    {
-    "delay": 0.099,
+    "delay": 0.1035,
     "duration": 0.004,
     "bounce": 0.0,
     "curve": [
@@ -226,7 +233,7 @@
     "delta": -0.57
    },
    {
-    "delay": 0.1028,
+    "delay": 0.1073,
     "duration": 0.2578,
     "bounce": 0.0,
     "curve": [
@@ -244,7 +251,7 @@
   "frames": 56,
   "droppedTorn": [],
   "fit": {
-   "method": "field fill (median of x 140-165, y 1003-1018 pt, grey frames only) as a fraction between the background and the rest fill, at Messages' own new frames 67-358 ms after its first send frame; send-typed-take1 and send-typed-media-take1 (lossless, 120 Hz); curve time = our first send frame + 11.1 ms (ours-container take ffcontainer-send-typed-take80). Messages fades to 0.57 by +75 ms, drops to 0 between +83 and +92 ms, and is back by +350 ms. Was a two-spring fit on the lossy 54 fps original (rms 0.10 on these frames)."
+   "method": "field fill (median of x 140-165, y 1003-1018 pt, grey frames only) as a fraction between the background and the rest fill, at Messages' own new frames 67-358 ms after its first send frame; send-typed-take1 and send-typed-media-take1 (lossless, 120 Hz); curve time = our first send frame + 11.1 ms (ours-container take ffcontainer-send-typed-take80); every delay then +4.5 ms, because the render-server fade (field container layer) shows the curve at our first send frame + 15.6 ms (takes 84, rms 0.008), so the drop to 0 lands at +88 ms, midway between Messages' frames at +83 and +92 ms. Messages fades to 0.57 by +75 ms, drops to 0 between +83 and +92 ms, and is back by +350 ms. Was a two-spring fit on the lossy 54 fps original (rms 0.10 on these frames)."
   }
  },
  "transcript.delivered": {

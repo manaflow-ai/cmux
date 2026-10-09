@@ -44,6 +44,7 @@ enum RowDraw {
         switch p.part {
         case .text: return true
         case let .attachment(a): return !["image", "video"].contains(a.kind)
+        case let .custom(c): return CustomRows.needsFill(c, outgoing: true)
         default: return false
         }
     }
@@ -129,7 +130,10 @@ enum PartRenderer {
             let lines = p.text.map { tl in tl.lines.map { _ in "" } } ?? []
             BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY)
             _ = lines
-            if let tl = p.text { drawText(ctx, tl, in: body, outgoing: p.outgoing) }
+            if let md = p.markdown {
+                MarkdownDraw.draw(ctx, md, body: body, outgoing: p.outgoing, offsets: MarkdownScroll.all(md.identity),
+                                  mode: MarkdownOverlay.active ? .skipScrollable : .all)
+            } else if let tl = p.text { drawText(ctx, tl, in: body, outgoing: p.outgoing) }
         case let .link(url, title, site, image, _) where Sizing.linkPending(title: title, site: site, image: image):
             // Messages' loading card: a grey rounded square, an activity spinner
             // and the domain under it (link-url-and-text take, t+0.6-1.9 s).
@@ -156,6 +160,8 @@ enum PartRenderer {
                      tail: p.tail, outgoing: p.outgoing)
         case let .attachment(a):
             drawAttachment(ctx, a, body: body, row: p, windowY: windowY)
+        case let .custom(c):
+            CustomRows.draw(ctx, c, row: p, body: body, windowY: windowY)
         case let .location(lat, lon, title, subtitle):
             if let img = Images.mapSnapshot(lat, lon) {
                 drawMapSnapshot(ctx, img, body: body, caption: title ?? "", tail: p.tail, outgoing: p.outgoing)
@@ -769,9 +775,13 @@ final class RowBitmaps {
     /// Bitmaps rendered ahead of time (loader queue), inserted on main.
     func insert(_ items: [(RowSpec, CGImage)]) { items.forEach { store($0.0, $0.1) } }
 
+    /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
+    /// prefetch), so a check for rows without bitmaps has something to find.
+    static var prerenderEnabled = true
     /// Render the rows that will be on screen first (loader queue).
     static func prerender(_ specs: ArraySlice<RowSpec>) -> [(RowSpec, CGImage)] {
-        specs.compactMap { spec in
+        guard prerenderEnabled else { return [] }
+        return specs.compactMap { spec in
             switch spec.kind { case .receipt, .typing: return nil; default: return (spec, render(spec)) }
         }
     }

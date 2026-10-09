@@ -7,17 +7,16 @@ public struct DaemonEndpoint: Hashable, Sendable {
     public var socketPath: String
     public var pid: Int32?
     public var generation: DaemonGeneration?
-    /// A line every connection writes before the daemon protocol, answered
-    /// by one JSON line with `"ok": true` (``LinePreamble``): `cmux link`'s
-    /// `link.dial` when the socket is the link's and the daemon is a paired
-    /// server's (plans/cmux-next/server-reach.md 7 step 1). Nil: none.
-    public var preamble: String?
+    /// Connect through this child process instead of `socketPath`
+    /// (``DaemonBridge``: a paired server's owner session through `cmux link
+    /// dial`). `socketPath` then only names what to watch for changes.
+    public var bridge: DaemonBridge?
 
-    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, preamble: String? = nil) {
+    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil) {
         self.socketPath = socketPath
         self.pid = pid
         self.generation = generation
-        self.preamble = preamble
+        self.bridge = bridge
     }
 }
 
@@ -134,6 +133,9 @@ public struct DaemonCapabilities: Sendable {
     /// accept edges `top` and `bottom`, sent back as `columns[].dock`
     /// (plans/cmux-next/layout-model.md).
     public let edgeDocks = "edge-docks-v1"
+    /// `dock.role` (`agent_chat`) on `set-column-dock`, `move-tab-to-column`
+    /// and `columns[].dock`: the agent chat column.
+    public let dockColumnRole = "dock-column-role-v1"
     /// Rows: `new-row`, `set-row-heights` and `columns[].rows`
     /// (plans/cmux-next/rows.md). Without it no row op is sent.
     public let rows = "rows-v1"
@@ -183,9 +185,16 @@ public struct DaemonCapabilities: Sendable {
     /// `list-personal` groups and on `workspace_group.update`, and a personal
     /// row for every new workspace (cmux-tui `personal_order.rs`).
     public let personalMixedOrder = "personal-mixed-order-v1"
+    /// `icon` on `workspace_group.update` and on personal groups.
+    public let workspaceGroupIcon = "workspace-group-icon-v1"
+    /// `pinned` (saved) on `workspace_group.update` and on personal groups.
+    public let workspaceGroupPin = "workspace-group-pin-v1"
     /// `attachment` parts and their bytes on the local conversation owner:
     /// `conversation-attachment-upload` and `conversation-attachment-read`.
     public let localAttachments = "local-attachments-v1"
+    /// `chief-inspect`: the Chief memory inspector's read-only API on the
+    /// brain's daemon (advertised when the daemon knows the brain's tools socket).
+    public let chiefInspect = "chief-inspect-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
@@ -237,12 +246,13 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
-                                            terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
+                                            terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout] }
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout,
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -251,6 +261,12 @@ public struct DaemonCapabilities: Sendable {
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
     public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals] }
+
+    /// Whether the bundled daemon (this tree's cmux-tui) serves `capability`:
+    /// a daemon without it is an older build, and restarting cmux updates it.
+    public func isServedByBundledDaemon(_ capability: String) -> Bool {
+        required.contains(capability) || optional.contains(capability)
+    }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection

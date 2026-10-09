@@ -135,13 +135,15 @@ final class AppOnboardingServices: OnboardingServices {
         if plan.items.contains(where: { $0.kinds.contains(.passwords) }), await cef.canImportPasswords() {
             passwords = PasswordImporter(keys: keys, destination: AppPasswordDestination(available: true) { rows, profile in
                 try await cef.importPasswords(rows, into: profile)
-            })
+            }, primaryPassword: { profile in await FirefoxPrimaryPassword.prompt(profile) })
         }
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies, passwords: passwords)
-        return try await importer.run(plan, into: destination) { step in
+        let summary = try await importer.run(plan, into: destination) { step in
             Task { @MainActor in progress(step) }
         }
+        owner.cookiePrompt.importFinished(summary)
+        return summary
     }
 
     func canImportPasswords() async -> Bool {
@@ -167,28 +169,29 @@ final class AppOnboardingServices: OnboardingServices {
         NSWorkspace.shared.open(url)
     }
 
-    /// The cmux-cua daemon's grants; nil (no step) without its socket. A
-    /// DEBUG launch with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets
-    /// grants `debug.onboarding grant` flips instead.
+    /// Computer Use Setup's grants (`ComputerUseSetup`, the same state the
+    /// palette action and Settings show). The step shows whenever Computer
+    /// Use may run: off, it says so and Allow turns it on. A DEBUG launch
+    /// with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets grants
+    /// `debug.onboarding grant` flips instead.
     var computerUsePermissions: (any ComputerUsePermissionSource)? {
         // Turned off by policy (DisabledFeatures): no step and no prompts.
         services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
     }
 
-    /// Resolved on each read until a helper answers, then kept: a helper
-    /// that comes up after the first read still gets the step. The check is
-    /// one non-blocking local connect, never a wait or a poll.
     private var resolvedComputerUseSource: (any ComputerUsePermissionSource)?
-    private var computerUseSource: (any ComputerUsePermissionSource)? {
+    private var computerUseSource: any ComputerUsePermissionSource {
         if let resolvedComputerUseSource { return resolvedComputerUseSource }
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            resolvedComputerUseSource = MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)
-            return resolvedComputerUseSource
+            let mock = MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
+            resolvedComputerUseSource = mock
+            return mock
         }
         #endif
-        resolvedComputerUseSource = AppComputerUsePermissionSource.local(owner.computerUseConfiguration)
-        return resolvedComputerUseSource
+        let source = AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
+        resolvedComputerUseSource = source
+        return source
     }
 
     var hasAccountsStep: Bool { true }
@@ -214,5 +217,13 @@ final class AppOnboardingServices: OnboardingServices {
 
     func onboardingDidEnd(completed: Bool) {
         owner.didEnd(completed: completed)
+    }
+
+    func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool) {
+        owner.recordProgress(step, interacted: interacted)
+    }
+
+    func onboardingDidLeave(notNow: Bool) {
+        if notNow { owner.recordNotNow() }
     }
 }

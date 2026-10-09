@@ -19,6 +19,7 @@ const saved = Object.fromEntries(
     "cancelAnimationFrame",
     "Node",
     "getSelection",
+    "getComputedStyle",
     "MutationObserver",
     "IS_REACT_ACT_ENVIRONMENT",
   ].map((key) => [key, globals[key]]),
@@ -29,6 +30,9 @@ Object.assign(globals, {
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // CI's Bun exposes an own global property with this name but leaves it undefined; Floating UI
+  // reads the unqualified function, so install the jsdom implementation explicitly.
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   // The diff viewer registers a custom element when App loads.
   customElements: dom.window.customElements,
   ResizeObserver: class {
@@ -62,6 +66,7 @@ afterAll(() => {
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AcpmuxApp } = await import("./App");
+const { webKitPress } = await import("./popoverTriggerTesting");
 
 type Host = {
   cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
@@ -444,6 +449,15 @@ const pickFolder = async (label: string) => {
   expect(item).toBeDefined();
   await act(async () => item!.click());
 };
+
+test("pressing the open folder chip closes its popover, as WebKit delivers the press", async () => {
+  await mount(undefined, startedChat(), false, { machineName: "Studio" });
+  const folder = () => container().querySelector<HTMLButtonElement>('button[aria-label="Folder"]')!;
+  await webKitPress(dom.window as never, act as never, folder());
+  expect(folder().getAttribute("aria-expanded")).toBe("true");
+  await webKitPress(dom.window as never, act as never, folder());
+  expect(folder().getAttribute("aria-expanded")).toBe("false");
+});
 
 test("the location row names this Mac; in a started chat the machine is a plain label", async () => {
   await mount(undefined, startedChat(), false, { machineName: "Studio" });

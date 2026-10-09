@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 
-// R83: the title bar buttons (the sidebar toggle, Back, Forward; Lawrence
-// 2026-10-05: "sidebar button should fade") and a glass patch under the
-// traffic lights stay hidden until the pointer is over the top row or the
-// sidebar, then fade in, in place, through the one hover-reveal mechanism
-// (HoverReveal; the sidebar's hover is a hold on it). Shortcuts and the
-// palette reach the same actions while they are hidden; keyboard focus on a
-// hidden button reveals them, and they stay in the accessibility tree.
+// R83: the sidebar toggle, Back, Forward and a glass patch under the traffic
+// lights stay hidden until the pointer is over the sidebar or the top row
+// above it, then fade in, in place, through the one hover-reveal mechanism
+// (HoverReveal; the sidebar's hover is a hold on it). The toggle joined them
+// on Lawrence's word (cx-uxdr, 2026-10-08: "toggle sidebar button should hide
+// when im not hovered on sidebar"). Shortcuts, the View menu and the palette
+// reach the same actions while they are hidden; keyboard focus on a hidden
+// button reveals them, and they stay in the accessibility tree.
 extension WindowRootView {
     func setUpTitlebarReveal() {
         titlebarReveal.add(toolbarBand.sidebarToggle)
@@ -39,10 +40,14 @@ extension WindowRootView {
         titlebarReveal.isEnabled = DesignSettings.shared.titlebarButtons == .hover
     }
 
-    /// The region spans the top row; the glass patch covers the traffic
-    /// lights with a small margin.
+    /// The region is the top row above a left sidebar, and at least the
+    /// traffic lights and the band (a right or hidden sidebar): the content's
+    /// top row (its tab strip) does not reveal. The glass patch covers the
+    /// traffic lights with a small margin.
     func layoutTitlebarReveal(rowHeight: CGFloat) {
-        titlebarRevealRegion.frame = CGRect(x: 0, y: bounds.maxY - rowHeight, width: bounds.width, height: rowHeight)
+        let sidebarMaxX = sidebarSide == .left && !sidebar.isHidden ? sidebar.frame.maxX : 0
+        let width = min(bounds.width, max(sidebarMaxX, toolbarBand.frame.maxX + Metrics.space3))
+        titlebarRevealRegion.frame = CGRect(x: 0, y: bounds.maxY - rowHeight, width: width, height: rowHeight)
         guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else {
             trafficLightsGlass.frame = .zero
             return

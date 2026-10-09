@@ -6,6 +6,7 @@ import Foundation
 public struct CloseTabsRequest: DaemonRequest {
     public typealias Response = CloseTabsResult
     public static let command = "close-tabs"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.batchClose
     public var surfaces: [SurfaceID]
     public var endTerminals: Bool
     public var transaction: ClientTransactionID?

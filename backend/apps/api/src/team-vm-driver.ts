@@ -1,6 +1,7 @@
 import type { SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { ProviderState } from "./domains/team-vm.ts"
+import { FakeGuest } from "./team-vm-fake-guest.ts"
 
 /**
  * The provider behind TeamVmDO (plans/cmux-next/team-vm-plan.md S2). Two calls, both idempotent:
@@ -15,6 +16,14 @@ export interface TeamVmDriver {
   lookup(name: string): Promise<{ readonly id: string; readonly team: string | null } | null>
   /** Deletes the VM with this provider id; a VM already gone counts as deleted. Callers pass ledger ids only. */
   deleteVm(id: string): Promise<void>
+  /** Pauses the VM with this provider id (memory and disk kept); a VM already paused counts as paused. */
+  pauseVm(id: string): Promise<void>
+  /**
+   * Runs one command on this exact VM through the provider API (authenticated by our provider key,
+   * which the guest never sees) and returns its exit code and output. Used only by the bind
+   * (vm-image.md 6b): the channel itself proves which machine answers.
+   */
+  exec(id: string, command: string, timeoutMs: number): Promise<{ readonly code: number; readonly stdout: string }>
   /** One page of the provider account's VMs (report-only callers; never used to adopt or delete). */
   listPage(limit: number, offset: number): Promise<{ readonly vms: ReadonlyArray<{ readonly id: string; readonly slug: string | null }>; readonly size: number; readonly total: number | null }>
 }
@@ -130,6 +139,26 @@ export class FreestyleDriver implements TeamVmDriver {
     this.fail(gone.status, gone.json, "delete VM")
   }
 
+  async pauseVm(id: string) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/pause`)
+    if (r.status >= 200 && r.status < 300) return
+    // A VM that is already paused (or stopped) may refuse the call; that is the state asked for.
+    const got = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
+    if (got.status === 200 && (got.json.state === "paused" || got.json.state === "stopped")) return
+    this.fail(r.status, r.json, "pause VM")
+  }
+
+  /** POST /v5/vms/{id}/exec-await {command, timeoutMs, linuxUser} answers {statusCode, stdout, stderr} (as the web resource reader uses it). */
+  async exec(id: string, command: string, timeoutMs: number) {
+    // As root: the bind writes root-only state (/var/lib/cmux); the provider's default exec user is the work user.
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/exec-await`, { command, timeoutMs, linuxUser: "root" }, timeoutMs + 5_000)
+    if (r.status === 404) throw new DriverError("team_vm.vm_missing", "exec: 404", true)
+    if (r.status !== 200) this.fail(r.status, r.json, "exec")
+    const code = typeof r.json.statusCode === "number" ? r.json.statusCode : -1
+    // Only the last line is read (the proof); a large output is cut to its end.
+    return { code, stdout: typeof r.json.stdout === "string" ? r.json.stdout.slice(-16_384) : "" }
+  }
+
   /** GET /v5/vms?limit&offset answers { vms: VmData[], totalCount } (freestyle SDK 0.2.16, ListVmsOptions / ListVmsResult). */
   async listPage(limit: number, offset: number) {
     const got = await this.call("GET", `/v5/vms?limit=${limit}&offset=${offset}`)
@@ -147,7 +176,9 @@ export class FreestyleDriver implements TeamVmDriver {
  * makes the next create happen but answer with a retryable failure (a lost answer); deleting a `fake_vm` row stands for a VM deleted outside cmux.
  */
 export class FakeDriver implements TeamVmDriver {
+  private readonly guest: FakeGuest
   constructor(private readonly sql: SqlStore) {
+    this.guest = new FakeGuest(sql)
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, team TEXT)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, slug_prefix TEXT, lose_next_create INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO fake_ctl (id) VALUES (1)`)
@@ -200,6 +231,22 @@ export class FakeDriver implements TeamVmDriver {
   async deleteVm(id: string) {
     this.maybeFail()
     this.sql.exec(`DELETE FROM fake_vm WHERE id = ?`, id)
+  }
+
+  async pauseVm(id: string) {
+    this.maybeFail()
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS fake_pause_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail INTEGER NOT NULL)`)
+    if ((this.sql.exec<{ fail: number }>(`SELECT fail FROM fake_pause_ctl WHERE id = 1`)[0]?.fail ?? 0) > 0) {
+      this.sql.exec(`UPDATE fake_pause_ctl SET fail = fail - 1 WHERE id = 1`)
+      throw new DriverError("team_vm.provider_failed", "fake pause failure", false)
+    }
+    if (!this.sql.exec<{ id: string }>(`SELECT id FROM fake_vm WHERE id = ?`, id)[0]) throw new DriverError("team_vm.vm_missing", "pause VM: 404", true)
+    this.sql.exec(`UPDATE fake_vm SET state = 'paused' WHERE id = ?`, id)
+  }
+
+  async exec(id: string, command: string, _timeoutMs: number) {
+    if (!this.sql.exec<{ id: string }>(`SELECT id FROM fake_vm WHERE id = ?`, id)[0]) throw new DriverError("team_vm.vm_missing", "exec: 404", true)
+    return this.guest.run(id, command)
   }
 
   async listPage(limit: number, offset: number) {

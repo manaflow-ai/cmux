@@ -94,8 +94,8 @@ final class TabContentCache {
     var findTab: ((String) -> TabModel?)?
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
-    /// Presentation changed (for the blank-pane invariant).
-    var onPresentationChange: (() -> Void)?
+    /// Presentation changed: the blank-pane invariant, the input monitor and the browser host subscribe.
+    let presentationChanges = PresentationChangeSubscribers()
     weak var sessionDelegate: (any TerminalSessionDelegate)?
     /// Routes app shortcuts before a Chromium page window sees them (a CEF
     /// page window is key, so `ShellWindow` never gets the key).
@@ -174,10 +174,9 @@ final class TabContentCache {
     func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let profile = profile ?? browserProfile?(key) ?? .default
-        let tab = webKit.makeWebKitTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url))
+        let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.proxiedTabs.isProxied(key) ? nil : url)
         return install(tab, for: key)
     }
-
 
     func existingBrowser(_ key: String) -> BrowserEntry? { browsers[key] }
 
@@ -325,6 +324,7 @@ final class TabContentCache {
             entry.chrome.extensionMenuHandler = handler
         }
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
+        pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.
@@ -376,7 +376,7 @@ final class TabContentCache {
         previews.remove(key)
         pageThumbnails.remove(key)
         shownPages.remove(key)
-        onPresentationChange?()
+        presentationChanges.notify()
     }
 }
 

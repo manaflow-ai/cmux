@@ -71,6 +71,17 @@ struct FilePageTabTests {
         #expect(FilePageOpener.kind(for: URL(fileURLWithPath: "/r/paper.pdf")) == nil)
     }
 
+    /// Video and audio the Chromium build cannot decode (H.264/HEVC, AAC) open in a WebKit tab;
+    /// what Chromium shows keeps the default engine.
+    @Test func mediaChromiumCannotPlayOpensInWebKit() {
+        for name in ["clip.mp4", "clip.MOV", "clip.m4v", "song.m4a", "song.aac"] {
+            #expect(FilePageOpener.tabEngine(for: URL(fileURLWithPath: "/r/\(name)")) == "webkit", "\(name)")
+        }
+        for name in ["clip.webm", "song.mp3", "song.ogg", "paper.pdf", "logo.png", "anim.gif"] {
+            #expect(FilePageOpener.tabEngine(for: URL(fileURLWithPath: "/r/\(name)")) == nil, "\(name)")
+        }
+    }
+
     private func world() async throws -> (AppServices, PaneController) {
         let services = ActionBindingCoverageTests.boundServices()
         services.windows.ordersWindowsIn = false

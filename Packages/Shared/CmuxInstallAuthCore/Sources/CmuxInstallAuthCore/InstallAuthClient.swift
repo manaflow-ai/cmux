@@ -20,6 +20,37 @@ public struct InstallRecord: Codable, Hashable, Sendable {
     }
 }
 
+/// What an install registers as: its kind, display name, platform and the
+/// op classes it asks for (the backend's default for the kind, which a
+/// register may narrow but never widen; user.ts defaultInstallClasses).
+public struct InstallProfile: Hashable, Sendable {
+    public var kind: String
+    public var name: String
+    public var platform: String
+    public var opClasses: [String]
+    /// The device name when the system gives none.
+    public var fallbackDeviceName: String
+
+    public init(kind: String, name: String, platform: String, opClasses: [String], fallbackDeviceName: String) {
+        self.kind = kind
+        self.name = name
+        self.platform = platform
+        self.opClasses = opClasses
+        self.fallbackDeviceName = fallbackDeviceName
+    }
+
+    /// The iPhone app. L14-1: never `execute` (no terminal input, code or
+    /// CUA acts from a stolen phone token); `cloud-link` lets it mint Cloud
+    /// link tokens.
+    public static let ios = InstallProfile(kind: "ios", name: "cmux iOS", platform: "ios",
+                                           opClasses: ["read", "mutate-own", "cloud-link"], fallbackDeviceName: "iPhone")
+    /// The cmux Mac app (cx-wb5.64): the phone grant plus `mutate-shared`
+    /// (start, pause and rename team machines through the credential relay);
+    /// never `execute`. The server caps a mac register to this set.
+    public static let mac = InstallProfile(kind: "mac", name: "cmux", platform: "macos",
+                                           opClasses: ["read", "mutate-own", "mutate-shared", "cloud-link"], fallbackDeviceName: "Mac")
+}
+
 /// The install principal client for one Stack user. Registration needs the
 /// user's Stack session; minting a token needs only the record and the key,
 /// so a background launch or a sign-out cleanup can still act as the install.
@@ -39,6 +70,7 @@ public actor InstallAuthClient {
     /// owner's to verify); trust comes from TLS and the per-host install key.
     public private(set) var environment: String?
     private let deviceName: String
+    private let profile: InstallProfile
     /// This app's version (`CFBundleShortVersionString`), sent as
     /// `x-cmux-client-version`; the owner refuses an older one when the team
     /// sets `updates.minimumVersion` (enterprise P17).
@@ -60,6 +92,7 @@ public actor InstallAuthClient {
     ///   - onRecord: persists the record (Keychain) the moment it changes.
     public init(transport: any InstallAuthTransport, signer: any InstallSigner, sessionToken: SessionToken?,
                 stackUser: String, deviceName: String, clientVersion: String?, record: InstallRecord?,
+                profile: InstallProfile = .ios,
                 onRecord: @escaping @Sendable (InstallRecord?) async -> Void = { _ in },
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.transport = transport
@@ -67,6 +100,7 @@ public actor InstallAuthClient {
         self.sessionToken = sessionToken
         self.stackUser = stackUser
         self.deviceName = deviceName
+        self.profile = profile
         self.clientVersion = clientVersion
         self.record = record
         self.onRecord = onRecord
@@ -86,10 +120,8 @@ public actor InstallAuthClient {
         return try await task.value
     }
 
-    /// The op classes the phone's install asks for: the backend's ios default grant
-    /// (`defaultInstallClasses`), which a register may narrow but never widen.
-    /// `cloud-link` lets the phone mint Cloud link tokens; it has no `execute`.
-    public static let grantClasses = ["read", "mutate-own", "cloud-link"]
+    /// The op classes the phone's install asks for (``InstallProfile/ios``).
+    public static let grantClasses = InstallProfile.ios.opClasses
 
     /// L14-2: sign-out revokes this install (needs the Stack session; the
     /// owner also drops the install's push targets). The key is rotated and
@@ -190,11 +222,11 @@ public actor InstallAuthClient {
             do {
                 // Keyed by (user, key): a lost reply is replayed, never a second install.
                 let install = try await op("install.register", params: [
-                    "public_jwk": jwk.json, "kind": "ios", "name": "cmux iOS",
-                    "device_name": Self.displayName(deviceName), "platform": "ios",
-                    // L14-1: the phone's install never gets `execute` (no terminal
-                    // input, no code, no CUA acts from a stolen phone token).
-                    "op_classes": Self.grantClasses,
+                    "public_jwk": jwk.json, "kind": profile.kind, "name": profile.name,
+                    "device_name": Self.displayName(deviceName, fallback: profile.fallbackDeviceName),
+                    "platform": profile.platform,
+                    // Never `execute` for ios or mac (InstallProfile).
+                    "op_classes": profile.opClasses,
                 ], key: "install-register-\(userID)-\(thumbprint)", bearer: session)
                 guard let installID = install["id"] as? String else { throw InstallAuthError.malformedReply }
                 let made = InstallRecord(user: userID, install: installID)
@@ -210,13 +242,13 @@ public actor InstallAuthClient {
     }
 
     /// 1 to 80 UTF-16 units (the owner's display-name limit).
-    static func displayName(_ name: String) -> String {
+    static func displayName(_ name: String, fallback: String = "iPhone") -> String {
         var result = ""
         for character in name {
             if result.utf16.count + String(character).utf16.count > 80 { break }
             result.append(character)
         }
-        return result.isEmpty ? "iPhone" : result
+        return result.isEmpty ? fallback : result
     }
 
     private func op(_ name: String, params: [String: Any], key: String, bearer: String) async throws -> [String: Any] {

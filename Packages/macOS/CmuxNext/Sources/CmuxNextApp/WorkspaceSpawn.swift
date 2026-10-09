@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
 
@@ -16,9 +17,15 @@ struct WorkspaceSpawn: Sendable {
     var profile: ProfileID?
     /// Browser profile of the workspace's new browser tabs; nil = its room's.
     var browserProfile: String?
-    /// Where the new workspace goes in its window's sidebar; nil leaves it
-    /// where the daemon puts it (after the loose rows).
+    /// Where the new workspace goes in its window's sidebar; nil puts it at
+    /// the `workspaces.newPlacement` slot (`NewWorkspaceDefaultSlot`).
     var slot: WorkspaceSlot?
+    /// False keeps the daemon's place when `slot` is nil: a caller that
+    /// places the workspace itself (into a personal group). The daemon puts
+    /// a workspace of its own session at `workspaces.newPlacement` too (with
+    /// `afterCurrent` after the session's active workspace, not the window's),
+    /// so a batch that must keep its order names a slot.
+    var placesBySetting = true
     /// Runs once the daemon reports the workspace and its window lists it
     /// (after the slot is applied), with the window's sidebar.
     var onListed: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
@@ -27,6 +34,10 @@ struct WorkspaceSpawn: Sendable {
     /// with a `command` get a terminal. Also a terminal where the page
     /// cannot run (a Cloud machine, a build without the agent page).
     var opensNewTabPage = false
+    /// A person's New Agent Chat: the workspace's only tab is a chat
+    /// seeded with this (the cwd and draft of the tab it came from), with
+    /// no terminal. Wins over `opensNewTabPage`.
+    var firstChat: AgentPaneSeed?
 
     init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
          profile: ProfileID? = nil, newTabPage: Bool = false) {
@@ -85,18 +96,16 @@ extension WindowManager {
     /// `windowID` claims the workspace for that window before the command
     /// is sent (`claimNew`), so it lands there, or opens that window, in the
     /// step that first mirrors it; nil leaves it to reconcile (the most
-    /// recent window).
+    /// recent window). It goes to `spawn.slot`, else by `workspaces.newPlacement`.
     func createWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
                          frame: CGRect? = nil) async throws -> String {
         let daemon = daemon ?? services.daemon
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
-        if let windowID {
-            if spawn.slot != nil || spawn.onListed != nil {
-                pendingPlacements[key.rawValue] = PendingPlacement(window: windowID, slot: spawn.slot, then: spawn.onListed)
-            }
-            claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
-        }
+        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: self) : nil
+        NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule,
+                                      then: windowID == nil ? nil : spawn.onListed, windows: self)
+        if let windowID { claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         let terminal = TerminalID.generate()
         // The workspace is born in its window's room (or the one asked for):
         // pinned there in the home session before the create command, so no

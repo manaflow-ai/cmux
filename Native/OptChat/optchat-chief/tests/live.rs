@@ -213,8 +213,8 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
         system: system.clone(),
         context: context.clone(),
         step: format!(
-            "For scale, this line is exactly 512 bytes:\n{}\n\nCompress this message into one line, in at most 512 bytes:\nuser: deploy service-{i} the same way and tell me when it is healthy",
-            optchat_core::SCALE
+            "Compaction: compress message 100000 into one line of at most 512 bytes\n(about 70 words), the length of this ruler:\n{}\n<input>\nuser: deploy service-{i} the same way and tell me when it is healthy\n</input>",
+            optchat_core::RULER
         ),
         cut: None,
     };
@@ -521,8 +521,9 @@ fn two_turns_and_two_nodes_through_local_acp() {
             system: config.prompt.text(&config.agent),
             context: context.clone(),
             step: format!(
-                "For scale, this line is exactly 512 bytes:\n{}\n\nCompress this message into one line, in at most 512 bytes:\nuser: deploy service-{} the same way and tell me when it is healthy",
-                optchat_core::SCALE,
+                "Compaction: compress message {} into one line of at most 512 bytes\n(about 70 words), the length of this ruler:\n{}\n<input>\nuser: deploy service-{} the same way and tell me when it is healthy\n</input>",
+                200_000 + k,
+                optchat_core::RULER,
                 i + k as usize
             ),
             cut: None,

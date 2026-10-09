@@ -100,4 +100,54 @@ struct PageProvidersTests {
         #expect(PageDescriptor.history.admits(PageNativeOp.actionRun))
         #expect(!PageDescriptor.history.admits("cmux.settings.set"))
     }
+
+    /// The Passwords page's Import buttons run the person-only import actions through the
+    /// registry (PASSWORDS-IMPORT-ANY-BROWSER): only those two, and only on a real click or key in
+    /// the page. Page script alone cannot put the import window or the file picker in front of
+    /// the person.
+    @Test func thePasswordsPageRunsTheImportActionsOnlyOnAGesture() async throws {
+        #expect(PageDescriptor.passwords.actions == ["importFromBrowser", "password.importCSV"])
+        #expect(PageDescriptor.passwords.admits(PageNativeOp.actionRun))
+        let native = AppPageNativeProvider(services: ActionBindingCoverageTests.boundServices(), page: .passwords)
+        for action in ["importFromBrowser", "password.importCSV"] {
+            do {
+                _ = try await native.call(PageNativeOp.actionRun, params: ["action": .string(action)],
+                                          context: PageCallContext(page: PageDescriptor.passwords.id))
+                Issue.record("\(action) ran without a gesture")
+            } catch let error as PageError {
+                #expect(error.code == "cmux.app.user_only", "\(action)")
+            }
+        }
+        do {
+            _ = try await native.call(PageNativeOp.actionRun, params: ["action": "passwords.open"],
+                                      context: PageCallContext(page: PageDescriptor.passwords.id, userGesture: true))
+            Issue.record("passwords.open is not an action of the Passwords page")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.app.action_refused")
+        }
+    }
+
+    /// cx-qoxe: a page writes the pasteboard only right after the person's own key, click or
+    /// native menu choice in that page view (`PageCallContext.userGesture`, tracked by the host's
+    /// PageWKWebView, never trusted from page script). Script alone cannot replace the clipboard.
+    @Test func aPageWritesTheClipboardOnlyOnTheUsersGesture() async throws {
+        let native = AppPageNativeProvider(services: ActionBindingCoverageTests.boundServices(), page: .history)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        native.pasteboard = pasteboard
+        pasteboard.clearContents()
+        pasteboard.setString("mine", forType: .string)
+        do {
+            _ = try await native.call(PageNativeOp.clipboardWrite, params: ["text": "page script"],
+                                      context: PageCallContext(page: PageDescriptor.history.id))
+            Issue.record("the clipboard write ran without a gesture")
+        } catch let error as PageError {
+            #expect(error.code == PageNativeOp.userOnlyCode)
+        }
+        #expect(pasteboard.string(forType: .string) == "mine")
+
+        _ = try await native.call(PageNativeOp.clipboardWrite, params: ["text": "https://example.com"],
+                                  context: PageCallContext(page: PageDescriptor.history.id, userGesture: true))
+        #expect(pasteboard.string(forType: .string) == "https://example.com")
+    }
 }

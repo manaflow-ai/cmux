@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 import Observation
@@ -57,8 +58,42 @@ final class TopHomePageView: NSView {
 
     private func wireList(_ services: AppServices) {
         let sidebar = sidebar
-        list.onSelect = { [weak self] id in self?.show(id) }
+        // Opening a conversation from the list reads it, so a Mark as Unread ends there.
+        list.onSelect = { [weak self] id in
+            sidebar.setMarkedUnread(false, id)
+            self?.show(id)
+        }
         list.onSetPinned = { on, id in sidebar.setPinned(on, id) }
+        let home = services.home
+        let registry = services.registry
+        // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
+        list.onMarkRead = { id in
+            sidebar.setMarkedUnread(false, id)
+            guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.unread > 0 else { return }
+            let store = home.homeStore
+            // task-owner: one op; ends with the owner's answer
+            Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
+        }
+        list.onMarkUnread = { id in sidebar.setMarkedUnread(true, id) }
+        // Archive Chief on a Chief's row (the same action as the palette and the CLI).
+        list.menuItems = { id in
+            guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.kind == .chief,
+                  let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first,
+                  let title = registry.title(for: "home.archiveChief") else { return [] }
+            return [HomeSidebarView.menuItem(title) {
+                _ = registry.perform("home.archiveChief", invocation: ActionInvocation(arguments: ["chief": .string(chief.id)], origin: .user))
+            }]
+        }
+        // Search: teammates with no DM yet, under the conversations; choosing one starts the DM.
+        list.teammates = { [weak sidebar] query in
+            guard let sidebar else { return [] }
+            return HomeSidebarModel(rows: home.homeStore.rows, pins: sidebar.pins, me: home.homeStore.me?.id, query: query,
+                                    contacts: home.contacts()).people
+        }
+        list.onStartTeammate = { person in
+            // task-owner: one conversation start; ends with the owner's answer
+            Task { _ = await home.startConversation([.contact(person)], title: "") }
+        }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
@@ -70,7 +105,9 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived, _, _) in Observations({ (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins) }) {
+            for await (all, archived, _, _, _) in Observations({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks)
+            }) {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 list.update(sidebar.model())

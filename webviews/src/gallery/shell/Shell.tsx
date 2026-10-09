@@ -18,7 +18,9 @@ import { EntryBoundary } from "./EntryBoundary";
 import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
 import { GalleryVariantPick } from "./GalleryVariantPick";
 import { CompareView } from "./CompareView";
+import { BrowseView } from "./BrowseView";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
+import { Tunables } from "./Tunables";
 import { EXPERIMENTAL_AREA, sidebarGroups } from "./groups";
 import { experimentalLabel } from "./strings";
 
@@ -28,6 +30,7 @@ const VIEW_LABELS: Record<View, string> = {
   locales: "All locales",
   themes: "Themes",
   compare: "Compare arms",
+  browse: "Browse gallery",
 };
 
 export const { router } = createGalleryRouter(Layout);
@@ -117,6 +120,7 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
   );
   const total = entries.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
   const open = (target: { entry: string; variant: string }) => go({ ...target, search: address.search });
+  const browseSearch = { ...address.search, view: "browse" as const };
   return (
     <nav className="gallery-list" aria-label="Gallery entries">
       <div className="gallery-filter">
@@ -141,6 +145,17 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
             }
           }}
         />
+        <a
+          className="gallery-browse-link"
+          href={href({ ...address, search: browseSearch })}
+          aria-current={address.search.view === "browse" ? "page" : undefined}
+          onClick={(event) => {
+            event.preventDefault();
+            go({ ...address, search: browseSearch });
+          }}
+        >
+          Browse all {entries.length} entries
+        </a>
       </div>
       {groups.map(({ area, states: all }) => {
         // A broken or loading file always shows (its card names the file); a loaded one when it matches.
@@ -298,7 +313,9 @@ function Layout() {
       <Sidebar address={address} states={states} status={status} />
       <main className="gallery-main">
         <ErrorBanner states={states} status={status} />
-        {state ? (
+        {search.view === "browse" ? (
+          <BrowseEntryView address={address} states={states} />
+        ) : state ? (
           <EntryBoundary
             key={state.path}
             state={state}
@@ -314,6 +331,52 @@ function Layout() {
         )}
       </main>
     </div>
+  );
+}
+
+/** Browse is registry-wide, so it must not wait for the route's current entry to load. */
+function BrowseEntryView({ address, states }: { address: Address; states: readonly EntryState[] }) {
+  const { search } = address;
+  const current = states.find((state) => known(state)?.id === address.entry);
+  const canCompare = Boolean(current && known(current)?.experiment);
+  const env: GalleryEnv = search;
+  return (
+    <>
+      <header className="gallery-header">
+        <fieldset className="gallery-segmented">
+          <legend>View</legend>
+          {VIEWS.filter((view) => view !== "compare" || canCompare).map((view) => (
+            <label key={view}>
+              <input
+                type="radio"
+                name="view"
+                aria-label={VIEW_LABELS[view]}
+                checked={search.view === view}
+                onChange={() => go({ ...address, search: { ...search, view } })}
+              />
+              {VIEW_LABELS[view]}
+            </label>
+          ))}
+        </fieldset>
+        <Controls
+          env={env}
+          onChange={(next) =>
+            go({ ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } }, true)
+          }
+        />
+      </header>
+      <BrowseView
+        entries={readyEntries(states)}
+        env={env}
+        tune={search.tune}
+        onOpen={(target, targetVariant) =>
+          go({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+        }
+        hrefFor={(target, targetVariant) =>
+          href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+        }
+      />
+    </>
   );
 }
 
@@ -371,8 +434,17 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
         </fieldset>
         <Controls
           env={env}
-          onChange={(next) => go({ ...address, search: { ...next, view: search.view, compare: search.compare } }, true)}
+          onChange={(next) =>
+            go({ ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } }, true)
+          }
         />
+        {entry.tunables && entry.tunables.length > 0 && (
+          <Tunables
+            tunables={entry.tunables}
+            tune={search.tune}
+            onChange={(tune) => go({ ...address, search: { ...search, tune } }, true)}
+          />
+        )}
         <details className="gallery-covers">
           <summary>
             {entry.host} · covers {entry.covers.length}
@@ -387,6 +459,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             experiment={entry.experiment}
             variant={variant}
             env={env}
+            tune={search.tune}
             compare={search.compare}
             room={room}
             onCompare={(compare, replace) => go({ ...address, search: { ...search, compare } }, replace)}
@@ -396,7 +469,14 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             entry={entry}
             locale={env.locale}
             preview={(name) => (
-              <Stage entry={entry} state={name} env={env} available={{ width: 420, height: room.height }} thumbnail />
+              <Stage
+                entry={entry}
+                state={name}
+                env={env}
+                tune={search.tune}
+                available={{ width: 420, height: room.height }}
+                thumbnail
+              />
             )}
           />
         ) : (
@@ -406,6 +486,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               entry={entry}
               state={stage.variant}
               env={stage.env}
+              tune={search.tune}
               label={stage.label}
               available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
               thumbnail={search.view !== "variant"}

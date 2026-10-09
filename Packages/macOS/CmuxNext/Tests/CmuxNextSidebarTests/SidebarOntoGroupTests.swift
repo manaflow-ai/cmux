@@ -109,9 +109,13 @@ import Testing
         #expect(shape(h.model.sections, cloudSection) == "x y")
     }
 
+    /// In one list (`sidebar.groupByComputer` off) too: the top of the
+    /// first row of another computer is a slot of that computer, not the end
+    /// of the rows above it (cx-hzpd).
     @Test func theTopOfARowReorders() throws {
         let h = Harness()
         defer { h.window.close() }
+        try #require(h.model.groupsByComputer == false)
         try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.1)
         #expect(h.list.drag?.target == .position(DropPosition(section: cloudSection, index: 0)))
         h.list.finishDrag()

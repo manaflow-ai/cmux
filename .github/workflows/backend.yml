@@ -17,6 +17,8 @@ on:
     paths:
       - backend/**
       - clients/ts/**
+      # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
+      - libs/integrations-core/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   push:
@@ -24,6 +26,8 @@ on:
     paths:
       - backend/**
       - clients/ts/**
+      # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
+      - libs/integrations-core/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   workflow_dispatch:
@@ -119,6 +123,9 @@ jobs:
         run: bun run test
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
+        run: bun run test
+      - name: Dashboard tests (approvals, search params)
+        working-directory: backend/apps/dashboard
         run: bun run test
       - name: Dashboard build
         working-directory: backend/apps/dashboard

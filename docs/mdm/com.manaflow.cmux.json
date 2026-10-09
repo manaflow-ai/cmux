@@ -1,5 +1,5 @@
 {
-  "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default.",
+  "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off.",
   "properties" : {
     "agentPane.editedFiles.maxRows" : {
       "default" : 5,
@@ -42,7 +42,7 @@
       "type" : "string"
     },
     "agentPane.links.outsideRoots" : {
-      "default" : "confirm",
+      "default" : "open",
       "description" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
       "enum" : [
         "confirm",
@@ -51,6 +51,29 @@
       ],
       "title" : "Files Outside the Project",
       "type" : "string"
+    },
+    "agents.chats.discovery" : {
+      "default" : true,
+      "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
+      "title" : "Discover Chat Folders",
+      "type" : "boolean"
+    },
+    "agents.chats.enabled" : {
+      "default" : true,
+      "description" : "Show chats stored on this device. Nothing is uploaded.",
+      "title" : "Enable Chats",
+      "type" : "boolean"
+    },
+    "agents.chats.roots" : {
+      "default" : [
+
+      ],
+      "description" : "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Chat Folders",
+      "type" : "array"
     },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
@@ -114,6 +137,12 @@
       "description" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.",
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
+    },
+    "appearance.appTheme" : {
+      "default" : "followTerminal",
+      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "title" : "App Theme",
+      "type" : "string"
     },
     "appearance.backdropArt" : {
       "default" : "none",
@@ -260,6 +289,18 @@
       "default" : true,
       "description" : "A status that asks for a style (cmux status set --style) uses it.",
       "title" : "Let Statuses Choose Their Style",
+      "type" : "boolean"
+    },
+    "appearance.statusIndicator.showAgentWorkingOnTabs" : {
+      "default" : true,
+      "description" : "Three dots take the tab's icon place while an agent works.",
+      "title" : "Show Agent Working on Tabs",
+      "type" : "boolean"
+    },
+    "appearance.statusIndicator.showPageLoading" : {
+      "default" : true,
+      "description" : "A spinner takes a browser tab's icon place while its page loads.",
+      "title" : "Show Page Loading on Tabs",
       "type" : "boolean"
     },
     "appearance.statusIndicator.size" : {
@@ -637,6 +678,12 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "computerUse.enabled" : {
+      "default" : false,
+      "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
+      "title" : "Computer Use",
+      "type" : "boolean"
+    },
     "diff.diffIndicators" : {
       "default" : "bars",
       "description" : "diff.diffIndicators",
@@ -910,6 +957,16 @@
       "title" : "New Column Sizing",
       "type" : "string"
     },
+    "layout.newPanePlacement" : {
+      "default" : "tab",
+      "description" : "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout).",
+      "enum" : [
+        "tab",
+        "split"
+      ],
+      "title" : "New Terminals and Browsers",
+      "type" : "string"
+    },
     "layout.paneBorder" : {
       "default" : "subtle",
       "description" : "layout.paneBorder",
@@ -984,6 +1041,12 @@
       ],
       "title" : "Column Scroll Bar",
       "type" : "string"
+    },
+    "layout.tileBrowsers" : {
+      "default" : false,
+      "description" : "With Split Automatically, new browsers also get their own pane instead of a tab.",
+      "title" : "Split for Browsers Too",
+      "type" : "boolean"
     },
     "ManagedTeam" : {
       "description" : "Team id (team_...) that manages this device.",
@@ -1378,6 +1441,12 @@
       "title" : "Bottom Sections Height",
       "type" : "number"
     },
+    "sidebar.cards.tips" : {
+      "default" : true,
+      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet.",
+      "title" : "Show Tips",
+      "type" : "boolean"
+    },
     "sidebar.cmd9" : {
       "default" : "last",
       "description" : "Goes to the last item, as in browsers, or to the ninth.",
@@ -1387,6 +1456,12 @@
       ],
       "title" : "Command-9",
       "type" : "string"
+    },
+    "sidebar.groupByComputer" : {
+      "default" : false,
+      "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
+      "title" : "Group Workspaces by Computer",
+      "type" : "boolean"
     },
     "sidebar.minimalMode" : {
       "default" : "bottom",
@@ -1429,6 +1504,12 @@
       "title" : "Section Look",
       "type" : "string"
     },
+    "sidebar.showChats" : {
+      "default" : false,
+      "description" : "Shows the device-wide Chats section in the sidebar.",
+      "title" : "Show Chats",
+      "type" : "boolean"
+    },
     "sidebar.showWorkspaceTabs" : {
       "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
@@ -1453,6 +1534,16 @@
         "bottom"
       ],
       "title" : "Spaces Position",
+      "type" : "string"
+    },
+    "sidebar.spacesVisibility" : {
+      "default" : "hover",
+      "description" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Show Spaces",
       "type" : "string"
     },
     "sidebar.stepping" : {
@@ -1901,6 +1992,12 @@
       "title" : "Tab Bar Position",
       "type" : "string"
     },
+    "tabs.cmdWClosesPinnedTabs" : {
+      "default" : false,
+      "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
+      "title" : "Cmd-W Closes Pinned Tabs",
+      "type" : "boolean"
+    },
     "tabs.newTabKind" : {
       "default" : "page",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
@@ -2023,6 +2120,12 @@
       "title" : "When an Update Is Ready",
       "type" : "string"
     },
+    "updates.showWhatsNew" : {
+      "default" : true,
+      "description" : "After an update, a What's New item shows at the top of the sidebar until you open it.",
+      "title" : "Show What's New After Updates",
+      "type" : "boolean"
+    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
@@ -2041,6 +2144,17 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaces.newPlacement" : {
+      "default" : "top",
+      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+      "enum" : [
+        "top",
+        "afterCurrent",
+        "bottom"
+      ],
+      "title" : "New Workspace Position",
       "type" : "string"
     }
   },

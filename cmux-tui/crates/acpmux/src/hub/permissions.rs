@@ -80,6 +80,14 @@ impl Hub {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
+        // A subagent's messages and settings are not the session's own.
+        let sid = params.and_then(|p| p.get("sessionId")).and_then(Value::as_str);
+        let owned = sid.is_some_and(|sid| {
+            session.subagents.lock().unwrap_or_else(|e| e.into_inner()).owns(sid)
+        });
+        if owned {
+            return;
+        }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
@@ -341,11 +349,15 @@ impl Hub {
     pub(super) async fn handle_permission_for(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        request: Value,
+        mut request: Value,
         epoch: u64,
         turn_id: Option<String>,
         agent_request_id: Option<&Id>,
     ) -> Value {
+        // One harness-neutral copy of any questions, before rules and the
+        // record see the request (questions.rs).
+        super::questions::normalize(&mut request);
+        let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -428,7 +440,8 @@ impl Hub {
             let floored = web_turn && !denied && auto.is_some();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
-            } else if web_turn {
+            } else if needs_person || web_turn {
+                // Policy never answers a question: only a person does.
                 None
             } else {
                 chat_option.clone().or(auto)
@@ -561,6 +574,7 @@ impl Hub {
                     session.floor.harness_grant.store(true, Ordering::SeqCst);
                 }
             }
+            super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
             let p = map.remove(permission_id).unwrap();
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {

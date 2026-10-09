@@ -79,8 +79,26 @@ final class LineTransport: Sendable {
     private let writer: SocketWriter
     let path: String
 
-    init(path: String, preamble: String? = nil) throws(DaemonError) {
+    /// The bridge child of this connection (``DaemonBridge``), killed and
+    /// reaped when the connection closes.
+    private let child: BridgeChild?
+
+    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
         self.path = path
+        let fd: Int32
+        if let bridge {
+            let opened = try bridge.open()
+            fd = opened.fd
+            child = opened.child
+        } else {
+            fd = try Self.connect(path)
+            child = nil
+        }
+        socket = Mutex(Socket(fd: fd))
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+    }
+
+    private static func connect(_ path: String) throws(DaemonError) -> Int32 {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
         // Close-on-exec: a program the app execs must not inherit a daemon connection, whose
@@ -111,17 +129,11 @@ final class LineTransport: Sendable {
             Darwin.close(fd)
             throw .connectFailed(path: path, errno: code)
         }
-        if let preamble {
-            do {
-                try LinePreamble(fd: fd).exchange(preamble)
-            } catch {
-                Darwin.close(fd)
-                throw error
-            }
-        }
-        socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        return fd
     }
+
+    /// The bridge child's pid (tests).
+    var bridgePIDForTesting: pid_t? { child?.pid }
 
     /// The socket descriptor (tests: close-on-exec).
     var descriptorForTesting: Int32 { socket.withLock { $0.fd } }
@@ -242,6 +254,7 @@ final class LineTransport: Sendable {
         socket.withLock { socket in
             if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
         }
+        child?.terminate()
     }
 
     // MARK: - Private
@@ -273,7 +286,7 @@ final class LineTransport: Sendable {
 
     private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
         let decoder = JSONDecoder()
-        var buffer = Data()
+        var lines = LineSplitter()
         var chunk = [UInt8](repeating: 0, count: 256 * 1024)
         var closeDetail = "EOF"
         // wakeup-allow: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
@@ -285,22 +298,8 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
-            // Only the new bytes can hold a newline: the buffered rest is one
-            // unfinished line. Rescanning it on every read was quadratic in
-            // the line size (a 10 MiB replay missed the attach deadline).
-            let scanFrom = buffer.count
-            buffer.append(contentsOf: chunk[0..<count])
-            let lineEnds = Self.newlineOffsets(in: buffer, from: scanFrom)
-            var start = 0
-            for end in lineEnds {
-                if end > start {
-                    let base = buffer.startIndex
-                    route(Data(buffer[(base + start)..<(base + end)]), decoder: decoder, onEvent: onEvent)
-                }
-                start = end + 1
-            }
-            if start > 0 { buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + start)) }
-            if buffer.count > Self.maxLineBytes {
+            lines.append(chunk[0..<count]) { route($0, decoder: decoder, onEvent: onEvent) }
+            if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
             }
@@ -318,21 +317,6 @@ final class LineTransport: Sendable {
             }
         }
         onClose(reason)
-    }
-
-    /// Offsets (from `data.startIndex`) of every newline at or after `offset`.
-    static func newlineOffsets(in data: Data, from offset: Int) -> [Int] {
-        data.withUnsafeBytes { raw -> [Int] in
-            guard let base = raw.baseAddress, offset < raw.count else { return [] }
-            var offsets: [Int] = []
-            var position = offset
-            while position < raw.count, let hit = memchr(base + position, 0x0A, raw.count - position) {
-                let found = base.distance(to: UnsafeRawPointer(hit))
-                offsets.append(found)
-                position = found + 1
-            }
-            return offsets
-        }
     }
 
     /// Events routed so far. Read after a command's reply, it bounds every

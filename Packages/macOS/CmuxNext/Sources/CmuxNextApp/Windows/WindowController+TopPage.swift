@@ -18,6 +18,7 @@ extension WindowController {
         root.titlebar.title = topPages.title(for: route)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.locationTrail.pageHistoryDidChange()
         return true
     }
 
@@ -47,6 +48,25 @@ extension WindowController {
         services.windows.recordSaver.stateDidChange(state)
         showWorkspace(requested: state.workspaceID)
         return true
+    }
+
+    /// Leo (T3 Code ref, 2026-10-07): a full-page destination turns the sidebar's footer into
+    /// Back, which returns the window to its workspace. Home is where you land, not a
+    /// destination, so it keeps the footer.
+    func followTopPageForBack() {
+        sidebar.model.onBack = { [weak self] in self?.leaveTopPage() }
+        // Every content swap, a top page or a workspace: the arrows read the shown page's history.
+        root.onContentChange = { [weak self] in
+            self?.syncSidebarBack()
+            self?.services.locationTrail.pageHistoryDidChange()
+        }
+        // The window may have restored a page before this ran.
+        syncSidebarBack()
+    }
+
+    private func syncSidebarBack() {
+        let showsBack = shownTopPage.map { $0 != .home } ?? false
+        if sidebar.model.showsBack != showsBack { sidebar.model.showsBack = showsBack }
     }
 
     /// The top page this window shows, if any.

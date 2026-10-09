@@ -56,6 +56,8 @@ export interface Env {
   readonly FREESTYLE_API_URL?: string
   /** Var: the snapshot team VMs boot from (lane 1's image with the team role). */
   readonly TEAM_VM_SNAPSHOT?: string
+  /** Var: "1" turns on the team VM bind (vm-image.md 6b; development and staging until the backend lead's review). */
+  readonly TEAM_VM_BIND_ENABLED?: string
   /** Var: provider slug prefix of NEW team VMs; staging must start with `cmuxnp-stg-`, other non-production envs with `cmuxnp-dev-` (FREESTYLE-NAMES). */
   readonly TEAM_VM_SLUG_PREFIX?: string
   /** Test only: `fake` selects the in-object fake provider when ENVIRONMENT=test. */
@@ -78,6 +80,8 @@ export interface Env {
   readonly CLOUD_FREESTYLE_SNAPSHOT?: string
   /** Var: provider name prefix; must equal this environment's (cmuxnp-dev-cld-, cmuxnp-stg-cld-, cmuxnp-prod-cld-; FREESTYLE-NAMES) or the provider is off. */
   readonly CLOUD_NAME_PREFIX?: string
+  /** Var (development only): the public coderouter host the coderouter.cmux.internal edge rule forwards to (cloud-coderouter-edge.ts); unset = no rule. */
+  readonly CLOUD_CODEROUTER_EDGE_HOST?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
   /**

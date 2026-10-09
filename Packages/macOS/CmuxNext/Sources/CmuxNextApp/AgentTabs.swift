@@ -122,6 +122,8 @@ final class AgentTabStore {
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
     var seeds: [String: AgentPaneSeedSource] = [:]
+    /// A new workspace's chat seed until its tab is known (`seedFirstChat`).
+    var firstChats: [WorkspaceHandle: AgentPaneSeedSource] = [:]
     /// The tab resuming each outside chat (`harness:agentSessionId`), so
     /// picking the same chat again shows that tab instead of a second one.
     var adoptions: [String: String] = [:]
@@ -241,10 +243,15 @@ final class AgentTabStore {
         guard let (record, store) = lookup(key) else { return nil }
         let local = record.host == localHost
         guard let paneHost = local ? host : remoteHost(key) else { return nil }
+        // A tab this run did not open and that has no chat yet is a New Tab page the store
+        // restored after a relaunch: it opens as the page again, not as an empty chat.
+        if local, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil, !linkedSessions.contains(key) {
+            newTabPages[key] = firstPageNewTab?(nil)
+        }
         let model = AgentPaneModel(
             host: paneHost,
             sessionId: sessions[key] ?? record.session,
-            seed: local ? seeds.removeValue(forKey: key) : nil,
+            seed: local ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store)) : nil,
             newTab: local ? newTabPages[key]?.page : nil,
             allowsTabConversion: local
         )
@@ -295,15 +302,20 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
         }
+        model.onNewTabInputReady = { [weak self] token in
+            guard let self else { return }
+            let key = resolve(provisional)
+            newTabPages[key]?.handler.inputReady(key, token)
+        }
         model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
         model.onRunAction = { [weak self] id in
-            guard let self else { return }
+            guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
             let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
-            _ = actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user))
+            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in

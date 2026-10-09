@@ -706,6 +706,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs.help",
+        "text" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.cmdWClosesPinnedTabs",
+      "keywords" : [
+        "pin",
+        "pinned",
+        "close",
+        "cmd-w",
+        "tab",
+        "keep"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "cmdWClosesPinnedTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs",
+        "text" : "Cmd-W Closes Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "destructive",
       "agent_settable" : false,
       "consumers" : [
@@ -1561,6 +1609,53 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.showWhatsNew.help",
+        "text" : "After an update, a What's New item shows at the top of the sidebar until you open it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.showWhatsNew",
+      "keywords" : [
+        "whats new",
+        "release notes",
+        "changelog",
+        "update",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "showWhatsNew"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.showWhatsNew",
+        "text" : "Show What's New After Updates"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.announcements",
         "text" : "Announcements"
       },
@@ -1637,6 +1732,54 @@
       "title" : {
         "key" : "settings.announcements.fetch",
         "text" : "Download Announcements"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.enabled.help",
+        "text" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.enabled",
+      "keywords" : [
+        "computer use",
+        "agents",
+        "automation",
+        "screen recording",
+        "accessibility",
+        "helper"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.computerUse.enabled",
+        "text" : "Computer Use"
       },
       "validation" : "portable"
     },
@@ -2109,6 +2252,246 @@
       "title" : {
         "key" : "settings.layout.minimumPaneHeight",
         "text" : "Minimum Pane Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "tab",
+        "split"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newPaneTab",
+            "text" : "Open a Tab"
+          },
+          "value" : "tab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newPaneSplit",
+            "text" : "Split Automatically"
+          },
+          "value" : "split"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "tab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.newPanePlacement.help",
+        "text" : "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.newPanePlacement",
+      "keywords" : [
+        "tab",
+        "split",
+        "pane",
+        "auto layout",
+        "smart arrange",
+        "zellij",
+        "tile"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "newPanePlacement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.newPanePlacement",
+        "text" : "New Terminals and Browsers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.tileBrowsers.help",
+        "text" : "With Split Automatically, new browsers also get their own pane instead of a tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.tileBrowsers",
+      "keywords" : [
+        "browser",
+        "tile",
+        "split",
+        "pane",
+        "tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "tileBrowsers"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.tileBrowsers",
+        "text" : "Split for Browsers Too"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "top",
+        "afterCurrent",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.afterCurrentWorkspace",
+            "text" : "After Current Workspace"
+          },
+          "value" : "afterCurrent"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "top",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.workspaces.newPlacement.help",
+        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.newPlacement",
+      "keywords" : [
+        "workspace",
+        "new",
+        "cmd-n",
+        "position",
+        "order",
+        "top",
+        "bottom",
+        "after",
+        "sidebar",
+        "placement"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "newPlacement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.workspaces.newPlacement",
+        "text" : "New Workspace Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupByComputer.help",
+        "text" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupByComputer",
+      "keywords" : [
+        "sidebar",
+        "computer",
+        "machine",
+        "cloud",
+        "remote",
+        "group",
+        "section",
+        "header",
+        "flat",
+        "list"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupByComputer"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.sidebar.groupByComputer",
+        "text" : "Group Workspaces by Computer"
       },
       "validation" : "portable"
     },
@@ -3114,6 +3497,163 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.enabled.help",
+        "text" : "Show chats stored on this device. Nothing is uploaded."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.enabled",
+      "keywords" : [
+        "agents",
+        "chats",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.enabled",
+        "text" : "Enable Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.discovery.help",
+        "text" : "Find harness chat folders automatically. When off, only the listed folders are used."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.discovery",
+      "keywords" : [
+        "agents",
+        "chats",
+        "discovery",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "discovery"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.discovery",
+        "text" : "Discover Chat Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/opt/cmux-chat-data"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.roots.help",
+        "text" : "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.roots",
+      "keywords" : [
+        "agents",
+        "chats",
+        "folders",
+        "roots",
+        "privacy"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "roots"
+      ],
+      "refuses" : [
+        "/opt/cmux-chat-data",
+        [
+          "~/chats"
+        ],
+        [
+          "/"
+        ],
+        [
+          "/Volumes/chats"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.roots",
+        "text" : "Chat Folders"
+      },
+      "validation" : "domain:chat_roots"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -3294,6 +3834,57 @@
       "title" : {
         "key" : "settings.appearance.theme",
         "text" : "Theme"
+      },
+      "validation" : "domain:theme"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "followTerminal",
+      "default_label" : {
+        "key" : "settings.default.followTerminal",
+        "text" : "Match Terminal Theme"
+      },
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.appTheme.help",
+        "text" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."
+      },
+      "kept_on_reset_all" : true,
+      "key" : "appearance.appTheme",
+      "keywords" : [
+        "app theme",
+        "accent",
+        "chrome",
+        "interface",
+        "colors",
+        "contrast",
+        "wcag"
+      ],
+      "kind" : "theme",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "appTheme"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.appTheme",
+        "text" : "App Theme"
       },
       "validation" : "domain:theme"
     },
@@ -6914,6 +7505,100 @@
         "text" : "Loading Indicator"
       },
       "help" : {
+        "key" : "settings.statusIndicator.showAgentWorkingOnTabs.help",
+        "text" : "Three dots take the tab's icon place while an agent works."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.showAgentWorkingOnTabs",
+      "keywords" : [
+        "agent",
+        "working",
+        "thinking",
+        "dots"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "showAgentWorkingOnTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.statusIndicator.showAgentWorkingOnTabs",
+        "text" : "Show Agent Working on Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.showPageLoading.help",
+        "text" : "A spinner takes a browser tab's icon place while its page loads."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.showPageLoading",
+      "keywords" : [
+        "browser",
+        "loading",
+        "spinner",
+        "page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "showPageLoading"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.statusIndicator.showPageLoading",
+        "text" : "Show Page Loading on Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
         "key" : "settings.statusIndicator.honorStatusStyle.help",
         "text" : "A status that asks for a style (cmux status set --style) uses it."
       },
@@ -7869,6 +8554,52 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showChats.help",
+        "text" : "Shows the device-wide Chats section in the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showChats",
+      "keywords" : [
+        "sidebar",
+        "chats",
+        "agents",
+        "conversations"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showChats"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.showChats",
+        "text" : "Show Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -7944,6 +8675,55 @@
       "title" : {
         "key" : "settings.sidebar.minimalMode",
         "text" : "Minimal Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.cards.tips.help",
+        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.cards.tips",
+      "keywords" : [
+        "sidebar",
+        "tips",
+        "did you know",
+        "cards",
+        "learn",
+        "features"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "cards",
+        "tips"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.cards.tips",
+        "text" : "Show Tips"
       },
       "validation" : "portable"
     },
@@ -8076,6 +8856,74 @@
       "title" : {
         "key" : "settings.sidebar.spacesPosition",
         "text" : "Spaces Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "hover",
+        "always"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.spacesVisibility.help",
+        "text" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.spacesVisibility",
+      "keywords" : [
+        "sidebar",
+        "spaces",
+        "rooms",
+        "profiles",
+        "dots",
+        "hover",
+        "hide",
+        "show",
+        "always",
+        "visibility"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "spacesVisibility"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.spacesVisibility",
+        "text" : "Show Spaces"
       },
       "validation" : "portable"
     },
@@ -14265,7 +15113,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "confirm",
+      "default" : "open",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
@@ -15340,7 +16188,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "cd1b12f3e9fbf002aee49c0a33857c6a74f0dd82e833d93f85629845d8c282c6",
+  "schema_hash" : "b8d52bfeb3eb18651f3ee9cb21ad54dd7a99ba580b614bbd78fe709daa838f87",
   "sections" : [
     {
       "id" : "general",

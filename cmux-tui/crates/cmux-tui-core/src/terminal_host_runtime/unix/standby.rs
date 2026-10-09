@@ -21,30 +21,39 @@ impl StandbyTerminalHost {
         // "<path> (deleted)" and exec fails, which broke every new tab/split
         // on a long-lived daemon. This also guarantees daemon and host can
         // never run skewed builds.
-        let binary = crate::platform::self_exe_for_spawn()
-            .context("resolve cmux-tui terminal-host binary")?;
-        let mut command = Command::new(binary);
-        command
-            .args(["__terminal-host", "--bootstrap-stdio"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            // A host outlives its daemon, so it must not retain a daemon log
-            // pipe whose EOF is itself used as a lifecycle signal.
-            .stderr(Stdio::null());
-        // A durable host must not share the daemon's controlling terminal,
-        // session, or process group. Otherwise a shell hangup or group
-        // interrupt intended for the daemon can also kill every hosted PTY.
-        // SAFETY: setsid(2) is async-signal-safe and touches no Rust state in
-        // the post-fork child. A freshly forked child is not a process-group
-        // leader, so failure is an actual launch error and must be surfaced.
-        unsafe {
-            command.pre_exec(|| {
-                if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
-            });
-        }
-        let child = command.spawn().context("spawn terminal-host process")?;
+        // On macOS: its content-addressed copy outside the app bundle, with no
+        // path in its command line (host_exe.rs, cx-0tgl LF).
+        let child = crate::host_exe::spawn_host(|command| {
+            command
+                .args(["__terminal-host", "--bootstrap-stdio"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                // A host outlives its daemon, so it must not retain a daemon
+                // log pipe whose EOF is itself used as a lifecycle signal.
+                .stderr(Stdio::null());
+            // A durable host must not share the daemon's controlling
+            // terminal, session, or process group. Otherwise a shell hangup
+            // or group interrupt intended for the daemon can also kill every
+            // hosted PTY.
+            // SAFETY: setsid(2) is async-signal-safe and touches no Rust
+            // state in the post-fork child. A freshly forked child is not a
+            // process-group leader, so failure is an actual launch error.
+            unsafe {
+                command.pre_exec(|| {
+                    if libc::setsid() < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    // The host and the shell it owns get the limit cmux
+                    // started with (setrlimit(2) is async-signal-safe).
+                    cmux_pty::restore_open_file_limit_in_child()
+                });
+            }
+        })
+        .context("spawn terminal-host process")?;
         let mut process = SpawnedHostProcess { child: Some(child) };
         let host_pid = process.child_mut().id();
+        // A Cloud daemon's unit stop must not end its hosts (host_scope.rs).
+        host_scope::place_host(host_pid);
         let stdin =
             process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
         let stdout =
@@ -89,6 +98,24 @@ pub(crate) fn launch_terminal_host_from(
     terminal_id: TerminalId,
     standby: Option<StandbyTerminalHost>,
 ) -> anyhow::Result<HostAttachment> {
+    let presentation = (default_colors, cell_pixels, kitty_graphics_limits);
+    launch_terminal_host_seeded(options, root, presentation, terminal_id, standby, &[])
+}
+
+/// The default colors, cell pixel size and Kitty limits a host starts with.
+pub(crate) type HostPresentation = (DefaultColors, (u16, u16), KittyGraphicsLimits);
+
+/// [`launch_terminal_host_from`] whose host applies `seed` (VT replay) to
+/// its parser before the child's first byte and never writes it to the PTY
+/// (cx-6so.49 L2: a respawned terminal shows its previous screen).
+pub(crate) fn launch_terminal_host_seeded(
+    options: &SurfaceOptions,
+    root: &Path,
+    (default_colors, cell_pixels, kitty_graphics_limits): HostPresentation,
+    terminal_id: TerminalId,
+    standby: Option<StandbyTerminalHost>,
+    seed: &[u8],
+) -> anyhow::Result<HostAttachment> {
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
     crate::debug_spans::mark("host.publication_reserved");
     let owner_token = CapabilityToken::random()?;
@@ -129,6 +156,7 @@ pub(crate) fn launch_terminal_host_from(
         extra_env: shell_launch.env,
         default_colors,
         kitty_graphics_limits,
+        seed: seed.to_vec(),
     };
 
     let StandbyTerminalHost { process, mut stdin, mut stdout, host_pid } = match standby {

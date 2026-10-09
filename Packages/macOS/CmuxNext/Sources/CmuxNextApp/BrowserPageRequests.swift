@@ -37,6 +37,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private var closedBeforeAdoption: [WeakPage] = []
     /// Daemon tabs to close when they appear: their page closed first.
     private var closeOnArrival: Set<SurfaceID> = []
+    /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
+    let proxiedTabs = ProxiedBrowserTabs()
 
     /// Site settings of `site`, a site whose automatic-downloads setting
     /// blocked a download in tab `tab` (its profile's store). One path for
@@ -106,7 +108,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
                                                          entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
             let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
-                                                     services: services) + host.items
+                                                     services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
             services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
         case .notice(let text):
@@ -124,6 +126,12 @@ final class BrowserPageRequests: BrowserTabDelegate {
             }
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
+        case .openLocalFile(let url):
+            // A page's navigation is not the user choosing the file: it shows
+            // read only outside the roots the user chose.
+            if let reason = services.viewers.openFile(url, in: services.paneController(for: pane), userChose: false) {
+                services.cache.existingBrowser(key)?.chrome.showNotice(reason)
+            }
         case .openPopup(let child, let request):
             openPopup(child, request: request, openerKey: key, pane: pane)
         case .unhandledKey(let pageKey):
@@ -143,12 +151,25 @@ final class BrowserPageRequests: BrowserTabDelegate {
                                     searchEngine: services.cache.suggestionEngine.resolver.searchEngine.name)
     }
 
-    /// Routes `chrome`'s modified omnibar commits to ``openFromOmnibar``.
+    /// Routes `chrome`'s modified omnibar commits to ``openFromOmnibar``;
+    /// a typed commit in the tab itself ends link-tab opener relations
+    /// (``BrowserTabOpeners/typedNavigation(onNewTabPageAtEnd:)``).
     func routeOmnibarOpens(of chrome: BrowserChromeView, page: any BrowserTab) {
         chrome.onOpenURL = { [weak self, weak page] url, disposition in
             guard let page else { return }
             self?.openFromOmnibar(url, disposition, page: page)
         }
+        chrome.onTypedCommit = { [weak self, weak page] in
+            guard let self, let page else { return }
+            openers.typedNavigation(onNewTabPageAtEnd: isNewTabPageAtEnd(page))
+        }
+    }
+
+    /// `page` shows a New Tab page and is the last tab of its pane.
+    private func isNewTabPageAtEnd(_ page: any BrowserTab) -> Bool {
+        guard BrowserNewTabPage.isNewTabPage(page.state.url), let services, let key = services.cache.key(of: page),
+              let (_, pane) = services.locateTab(key) else { return false }
+        return pane.tabs.last?.id == key
     }
 
     /// The omnibar's modified commit (Cmd-Return, Shift-Cmd-Return,
@@ -212,8 +233,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
                       opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
         if let controller = services.paneController(for: pane) {
-            return controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
-                                            opener: opener)
+            controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
+                                     opener: opener)
+            return
         }
         // The opener's pane is not on screen (its page is kept alive).
         let browserTabs = services.cache.browserTabs!

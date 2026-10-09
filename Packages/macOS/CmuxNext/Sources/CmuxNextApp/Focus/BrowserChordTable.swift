@@ -28,7 +28,8 @@ enum BrowserChordTable {
             Shortcut("["), Shortcut("]"), Shortcut(left), Shortcut(right),
             // Reload, hard reload, stop.
             Shortcut("r"), Shortcut("r", modifiers: [.command, .shift]), Shortcut("."),
-            // Address bar, new tab, reopen tab, close tab/window, new window, incognito.
+            // Address bar, new tab, reopen tab, close tab/window, new window, incognito
+            // (cmux binds Shift-Cmd-N to New Window, so the registry takes it first).
             Shortcut("l"), Shortcut("t"), Shortcut("t", modifiers: [.command, .shift]), Shortcut("w"),
             Shortcut("w", modifiers: [.command, .shift]), Shortcut("n"), Shortcut("n", modifiers: [.command, .shift]),
             // Find, find next/previous, use selection for find.
@@ -73,6 +74,14 @@ enum BrowserChordTable {
     static func isBrowserOnlyChord(_ event: NSEvent, registry: ActionRegistry) -> Bool {
         let chords = browserOnlyActions.compactMap(registry.effectiveShortcut(for:))
         return shortcuts(of: event).contains { chords.contains($0) }
+    }
+
+    /// The page-history action (`focusHistoryBack` / `focusHistoryForward`) of a browser-only
+    /// chord, for a page with its own history (history.md 4.2b); nil for any other key.
+    static func pageHistoryAction(for event: NSEvent, registry: ActionRegistry) -> ActionID? {
+        let typed = shortcuts(of: event)
+        let pairs: [(ActionID, ActionID)] = [("browserBack", "focusHistoryBack"), ("browserForward", "focusHistoryForward")]
+        return pairs.first { pair in registry.effectiveShortcut(for: pair.0).map(typed.contains) ?? false }?.1
     }
 
     /// Like `ActionRegistry.resolveShortcut`: the key as typed and its

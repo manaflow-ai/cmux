@@ -25,6 +25,7 @@ import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
 import { armIds, validateExperiments, type Experiment } from "../experiments/experiment";
+import { validateTunables, type Tunable } from "../experiments/tunable";
 import type { MockOptions } from "../pages/settings/mockProvider";
 import type { AccountsState, HostLists } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -45,6 +46,10 @@ export type SettingsPageVariant = VariantBase & {
   backdropImages?: Record<string, string>;
   loading?: boolean;
   steps?: PageFixtureStep[];
+  /** The page's overall look (`data-settings-look` on the root); quiet when unset. */
+  look?: "quiet" | "dense";
+  /** Publish every bundled theme and its colors (the app does); default the mock's six. */
+  allThemes?: boolean;
 };
 export type PasswordsPageVariant = VariantBase & {
   data: MockData;
@@ -62,6 +67,8 @@ export type ChipHostFixture = {
   sites?: Record<string, { icon?: string; title?: string }>;
   policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
   images?: Record<string, string | null>;
+  /** `media.load` answers: the URL the player plays for each path. */
+  media?: Record<string, string>;
   browsers?: { id: string; name: string; icon?: string }[];
 };
 
@@ -131,6 +138,8 @@ export type MarkdownPageVariant = VariantBase & {
   /** Null: the page opens in its empty state (no file). */
   text: string | null;
   readOnly?: boolean;
+  /** Gallery-only GitHub `origin` repository used for bare issue references. */
+  githubRepository?: string;
   /** cmux.json's `markdown` section. */
   settings?: Record<string, unknown>;
   /** The user's markdown/theme.css. */
@@ -196,6 +205,8 @@ export type ChangelogPageVariant = VariantBase & {
 /** The icon picker page on an in-page cmuxPage host serving a picker session. */
 export type IconPickerPageVariant = VariantBase & {
   session: PickerSession;
+  /** Saved picker prefs (Frequently Used, skin tone, symbol rendering) the host loads. */
+  prefs?: unknown;
   assetState?: "loading" | "error";
   query?: string;
   active?: number;
@@ -282,6 +293,8 @@ type EntryBase<V> = {
   pick?: { beadId: string; recommendedId: string };
   /** Arms of an experiment to compare side by side (view `compare`). */
   experiment?: GalleryExperiment;
+  /** Values the stage edits live (a curve editor each; experiments/tunable.ts). */
+  tunables?: readonly Tunable[];
   variants: Record<string, V>;
 };
 
@@ -418,6 +431,7 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
       for (const arm of Object.keys(measurements ?? {}))
         if (!armIds(definition).includes(arm)) problems.push(`${entry.id}: a measurement names no arm ${arm}`);
     }
+    for (const problem of validateTunables(entry.tunables ?? [])) problems.push(`${entry.id}: ${problem}`);
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
   }
   return problems;
