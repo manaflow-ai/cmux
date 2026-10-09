@@ -31,6 +31,10 @@ const SERVICE_NAMES: &[&str] = &[
     "chromium",
     "chromium-browser",
     "chrome-headless-shell",
+    "headless_shell",
+    "msedge",
+    "brave",
+    "electron",
 ];
 
 /// Whether an executable file name is a cmux service.
@@ -100,7 +104,7 @@ pub(crate) fn lsof_verdict(
     let failed = || Some(format!("loopback port {port} cannot be checked: lsof failed"));
     match (lsof.pids.is_empty(), lsof.exit) {
         (_, None) => return failed(),
-        (true, Some(1)) if connected => {
+        (true, _) if connected => {
             return Some(format!(
                 "loopback port {port} is held by a process this host cannot inspect"
             ));
@@ -165,18 +169,34 @@ fn run_lsof(port: u16) -> Lsof {
         let _ = child.wait();
         return failed;
     };
+    // The reader thread owns the child: it drains stdout, then reaps it, so
+    // the caller's wait for both is bounded by the deadline. A late lsof is
+    // killed by pid (only while not reaped, so the pid is still its own).
+    let pid = child.id() as libc::pid_t;
+    let reaped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done = reaped.clone();
     let (sent, received) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
+    let reader = std::thread::Builder::new().name("lsof-reader".into()).spawn(move || {
         let mut out = Vec::new();
         let _ = stdout.read_to_end(&mut out);
-        let _ = sent.send(out);
+        let exit = child.wait().ok().and_then(|status| status.code());
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = sent.send((out, exit));
     });
-    let Ok(out) = received.recv_timeout(LSOF_DEADLINE) else {
-        let _ = child.kill();
-        let _ = child.wait();
+    let kill = || {
+        if !reaped.load(std::sync::atomic::Ordering::SeqCst) {
+            // SAFETY: plain syscall on the pid of our own unreaped child.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    };
+    if reader.is_err() {
+        kill();
+        return failed;
+    }
+    let Ok((out, exit)) = received.recv_timeout(LSOF_DEADLINE) else {
+        kill();
         return failed;
     };
-    let exit = child.wait().ok().and_then(|status| status.code());
     let pids = String::from_utf8_lossy(&out)
         .lines()
         .filter_map(|line| line.strip_prefix('p')?.parse().ok())
@@ -290,13 +310,30 @@ mod lsof_tests {
     }
 
     /// lsof that failed (timeout, signal, an exit other than 0/1), or that
-    /// listed holders and then failed, refuses the port.
+    /// listed holders and then failed, refuses the port; after a connect, no
+    /// listed pid refuses whatever lsof exited with.
     #[test]
     fn a_failed_or_partial_lsof_refuses() {
         let timed_out = Lsof { pids: Vec::new(), exit: None };
         assert!(lsof_verdict(3000, &timed_out, false, exe("node")).is_some());
         let partial = Lsof { pids: vec![7], exit: Some(1) };
         assert!(lsof_verdict(3000, &partial, false, exe("node")).is_some());
+        let error = Lsof { pids: Vec::new(), exit: Some(2) };
+        assert!(lsof_verdict(3000, &error, false, exe("node")).is_some());
+        let partial_error = Lsof { pids: vec![7], exit: Some(2) };
+        assert!(lsof_verdict(3000, &partial_error, true, exe("node")).is_some());
+        let empty_ok = Lsof { pids: Vec::new(), exit: Some(0) };
+        assert!(lsof_verdict(3000, &empty_ok, true, exe("node")).is_some());
+        assert!(lsof_verdict(3000, &empty_ok, false, exe("node")).is_none());
+    }
+
+    /// Linux executable names of Chromium-based browsers count as services.
+    #[test]
+    fn linux_browser_names_are_services() {
+        for name in ["msedge", "brave", "electron", "headless_shell", "chrome"] {
+            assert!(is_service_name(name), "{name}");
+        }
+        assert!(!is_service_name("node"));
     }
 
     /// A visible dev server is allowed; a cmux service, Chrome or another
