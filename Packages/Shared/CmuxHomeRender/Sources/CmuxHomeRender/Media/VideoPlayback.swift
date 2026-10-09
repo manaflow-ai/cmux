@@ -126,10 +126,12 @@ public final class VideoPlayback {
         let center = NotificationCenter.default
         entry.observers = [
             center.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
+                // main-proof: addObserver(queue: .main) runs this block on the main queue.
                 MainActor.assumeIsolated { self?.ended(key) }
             },
             center.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main) {
                 [weak self, weak media] _ in
+                // main-proof: addObserver(queue: .main) runs this block on the main queue.
                 MainActor.assumeIsolated {
                     guard let media else { return }
                     self?.failed(key, media: media)

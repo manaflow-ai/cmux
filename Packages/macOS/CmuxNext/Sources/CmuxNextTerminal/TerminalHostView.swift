@@ -22,6 +22,7 @@ public final class TerminalHostView: NSView {
     private let scroller = TerminalScroller()
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
+    private var hostLossCause: TerminalHostLossCause?
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with
@@ -57,6 +58,7 @@ public final class TerminalHostView: NSView {
         ])
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.needsLayout = true }
         }
     }
@@ -90,16 +92,19 @@ public final class TerminalHostView: NSView {
     }
 
     /// The link status label over the terminal (hidden while connected).
-    var statusText: String? { banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss) }
+    var statusText: String? {
+        banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss, cause: hostLossCause)
+    }
 
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
-        banner.show(status, hostLoss: hostLoss)
+        banner.show(status, hostLoss: hostLoss, cause: hostLossCause)
     }
 
-    func showHostLoss(_ loss: TerminalHostLoss?) {
+    func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
-        banner.show(shownStatus, hostLoss: loss)
+        hostLossCause = cause
+        banner.show(shownStatus, hostLoss: loss, cause: cause)
     }
 
     isolated deinit {

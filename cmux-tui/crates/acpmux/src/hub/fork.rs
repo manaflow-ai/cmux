@@ -88,6 +88,7 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            claude_unstored: false,
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
@@ -115,6 +116,8 @@ impl Hub {
                         | "tool_call"
                         | "tool_call_update"
                         | "plan"
+                        | "turn_started"
+                        | "turn_result"
                         | "turn_end"
                 ) {
                     self.append(&new, &e.dir, &e.kind, e.msg);

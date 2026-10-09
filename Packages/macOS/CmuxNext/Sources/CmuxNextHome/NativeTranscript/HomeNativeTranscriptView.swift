@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
-import CmuxNextDesign
+public import CmuxNextDesign
 import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
@@ -38,6 +38,8 @@ public final class HomeNativeTranscriptView: NSView {
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
     private var stopped = false
+    /// The composer rect toasts last moved clear of (posted on change).
+    private var lastToastAvoidance = NSRect.zero
     /// False while the owner is unreachable (H17: offline Send is off; the
     /// text stays a draft). The wiring sets it from `HomeStore.connection`.
     public var isSendEnabled = true {
@@ -161,6 +163,11 @@ public final class HomeNativeTranscriptView: NSView {
         noticeLabel.preferredMaxLayoutWidth = width
         let height = ceil(noticeLabel.intrinsicContentSize.height)
         noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
+        let avoided = toastAvoidanceRect
+        if avoided != lastToastAvoidance {
+            lastToastAvoidance = avoided
+            NotificationCenter.default.post(name: .cmuxToastAvoidanceDidChange, object: self)
+        }
     }
 
     /// A notice about the conversation itself (Home's merge notice): a row of
@@ -206,7 +213,7 @@ public final class HomeNativeTranscriptView: NSView {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {
             observers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.windowStateChanged() }
+                MainActor.assumeIsolated { self?.windowStateChanged() } // main-proof: observer on queue: .main
             })
         }
         windowStateChanged()
@@ -231,6 +238,13 @@ public final class HomeNativeTranscriptView: NSView {
         let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
         transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
+        // The header's band: a light fade of the window background, shown only
+        // near the top; the design system's fades, none under Reduce Motion.
+        let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
+        transcript.setHeaderPillBacking(performWithTheme { Palette.capsuleScrim })
+        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in
+            Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
+        }
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary,
                                  fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator)
@@ -238,3 +252,13 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 }
+
+/// Toasts stay clear of the composer and its buttons (the area below the
+/// field's top edge).
+extension HomeNativeTranscriptView: CmuxToastAvoiding {
+    public var toastAvoidanceRect: NSRect {
+        let top = transcript.fieldTop
+        return NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
+    }
+}
+

@@ -21,8 +21,6 @@ import Testing
         var events: [AgentPaneTransportEvent] = []
         var connection = 0
         var nextID = 10
-        var sheets: [String] = []
-        var answers: [@MainActor (Bool) -> Void] = []
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("rules-\(UUID().uuidString)")
         lazy var root = folder("workspace")
         lazy var scanned = folder("scanned")
@@ -37,7 +35,6 @@ import Testing
         func start() async throws {
             try await server.start()
             transport.deliver = { [unowned self] event, done in self.events.append(event); done() }
-            transport.requestRoot = { [unowned self] folder, answer in self.sheets.append(folder); self.answers.append(answer) }
             connection = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
             _ = await transport.send(connection: connection, frames: [AgentPaneProductRulesTests.initialize])
         }
@@ -117,41 +114,25 @@ import Testing
         #expect(await rig.cwd(again) == scanned)
     }
 
-    @Test func aTypedFolderOutsideEveryRootOffersOneSheetAfterAGesture() async throws {
+    /// Lawrence (2026-10-07, "Remove dialogues."): a folder the user typed outside every root
+    /// becomes a root with their gesture, at once and without a sheet. Without one it is refused.
+    @Test func aTypedFolderOutsideEveryRootIsAddedByTheUsersGesture() async throws {
         let rig = Rig()
         try await rig.start()
         defer { rig.server.stop() }
         let root = rig.root, typed = rig.typed
         rig.transport.roots = { [root] }
-        // No gesture: refused, no sheet.
-        await rig.send("session/new", ["cwd": typed, "mcpServers": [Any]()], expect: .pathOutsideRoots)
-        #expect(rig.sheets.isEmpty)
-        // After a gesture: refused, and one sheet; the refusal says a root was requested.
+        // A page or script supplies it: refused, and it does not become a root.
+        let supplied = await rig.send("session/new", ["cwd": typed, "mcpServers": [Any]()], expect: .pathOutsideRoots)
+        #expect(await rig.received(supplied) == nil)
+        #expect(rig.transport.addedRoots.isEmpty)
+        // The user typed it (a gesture): it passes and is a root from then on.
         rig.transport.gestures.record()
-        let asked = await rig.send("session/new", ["cwd": typed, "mcpServers": [Any]()], expect: .pathOutsideRoots)
-        #expect(rig.sheets == [typed])
-        let deadline = ContinuousClock.now + .seconds(5)
-        while ContinuousClock.now < deadline, !rig.events.flatMap(\.frames).contains(where: { $0.contains(#""id":\#(asked)"#) }) {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        #expect(rig.events.flatMap(\.frames).contains { $0.contains(#""id":\#(asked)"#) && $0.contains("rootRequested") })
-        // One sheet at a time.
-        rig.transport.gestures.record()
-        await rig.send("session/new", ["cwd": typed, "mcpServers": [Any]()], expect: .pathOutsideRoots)
-        #expect(rig.sheets.count == 1)
-        _ = rig.transport.gestures.consume()
-        // Cancel: still refused.
-        try #require(!rig.answers.isEmpty, "no sheet was offered")
-        rig.answers.removeFirst()(false)
-        await rig.send("session/new", ["cwd": typed, "mcpServers": [Any]()], expect: .pathOutsideRoots)
-        // Add: a root from then on.
-        rig.transport.gestures.record()
-        await rig.send("session/new", ["cwd": typed, "mcpServers": [Any]()], expect: .pathOutsideRoots)
-        #expect(rig.sheets.count == 2)
-        try #require(!rig.answers.isEmpty, "no sheet was offered")
-        rig.answers.removeFirst()(true)
         let added = await rig.send("session/new", ["cwd": typed, "mcpServers": [Any]()])
         #expect(await rig.cwd(added) == typed)
+        #expect(rig.transport.addedRoots == [typed])
+        let again = await rig.send("_acpmux/prewarm", ["harness": "claude", "cwd": typed])
+        #expect(await rig.cwd(again) == typed)
     }
 
     /// The page names its chat with the folder trust question (`acp.trust.get` / `acp.trust.set`

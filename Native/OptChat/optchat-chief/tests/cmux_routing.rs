@@ -103,9 +103,14 @@ fn claude_settings_and_the_launcher_carry_the_pinned_socket() {
         env,
         instructions: None,
         tools: Tools::Mcp,
+        user_env: Default::default(),
     };
     let paths = Paths::new(Path::new("/h"));
-    let settings = settings_json(&setup, &paths);
+    let settings = settings_json(
+        &setup,
+        &paths,
+        &optchat_chief::session_dir::TURN_DENIED_TOOLS,
+    );
     assert_eq!(settings["env"]["CMUX_TUI_SOCKET"], DAEMON);
     let path = settings["env"]["PATH"].as_str().unwrap().to_owned();
     // The launcher directory first (the `chief` command), then the bundled CLI.

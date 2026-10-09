@@ -41,6 +41,8 @@ extension WebKitTab: WKNavigationDelegate {
             }
             return
         }
+        // A local Markdown file shows in cmux's markdown page, not as text (LocalFileHandoff).
+        if navigationAction.targetFrame?.isMainFrame ?? true, url.isHandedOff(by: .webkit) { emit(.openLocalFile(url)); return decisionHandler(.cancel, preferences) }
         applySiteSettings(to: preferences, for: navigationAction)
         guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
         navigationSourceSite = pageSite
@@ -72,17 +74,17 @@ extension WebKitTab: WKNavigationDelegate {
         downloads.register(download, source: navigationResponse.response.url)
     }
 
-    public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
         guard let id = navigationID(for: navigation, creating: true) else { return }
         apply(.started(id, url: webView.url))
     }
 
-    public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation?) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.redirected(id, url: webView.url))
     }
 
-    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -93,7 +95,7 @@ extension WebKitTab: WKNavigationDelegate {
         syncSecurity()
     }
 
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.finished(id))
@@ -102,13 +104,13 @@ extension WebKitTab: WKNavigationDelegate {
         refreshFavicon()
     }
 
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, BrowserLoadError(error)))
     }
 
-    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, BrowserLoadError(error)))

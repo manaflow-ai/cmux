@@ -6,7 +6,7 @@ import Testing
 /// Typed rows for `palette.run` (palette-scopes.md 6.10): built-in rows
 /// carry catalog ActionRefs, the run picks one by action id or takes the
 /// primary, and a row without refs is refused.
-@MainActor @Suite struct PaletteRunTests {
+@MainActor @Suite(.paletteRanker) struct PaletteRunTests {
     let data = MockPaletteData()
 
     func controller() -> PaletteController {

@@ -399,6 +399,21 @@ fn host_death_keeps_tab_under_running_daemon() {
 #[path = "stray_signals.rs"]
 mod stray_signals;
 
+#[path = "host_self_errors.rs"]
+mod host_self_errors;
+
+#[path = "loss_causes.rs"]
+mod loss_causes;
+
+#[path = "host_argv.rs"]
+mod host_argv;
+
+#[path = "orphan_hosts.rs"]
+mod orphan_hosts;
+
+#[path = "restored_end.rs"]
+mod restored_end;
+
 #[path = "pty_custody.rs"]
 mod pty_custody;
 
@@ -413,3 +428,6 @@ mod dead_host_restart;
 
 #[path = "terminal_respawn.rs"]
 mod terminal_respawn;
+
+#[path = "archive_on_close.rs"]
+mod archive_on_close;

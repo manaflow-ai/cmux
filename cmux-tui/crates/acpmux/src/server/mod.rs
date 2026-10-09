@@ -166,13 +166,22 @@ pub const AGENT_PANE_ORIGIN: &str = "cmux-agent://pane";
 /// The Origin and Host rule of this listener: its own origin (the
 /// dashboard page), the agent pane, and the origins and hosts the config
 /// adds (`websocket.allowed_origins`, `websocket.allowed_hosts`). Never
-/// `null`. An entry that does not parse is skipped with a warning.
+/// `null`. An entry that does not parse is skipped with a warning. The Host
+/// rule holds on every bind: a non-loopback `websocket.listen` also accepts
+/// IP address literals, and the names clients use must be listed in
+/// `websocket.allowed_hosts`.
 pub fn listener_policy(
     address: std::net::SocketAddr,
     extra_origins: &[String],
     extra_hosts: &[String],
 ) -> ListenerPolicy {
-    let mut policy = ListenerPolicy::for_bind(address).with_origin(AGENT_PANE_ORIGIN);
+    let mut policy =
+        ListenerPolicy::for_bind_keeping_host_rule(address).with_origin(AGENT_PANE_ORIGIN);
+    if !address.ip().is_loopback() && extra_hosts.is_empty() {
+        tracing::warn!(
+            "websocket.listen {address} is not loopback: clients may connect by IP address only; list host names in websocket.allowedHosts"
+        );
+    }
     for origin in extra_origins {
         if cmux_local_auth::parse_origin(origin).is_none() {
             tracing::warn!(
@@ -863,6 +872,8 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 mod chats;
+mod fork_through;
+pub use fork_through::FORK_OPERATIONS;
 mod harness_enable;
 pub mod local_app;
 pub mod peer_auth;

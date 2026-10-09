@@ -14,6 +14,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::Actor;
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
 use crate::state::commit::{StateEffects, state_not_found};
@@ -81,9 +82,12 @@ pub(crate) enum ScreenChange {
 }
 
 impl StripRequest {
-    /// A raw screen command: a fresh local mutation that never replays.
-    pub(crate) fn local_screens(operation: &str) -> Self {
-        Self { mutation: WorkspaceMutation::local("cmux-tui-screens"), ..Self::local(operation) }
+    /// A raw screen command of `actor`: a fresh local mutation that never replays.
+    pub(crate) fn local_screens(actor: &Actor, operation: &str) -> Self {
+        Self {
+            mutation: WorkspaceMutation::local("cmux-tui-screens", actor.clone()),
+            ..Self::local(actor, operation)
+        }
     }
 }
 

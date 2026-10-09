@@ -72,7 +72,7 @@ public final class SocketTasksSource: TasksSource {
         guard let socket = Self.connect(path: path) else { return false }
         fd = socket
         let read = DispatchSource.makeReadSource(fileDescriptor: socket, queue: .main)
-        read.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.readAvailable() } }
+        read.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.readAvailable() } } // main-proof: dispatch source on queue: .main
         read.resume()
         readSource = read
         backoff.reset()
@@ -141,7 +141,7 @@ public final class SocketTasksSource: TasksSource {
             let dirFD = Darwin.open(directory, O_EVTONLY)
             if dirFD >= 0 {
                 let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: dirFD, eventMask: [.write, .rename, .delete], queue: .main)
-                watch.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.scheduleAttempt() } }
+                watch.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.scheduleAttempt() } } // main-proof: dispatch source on queue: .main
                 watch.setCancelHandler { close(dirFD) }
                 watch.resume()
                 directoryWatch = watch
@@ -231,7 +231,7 @@ public final class SocketTasksSource: TasksSource {
             writeSource = nil
         } else if writeSource == nil {
             let source = DispatchSource.makeWriteSource(fileDescriptor: fd, queue: .main)
-            source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.flush() } }
+            source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.flush() } } // main-proof: dispatch source on queue: .main
             source.resume()
             writeSource = source
         }

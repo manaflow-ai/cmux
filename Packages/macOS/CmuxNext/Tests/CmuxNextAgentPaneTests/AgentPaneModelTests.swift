@@ -77,6 +77,31 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(model.sessionId == "s-9")
     }
 
+    /// Composer text is kept by the app-owned store, so a private WebKit page can
+    /// drop its local storage while the session's unsent prompt survives.
+    @Test func composerDraftsRoundTripThroughTheNativeStore() async throws {
+        let suite = "cmux.agent-pane-draft-tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = UserDefaultsAgentPaneDraftStore(defaults: defaults, keyPrefix: "draft.")
+        let model = AgentPaneModel(host: MockAgentPaneHost(), draftStore: store)
+        #expect(
+            AgentPaneRequest(body: ["method": "chat.readDraft", "params": ["sessionId": "session-1"]] as [String: Any])
+                == .readDraft("session-1")
+        )
+        #expect(
+            AgentPaneRequest(body: ["method": "chat.writeDraft", "params": ["sessionId": "session-1", "text": "keep this"]] as [String: Any])
+                == .writeDraft("session-1", text: "keep this")
+        )
+        let write = await model.respond(to: .writeDraft("session-1", text: "keep this"))
+        #expect(write["ok"] as? Bool == true)
+        let read = await model.respond(to: .readDraft("session-1"))
+        #expect(read["value"] as? String == "keep this")
+        _ = await model.respond(to: .writeDraft("session-1", text: "   "))
+        let cleared = await model.respond(to: .readDraft("session-1"))
+        #expect(cleared["value"] is NSNull)
+    }
+
     /// `ready` with `reconnect: true` comes from a page that lost its daemon.
     @Test func aReconnectingPageGetsAHandshakeThatDoesNotStartTheDaemon() async throws {
         #expect(AgentPaneRequest(body: ["method": "ready", "params": ["reconnect": true]] as [String: Any]) == .reconnect)
@@ -86,6 +111,25 @@ private actor RecordingHost: AgentPaneHostProviding {
         _ = await model.respond(to: .reconnect)
         #expect(await host.reconnects == 1)
         #expect(await host.asked.isEmpty)
+    }
+
+    /// Saved replies true, a cancelled panel false, and no saver or a failed
+    /// write a failure the page answers by copying the log.
+    @Test func theInspectorExportRepliesSavedCancelledOrFailed() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        let request = AgentPaneRequest.saveLog(text: "{}\n", suggestedName: "acp.jsonl")
+        #expect(await model.respond(to: request)["ok"] as? Bool == false)
+        // The saver gets the page's text and name; it reports a mismatch as a cancel.
+        model.onSaveLog = { text, name in text == "{}\n" && name == "acp.jsonl" }
+        let reply = await model.respond(to: request)
+        #expect(reply["ok"] as? Bool == true)
+        #expect(reply["value"] as? Bool == true)
+        model.onSaveLog = { _, _ in false }
+        #expect(await model.respond(to: request)["value"] as? Bool == false)
+        model.onSaveLog = { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        let failed = await model.respond(to: request)
+        #expect(failed["ok"] as? Bool == false)
+        #expect((failed["error"] as? [String: Any])?["code"] as? String == "save_failed")
     }
 
     @Test func aHostFailureBecomesALocalizedMessage() async throws {

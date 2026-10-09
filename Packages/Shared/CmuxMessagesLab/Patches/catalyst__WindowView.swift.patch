@@ -1,6 +1,20 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
-@@ -258,7 +258,10 @@
+@@ -112,9 +112,10 @@
+         collection.showsVerticalScrollIndicator = false
+         clip.addSubview(collection)
+         if let r = collection as? RowRecycler {
+-            r.configure = { [unowned self] cell, i in self.decorate(cell, i) }
+-            r.key = { [unowned self] i in self.model.rows[i].spec.key }
+-            r.count = { [unowned self] in self.model.count }
++            // cmux: weak captures, not unowned; a recycler that outlives this view gets the recycler defaults ("" and 0).
++            r.configure = { [weak self] cell, i in self?.decorate(cell, i) }
++            r.key = { [weak self] i in self?.model.rows[i].spec.key ?? "" }
++            r.count = { [weak self] in self?.model.count ?? 0 }
+         }
+ 
+         threadDim.backgroundColor = .clear
+@@ -258,7 +259,10 @@
          let anchor = visibleAnchor()
          layoutFrames()
          compose.layoutIfNeeded()
@@ -12,7 +26,7 @@
              Metrics.current = Metrics(width: bounds.width)
              let st = store.state
              let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: store.date(at: clock()), width: bounds.width)
-@@ -274,9 +277,12 @@
+@@ -274,9 +278,12 @@
          for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
      }
  
@@ -26,7 +40,7 @@
          model.set(rows, at: 0, ghosts: false)
          _ = layout.rebaseIfNeeded(force: true)
          layout.invalidateLayout()
-@@ -395,7 +401,8 @@
+@@ -395,7 +402,8 @@
      }
      func commit(_ action: Action, at t: Double, old: AppState, new state: AppState) {
          if case .setScroll = action { return }
@@ -36,7 +50,16 @@
          // Rows configured in this transaction draw now (RowCell.transitionDepth).
          RowCell.transitionDepth += 1
          defer { RowCell.transitionDepth -= 1 }
-@@ -567,13 +574,13 @@
+@@ -406,7 +414,7 @@
+             MessagesWindowView.createdInCommits += RowCell.created - created0
+             MessagesWindowView.destroyedInCommits += RowCell.destroyed - destroyed0
+             if MessagesWindowView.logCells, RowCell.destroyed - destroyed0 > 0 {
+-                FileHandle.standardError.write("commit \(String(describing: action).prefix(30)) destroyed \(RowCell.destroyed - destroyed0)\n".data(using: .utf8)!)
++                FileHandle.standardError.write(Data("commit \(String(describing: action).prefix(30)) destroyed \(RowCell.destroyed - destroyed0)\n".utf8)) // cmux: no force unwrap
+             }
+         }
+         let t0 = CACurrentMediaTime()
+@@ -567,13 +575,13 @@
          let msgs = state.conversation.messages
          let now = store.date(at: t)
          guard var from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
@@ -52,7 +75,7 @@
          let firstID = Substring(msgs[from].id)
          // Rows of `firstID` and later messages are at the tail: scan back over the live rows from
          // the end (a trailing typing row is always re-derived), without allocating.
-@@ -590,7 +597,7 @@
+@@ -590,7 +598,7 @@
          var above: RowSpec.Kind?
          var j = model.modelIndex(ofLive: cut)
          while j > 0 { j -= 1; if !model.rows[j].ghost { above = model.rows[j].spec.kind; break } }
@@ -61,7 +84,7 @@
      }
  
      /// Whether the derived rows equal the model's live rows (only the re-derived tail is compared).
-@@ -620,6 +627,7 @@
+@@ -620,6 +628,7 @@
              if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i) }
          case .typing: idx.append(max(0, msgs.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
@@ -69,7 +92,7 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
-@@ -663,14 +671,14 @@
+@@ -663,14 +672,14 @@
                      || owner(rows[rows.count - 1 - i].spec.key).map({ ids.contains($0) }) == true { i += 1 }
              return i
          }
@@ -87,7 +110,7 @@
          case let .prependPage(page):
              guard msgs.count > page.count else { return nil }
              let head = prepared ?? derive(0..<(page.count + 1)).filter { $0.key != "typing" }
-@@ -680,7 +688,7 @@
+@@ -680,7 +689,7 @@
              guard n > page.count else { return nil }
              let drop = countTail([Substring(msgs[n - page.count - 1].id)])
              let above = rows.count - drop - 1 >= 0 ? rows[rows.count - drop - 1].spec.kind : nil
@@ -96,7 +119,7 @@
          case let .evict(top, bottom):
              let o = old.conversation.messages
              var headIDs = Set(o.prefix(top).map { Substring($0.id) })
-@@ -690,7 +698,7 @@
+@@ -690,7 +699,7 @@
              let head = top > 0 ? derive(0..<1).filter { $0.key != "typing" } : []
              let dropTail = bottom > 0 ? countTail(tailIDs) : 0
              let above = rows.count - dropTail - 1 >= 0 ? rows[rows.count - dropTail - 1].spec.kind : nil
@@ -105,7 +128,27 @@
              return (top > 0 ? countHead(headIDs) : 0, head, dropTail, tail)
          default:
              return nil
-@@ -1304,7 +1312,7 @@
+@@ -758,7 +767,8 @@
+         for i in band {
+             let key = model.rows[i].spec.key
+             let newWin = layout.contentTop(i) - newOffset
+-            if let ot = oldSnap.contentTop(key), oldSnap.row(oldSnap.index(key)!).ghost == model.rows[i].ghost || model.rows[i].ghost {
++            // cmux: no force unwrap; contentTop(key) found the key, so index(key) does too.
++            if let ot = oldSnap.contentTop(key), let oi = oldSnap.index(key), oldSnap.row(oi).ghost == model.rows[i].ghost || model.rows[i].ghost {
+                 let d = (ot + oldRowsTop - oldOffset) - newWin
+                 deltas[key] = d
+                 for j in pendingNew { deltas[model.rows[j].spec.key] = d }
+@@ -1051,7 +1061,8 @@
+     func collectionView(_ cv: UICollectionView, numberOfItemsInSection section: Int) -> Int { model.count }
+ 
+     func collectionView(_ cv: UICollectionView, cellForItemAt ip: IndexPath) -> UICollectionViewCell {
+-        let cell = cv.dequeueReusableCell(withReuseIdentifier: RowCell.id, for: ip) as! RowCell
++        let dequeued = cv.dequeueReusableCell(withReuseIdentifier: RowCell.id, for: ip)
++        guard let cell = dequeued as? RowCell else { return dequeued }
+         decorate(cell, ip.item)
+         return cell
+     }
+@@ -1304,7 +1315,7 @@
              return
          }
          let msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }

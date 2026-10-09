@@ -61,13 +61,14 @@ enum RoomHandlers {
         }
         bind("space.setIcon") { invocation in
             let room = try context.room(invocation)
+            let history = IconHistory.space(context), id = room.id.rawValue
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
-                update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
+                try history.change(id, from: room.icon, to: icon, origin: invocation.origin)
             } else if let anchor = context.services.iconPicker.activeWindowAnchor() {
-                context.services.iconPicker.pick(current: room.icon, target: "space:\(room.id.rawValue)", at: anchor) { result in
+                context.services.iconPicker.pick(current: room.icon, target: "space:\(id)", at: anchor) { result in
                     switch result {
-                    case .set(let icon): update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
-                    case .clear: update(room.id, context) { try await $0.updateProfile($1, icon: .clear) }
+                    case .set(let icon): try? history.change(id, from: room.icon, to: icon, origin: .user)
+                    case .clear: try? history.change(id, from: room.icon, to: nil, origin: .user)
                     case .cancel: break
                     }
                 }
@@ -77,7 +78,7 @@ enum RoomHandlers {
         }
         bind("space.clearIcon") { invocation in
             let room = try context.room(invocation)
-            update(room.id, context) { try await $0.updateProfile($1, icon: .clear) }
+            try IconHistory.space(context).change(room.id.rawValue, from: room.icon, to: nil, origin: invocation.origin)
         }
         bind("space.setDefaults") { invocation in
             let room = try context.room(invocation)
@@ -152,6 +153,11 @@ enum RoomHandlers {
             guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
             do {
                 _ = try await connection.createProfile(name: name, id: id, color: color.rawValue, icon: icon, browserProfileID: browser)
+                // The reply comes before the home store mirrors the room
+                // (`personal-changed`, then a resync). Entering it earlier
+                // files the new workspace unpinned (so in `default`) and
+                // the window falls back as from a deleted room (cx-d8x5).
+                await services.machines.local.store.mirrored(profile: id)
                 if let active, let state = services.windows.states[active.id] {
                     if let enter { enter(id, state) } else { services.windows.switchProfile(id, in: state) }
                 }

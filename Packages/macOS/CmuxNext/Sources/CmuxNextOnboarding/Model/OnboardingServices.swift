@@ -131,7 +131,10 @@ public extension OnboardingServices {
 /// System Settings deep links.
 public extension URL {
     /// Privacy & Security > Full Disk Access.
-    static let systemSettingsFullDiskAccess = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
+    /// (Literals a test parses; /dev/null stands in rather than a trap.)
+    static let systemSettingsFullDiskAccess = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+        ?? URL(fileURLWithPath: "/dev/null")
     /// Desktop & Dock (the default web browser menu).
-    static let systemSettingsDefaultBrowser = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")!
+    static let systemSettingsDefaultBrowser = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")
+        ?? URL(fileURLWithPath: "/dev/null")
 }

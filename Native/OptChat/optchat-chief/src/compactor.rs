@@ -6,11 +6,11 @@
 //!
 //! One node, one session: `deny-all`, every tool denied, and the
 //! compactor's own acpmux preset, which the session REQUIRES (acpmux refuses
-//! to start it without the preset, so it never falls back to the user's
-//! `~/.claude`). The preset points `CLAUDE_CONFIG_DIR` at the compactor's
-//! own configuration (`optchat/compactor-claude`, separate from the turn
-//! agent's), turns off auto-memory, CLAUDE.md files, bundled skills and
-//! Claude Code's own refusal fallback. The session's cwd is a slot
+//! to start it without the preset). The session signs in with the user's
+//! Claude login (no `CLAUDE_CONFIG_DIR` of its own: an empty one has no
+//! login); the preset turns off auto-memory, CLAUDE.md files, bundled
+//! skills and Claude Code's own refusal fallback, and the slot's project
+//! settings deny every tool and every hook. The session's cwd is a slot
 //! directory under the system temporary directory, outside any directory
 //! with instruction files. The request maps onto the session's prompts.
 //! On a Claude harness whose acpmux takes a preset `systemPrompt`, the
@@ -25,7 +25,7 @@
 //! the prefix is byte-identical; its nodes share one working directory. Each size loop retry is the next prompt in the same session, the
 //! reply text the line. `end` (after the node is built or failed) kills the session with
 //! purge, deletes its Claude Code transcript and logs its seconds and token
-//! use. At most JOBS sessions live at once across the main and fallback
+//! use. At most COMPACTOR_SESSIONS sessions live at once across the main and fallback
 //! compactors (one `Slots` gate).
 
 use std::collections::{BTreeMap, HashMap};
@@ -147,51 +147,161 @@ pub struct CompactorSpec {
     pub timeout: Duration,
     /// This Chief's home id: the `cmux.chief` tag on every compactor session.
     pub chief: String,
+    /// The `env` of the user's Claude Code settings: the slots load no user
+    /// setting source, so their project settings carry it.
+    pub user_env: BTreeMap<String, String>,
 }
 
-/// The session slots of the compactor (the core's JOBS), shared by the main
+/// Compactor sessions that live at once across the main and fallback
+/// compactors (one `Slots` gate): fewer than the core's `JOBS` (64), which
+/// the other calls wait behind. Each session is a Claude Code process
+/// (about 200-400 MB), and every node of one Chief goes to one sticky
+/// subrouter account, whose subscription limits concurrent requests; 16
+/// keeps both bounded while a burst still runs 2x the old width.
+pub const COMPACTOR_SESSIONS: usize = 16;
+
+/// Warm sessions the main compactor keeps (`with_warm`): a node takes a
+/// Claude Code process that already started instead of waiting for one.
+/// Each idle one costs a process (200-400 MB) and holds a slot; most turns
+/// end with 1-4 nodes to build, so 4 cover them, and a burst starts the
+/// rest cold. A session is never reused across nodes: each node needs a
+/// fresh conversation (its system prompt, its view, its task), and neither
+/// acpmux nor Claude Code clears one.
+pub const WARM_SESSIONS: usize = 4;
+
+/// The session slots of the compactor (`COMPACTOR_SESSIONS`), shared by the main
 /// and the fallback compactor. Each slot has its own working directory, so a
 /// node's Claude Code project directory holds only that node's transcript.
 pub struct Slots {
-    free: Mutex<Vec<bool>>,
+    state: Mutex<SlotState>,
     freed: Condvar,
+}
+
+#[derive(Default)]
+struct SlotState {
+    free: Vec<bool>,
+    /// Warm sessions, each holding its slot, waiting for a node.
+    warm: Vec<Warm>,
+    /// Warm sessions being started (their slots held).
+    warming: usize,
+    /// Nodes blocked in `acquire`.
+    waiting: usize,
+}
+
+/// A started session no node has prompted yet: a Claude Code process
+/// that is ready when a node needs one (`with_warm`).
+struct Warm {
+    id: String,
+    slot: usize,
+    cwd: PathBuf,
+    preset: String,
+    /// What a node must need to take it: its system prompt and model.
+    key: u64,
+    system: Option<String>,
+}
+
+/// What `acquire` hands a node.
+enum Acquired {
+    Warm(Warm),
+    Slot(usize),
+    /// A free slot held by a warm session no node of this kind can use (another
+    /// model or system prompt): end it, then use the slot.
+    Stale(Warm),
 }
 
 impl Slots {
     pub fn new(jobs: usize) -> Arc<Slots> {
         Arc::new(Slots {
-            free: Mutex::new(vec![true; jobs.max(1)]),
+            state: Mutex::new(SlotState {
+                free: vec![true; jobs.max(1)],
+                ..SlotState::default()
+            }),
             freed: Condvar::new(),
         })
     }
 
-    fn take(&self) -> usize {
-        let mut free = self
-            .free
+    fn lock(&self) -> std::sync::MutexGuard<'_, SlotState> {
+        self.state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A warm session with `key`, else a free slot, else a stale warm
+    /// session's slot; waits while none is there.
+    fn acquire(&self, key: Option<u64>) -> Acquired {
+        let mut st = self.lock();
         loop {
-            if let Some(k) = free.iter().position(|f| *f) {
-                free[k] = false;
-                return k;
+            if let Some(key) = key
+                && let Some(k) = st.warm.iter().position(|w| w.key == key)
+            {
+                return Acquired::Warm(st.warm.remove(k));
             }
-            free = self
+            if let Some(k) = st.free.iter().position(|f| *f) {
+                st.free[k] = false;
+                return Acquired::Slot(k);
+            }
+            if let Some(k) = st.warm.iter().position(|w| Some(w.key) != key) {
+                return Acquired::Stale(st.warm.remove(k));
+            }
+            st.waiting += 1;
+            st = self
                 .freed
-                .wait(free)
+                .wait(st)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            st.waiting -= 1;
         }
     }
 
-    fn give(&self, k: usize) {
-        if let Some(slot) = self
-            .free
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get_mut(k)
-        {
+    /// Whether the caller, which holds a slot it is done with, should start
+    /// a warm session in it: no node waits for a slot, and fewer than `max`
+    /// are warm or warming. True counts it as warming until `put_warm` or
+    /// `give`.
+    fn rewarm(&self, max: usize) -> bool {
+        let mut st = self.lock();
+        if st.waiting > 0 || st.warm.len() + st.warming >= max {
+            return false;
+        }
+        st.warming += 1;
+        true
+    }
+
+    fn put_warm(&self, warm: Warm) {
+        let mut st = self.lock();
+        st.warming = st.warming.saturating_sub(1);
+        st.warm.push(warm);
+        drop(st);
+        self.freed.notify_all();
+    }
+
+    /// Gives `k` back; `warming`: the slot was counted as warming.
+    fn give_slot(&self, k: usize, warming: bool) {
+        let mut st = self.lock();
+        if warming {
+            st.warming = st.warming.saturating_sub(1);
+        }
+        if let Some(slot) = st.free.get_mut(k) {
             *slot = true;
         }
-        self.freed.notify_one();
+        drop(st);
+        self.freed.notify_all();
+    }
+
+    fn give(&self, k: usize) {
+        self.give_slot(k, false);
+    }
+
+    /// Every warm session, for ending them.
+    fn drain_warm(&self) -> Vec<Warm> {
+        let mut st = self.lock();
+        let warm = std::mem::take(&mut st.warm);
+        for w in &warm {
+            if let Some(slot) = st.free.get_mut(w.slot) {
+                *slot = true;
+            }
+        }
+        drop(st);
+        self.freed.notify_all();
+        warm
     }
 }
 
@@ -202,9 +312,9 @@ struct Live {
     seq: u64,
     slot: usize,
     cwd: PathBuf,
-    /// The slot's preset, and whether this node set its system prompt.
+    /// The slot's preset, and the system prompt this node set in it.
     preset: String,
-    prompted: bool,
+    system: Option<String>,
     opened: Instant,
     prompts: u32,
     /// Token use the harness reported, summed over the node's prompts.
@@ -229,8 +339,18 @@ pub struct AcpmuxCompactor {
     /// Makes prompt ids unique across host starts (acpmux runs an id once).
     stamp: u64,
     /// Claude Code refused the node's cache marker (it placed a fourth
-    /// breakpoint of its own): later nodes go without it.
-    marker_refused: AtomicBool,
+    /// breakpoint of its own): the next `MARK_RETRY_AFTER` nodes go without
+    /// it, then it is tried again.
+    marker_refused: crate::prompt::MarkLatch,
+    /// The turns' cache TTL on this route (`with_cache_ttl`).
+    cache_ttl: SharedTtl,
+    /// The model sessions start with: `spec.model`, until the account
+    /// turns it down and `model_fallback` (Some) takes over.
+    model: Mutex<Option<String>>,
+    model_fallback: Option<Option<String>>,
+    /// Warm sessions kept for the next nodes (`with_warm`; 0: none).
+    warm: usize,
+    reaped: AtomicBool,
     log: Option<Log>,
     trace: crate::trace::Trace,
 }
@@ -241,6 +361,7 @@ impl AcpmuxCompactor {
         spec: CompactorSpec,
         slots: Arc<Slots>,
     ) -> AcpmuxCompactor {
+        let model = Mutex::new(spec.model.clone());
         AcpmuxCompactor {
             port,
             spec,
@@ -251,15 +372,77 @@ impl AcpmuxCompactor {
             stamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64),
-            marker_refused: AtomicBool::new(false),
+            marker_refused: crate::prompt::MarkLatch::default(),
+            cache_ttl: SharedTtl::default(),
+            model,
+            model_fallback: None,
+            warm: 0,
+            reaped: AtomicBool::new(false),
             log: None,
             trace: crate::trace::Trace::off(),
         }
     }
 
+    /// Each node's cache TTL: the brain's current one (one TTL for turns
+    /// and compactions on a route). Default 1 hour.
+    pub fn with_cache_ttl(mut self, ttl: SharedTtl) -> AcpmuxCompactor {
+        self.cache_ttl = ttl;
+        self
+    }
+
     /// Traces every node: seconds, prompts, token use, cost, outcome.
     pub fn with_trace(mut self, trace: crate::trace::Trace) -> AcpmuxCompactor {
         self.trace = trace;
+        self
+    }
+
+    /// The model to build with when the account cannot use `spec.model`
+    /// (None: the harness's default model).
+    pub fn with_model_fallback(mut self, model: Option<String>) -> AcpmuxCompactor {
+        self.model_fallback = Some(model);
+        self
+    }
+
+    /// The model sessions start with now.
+    fn model(&self) -> Option<String> {
+        self.model
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// `error` says the account cannot use the current model: switch to the
+    /// fallback for good and say so once. False: no switch (none set, or
+    /// done already, or another error).
+    fn switch_model(&self, error: &ModelError) -> bool {
+        let Some(fallback) = &self.model_fallback else {
+            return false;
+        };
+        if !is_model_unavailable(&error.message) {
+            return false;
+        }
+        let mut model = self
+            .model
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *model == *fallback {
+            return false;
+        }
+        let old = model.clone().unwrap_or_else(|| "(default)".to_owned());
+        *model = fallback.clone();
+        drop(model);
+        self.say(&format!(
+            "compactor model {old} is not available on {} ({}); building with {} from now on",
+            self.spec.harness,
+            error.message,
+            fallback.as_deref().unwrap_or("the harness's default model")
+        ));
+        true
+    }
+
+    /// Keeps up to `n` warm sessions (`WARM_SESSIONS` in the host).
+    pub fn with_warm(mut self, n: usize) -> AcpmuxCompactor {
+        self.warm = n;
         self
     }
 
@@ -310,7 +493,7 @@ impl AcpmuxCompactor {
     /// harness shares one directory across slots: codex names the cwd in
     /// its environment context, ahead of the prompt, so one cwd keeps the
     /// request prefix identical from node to node.
-    fn slot_dir(&self, slot: usize) -> io::Result<PathBuf> {
+    fn slot_dir(&self, slot: usize, ttl: CacheTtl) -> io::Result<PathBuf> {
         private_dir(&self.spec.work)?;
         let dir = if self.claude() {
             self.spec.work.join(format!("slot-{slot}"))
@@ -322,113 +505,215 @@ impl AcpmuxCompactor {
         // (sr resets CLAUDE_CONFIG_DIR, so the preset's user settings are
         // not), and the ones that take denied tools off the model's list.
         std::fs::create_dir_all(dir.join(".claude"))?;
-        write_settings(&dir.join(".claude").join("settings.json"))?;
+        write_settings_for(
+            &dir.join(".claude").join("settings.json"),
+            ttl,
+            &self.spec.user_env,
+        )?;
         std::fs::canonicalize(&dir)
     }
 
-    /// Opens the node's session (a slot first, so at most JOBS live), with
-    /// `system` as its slot preset's system prompt in the cached layout.
-    fn open(&self, node: NodeId, system: Option<&str>) -> Result<String, ModelError> {
+    /// What a warm session must match for a node: its system prompt and the
+    /// model sessions start with now.
+    fn warm_key(&self, system: Option<&str>, ttl: CacheTtl) -> u64 {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&system, &mut h);
+        // A warm session's Claude Code read its slot's TTL when it started.
+        std::hash::Hash::hash(ttl.as_str(), &mut h);
+        std::hash::Hash::hash(&self.model(), &mut h);
+        std::hash::Hasher::finish(&h)
+    }
+
+    /// Opens the node's session: a warm one with its system prompt when
+    /// there is one (`with_warm`), else a new one in a slot (so at most
+    /// COMPACTOR_SESSIONS live), with `system` as its slot preset's system
+    /// prompt in the cached layout.
+    fn open(
+        &self,
+        node: NodeId,
+        system: Option<&str>,
+        ttl: CacheTtl,
+    ) -> Result<String, ModelError> {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
-        let admitted =
-            crate::harness_gate::admit_live(&*self.port, &self.spec.harness).map_err(|reason| {
-                self.say(&format!("compactor node {}: {reason}", node.name()));
-                crate::harness_gate::trace_refusal(
-                    &self.trace,
-                    "compactor",
-                    &self.spec.harness,
-                    &reason,
-                );
-                ModelError::new(crate::harness_gate::refusal(&reason))
-            })?;
-        let slot = self.slots.take();
-        let cwd = match self.slot_dir(slot) {
-            Ok(cwd) => cwd,
-            Err(e) => {
-                self.slots.give(slot);
-                return Err(ModelError::new(format!(
-                    "creating the compactor's working directory: {e}"
-                )));
+        let admitted = self.admit(node)?;
+        self.reap_warm();
+        let key = self.warm_key(system, ttl);
+        let (id, slot, cwd, preset) = match self.slots.acquire((self.warm > 0).then_some(key)) {
+            Acquired::Warm(w) => (w.id, w.slot, w.cwd, w.preset),
+            other => {
+                let slot = match other {
+                    Acquired::Stale(w) => {
+                        self.end_warm(&w);
+                        w.slot
+                    }
+                    Acquired::Slot(k) => k,
+                    Acquired::Warm(_) => unreachable!(),
+                };
+                let name = self.session_name(node);
+                match self.start(slot, &name, system, &admitted, ttl) {
+                    Ok((id, cwd, preset)) => (id, slot, cwd, preset),
+                    Err(e) => {
+                        self.slots.give(slot);
+                        return Err(e);
+                    }
+                }
             }
         };
+        self.live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                node,
+                Live {
+                    id: id.clone(),
+                    seq: 0,
+                    slot,
+                    cwd,
+                    preset,
+                    system: system.map(str::to_owned),
+                    opened: Instant::now(),
+                    prompts: 0,
+                    usage: None,
+                    cost: None,
+                    error: None,
+                    context: Value::Null,
+                },
+            );
+        Ok(id)
+    }
+
+    fn admit(&self, node: NodeId) -> Result<crate::harness_gate::Admitted, ModelError> {
+        crate::harness_gate::admit_live(&*self.port, &self.spec.harness).map_err(|reason| {
+            self.say(&format!("compactor node {}: {reason}", node.name()));
+            crate::harness_gate::trace_refusal(
+                &self.trace,
+                "compactor",
+                &self.spec.harness,
+                &reason,
+            );
+            ModelError::new(crate::harness_gate::refusal(&reason))
+        })
+    }
+
+    /// Starts a session named `name` in `slot` (held by the caller), with
+    /// `system` as the slot preset's system prompt: its id, cwd and preset.
+    fn start(
+        &self,
+        slot: usize,
+        name: &str,
+        system: Option<&str>,
+        admitted: &crate::harness_gate::Admitted,
+        ttl: CacheTtl,
+    ) -> Result<(String, PathBuf, String), ModelError> {
+        let cwd = self.slot_dir(slot, ttl).map_err(|e| {
+            ModelError::new(format!("creating the compactor's working directory: {e}"))
+        })?;
         let preset = slot_preset(&self.spec.preset, slot);
-        // The slot is this node's alone, so is its preset: no other node
+        // The slot is this caller's alone, so is its preset: no other node
         // changes the prompt before this session starts with it.
-        if let Some(text) = system
-            && let Err(e) = self.port.set_system_prompt(&preset, text)
-        {
-            self.slots.give(slot);
-            return Err(ModelError::new(format!(
-                "setting the compactor's system prompt: {e}"
-            )));
+        if let Some(text) = system {
+            self.port.set_system_prompt(&preset, text).map_err(|e| {
+                ModelError::new(format!("setting the compactor's system prompt: {e}"))
+            })?;
         }
         // A transcript left by a crash in this slot.
         self.delete_transcript(&cwd);
         self.wipe_codex(slot);
-        let name = self.session_name(node);
         // Left by a host that stopped while the node was being built.
-        if let Ok(Some(old)) = self.port.find(&name) {
+        if let Ok(Some(old)) = self.port.find(name) {
             let _ = self.port.end_session(&old);
         }
         let spec = SessionSpec {
-            name,
+            name: name.to_owned(),
             cwd: cwd.clone(),
             harness: admitted.profile.clone(),
             policy: POLICY.to_owned(),
-            model: self.spec.model.clone(),
+            model: self.model(),
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
             env: Default::default(),
         };
-        let opened = self.port.new_session(&spec).and_then(|id| {
-            // The session's own harness is what answers (a name that is
-            // also a family resolves through acpmux's preference list).
-            match crate::harness_gate::session_harness(&*self.port, &id, &admitted) {
-                Ok(_) => Ok(id),
-                Err(reason) => {
-                    let _ = self.port.end_session(&id);
-                    crate::harness_gate::trace_refusal(
-                        &self.trace,
-                        "compactor",
-                        &self.spec.harness,
-                        &reason,
-                    );
-                    Err(crate::harness_gate::refusal(&reason))
+        let id = self
+            .port
+            .new_session(&spec)
+            .and_then(|id| {
+                // The session's own harness is what answers (a name that is
+                // also a family resolves through acpmux's preference list).
+                match crate::harness_gate::session_harness(&*self.port, &id, admitted) {
+                    Ok(_) => Ok(id),
+                    Err(reason) => {
+                        let _ = self.port.end_session(&id);
+                        crate::harness_gate::trace_refusal(
+                            &self.trace,
+                            "compactor",
+                            &self.spec.harness,
+                            &reason,
+                        );
+                        Err(crate::harness_gate::refusal(&reason))
+                    }
                 }
-            }
+            })
+            .map_err(|e| ModelError::new(format!("starting a compactor session: {e}")))?;
+        Ok((id, cwd, preset))
+    }
+
+    /// The warm session name of `slot`; a restarted host ends the one a
+    /// stopped host left when it starts its own there.
+    fn warm_name(&self, slot: usize) -> String {
+        format!("{}-warm-{slot}", self.spec.name)
+    }
+
+    /// Starts a warm session in `slot` (counted as warming by
+    /// `Slots::rewarm`) with `system`; gives the slot back when it cannot.
+    fn warm_up(&self, slot: usize, system: Option<String>) {
+        let ttl = self.cache_ttl.get();
+        let started = self.admit(PROBE_NODE).and_then(|admitted| {
+            self.start(
+                slot,
+                &self.warm_name(slot),
+                system.as_deref(),
+                &admitted,
+                ttl,
+            )
         });
-        match opened {
-            Ok(id) => {
-                self.live
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .insert(
-                        node,
-                        Live {
-                            id: id.clone(),
-                            seq: 0,
-                            slot,
-                            cwd,
-                            preset,
-                            prompted: system.is_some(),
-                            opened: Instant::now(),
-                            prompts: 0,
-                            usage: None,
-                            cost: None,
-                            error: None,
-                            context: Value::Null,
-                        },
-                    );
-                Ok(id)
-            }
+        match started {
+            Ok((id, cwd, preset)) => self.slots.put_warm(Warm {
+                id,
+                slot,
+                cwd,
+                preset,
+                key: self.warm_key(system.as_deref(), ttl),
+                system,
+            }),
             Err(e) => {
-                self.slots.give(slot);
-                Err(ModelError::new(format!(
-                    "starting a compactor session: {e}"
-                )))
+                self.say(&format!("starting a warm compactor session: {e}"));
+                self.slots.give_slot(slot, true);
             }
+        }
+    }
+
+    /// Once per host: ends the warm sessions a stopped host left (by name).
+    fn reap_warm(&self) {
+        if self.warm == 0 || self.reaped.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let slots = self.slots.lock().free.len();
+        for k in 0..slots {
+            if let Ok(Some(old)) = self.port.find(&self.warm_name(k)) {
+                let _ = self.port.end_session(&old);
+            }
+        }
+    }
+
+    /// Ends a warm session no node will prompt; its slot stays the caller's.
+    fn end_warm(&self, w: &Warm) {
+        let _ = self.port.end_session(&w.id);
+        self.delete_transcript(&w.cwd);
+        self.wipe_codex(w.slot);
+        if w.system.is_some() {
+            let _ = self.port.set_system_prompt(&w.preset, "");
         }
     }
 
@@ -447,8 +732,21 @@ impl AcpmuxCompactor {
     }
 
     /// One prompt in the node's session; its reply text.
-    fn prompt(&self, node: NodeId, session: &str, blocks: Vec<Value>) -> Result<Reply, ModelError> {
+    fn prompt(
+        &self,
+        node: NodeId,
+        session: &str,
+        blocks: Vec<Value>,
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
         let n = self.prompts.fetch_add(1, Ordering::SeqCst);
+        let before = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&node)
+            .map_or(0, |l| l.seq);
+        let mut begun = false;
         let prompt_id = format!("optchat-compact:{}:{}:{n}", self.stamp, node.name());
         let (tx, rx) = channel();
         self.port
@@ -457,7 +755,19 @@ impl AcpmuxCompactor {
         let deadline = Instant::now() + self.spec.timeout;
         let answer = loop {
             match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(TurnSignal::Changed) => {}
+                Ok(TurnSignal::Changed) => {
+                    // The first streamed output: the response started.
+                    if !begun
+                        && self.port.events(session, before).is_ok_and(|events| {
+                            events.iter().any(|e| crate::acpmux::is_output(&e.kind))
+                        })
+                    {
+                        begun = true;
+                        started();
+                    }
+                }
+                // Reply drafts are for turns.
+                Ok(TurnSignal::Streamed) => {}
                 Ok(TurnSignal::Done(answer)) => break answer,
                 Ok(TurnSignal::Lost) | Err(RecvTimeoutError::Disconnected) => {
                     return Err(ModelError::new(
@@ -525,6 +835,10 @@ impl AcpmuxCompactor {
         if let Some(error) = fold.ended().and_then(|e| e.error.clone()) {
             return Err(ModelError::new(format!("compactor turn: {error}")));
         }
+        if !begun {
+            // A reply whose first chunk this call did not see: written too.
+            started();
+        }
         Ok(Reply::text(strip_preamble(
             fold.final_text().unwrap_or_default(),
         )))
@@ -558,28 +872,36 @@ impl AcpmuxCompactor {
     /// A node's first prompt in the cached layout (when the preset carries
     /// its args): the system prompt file, one marker, and one retry without
     /// the marker when Claude Code's own breakpoints leave no room for it.
-    fn first_cached(&self, request: &CompactRequest) -> Result<Reply, ModelError> {
+    fn first_cached(
+        &self,
+        request: &CompactRequest,
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
         let node = request.node;
-        let marker = !self.marker_refused.load(Ordering::SeqCst);
-        let layout = cached_prompt(request, marker);
-        let session = self.open(node, Some(&layout.system))?;
+        let marker = self.marker_refused.take();
+        // The turns' TTL on this route, read once: the mark, the slot's
+        // Claude Code settings and the warm session key agree.
+        let ttl = self.cache_ttl.get();
+        let layout = cached_prompt_with(request, marker, ttl);
+        let session = self.open(node, Some(&layout.system), ttl)?;
         let has_marker = layout
             .blocks
             .iter()
             .any(|b| b.get("cache_control").is_some());
-        match self.prompt(node, &session, layout.blocks) {
+        match self.prompt(node, &session, layout.blocks, started) {
             Err(e) if has_marker && is_marker_limit_error(&e.message) => {
-                self.marker_refused.store(true, Ordering::SeqCst);
+                self.marker_refused.refused();
                 self.say(&format!(
-                    "compactor node {}: Claude Code refused the cache_control marker ({}); retrying without it, and later nodes go without it",
+                    "compactor node {}: Claude Code refused the cache_control marker ({}); retrying without it, and the next {} nodes go without it",
                     node.name(),
-                    e.message
+                    e.message,
+                    crate::prompt::MARK_RETRY_AFTER
                 ));
                 // A fresh session: the refused prompt may sit in the old one's history.
                 self.end(request);
-                let layout = cached_prompt(request, false);
-                let session = self.open(node, Some(&layout.system))?;
-                self.prompt(node, &session, layout.blocks)
+                let layout = cached_prompt_with(request, false, ttl);
+                let session = self.open(node, Some(&layout.system), ttl)?;
+                self.prompt(node, &session, layout.blocks, started)
             }
             other => other,
         }
@@ -591,6 +913,7 @@ impl AcpmuxCompactor {
         &self,
         request: &CompactRequest,
         followups: &[Followup],
+        started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
         let node = request.node;
         let (session, blocks) = match followups.last() {
@@ -598,9 +921,12 @@ impl AcpmuxCompactor {
                 // A fresh conversation: whatever an earlier try left is gone.
                 self.end(request);
                 if self.claude() && self.port.system_prompt(&slot_preset(&self.spec.preset, 0)) {
-                    return self.first_cached(request);
+                    return self.first_cached(request, started);
                 }
-                (self.open(node, None)?, request_blocks(request))
+                (
+                    self.open(node, None, self.cache_ttl.get())?,
+                    request_blocks(request),
+                )
             }
             Some(last) => {
                 let session = self
@@ -613,13 +939,29 @@ impl AcpmuxCompactor {
                 (session, vec![text_block(&last.retry)])
             }
         };
-        self.prompt(node, &session, blocks)
+        self.prompt(node, &session, blocks, started)
     }
 }
 
 impl CompactModel for AcpmuxCompactor {
     fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError> {
-        let result = self.call_inner(request, followups);
+        self.call_started(request, followups, &|| {})
+    }
+
+    fn call_started(
+        &self,
+        request: &CompactRequest,
+        followups: &[Followup],
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
+        let result = match self.call_inner(request, followups, started) {
+            // The account cannot use the model: the node again, fresh, on the fallback.
+            Err(e) if followups.is_empty() && self.switch_model(&e) => {
+                self.end(request);
+                self.call_inner(request, followups, started)
+            }
+            other => other,
+        };
         if let Some(l) = self
             .live
             .lock()
@@ -661,7 +1003,7 @@ impl AcpmuxCompactor {
             json!({
                 "node": node.name(),
                 "harness": self.spec.harness,
-                "model": self.spec.model,
+                "model": self.model(),
                 "ms": live.opened.elapsed().as_millis() as u64,
                 "prompts": live.prompts,
                 "usage": live.usage.as_ref().map(crate::trace::usage),
@@ -677,10 +1019,16 @@ impl AcpmuxCompactor {
         // and the slot preset's system prompt (the view's first piece).
         self.delete_transcript(&live.cwd);
         self.wipe_codex(live.slot);
-        if live.prompted {
-            let _ = self.port.set_system_prompt(&live.preset, "");
+        // The next node's session starts now, in this slot, so it does not
+        // wait for one; else the slot goes back.
+        if self.warm > 0 && !is_describe(node) && self.slots.rewarm(self.warm) {
+            self.warm_up(live.slot, live.system.clone());
+        } else {
+            if live.system.is_some() {
+                let _ = self.port.set_system_prompt(&live.preset, "");
+            }
+            self.slots.give(live.slot);
         }
-        self.slots.give(live.slot);
         let tokens = match live.usage {
             Some(u) => format!(
                 "uncached {} cache write {} cache read {} output {}",
@@ -693,10 +1041,25 @@ impl AcpmuxCompactor {
             "compactor node {} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
             node.name(),
             self.spec.harness,
-            self.spec.model.as_deref().unwrap_or("default model"),
+            self.model().as_deref().unwrap_or("default model"),
             live.opened.elapsed().as_secs_f64(),
             live.prompts
         ));
+    }
+}
+
+/// Image descriptions count down from the top of level 0's id space.
+fn is_describe(node: NodeId) -> bool {
+    node.l == 0 && node.i > u64::MAX / 2
+}
+
+impl Drop for AcpmuxCompactor {
+    /// The warm sessions end with the compactor: no Claude Code process
+    /// outlives the host idle.
+    fn drop(&mut self) {
+        for w in self.slots.drain_warm() {
+            self.end_warm(&w);
+        }
     }
 }
 
@@ -707,8 +1070,10 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
     fn describe(&self, blocks: Vec<Value>) -> Result<String, String> {
         let n = self.describes.fetch_add(1, Ordering::SeqCst);
         let node = NodeId::new(0, u64::MAX - n);
-        let session = self.open(node, None).map_err(|e| e.message)?;
-        let reply = self.prompt(node, &session, blocks);
+        let session = self
+            .open(node, None, self.cache_ttl.get())
+            .map_err(|e| e.message)?;
+        let reply = self.prompt(node, &session, blocks, &|| {});
         self.end_node(node);
         reply.map(|r| r.text).map_err(|e| e.message)
     }
@@ -744,13 +1109,17 @@ pub fn request_blocks(request: &CompactRequest) -> Vec<Value> {
 
 /// The compactor presets' harness arguments on a Claude harness: acpmux's
 /// allowlist of preset args, every one of which takes a capability away: no
-/// tools, no MCP servers, no transcript. The system prompt is the preset's
+/// tools, no MCP servers, no transcript, no user or local settings, no
+/// skills or slash commands. The system prompt is the preset's
 /// `systemPrompt` text (acpmux writes and checks the file), never a path.
-pub const COMPACTOR_ARGS: [&str; 4] = [
+pub const COMPACTOR_ARGS: [&str; 7] = [
     "--tools",
     "",
     "--strict-mcp-config",
     "--no-session-persistence",
+    "--setting-sources",
+    "project",
+    "--disable-slash-commands",
 ];
 
 /// The slot presets' system prompt at install, before any node sets its
@@ -758,6 +1127,7 @@ pub const COMPACTOR_ARGS: [&str; 4] = [
 pub const COMPACTOR_PROMPT_SEED: &str = "optchat compactor (each node sets its own system prompt)";
 
 pub use crate::prompt::CachedPrompt;
+use crate::prompt::{CacheTtl, SharedTtl};
 
 /// A node's first prompt in the cached layout (`prompt::cached_layout`): the
 /// compactor's system text plus the context up to its first cache mark is
@@ -765,6 +1135,14 @@ pub use crate::prompt::CachedPrompt;
 /// marker at the last mark, then the step.
 pub fn cached_prompt(request: &CompactRequest, marker: bool) -> CachedPrompt {
     crate::prompt::cached_layout_at_marks(&request.system, &request.context, &request.step, marker)
+}
+
+/// `cached_prompt` with its mark at `ttl` (the turns' TTL on this route).
+pub fn cached_prompt_with(request: &CompactRequest, marker: bool, ttl: CacheTtl) -> CachedPrompt {
+    let mark = marker
+        .then(|| crate::prompt::Mark::last_whole(&request.context, ttl))
+        .flatten();
+    crate::prompt::cached_layout_marked(&request.system, &request.context, &request.step, mark)
 }
 
 /// Whether a failed turn's error is the API's limit of four cache
@@ -904,15 +1282,28 @@ pub fn probe_models(
 /// auto-memory, no hooks (the user's included), no bundled skills, and a
 /// one-day transcript retention for whatever `end` could not delete.
 pub fn compactor_settings() -> Value {
-    json!({
+    compactor_settings_for(CacheTtl::OneHour)
+}
+
+/// `compactor_settings` with Claude Code's own marks at `ttl`, the TTL of
+/// the node's mark (the API refuses a 1h mark after a 5m one): its
+/// `promptCacheTtl`, and at 5 minutes FORCE_PROMPT_CACHING_5M, which wins
+/// over a subscription login's 1 hour.
+pub fn compactor_settings_for(ttl: CacheTtl) -> Value {
+    let mut value = json!({
         "permissions": {"deny": DENIED_TOOLS.as_slice()},
         "autoMemoryEnabled": false,
         "hooks": {},
         "disableAllHooks": true,
         "disableBundledSkills": true,
+        "promptCacheTtl": ttl.as_str(),
         "enableAllProjectMcpServers": false,
         "cleanupPeriodDays": TRANSCRIPT_DAYS,
-    })
+    });
+    if ttl == CacheTtl::FiveMinutes {
+        value["env"] = json!({"FORCE_PROMPT_CACHING_5M": "1"});
+    }
+    value
 }
 
 /// Creates the compactor's configuration directory (0700) and its settings.
@@ -922,11 +1313,34 @@ pub fn prepare_config(dir: &Path) -> io::Result<()> {
 }
 
 fn write_settings(path: &Path) -> io::Result<()> {
-    crate::session_dir::write_if_changed(
+    write_settings_for(path, CacheTtl::OneHour, &BTreeMap::new())
+}
+
+/// The slot settings at `ttl`, with `user_env` (the user's Claude Code
+/// settings env: the slot loads no user setting source) under the slot's
+/// own env.
+fn write_settings_for(
+    path: &Path,
+    ttl: CacheTtl,
+    user_env: &BTreeMap<String, String>,
+) -> io::Result<()> {
+    let mut settings = compactor_settings_for(ttl);
+    if !user_env.is_empty() {
+        let mut env: serde_json::Map<String, Value> = user_env
+            .iter()
+            .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+            .collect();
+        if let Some(own) = settings.get("env").and_then(Value::as_object) {
+            env.extend(own.clone());
+        }
+        settings["env"] = Value::Object(env);
+    }
+    // It may hold the user's settings env (an API token): the user's alone.
+    crate::session_dir::write_private(
         path,
         format!(
             "{}\n",
-            serde_json::to_string_pretty(&compactor_settings()).map_err(io::Error::other)?
+            serde_json::to_string_pretty(&settings).map_err(io::Error::other)?
         )
         .as_bytes(),
     )
@@ -952,13 +1366,13 @@ pub fn slot_preset(base: &str, k: usize) -> String {
 }
 
 /// The compactor's acpmux presets (`optchat-compact-<home id>-slot-<k>`, one
-/// per JOBS slot), which every compactor session requires.
+/// per slot), which every compactor session requires.
 /// OPTCHAT_CHIEF_ISOLATE=0 does not touch them.
 pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Family) -> Vec<Preset> {
     let base = format!("optchat-compact-{}", home_id(home));
     if family == Family::Codex {
         // Codex: the slot's own CODEX_HOME and the Chief's compactor cache key.
-        return (0..optchat_core::JOBS)
+        return (0..COMPACTOR_SESSIONS)
             .map(|k| Preset {
                 name: slot_preset(&base, k),
                 harness: harness.to_owned(),
@@ -966,6 +1380,14 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
                     // No cmux agent tools (acpmux `agent_tools.rs`): a
                     // compactor session stays isolated.
                     ("ACPMUX_AGENT_TOOLS".to_owned(), "0".to_owned()),
+                    // No user skills (`$HOME/.agents/skills`): a private,
+                    // empty HOME (`codex_private_home`).
+                    (
+                        "HOME".to_owned(),
+                        crate::codex_home::codex_private_home(&paths.compactor_codex)
+                            .display()
+                            .to_string(),
+                    ),
                     (
                         "CODEX_HOME".to_owned(),
                         codex_slot_home(&paths.compactor_codex, k)
@@ -986,10 +1408,12 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     // No cmux agent tools (acpmux `agent_tools.rs`); `--strict-mcp-config`
     // already keeps them out, this says so for every harness.
     env.insert("ACPMUX_AGENT_TOOLS".to_owned(), "0".to_owned());
-    env.insert(
-        "CLAUDE_CONFIG_DIR".to_owned(),
-        paths.compactor_config.display().to_string(),
-    );
+    // No CLAUDE_CONFIG_DIR of its own (cx-1hpt): the user's Claude login
+    // lives with the user's Claude home, and a plain `claude` compactor in
+    // an empty one cannot sign in. The slot's project settings (every tool
+    // denied, no hooks, no auto-memory, no bundled skills), the env below
+    // and the preset's flags keep the session isolated; `end` deletes its
+    // transcript there.
     // One sticky subrouter account for every node of this Chief, so nodes
     // read each other's cached context (claude-sr; harmless elsewhere).
     env.insert(
@@ -1008,7 +1432,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
-    (0..optchat_core::JOBS)
+    (0..COMPACTOR_SESSIONS)
         .map(|k| Preset {
             name: slot_preset(&base, k),
             harness: harness.to_owned(),
@@ -1023,20 +1447,49 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         .collect()
 }
 
-/// The compactor's effort (section 4.2: the reference runs Claude Sonnet at
-/// medium effort; at low effort it overshot the size limit much more).
-/// acpmux maps `effort` onto Claude Code's `--effort` and codex's
-/// `reasoning_effort`, both of which take `medium`.
-pub const COMPACTOR_EFFORT: &str = "medium";
+/// The effort of a Claude compactor session: high, with Claude Haiku 5.5
+/// (`optchat_host::DEFAULT_EFFORT`, as the reference client runs it; at low
+/// effort the compactor overshot the size limit much more). acpmux maps
+/// `effort` onto Claude Code's `--effort`.
+pub const COMPACTOR_EFFORT: &str = optchat_host::DEFAULT_EFFORT;
 
-/// The default effort of `family`'s compactor sessions: `COMPACTOR_EFFORT`
-/// on a Claude or codex harness; another harness keeps its own default (its
-/// effort names are not known here).
+/// The effort of a codex compactor session (codex's `reasoning_effort`):
+/// medium, as section 4.2 runs its compactor; codex is not Haiku.
+pub const CODEX_COMPACTOR_EFFORT: &str = "medium";
+
+/// The default effort of `family`'s compactor sessions; another harness
+/// keeps its own default (its effort names are not known here).
 pub fn compactor_effort(family: Family) -> Option<String> {
     match family {
-        Family::Claude | Family::Codex => Some(COMPACTOR_EFFORT.to_owned()),
+        Family::Claude => Some(COMPACTOR_EFFORT.to_owned()),
+        Family::Codex => Some(CODEX_COMPACTOR_EFFORT.to_owned()),
         Family::Other => None,
     }
+}
+
+/// The compactor model a Claude Code harness is asked for: the `haiku`
+/// alias, which Claude Code maps to its current Haiku. Claude Code 2.1.287
+/// does not know the full id `claude-haiku-5-5` ("[claude-code:
+/// unrecognized_model]"); the Messages API route keeps it
+/// (`optchat_host::DEFAULT_MODEL`).
+pub const CLAUDE_CODE_COMPACTOR_MODEL: &str = "haiku";
+
+/// The default compactor model of `family`'s harness (None: the harness's
+/// own default model).
+pub fn compactor_model_for(family: Family) -> Option<String> {
+    (family == Family::Claude).then(|| CLAUDE_CODE_COMPACTOR_MODEL.to_owned())
+}
+
+/// Whether a failed compactor turn says the account cannot use the model:
+/// Claude Code's "There's an issue with the selected model (...). It may
+/// not exist or you may not have access to it", or the API's
+/// `not_found_error` for the model. A usage limit or an overload is not.
+pub fn is_model_unavailable(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("issue with the selected model")
+        || lower.contains("unrecognized_model")
+        || lower.contains("may not exist or you may not have access")
+        || (lower.contains("not_found_error") && lower.contains("model"))
 }
 
 /// How the compactor's sessions start for `home`.
@@ -1060,6 +1513,7 @@ pub fn compactor_spec(
         effort: compactor_effort(family),
         timeout: CALL_TIMEOUT,
         chief: home_id(home),
+        user_env: crate::session_dir::host_user_env(),
     }
 }
 

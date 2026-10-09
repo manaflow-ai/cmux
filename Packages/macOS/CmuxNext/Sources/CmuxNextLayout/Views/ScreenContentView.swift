@@ -15,7 +15,7 @@ final class ScreenContentView: NSView {
     /// hit testing, drops, focus and the strip scroll read.
     var geometry: ScreenGeometry
     private var paneFrames: [PaneID: AnimatedFrame] = [:]
-    private var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
+    private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
 
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
@@ -35,7 +35,7 @@ final class ScreenContentView: NSView {
     /// The focus the scroll last followed; a window resize re-syncs with it.
     var lastFocused: PaneID?
 
-    var activeDrag: ActiveDrag?
+    var activeDrag: DividerDragState?
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
@@ -148,6 +148,7 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
+                view.onPointerChange = { [weak self] in self?.refreshDividerHover() }
                 addSubview(view)
                 dividerViews[kind] = view
             }
@@ -163,6 +164,8 @@ final class ScreenContentView: NSView {
             }
         }
         for kind in dividerViews.keys where targets[kind] == nil {
+            // The handle under a drag goes away: its mouse-up never comes.
+            if activeDrag?.kind == kind { endDrag() }
             dividerViews.removeValue(forKey: kind)?.removeFromSuperview()
             dividerFrames[kind] = nil
         }
@@ -191,10 +194,10 @@ final class ScreenContentView: NSView {
     func step(_ dt: Double) -> Bool {
         var moving = false
         for key in Array(paneFrames.keys) {
-            if paneFrames[key]!.advance(dt, parameters: Motion.spring(.move)) { moving = true }
+            if paneFrames[key]?.advance(dt, parameters: Motion.spring(.move)) == true { moving = true }
         }
         for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]!.advance(dt, parameters: Motion.spring(.move)) { moving = true }
+            if dividerFrames[key]?.advance(dt, parameters: Motion.spring(.move)) == true { moving = true }
         }
         if stepRows(dt) { moving = true }
         if !isUserScrolling {
@@ -231,8 +234,12 @@ final class ScreenContentView: NSView {
             if view.isHidden != hidden { view.isHidden = hidden }
         }
         updateScrollbar()
+        refreshDividerHover()
         context.overlayNeedsSync()
     }
+
+    /// Divider hover from the pointer and the current frames (`ScreenDividers`).
+    func refreshDividerHover() { ScreenDividers(screen: self).refreshHover() }
 
     /// Hosts this screen displays now.
     var displayedHosts: [PaneHostView] {
@@ -241,34 +248,8 @@ final class ScreenContentView: NSView {
         }
     }
 
-    /// Divider hit areas that are on screen, in this view's coordinates.
-    /// They take the mouse but draw only their thin line, so content drawn
-    /// above the window (a Chromium page) keeps drawing under them.
-    var dividerMouseAreas: [LayoutMouseArea] {
-        dividerViews.compactMap { kind, view in
-            guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
-            let rect = view.frame.intersection(bounds)
-            guard !rect.isNull, !rect.isEmpty else { return nil }
-            return LayoutMouseArea(id: kind.mouseAreaID, rect: rect, resizesColumns: view.axis == .horizontal)
-        }.sorted { $0.id < $1.id }
-    }
-
-    /// The dividers' drawn lines, in this view's coordinates: native UI that
-    /// Chromium pages leave uncovered (they sit in the gap between panes).
-    /// A divider that never draws (`layout.paneSeparation` none) leaves no
-    /// hole, so neighboring pages meet with no seam.
-    var dividerLineRects: [CGRect] {
-        dividerViews.values.compactMap { view in
-            guard !view.isHidden, view.alphaValue > 0.01, view.showsIdleLine || view.showsActiveLine else { return nil }
-            let rect = view.lineFrameInSuperview.intersection(bounds)
-            return rect.isNull || rect.isEmpty ? nil : rect
-        }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
-    }
-
-    /// Hover forwarded from a click-catching panel over a page.
-    func setDividerHovered(_ id: String, _ hovered: Bool) {
-        dividerViews.first { $0.key.mouseAreaID == id }?.value.setForwardedHover(hovered)
-    }
+    var dividerMouseAreas: [LayoutMouseArea] { ScreenDividers(screen: self).mouseAreas }
+    var dividerLineRects: [CGRect] { ScreenDividers(screen: self).lineRects }
 
     // MARK: Chrome
 
@@ -342,6 +323,8 @@ final class ScreenContentView: NSView {
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).
     func tearDown() {
+        // A drag on a screen that goes away gets no release either.
+        endDrag()
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
         }

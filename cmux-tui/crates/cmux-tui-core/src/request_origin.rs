@@ -112,6 +112,8 @@ pub(crate) struct ConnectionOrigin {
     /// Role main plus a proof (P8: install-key hello on DEV builds, the
     /// app's code signature on signed builds; server/client_hello.rs).
     pub(crate) verified_app: bool,
+    /// The install id the install-key proof (prover B) proved, if any.
+    pub(crate) install_id: Option<String>,
     /// Tokens issued for this connection as a relay (page relays only).
     confirmations: Vec<Confirmation>,
 }
@@ -131,6 +133,18 @@ impl ConnectionOrigin {
             HelloRole::Main if self.verified_app => RequestOrigin::User,
             HelloRole::Main | HelloRole::Legacy => RequestOrigin::Agent,
         }
+    }
+
+    /// The actor of every durable mutation this connection causes
+    /// (identity.md section 3): the verified app is `frontend`, any other
+    /// local connection the local `user`. A request can never change it.
+    pub(crate) fn actor(&self) -> crate::workspace_registry::Actor {
+        use crate::workspace_registry::Actor;
+        if self.derive() != RequestOrigin::User {
+            return Actor::local_user();
+        }
+        let install_id = self.install_id.clone().unwrap_or_else(|| "signed_app".to_string());
+        Actor::Frontend { install_id }
     }
 
     /// Stores a token minted for this relay connection. `deadline_ms` and

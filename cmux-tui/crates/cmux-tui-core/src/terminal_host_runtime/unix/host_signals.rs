@@ -5,8 +5,9 @@
 //! job. A host is therefore ended only by its owner's `Terminate` frame or
 //! by its child's exit, never by a stray signal. `SIGTERM`, `SIGHUP`,
 //! `SIGINT` and `SIGQUIT` (a plain `kill PID`, a `pkill -f` that matches the
-//! bundle path, a cleanup sweep, a hangup of a former session) are recorded
-//! and otherwise ignored. `SIGKILL` cannot be caught; the owner then names
+//! bundle path, a cleanup sweep, a hangup of a former session), and the
+//! other catchable signals whose default action ends or stops a process
+//! ([`SURVIVED_SIGNALS`]), are recorded and otherwise ignored. `SIGKILL` cannot be caught; the owner then names
 //! the loss from the missing exit record and these breadcrumbs.
 //!
 //! One sender is honored: a `SIGTERM` from PID 1, the service manager
@@ -31,12 +32,46 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI32, AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-/// The signals a host records and survives.
-pub(crate) const SURVIVED_SIGNALS: [libc::c_int; 4] =
-    [libc::SIGTERM, libc::SIGHUP, libc::SIGINT, libc::SIGQUIT];
+/// The signals a host records and survives: every catchable signal whose
+/// default action ends or stops the process (cx-0tgl LB), plus, on Linux,
+/// the real-time signals ([`survived_signals`]). `SIGPIPE` stays ignored (the
+/// Rust runtime's disposition), so a broken client socket fills no slot.
+/// `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE`, `SIGABRT`, `SIGTRAP` and `SIGSYS`
+/// stay fatal: they report a bug in the host and must leave a crash report.
+pub(crate) const SURVIVED_SIGNALS: [libc::c_int; 14] = [
+    libc::SIGTERM,
+    libc::SIGHUP,
+    libc::SIGINT,
+    libc::SIGQUIT,
+    libc::SIGUSR1,
+    libc::SIGUSR2,
+    libc::SIGALRM,
+    libc::SIGVTALRM,
+    libc::SIGPROF,
+    libc::SIGXCPU,
+    libc::SIGXFSZ,
+    libc::SIGTSTP,
+    libc::SIGTTIN,
+    libc::SIGTTOU,
+];
+
+/// [`SURVIVED_SIGNALS`] plus the platform's other default-terminating
+/// signals. On Linux the real-time range starts at glibc's `SIGRTMIN()`,
+/// above the signals it reserves for threads.
+fn survived_signals() -> Vec<libc::c_int> {
+    let mut signals = SURVIVED_SIGNALS.to_vec();
+    #[cfg(target_os = "linux")]
+    {
+        signals.extend([libc::SIGIO, libc::SIGPWR, libc::SIGSTKFLT]);
+        signals.extend(libc::SIGRTMIN()..=libc::SIGRTMAX());
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+    signals.push(libc::SIGEMT);
+    signals
+}
 
 /// Recorded signals per host process; later ones are only counted.
 pub(crate) const MAX_RECORDED_SIGNALS: usize = 32;
@@ -44,6 +79,8 @@ pub(crate) const MAX_RECORDED_SIGNALS: usize = 32;
 struct Slot {
     signal: AtomicI32,
     sender_pid: AtomicI32,
+    /// The sender's real user id: still true after the sender exited.
+    sender_uid: AtomicU32,
     at_ms: AtomicI64,
     /// Set last by the handler: the slot is complete.
     ready: AtomicI32,
@@ -53,6 +90,7 @@ static SLOTS: [Slot; MAX_RECORDED_SIGNALS] = [const {
     Slot {
         signal: AtomicI32::new(0),
         sender_pid: AtomicI32::new(0),
+        sender_uid: AtomicU32::new(u32::MAX),
         at_ms: AtomicI64::new(0),
         ready: AtomicI32::new(0),
     }
@@ -72,8 +110,16 @@ struct Breadcrumbs {
 static WRITTEN: Mutex<usize> = Mutex::new(0);
 /// Ends the host's terminal (an owner `Terminate`), once the host runs one.
 static TERMINATE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
-/// Slots already checked for a service-manager `SIGTERM`.
-static CHECKED: AtomicUsize = AtomicUsize::new(0);
+/// Set by the handler on a `SIGTERM` from PID 1, outside the slot table, so
+/// a service-manager stop is honored after the table is full.
+static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
+/// The terminal was asked to end for the service-manager stop.
+static STOP_ACTED: AtomicBool = AtomicBool::new(false);
+/// Dropped signals already summarized in the breadcrumb file.
+static DROPPED_REPORTED: AtomicUsize = AtomicUsize::new(0);
+/// A breadcrumb append failed (for example `EFBIG` past `RLIMIT_FSIZE`): stop
+/// writing, so a failing write cannot raise `SIGXFSZ` again in a loop.
+static BREADCRUMBS_FAILED: AtomicBool = AtomicBool::new(false);
 
 /// A service-manager stop (`SIGTERM` from PID 1) ends the host; every other
 /// recorded signal is survived.
@@ -88,26 +134,32 @@ pub(crate) fn on_service_manager_stop(terminate: Box<dyn Fn() + Send + Sync>) {
 }
 
 fn act_on_service_manager_stop() {
-    let recorded = NEXT_SLOT.load(Ordering::Acquire).min(MAX_RECORDED_SIGNALS);
-    let mut index = CHECKED.load(Ordering::Acquire);
-    while index < recorded {
-        let slot = &SLOTS[index];
-        if slot.ready.load(Ordering::Acquire) == 0 {
-            break;
-        }
-        if honors(slot.signal.load(Ordering::Relaxed), slot.sender_pid.load(Ordering::Relaxed)) {
-            match TERMINATE.get() {
-                Some(terminate) => terminate(),
-                // A host with no terminal yet (standby, launching) just ends.
-                // crash-allow: a service-manager stop of a host with no terminal.
-                None if BREADCRUMBS.get().is_none() => std::process::exit(0),
-                // A terminal is starting: act once its terminate is registered.
-                None => return,
-            }
-        }
-        index += 1;
-        CHECKED.store(index, Ordering::Release);
+    if !SERVICE_STOP.load(Ordering::Acquire) {
+        return;
     }
+    match TERMINATE.get() {
+        Some(terminate) if !STOP_ACTED.swap(true, Ordering::AcqRel) => terminate(),
+        Some(_) => {}
+        // A host with no terminal yet (standby, launching) just ends.
+        // crash-allow: a service-manager stop of a host with no terminal.
+        None if BREADCRUMBS.get().is_none() => std::process::exit(0),
+        // A terminal is starting: act once its terminate is registered.
+        None => {}
+    }
+}
+
+/// The sender's real user id from an `SA_SIGINFO` record.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+unsafe fn siginfo_uid(info: *mut libc::siginfo_t) -> u32 {
+    // SAFETY: the caller passes the kernel's non-null siginfo.
+    unsafe { (*info).si_uid }
+}
+
+/// The sender's real user id from an `SA_SIGINFO` record.
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd")))]
+unsafe fn siginfo_uid(info: *mut libc::siginfo_t) -> u32 {
+    // SAFETY: the caller passes the kernel's non-null siginfo.
+    unsafe { (*info).si_uid() }
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
@@ -132,15 +184,20 @@ extern "C" fn record_signal(
     unsafe {
         let errno = errno_location();
         let saved = *errno;
+        let sender = if info.is_null() { 0 } else { (*info).si_pid() };
+        let sender_uid = if info.is_null() { u32::MAX } else { siginfo_uid(info) };
+        if honors(signal, sender) {
+            SERVICE_STOP.store(true, Ordering::Release);
+        }
         let index = NEXT_SLOT.fetch_add(1, Ordering::AcqRel);
         if index < MAX_RECORDED_SIGNALS {
             let slot = &SLOTS[index];
-            let sender = if info.is_null() { 0 } else { (*info).si_pid() };
             let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
             libc::clock_gettime(libc::CLOCK_REALTIME, &mut now);
             let at_ms = now.tv_sec.saturating_mul(1000) + now.tv_nsec / 1_000_000;
             slot.signal.store(signal, Ordering::Relaxed);
             slot.sender_pid.store(sender, Ordering::Relaxed);
+            slot.sender_uid.store(sender_uid, Ordering::Relaxed);
             slot.at_ms.store(at_ms, Ordering::Relaxed);
             slot.ready.store(1, Ordering::Release);
         }
@@ -201,8 +258,9 @@ pub(crate) fn install() -> anyhow::Result<()> {
             {
                 return;
             }
-            flush();
+            // A service-manager stop first: naming senders reads /proc.
             act_on_service_manager_stop();
+            flush();
         }
     })?;
     // SAFETY: a zeroed sigaction with a valid SA_SIGINFO handler and an
@@ -214,11 +272,14 @@ pub(crate) fn install() -> anyhow::Result<()> {
         if libc::sigemptyset(&mut action.sa_mask) != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
-        for signal in SURVIVED_SIGNALS {
+        for signal in survived_signals() {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
                 return Err(std::io::Error::last_os_error().into());
             }
         }
+        // Whatever the launcher left, a host survives `SIGPIPE`; the PTY
+        // child gets the default back before it execs.
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
     let _ = INSTALLED.set(());
     Ok(())
@@ -227,12 +288,16 @@ pub(crate) fn install() -> anyhow::Result<()> {
 /// Name the breadcrumb file once the host knows its identity, and write any
 /// signal recorded before that.
 pub(crate) fn set_breadcrumb_path(path: PathBuf, terminal_id: String, incarnation: String) {
+    super::host_crash::install(path.with_extension("crash"), &terminal_id, &incarnation);
     let _ = BREADCRUMBS.set(Breadcrumbs { path, terminal_id, incarnation });
     flush();
 }
 
 fn flush() {
     let Some(breadcrumbs) = BREADCRUMBS.get() else { return };
+    if BREADCRUMBS_FAILED.load(Ordering::Acquire) {
+        return;
+    }
     let mut written = WRITTEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let recorded = NEXT_SLOT.load(Ordering::Acquire);
     let mut lines = String::new();
@@ -241,12 +306,21 @@ fn flush() {
         if slot.ready.load(Ordering::Acquire) == 0 {
             break;
         }
+        let sender_pid = slot.sender_pid.load(Ordering::Relaxed);
+        let at_ms = slot.at_ms.load(Ordering::Relaxed);
+        let sender_uid = slot.sender_uid.load(Ordering::Relaxed);
         let line = serde_json::json!({
             "terminal_id": breadcrumbs.terminal_id,
             "incarnation": breadcrumbs.incarnation,
             "signal": slot.signal.load(Ordering::Relaxed),
-            "sender_pid": slot.sender_pid.load(Ordering::Relaxed),
-            "at_ms": slot.at_ms.load(Ordering::Relaxed),
+            "sender_pid": sender_pid,
+            // Who sent it (cx-0tgl LA), read while the sender usually still
+            // runs: an external killer is named in the loss line.
+            "sender": u32::try_from(sender_pid).ok().and_then(|pid| {
+                crate::process_identity::describe_sender(pid, u64::try_from(at_ms).unwrap_or(0))
+            }),
+            "sender_uid": (sender_uid != u32::MAX).then_some(sender_uid),
+            "at_ms": at_ms,
             "action": if honors(
                 slot.signal.load(Ordering::Relaxed),
                 slot.sender_pid.load(Ordering::Relaxed),
@@ -260,12 +334,17 @@ fn flush() {
         lines.push('\n');
         *written += 1;
     }
-    if recorded > MAX_RECORDED_SIGNALS && *written == MAX_RECORDED_SIGNALS {
-        // Counted, not stored; one summary line per flush past the cap.
+    let dropped = recorded.saturating_sub(MAX_RECORDED_SIGNALS);
+    let reported = DROPPED_REPORTED.load(Ordering::Acquire);
+    if *written == MAX_RECORDED_SIGNALS && dropped > 0 && dropped >= reported.saturating_mul(2) {
+        // Counted, not stored. A summary line each time the count doubles,
+        // so frequent signals (a profiling timer, SIGXCPU) cannot grow the
+        // file without bound.
+        DROPPED_REPORTED.store(dropped, Ordering::Release);
         let line = serde_json::json!({
             "terminal_id": breadcrumbs.terminal_id,
             "incarnation": breadcrumbs.incarnation,
-            "dropped": recorded - MAX_RECORDED_SIGNALS,
+            "dropped": dropped,
         });
         lines.push_str(&line.to_string());
         lines.push('\n');
@@ -279,8 +358,9 @@ fn flush() {
         .mode(0o600)
         .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(&breadcrumbs.path)
+        && file.write_all(lines.as_bytes()).is_err()
     {
-        let _ = file.write_all(lines.as_bytes());
+        BREADCRUMBS_FAILED.store(true, Ordering::Release);
     }
 }
 
