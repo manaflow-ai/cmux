@@ -10,7 +10,7 @@ public nonisolated enum AppsUnavailableReason: Sendable, Hashable {
 }
 
 /// Whether the supervisor answers. `epoch` changes on every (re)connect:
-/// the client then lists again, re-mounts and resends its pending intents.
+/// the client then lists again and re-mounts.
 public nonisolated enum AppsAvailability: Sendable, Hashable {
     case available(epoch: Int)
     case unavailable(AppsUnavailableReason)
@@ -24,8 +24,8 @@ public nonisolated struct AppsTransportError: Error, Sendable, Hashable, CustomS
     public var code: String?
     public var message: String
     /// The connection dropped before the reply (the request may or may not
-    /// have reached the supervisor). A change is then resent with its key on
-    /// the next connection instead of being treated as a refusal.
+    /// have reached the supervisor). A change then leaves the intent log
+    /// without a rejection; the next connection's list shows the truth.
     public var connectionLost: Bool
 
     public init(code: String? = nil, message: String, connectionLost: Bool = false) {

@@ -25,7 +25,11 @@ final class DaemonAppsTransport: AppsTransport {
     var onEvent: ((AppsTransportEvent) -> Void)?
     /// DisabledFeatures `apps`: the reason shown while it holds.
     var turnedOff: String? {
-        didSet { if turnedOff != oldValue { update(daemon.store.connectionState, storeEpoch: daemon.store.connectionEpoch) } }
+        didSet {
+            guard turnedOff != oldValue else { return }
+            provider.turnedOff = turnedOff
+            update(daemon.store.connectionState, storeEpoch: daemon.store.connectionEpoch)
+        }
     }
     private var epoch = 0
     /// The store's connection epoch of the current availability epoch.
@@ -35,7 +39,7 @@ final class DaemonAppsTransport: AppsTransport {
 
     init(daemon: DaemonService) {
         self.daemon = daemon
-        provider = AppsProviderChannel(daemon: daemon)
+        provider = AppsProviderChannel(link: .daemon(daemon))
     }
 
     func start() {
@@ -56,28 +60,38 @@ final class DaemonAppsTransport: AppsTransport {
     }
 
     private func update(_ state: DaemonConnectionState, storeEpoch: Int) {
+        let capabilities: [String]? = if case .connected(let identity) = state { identity.capabilities } else { nil }
         let next: AppsAvailability
-        switch state {
-        case .connected(let identity):
-            if identity.supports(Self.capability) {
-                if case .available(let current) = availability, storeEpoch == self.storeEpoch { next = .available(epoch: current) } else {
-                    epoch += 1
-                    self.storeEpoch = storeEpoch
-                    next = .available(epoch: epoch)
-                }
-            } else {
-                next = .unavailable(.needsNewerDaemon)
-            }
-        case .connecting, .disconnected, .failed:
-            next = .unavailable(.notConnected)
+        if let reason = Self.unavailableReason(capabilities: capabilities) {
+            next = .unavailable(reason)
+        } else if case .available(let current) = availability, storeEpoch == self.storeEpoch {
+            next = .available(epoch: current)
+        } else {
+            epoch += 1
+            self.storeEpoch = storeEpoch
+            next = .available(epoch: epoch)
         }
-        // The provider serves the connection whatever the policy says: a
-        // turned-off Mac still answers nothing, because nothing mounts.
+        // The provider follows the connection; while a policy turns apps off it refuses every call.
         if case .available(let epoch) = next { provider.connectionChanged(epoch: epoch) } else { provider.connectionChanged(epoch: nil) }
         let shown = turnedOff.map { AppsAvailability.unavailable(.turnedOff($0)) } ?? next
         guard shown != availability else { return }
         availability = shown
         onEvent?(.availability(shown))
+    }
+
+    /// Why the supervisor cannot be used: `capabilities` of the connected
+    /// daemon, nil when none is connected.
+    nonisolated static func unavailableReason(capabilities: [String]?) -> AppsUnavailableReason? {
+        guard let capabilities else { return .notConnected }
+        return capabilities.contains(capability) ? nil : .needsNewerDaemon
+    }
+
+    /// The `apps-run` origin: `user` only for a user origin on a connection
+    /// the daemon verified as the cmux app (`client-hello`
+    /// `user_origin_allowed`, P8), as `CloudAppLinks.wireOrigin` does;
+    /// `script` for everything else.
+    nonisolated static func wireOrigin(_ origin: AppOrigin, userOriginAllowed: Bool) -> AppsRunRequest.Origin {
+        origin == .user && userOriginAllowed ? .user : .script
     }
 
     // MARK: Commands
@@ -110,7 +124,7 @@ final class DaemonAppsTransport: AppsTransport {
                                      enabled: change.enabled, hidden: change.hidden, sandboxed: change.sandboxed,
                                      grant: change.grant.map { AppsSetRequest.Grant(scope: $0.scope, granted: $0.granted) })
         guard let record = AppRecord(json: AppJSON(try await send(request))) else {
-            throw AppsTransportError(message: "apps-set returned no app record")
+            throw AppsTransportError(message: AppsAppStrings.noRecord)
         }
         return record
     }
@@ -127,11 +141,10 @@ final class DaemonAppsTransport: AppsTransport {
         _ = try await send(AppsDispatchRequest(mountID: mountID, node: node, event: event, payload: payload.daemonValue))
     }
 
-    func run(app: String, op: String, args: AppJSON, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
-        // Palette and menu runs are user gestures; `user` needs the verified app connection (P8).
+    func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
         let userAllowed = await daemon.connection?.userOriginAllowed == true
         let request = AppsRunRequest(app: app, op: op, args: args.daemonValue, idempotencyKey: idempotencyKey,
-                                     origin: userAllowed ? .user : .script)
+                                     origin: Self.wireOrigin(origin, userOriginAllowed: userAllowed))
         return AppJSON(try await send(request, timeout: Self.runTimeout).value)
     }
 

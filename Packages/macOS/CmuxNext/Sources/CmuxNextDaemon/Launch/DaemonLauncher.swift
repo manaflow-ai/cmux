@@ -112,7 +112,7 @@ public struct DaemonLauncher: Sendable {
     /// tag (never an inherited `CMUX_TAG`), login-shell environment captured
     /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
-    /// `daemonEnvironment` goes only into `server ensure` (the app's first-party apps, `CMUX_APPS_FIRST_PARTY_DIR`).
+    /// `daemonEnvironment` joins only `server ensure`; the daemon still passes it to children (cli-requests/apps-first-party-dir.md).
     public static func forApp(
         tag: String?,
         terminalEnvironment: [String: String],

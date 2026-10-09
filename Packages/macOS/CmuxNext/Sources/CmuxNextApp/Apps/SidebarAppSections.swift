@@ -20,6 +20,11 @@ final class SidebarAppSections: SidebarAppSectionProvider {
         chats?.onContentChange = { [weak self] in self?.contentChange?() }
     }
 
+    /// Unmounts every app section of this window on the supervisor.
+    func releaseAll() {
+        provider.releaseAll()
+    }
+
     /// Updates visibility without creating a feed consumer while Chats is off.
     func setChats(_ section: AgentRecentsSection?, visible: Bool) {
         guard visible != showsChats || (visible && chats == nil) else { return }

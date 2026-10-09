@@ -43,7 +43,7 @@ struct AppDiscoverView: View {
                                 .padding(.vertical, Metrics.space4)
                         }
                     }
-                    .overlay { if model.listings.isEmpty { empty(model.client.isAvailable ? AppsStrings.noMatches : AppsStrings.nothingListed) } }
+                    .overlay { if model.listings.isEmpty { empty(model.client.unavailableReason.map(AppsStrings.unavailable) ?? AppsStrings.noMatches) } }
                 }
             }
         }

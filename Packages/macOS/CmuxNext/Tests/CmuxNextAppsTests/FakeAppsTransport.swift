@@ -1,8 +1,8 @@
 public import Foundation
 
-/// An in-memory app supervisor for tests and the demo: the bundled sample
-/// manifests as available apps, the `apps-set` rules of the real one
-/// (install and grant changes need origin `user`, grants only for requested
+/// An in-memory app supervisor for tests: the bundled sample manifests as
+/// available apps, the `apps-set` rules of the real one (install, grant,
+/// hide and unsandbox need origin `user`, D55; grants only for requested
 /// scopes), a revision bumped per commit with `apps-changed`, and a static
 /// sample scene per mount. Tests can hold replies, refuse changes and drop
 /// the connection.
@@ -20,6 +20,8 @@ public final class FakeAppsTransport: AppsTransport {
     public private(set) var dispatched: [(mountID: String, node: String, event: String)] = []
     public private(set) var seenKeys: [String] = []
     public private(set) var listCalls = 0
+    /// Every `apps-run` as `(op, origin)`.
+    public private(set) var runs: [(op: String, origin: AppOrigin)] = []
     private var held: [CheckedContinuation<Void, Never>] = []
     private var epoch = 1
 
@@ -83,8 +85,9 @@ public final class FakeAppsTransport: AppsTransport {
         }
         guard let index = records.firstIndex(where: { $0.id == app }) else { throw AppsTransportError(code: "apps.unknown", message: "no app \(app)") }
         if seenKeys.contains(idempotencyKey) { return records[index] }
-        if change.requiresUserOrigin, origin != .user {
-            throw AppsTransportError(code: "apps.origin", message: "installs and grants need a user gesture")
+        let needsUser = change.installed != nil || change.grant != nil || change.hidden != nil || change.sandboxed == false
+        if needsUser, origin != .user {
+            throw AppsTransportError(code: "apps.origin_forbidden", message: "needs a user gesture")
         }
         if let grant = change.grant, !(records[index].manifest.scopes + records[index].manifest.optionalScopes).contains(where: { $0.scope == grant.scope }) {
             throw AppsTransportError(code: "apps.scope", message: "\(app) does not request \(grant.scope)")
@@ -124,8 +127,9 @@ public final class FakeAppsTransport: AppsTransport {
         dispatched.append((mountID, node, event))
     }
 
-    public func run(app: String, op: String, args: AppJSON, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
+    public func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
         try requireAvailable()
+        runs.append((op, origin))
         throw AppsTransportError(code: "operation.unsupported", message: "\(op) is not supported by the demo supervisor")
     }
 

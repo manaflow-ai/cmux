@@ -19,7 +19,7 @@ public nonisolated enum AppsTransportEvent: Sendable, Hashable {
 
 /// The app supervisor as the feature module sees it (capability `apps-v1`,
 /// plans/cmux-next/app-platform.md section 13.2). The App implements it over
-/// the daemon client; `FakeAppsTransport` serves tests and the demo. Every
+/// the daemon client; tests use a fake (Tests/CmuxNextAppsTests). Every
 /// call is asynchronous with a deadline set by the implementation; none
 /// blocks the main actor.
 @MainActor
@@ -38,7 +38,9 @@ public protocol AppsTransport: AnyObject {
     func unmount(mountID: String) async throws(AppsTransportError)
     /// A user event on a mounted node (origin `user`: the supervisor mints the gesture token).
     func dispatch(mountID: String, node: String, event: String, payload: AppJSON) async throws(AppsTransportError)
-    /// Runs a catalog op of the app and waits for its result.
-    func run(app: String, op: String, args: AppJSON, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON
+    /// Runs a catalog op of the app and waits for its result. `origin` is the
+    /// caller's; the transport sends `user` only for a user origin on a
+    /// connection the daemon verified as the cmux app.
+    func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine]
 }

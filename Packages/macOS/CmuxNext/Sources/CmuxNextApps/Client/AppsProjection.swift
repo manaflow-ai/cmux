@@ -1,6 +1,6 @@
 /// One pending `apps-set`: sent to the supervisor, not yet answered.
 public nonisolated struct AppIntent: Sendable, Hashable, Identifiable {
-    /// The idempotency key; resent unchanged after a reconnect.
+    /// The idempotency key of the `apps-set`.
     public var id: String
     public var app: String
     public var change: AppChange

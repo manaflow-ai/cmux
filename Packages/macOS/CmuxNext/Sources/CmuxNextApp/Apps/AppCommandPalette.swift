@@ -30,11 +30,25 @@ enum AppCommandPalette {
         }
     }
 
-    /// Commands of the presented apps (the palette offers every one).
-    @MainActor static func entries(_ apps: AppsService) -> [Entry] {
+    /// Commands an invocation from `origin` may run: the palette (user)
+    /// reaches presented apps only; the CLI, MCP and automations also reach a
+    /// hidden app whose `hidden_access` allows that channel (V9).
+    @MainActor static func entries(_ apps: AppsService, origin: ActionOrigin = .user) -> [Entry] {
         let presence = apps.presence
-        return apps.client.apps.filter { presence.isPresented($0.id) }.flatMap { app in
+        return apps.client.apps.filter { reaches($0, origin: origin, presented: presence.isPresented($0.id)) }.flatMap { app in
             app.commands.map { Entry(app: app, command: $0) }
+        }
+    }
+
+    /// Whether a run from `origin` reaches `app` (pure, for tests).
+    nonisolated static func reaches(_ app: AppRecord, origin: ActionOrigin, presented: Bool) -> Bool {
+        if presented { return true }
+        guard app.isActive, app.hidden else { return false }
+        switch origin {
+        case .cli: return app.hiddenAccess.cli
+        case .mcp: return app.hiddenAccess.mcp
+        case .script, .remote: return app.hiddenAccess.automations
+        default: return false
         }
     }
 
@@ -46,7 +60,8 @@ enum AppCommandPalette {
             return PaletteItem(id: "open:\(app.id)", title: AppsAppStrings.open(name), subtitle: name,
                                symbol: "square.grid.2x2", keywords: [app.id, name],
                                primary: PaletteCommand(id: "open", title: AppsAppStrings.run, symbol: "return", effect: .perform {
-                                   try? services.apps.openApp(app.id)
+                                   _ = services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(app.id)],
+                                                                                                          origin: .user))
                                }))
         }
         return opens + entries(services.apps).map { item($0, services) }
@@ -65,14 +80,25 @@ enum AppCommandPalette {
         PaletteItem(id: "\(entry.app.id)#\(entry.command.op)", title: entry.command.title.resolved(), subtitle: entry.app.manifest.name.resolved(),
                     symbol: "puzzlepiece.extension", keywords: [entry.app.id, entry.command.op],
                     primary: PaletteCommand(id: "run", title: AppsAppStrings.run, symbol: "return", effect: .perform {
-                        run(entry, services: services)
+                        // The one run path (`app.command.run`): its failure reaches the user like every action's.
+                        _ = services.registry.perform("app.command.run", invocation: ActionInvocation(
+                            arguments: ["app": .string(entry.app.id), "command": .string(entry.command.op)], origin: .user))
                     }))
     }
 
-    /// Runs the command in its app (the supervisor runs the op with the app's grants).
-    @MainActor static func run(_ entry: Entry, services: AppServices, arguments: AppJSON = .object([:])) {
+    /// Runs the command in its app with the caller's origin (the supervisor
+    /// runs the op with the app's grants). The work's failure is the action's
+    /// failure: the CLI and the palette report the real result.
+    @MainActor static func run(_ entry: Entry, services: AppServices, origin: ActionOrigin, arguments: AppJSON = .object([:])) -> ActionWork {
         let client = services.apps.client
-        // task-owner: one command run; the app reports failures in its own UI and log
-        Task { _ = try? await client.run(app: entry.app.id, op: entry.command.op, args: arguments) }
+        let appOrigin = AppOrigin(rawValue: origin.rawValue) ?? .script
+        return Task { @MainActor in
+            do throws(AppsClientError) {
+                _ = try await client.run(app: entry.app.id, op: entry.command.op, args: arguments, origin: appOrigin)
+                return nil
+            } catch {
+                return ActionWorkFailure(error.description)
+            }
+        }
     }
 }

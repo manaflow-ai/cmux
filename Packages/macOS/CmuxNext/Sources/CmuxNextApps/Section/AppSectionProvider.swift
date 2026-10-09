@@ -27,17 +27,24 @@ public final class AppSectionProvider {
     /// The section's title, or nil when no visible app implements it (the
     /// sidebar then shows its "App not installed" placeholder).
     public func title(for contribution: String) -> String? {
-        resolve(contribution).map { $1.title?.resolved() ?? $0.manifest.name.resolved() }
+        if let (app, section) = resolve(contribution) { return section.title?.resolved() ?? client.app(app)?.manifest.name.resolved() ?? app }
+        return provisional(contribution).map { $0.app }
     }
 
     public func makeView(for contribution: String) -> NSView? {
-        if let existing = mounts[contribution] { return existing.view }
-        guard let (app, section) = resolve(contribution) else { return nil }
-        let mount = client.mount(app.id, implementation: section, surface: "sidebarSection")
+        if let existing = mounts[contribution] {
+            // A section mounted before the list landed: drop it once the list says it does not show.
+            guard client.isListed, resolve(contribution) == nil else { return existing.view }
+            release(contribution)
+            return nil
+        }
+        guard let (app, section) = resolve(contribution) ?? provisional(contribution) else { return nil }
+        let mount = client.mount(app, implementation: section, surface: "sidebarSection")
         let look = lookOverride ?? AppsTunables.sectionLook.value
+        let name = client.app(app)?.manifest
         // The sidebar's section header row draws the title and owns collapse.
-        let root = AppSectionFrame(look: look, title: section.title?.resolved() ?? app.manifest.name.resolved(), symbol: section.symbol,
-                                   icon: app.manifest.icon, bundleDirectory: mount.bundleDirectory, showsHeader: false) {
+        let root = AppSectionFrame(look: look, title: section.title?.resolved() ?? name?.name.resolved() ?? app, symbol: section.symbol,
+                                   icon: name?.icon, bundleDirectory: mount.bundleDirectory, showsHeader: false) {
             AppSceneView(model: mount.model, bundleDirectory: mount.bundleDirectory)
         }
         let view = AppSectionHostingView(rootView: root)
@@ -61,12 +68,27 @@ public final class AppSectionProvider {
     /// `<app>#<section>`: the section with that id; a manifest v2 app has one
     /// section (its id is the interface name), so a layout saved with a v1
     /// contribution id still finds it.
-    private func resolve(_ contribution: String) -> (AppRecord, AppImplementation)? {
+    private func resolve(_ contribution: String) -> (app: String, section: AppImplementation)? {
         let parts = contribution.split(separator: "#", maxSplits: 1).map(String.init)
         guard parts.count == 2, isPresented(parts[0]), let app = client.app(parts[0]) else { return nil }
         let sections = app.manifest.sections.filter(\.hasScene)
         guard let section = sections.first(where: { $0.id == parts[1] }) ?? (sections.count == 1 ? sections.first : nil) else { return nil }
-        return (app, section)
+        return (app.id, section)
+    }
+
+    /// Before the supervisor's list (an older daemon, not connected yet, turned
+    /// off): the section mounts anyway, so it shows why it is empty instead of
+    /// "not installed", and renders once the supervisor answers.
+    private func provisional(_ contribution: String) -> (app: String, section: AppImplementation)? {
+        guard !client.isListed else { return nil }
+        let parts = contribution.split(separator: "#", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return nil }
+        return (parts[0], AppImplementation(interface: AppImplementation.section, id: parts[1]))
+    }
+
+    /// Unmounts every section (the window's sidebar went away or replaced its sections).
+    public func releaseAll() {
+        for contribution in Array(mounts.keys) { release(contribution) }
     }
 }
 

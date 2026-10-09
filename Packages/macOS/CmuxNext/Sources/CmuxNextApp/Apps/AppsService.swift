@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextApps
 import CmuxNextControl
 import CmuxNextIcons
@@ -114,21 +115,25 @@ final class AppsService {
     /// segment, for example CodeRouter's connectAccount) in the app when
     /// given. User runs select and
     /// focus the tab; automation opens it without moving focus.
-    func openApp(_ appID: String, command: String? = nil, focus: Bool = true) throws(AppsServiceError) {
-        guard let app = client.app(appID), app.isActive else { throw .unknownApp }
-        let codeRouter = appID == CodeRouterPageTab.appID && PageTunables.coderouter.value == .web
-        if codeRouter, command == nil, let provider = pageProvider(appID: appID) {
+    /// The CodeRouter web page opens without the apps client (it talks to
+    /// this Mac's CodeRouter ops, not to the supervisor). Returns the
+    /// command's run, whose failure the caller reports.
+    @discardableResult
+    func openApp(_ appID: String, command: String? = nil, focus: Bool = true, origin: ActionOrigin = .user) throws(AppsServiceError) -> ActionWork? {
+        if appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web, command == nil,
+           let provider = pageProvider(appID: appID) {
             guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
-            return
+            return nil
         }
+        if let reason = client.unavailableReason { throw .unavailable(reason) }
+        guard let app = client.app(appID), app.isActive else { throw .unknownApp }
         guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
         guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
-        if let command {
-            guard let found = app.commands.first(where: { AppCommandPalette.Entry(app: app, command: $0).matches(command) }) else {
-                throw .unknownCommand
-            }
-            AppCommandPalette.run(AppCommandPalette.Entry(app: app, command: found), services: services)
+        guard let command else { return nil }
+        guard let found = app.commands.first(where: { AppCommandPalette.Entry(app: app, command: $0).matches(command) }) else {
+            throw .unknownCommand
         }
+        return AppCommandPalette.run(AppCommandPalette.Entry(app: app, command: found), services: services, origin: origin)
     }
 
     /// The page provider of app `appID` (registered on first use): CodeRouter's
@@ -193,5 +198,7 @@ extension AppsService: InternalPageProvider {
 
 enum AppsServiceError: Error {
     case unknownApp, noPage, noWindow, unknownCommand
+    /// The supervisor cannot be reached (an older daemon, not connected yet, or turned off).
+    case unavailable(AppsUnavailableReason)
 }
 

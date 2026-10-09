@@ -30,6 +30,8 @@ struct AppGrantsView: View {
         .animation(Motion.animation(.focus), value: app)
     }
 
+    /// TODO(cx-kyfd): read whether the sandbox applies from the supervisor's
+    /// record once apps-list carries it, and delete this view rule.
     static func offersSandbox(_ app: AppRecord) -> Bool {
         !app.isBuiltIn && !(app.manifest.scopes.isEmpty && app.manifest.optionalScopes.isEmpty)
     }

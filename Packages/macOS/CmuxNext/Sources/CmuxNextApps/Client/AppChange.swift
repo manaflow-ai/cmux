@@ -1,6 +1,6 @@
 /// Who caused a change (OWNERSHIP-PRINCIPLES "origin"): the wire values of
-/// the `origin` field. The supervisor requires `user` for install and grant
-/// changes; hide and unhide accept any origin.
+/// the `origin` field. The supervisor decides which origins may make which
+/// change (request-origin.md, D55); the client sends the caller's origin.
 public nonisolated enum AppOrigin: String, Sendable, Hashable, CaseIterable {
     case user, cli, mcp, script, remote
 }
@@ -37,10 +37,6 @@ public nonisolated struct AppChange: Sendable, Hashable {
     public static func hide(_ on: Bool) -> AppChange { AppChange(hidden: on) }
     public static func sandbox(_ on: Bool) -> AppChange { AppChange(sandboxed: on) }
     public static func grant(_ scope: String, _ on: Bool) -> AppChange { AppChange(grant: AppScopeGrantChange(scope: scope, granted: on)) }
-
-    /// Install and grant changes need a user gesture (the supervisor refuses
-    /// them otherwise with `apps.origin`); the client does not even send them.
-    public var requiresUserOrigin: Bool { installed != nil || grant != nil }
 
     /// What the owner is expected to commit, for the visible projection
     /// until the reply arrives: an install enables the app; a removal also

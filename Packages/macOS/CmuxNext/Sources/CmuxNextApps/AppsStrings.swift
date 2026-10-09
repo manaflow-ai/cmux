@@ -14,7 +14,7 @@ nonisolated enum AppsStrings {
     static var noMatches: String { t("store.empty.noMatches", "No apps match") }
     static var noneInstalled: String { t("store.empty.noneInstalled", "No apps installed") }
     static var selectApp: String { t("store.empty.select", "Select an app") }
-    static var nothingListed: String { t("apps.store.empty.disconnected", "Apps appear when cmux-tui is connected") }
+    static func unknownApp(_ id: String) -> String { String(format: t("apps.client.unknownApp", "No app %@"), id) }
     static var unavailableHelp: String { t("apps.store.disconnected.help", "Nothing can change until then.") }
 
     /// Why the app supervisor cannot be reached (store banner, app sections).

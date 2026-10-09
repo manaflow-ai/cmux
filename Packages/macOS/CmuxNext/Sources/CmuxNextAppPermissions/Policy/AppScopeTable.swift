@@ -1,3 +1,4 @@
+public import CmuxNextApps
 public import Foundation
 
 /// `scopes.json` (generated from the operation catalog): the scope each op

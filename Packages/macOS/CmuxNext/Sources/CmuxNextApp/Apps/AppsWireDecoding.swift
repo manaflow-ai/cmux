@@ -68,7 +68,7 @@ nonisolated struct AppsWireDecoding {
             return .scene(mountID: mount, ops: AppSceneOp.batch(json["ops"] ?? .array([])), reset: json["reset"]?.boolValue == true)
         case "apps-mount-failed":
             guard let mount = json["mount_id"]?.stringValue else { return nil }
-            return .mountFailed(mountID: mount, reason: json["reason"]?.stringValue ?? "mount failed")
+            return .mountFailed(mountID: mount, reason: json["reason"]?.stringValue ?? AppsAppStrings.mountFailed)
         case "apps-host":
             guard let app = json["app"]?.stringValue, let state = json["state"]?.stringValue.flatMap(AppHostState.init(rawValue:)) else { return nil }
             return .host(app: app, state: state, reason: json["reason"]?.stringValue)

@@ -1,6 +1,8 @@
+public import CmuxNextApps
+
 /// A refused or failed app op: `{code, message, details?, retryable}` (spec
 /// 6.2). The app supervisor in the daemon produces these for apps; the
-/// client keeps the shape for the permission policy and its tests.
+/// permission prototype keeps the shape for its policy and tests.
 public nonisolated struct AppOperationError: Error, Sendable, Hashable {
     public var code: String
     public var message: String

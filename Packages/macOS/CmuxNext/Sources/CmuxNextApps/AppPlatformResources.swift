@@ -2,7 +2,7 @@ public import Foundation
 
 /// Files synced from `cmux-tui/crates/cmux-app-host`, `first-party-apps` and
 /// `samples/apps` by `scripts/cmux-next/sync-app-runtime.sh` (never edit the
-/// copies): the scope tables the permission policy and the store read, the
+/// copies): the scope tables the permission prototype reads, the
 /// first-party app packages the local daemon serves (the App points the
 /// daemon at ``firstParty``), and the sample manifests and assets the demo
 /// transport and the store icons use. The app supervisor in the daemon runs
@@ -51,8 +51,6 @@ public nonisolated enum AppPlatformResources {
 public nonisolated protocol AppResourceLoading: Sendable {
     /// App id -> the bundled package's directory.
     func sampleDirectories() -> [String: URL]
-    /// Loads `AppScopeTable.bundled` so no later reader pays for the file read.
-    func warmScopeTable()
 }
 
 /// The module's bundled resources.
@@ -63,18 +61,15 @@ public nonisolated struct BundledAppResources: AppResourceLoading {
         Dictionary((AppPlatformResources.firstPartyManifests() + AppPlatformResources.sampleManifests()).map { ($0.manifest.id, $0.directory) },
                    uniquingKeysWith: { first, _ in first })
     }
-
-    public func warmScopeTable() { _ = AppScopeTable.bundled }
 }
 
 extension AppPlatformResources {
-    /// Loads the bundled package directories and the scope table once, off
-    /// the main actor (app start). Until it finishes, icons of apps the
+    /// Loads the bundled package directories once, off the main actor (app
+    /// start). Until it finishes, icons of apps the
     /// supervisor sent no `bundle_dir` for fall back to a symbol; nothing on
     /// the main actor waits for it.
     @concurrent
     public static func preload(using loader: some AppResourceLoading = BundledAppResources()) async {
-        loader.warmScopeTable()
         AppBundleLocator.store(loader.sampleDirectories())
     }
 }
