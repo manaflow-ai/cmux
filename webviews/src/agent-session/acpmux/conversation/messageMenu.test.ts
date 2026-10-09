@@ -75,6 +75,24 @@ describe("the agent pane's context menu target", () => {
     expect(messageMenuTarget(snapshot(), "missing")).toBeUndefined();
   });
 
+  test("a prompt that was not sent offers Retry through its row", () => {
+    const failed = snapshot({ rows: [row("p9", "user", { text: "deploy", failed: true })] });
+    expect(messageMenuTarget(failed, "p9")).toEqual({ text: "deploy", retryRowId: "p9" });
+  });
+
+  test("a message's web links and images open from the menu, each once, in reading order", () => {
+    const linked = snapshot({
+      rows: [
+        row("a7", "assistant", {
+          text: "See [the docs](https://cmux.dev/docs) and ![chart](https://cmux.dev/chart.png), again [docs](https://cmux.dev/docs). [x](javascript:alert(1))",
+        }),
+        row("p7", "user", { text: "why does https://example.com/a fail?" }),
+      ],
+    });
+    expect(messageMenuTarget(linked, "a7")?.links).toEqual(["https://cmux.dev/docs", "https://cmux.dev/chart.png"]);
+    expect(messageMenuTarget(linked, "p7")?.links).toEqual(["https://example.com/a"]);
+  });
+
   test("plain text drops Markdown syntax but keeps code, links' text and list order", () => {
     expect(
       plainText(

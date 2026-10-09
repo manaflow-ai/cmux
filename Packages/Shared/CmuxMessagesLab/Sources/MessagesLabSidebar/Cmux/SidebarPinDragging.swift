@@ -43,7 +43,7 @@ extension SidebarController {
     @discardableResult
     func beginPinDrag(at p: CGPoint) -> Bool {
         guard pinDragState.drag == nil, placer != nil, query.isEmpty, let h = hit(p) else { return false }
-        guard let c = Self.element(snapshot.items, item(h)) else { return false }
+        guard let i = item(h), let c = Self.element(snapshot.items, i) else { return false }
         guard !Self.isExtra(c.id), delegate?.sidebar(self, actionsFor: c.id).contains(.pin) == true else { return false }
         let state = pinDragState
         let frame: CGRect
