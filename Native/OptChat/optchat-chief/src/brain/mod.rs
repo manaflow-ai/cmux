@@ -382,6 +382,8 @@ pub struct Brain {
     pub(crate) trace: crate::trace::Trace,
     /// Where subagents' workspaces are renamed when they finish.
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
+    /// Starts a queued subagent by id (`Spawner::queue_starter`).
+    sub_starter: Option<Sender<String>>,
     /// The previous turn's view, to measure how much of it stayed (cache).
     prev_view: Option<String>,
     /// When the current settle wait and turn began.
@@ -476,6 +478,7 @@ impl Brain {
             noticed: HashSet::new(),
             trace: crate::trace::Trace::off(),
             workspaces: None,
+            sub_starter: None,
             prev_view: None,
             settle_clock: None,
             settle_status: None,
@@ -515,6 +518,11 @@ impl Brain {
 
     pub fn set_workspaces(&mut self, workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>) {
         self.workspaces = workspaces;
+    }
+
+    /// Where queued subagents are started when a slot frees.
+    pub fn set_sub_starter(&mut self, starter: Option<Sender<String>>) {
+        self.sub_starter = starter;
     }
 
     /// Renames subagents' workspaces when they finish (workspaces.rs).

@@ -116,11 +116,14 @@ struct BcryptPBKDF {
         }
 
         private func initState() {
+            // Both tables are non-empty constants, so their base addresses exist.
             BcryptPBKDF.initialP.withUnsafeBufferPointer { src in
-                p.update(from: src.baseAddress!, count: Blowfish.pCount)
+                guard let base = src.baseAddress else { return }
+                p.update(from: base, count: Blowfish.pCount)
             }
             BcryptPBKDF.initialS.withUnsafeBufferPointer { src in
-                s.update(from: src.baseAddress!, count: 1024)
+                guard let base = src.baseAddress else { return }
+                s.update(from: base, count: 1024)
             }
         }
 

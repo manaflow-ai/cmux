@@ -49,6 +49,9 @@ pub const SPAWN_TAG: &str = "optchat.spawn";
 pub const SUBAGENT_TAG: &str = "optchat.subagent";
 /// Most tasks one spawn starts.
 pub const MAX_TASKS: usize = 8;
+/// Most subagents at work at once; a spawn over it queues the rest, which
+/// start as others finish.
+pub const MAX_LIVE: usize = 16;
 /// Longest `spawn` waits for the view to settle (section 6).
 pub const SETTLE_LIMIT: Duration = Duration::from_secs(240);
 /// Prompt ids of the host's own prompts to a subagent start with this; any
@@ -60,6 +63,8 @@ pub const PROMPT_PREFIX: &str = "optchat-";
 pub struct SpawnPlan {
     pub spawn: String,
     pub ids: Vec<String>,
+    /// The ids over `MAX_LIVE`: they wait for a free slot.
+    pub queued: Vec<String>,
     /// The engine of the turn that called spawn (engine.json); None before
     /// any turn.
     pub engine: Option<SpawnEngine>,
@@ -114,6 +119,14 @@ pub fn tags(parent: &str, spawn: &str, id: &str) -> BTreeMap<String, String> {
     ])
 }
 
+/// A queued subagent's launch.
+struct Waiting {
+    spawn: String,
+    task: String,
+    floor: Option<String>,
+    launch: SubagentSettings,
+}
+
 /// Serves `spawn` and `tell` (tools.rs `Orchestrator`).
 pub struct Spawner {
     chat: Arc<OptChat>,
@@ -128,6 +141,9 @@ pub struct Spawner {
     /// OPTCHAT_SUBAGENT_HARNESS pins the subagent harness: a spawn never
     /// follows the turn's engine.
     pinned: bool,
+    /// Queued subagents' launches, by id, kept until a slot frees (in memory:
+    /// a restarted host reports them as not started).
+    waiting: Mutex<BTreeMap<String, Waiting>>,
     log: crate::brain::Log,
 }
 
@@ -148,6 +164,7 @@ impl Spawner {
             workspaces: None,
             no_workspace_reason: "this Chief host has nowhere to make cmux workspaces".to_owned(),
             pinned: false,
+            waiting: Mutex::new(BTreeMap::new()),
             log,
         }
     }
@@ -406,6 +423,48 @@ impl Spawner {
 }
 
 impl Spawner {
+    /// The queue starter: the brain sends a queued subagent's id when a slot
+    /// frees, and it starts here with the view of that moment and its task.
+    pub fn queue_starter(self: &Arc<Self>) -> Sender<String> {
+        let (tx, rx) = channel::<String>();
+        let me = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("subagent-queue".into())
+            .spawn(move || {
+                while let Ok(id) = rx.recv() {
+                    let Some(me) = me.upgrade() else { return };
+                    me.start_waiting(&id);
+                }
+            })
+            .ok();
+        tx
+    }
+
+    fn start_waiting(&self, id: &str) {
+        let waiting = self
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(id);
+        let fail = |error: &str| {
+            let _ = self.send(Input::SubagentFailed {
+                id: id.to_owned(),
+                error: error.to_owned(),
+            });
+        };
+        let Some(w) = waiting else {
+            return fail("the Chief host restarted while it waited for a free slot");
+        };
+        if !self.chat.settle(None, Some(SETTLE_LIMIT)) {
+            return fail("the memory was still summarizing when its slot freed");
+        }
+        let view = self.chat.render_view().text;
+        match self.start_one(&w.spawn, id, &w.task, &view, w.floor.as_deref(), &w.launch) {
+            Ok(note) => (self.log)(&format!("subagent {id} started from the queue: {note}")),
+            Err(e) => fail(&e),
+        }
+    }
+
     /// Subagent `id`'s whole chat, one page of `page` characters from `at`.
     pub fn agent_chat_page(&self, id: &str, at: u64, page: u64) -> Result<String, String> {
         let (reply, answer) = channel();
@@ -497,6 +556,24 @@ impl Orchestrator for Spawner {
         let mut started = Vec::new();
         let mut lines = Vec::new();
         for (id, task) in plan.ids.iter().zip(&tasks) {
+            if plan.queued.contains(id) {
+                self.waiting
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(
+                        id.clone(),
+                        Waiting {
+                            spawn: plan.spawn.clone(),
+                            task: task.clone(),
+                            floor: floor.clone(),
+                            launch: launch.clone(),
+                        },
+                    );
+                lines.push(format!(
+                    "- {id}: queued ({MAX_LIVE} subagents are at work, the most at once; it starts when one finishes)"
+                ));
+                continue;
+            }
             match self.start_one(&plan.spawn, id, task, &view, floor.as_deref(), &launch) {
                 Ok(note) => {
                     started.push(id.clone());
@@ -512,8 +589,10 @@ impl Orchestrator for Spawner {
                 }
             }
         }
-        let head = if started.is_empty() {
+        let head = if started.is_empty() && plan.queued.is_empty() {
             "No subagent started.".to_owned()
+        } else if started.is_empty() {
+            format!("Queued {}.", plan.queued.join(", "))
         } else {
             format!("Started {} in {}.", started.join(", "), dir.display())
         };
