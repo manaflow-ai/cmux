@@ -1,9 +1,10 @@
 //! Messages delivered between tool calls (steering): Claude Code reads a
 //! user line written to its stdin during a turn at its next tool boundary,
 //! and with `--replay-user-messages` echoes it (`isReplay`) when it does
-//! (checked live on 2.1.287, 2026-10-08). A steered prompt is answered when
-//! its echo arrives; a `result` while a steered line is still unread is not
-//! the end of the turn (Claude Code runs that line as one more turn).
+//! (checked live on 2.1.287, 2026-10-08), with the line's own `uuid`. A
+//! steered prompt is answered when its echo arrives; a `result` while a
+//! steered line is still unread is not the end of the turn (Claude Code runs
+//! that line as one more turn, also after an interrupt).
 
 use super::*;
 
@@ -15,8 +16,14 @@ fn prompt(id: i64, text: &str, steer: bool) -> Message {
     Message::request(id, method::SESSION_PROMPT, params)
 }
 
-fn replay(text: &str) -> Value {
-    json!({"type": "user", "isReplay": true, "message": {"role": "user", "content": [{"type": "text", "text": text}]}})
+/// Sends `msg` and returns the uuid of the user line it wrote.
+async fn write(t: &Translator, msg: Message) -> String {
+    let Outbound::Lines(lines) = t.outbound(&msg).await else { panic!("a user line") };
+    lines[0]["uuid"].as_str().expect("the line's uuid").to_owned()
+}
+
+fn replay(uuid: &str) -> Value {
+    json!({"type": "user", "isReplay": true, "uuid": uuid, "message": {"role": "user", "content": [{"type": "text", "text": "x"}]}})
 }
 
 fn turn_result() -> Value {
@@ -61,15 +68,19 @@ async fn initialize_advertises_steering() {
 #[tokio::test]
 async fn a_steered_message_joins_the_running_turn() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    t.outbound(&prompt(1, "first", false)).await;
-    assert!(t.inbound(&replay("first")).await.is_empty());
+    let first = write(&t, prompt(1, "first", false)).await;
+    assert!(t.inbound(&replay(&first)).await.is_empty());
     let Outbound::Lines(lines) = t.outbound(&prompt(2, "later", true)).await else {
         panic!("a steer during a turn is a stdin line")
     };
     assert_eq!(lines[0]["type"], "user");
     assert_eq!(lines[0]["message"]["content"][0]["text"], "later");
+    let later = lines[0]["uuid"].as_str().unwrap().to_owned();
+    assert_ne!(later, first);
+    // An echo of some other line answers nothing.
+    assert!(t.inbound(&replay("other")).await.is_empty());
     // Claude Code read it at its next tool boundary: the steer is answered.
-    let msgs = t.inbound(&replay("later")).await;
+    let msgs = t.inbound(&replay(&later)).await;
     let Some(Message::Response { result: Some(result), .. }) = response(&msgs, 2) else {
         panic!("{msgs:?}")
     };
@@ -85,19 +96,44 @@ async fn a_steered_message_joins_the_running_turn() {
 #[tokio::test]
 async fn a_result_before_the_steered_line_was_read_does_not_end_the_turn() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    t.outbound(&prompt(1, "first", false)).await;
-    t.inbound(&replay("first")).await;
-    t.outbound(&prompt(2, "late", true)).await;
+    let first = write(&t, prompt(1, "first", false)).await;
+    t.inbound(&replay(&first)).await;
+    let late = write(&t, prompt(2, "late", true)).await;
     // Claude Code finished before it read the line: it runs it next.
     let msgs = t.inbound(&turn_result()).await;
     assert!(response(&msgs, 1).is_none(), "the turn goes on: {msgs:?}");
-    let msgs = t.inbound(&replay("late")).await;
+    let msgs = t.inbound(&replay(&late)).await;
     assert!(response(&msgs, 2).is_some(), "{msgs:?}");
     let msgs = t.inbound(&turn_result()).await;
     let Some(Message::Response { result: Some(result), .. }) = response(&msgs, 1) else {
         panic!("{msgs:?}")
     };
     assert_eq!(result["stopReason"], "end_turn");
+}
+
+/// Live 2026-10-08: after an interrupt, Claude Code still runs a line it
+/// had not read as one more turn. That turn is stopped too, and the prompt
+/// ends cancelled.
+#[tokio::test]
+async fn a_stop_also_stops_the_turn_of_an_unread_steer() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let first = write(&t, prompt(1, "first", false)).await;
+    t.inbound(&replay(&first)).await;
+    let late = write(&t, prompt(2, "late", true)).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({}))).await;
+    let stopped = json!({"type": "result", "subtype": "error_during_execution", "is_error": true, "result": null});
+    let msgs = t.inbound(&stopped).await;
+    assert!(response(&msgs, 1).is_none(), "the unread line still runs: {msgs:?}");
+    let msgs = t.inbound(&replay(&late)).await;
+    assert!(response(&msgs, 2).is_some(), "{msgs:?}");
+    let interrupts = t.take_stdin_replies().await;
+    assert_eq!(interrupts.len(), 1, "{interrupts:?}");
+    assert_eq!(interrupts[0]["request"]["subtype"], "interrupt");
+    let msgs = t.inbound(&stopped).await;
+    let Some(Message::Response { result: Some(result), .. }) = response(&msgs, 1) else {
+        panic!("{msgs:?}")
+    };
+    assert_eq!(result["stopReason"], "cancelled");
 }
 
 #[tokio::test]

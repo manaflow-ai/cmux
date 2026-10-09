@@ -120,12 +120,29 @@ impl Translator {
             }
             // Claude Code's echo of a user line it read (`--replay-user-messages`):
             // first the turn's prompt, then each steered line in order.
+            // Matched by the line's uuid; an echo of anything else is ignored.
             "user" if line.get("isReplay").and_then(Value::as_bool) == Some(true) => {
-                if !self.prompt_echo_due.swap(false, Ordering::SeqCst)
-                    && let Some(k) = self.steers.lock().await.pop_front()
+                let uuid = line.get("uuid").and_then(Value::as_str).unwrap_or("");
+                let mut prompt = self.prompt_echo.lock().await;
+                if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
+                    *prompt = None;
+                    return out;
+                }
+                drop(prompt);
+                let mut steers = self.steers.lock().await;
+                if let Some(at) = steers.iter().position(|(u, _)| !uuid.is_empty() && u == uuid)
+                    && let Some((_, k)) = steers.remove(at)
                 {
+                    drop(steers);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                     out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                    // A turn the client stopped: Claude Code runs a line it
+                    // read after the stop as one more turn, so that turn is
+                    // stopped too, and the prompt ends cancelled.
+                    if self.cancelled.load(Ordering::SeqCst) {
+                        let n = self.next_control.fetch_add(1, Ordering::SeqCst);
+                        self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}));
+                    }
                 }
             }
             "user" => {
@@ -300,13 +317,13 @@ impl Translator {
                 // A steered line Claude Code has not read yet: it runs it as
                 // one more turn of this prompt, whose result ends it (when
                 // echoes come at all; without them the steer fails below).
+                // A stop stays in force for that turn (`cancelled` is kept).
                 let unread = !self.steers.lock().await.is_empty();
-                if unread && !self.prompt_echo_due.load(Ordering::SeqCst) {
-                    self.cancelled.store(false, Ordering::SeqCst);
+                if unread && self.prompt_echo.lock().await.is_none() {
                     return out;
                 }
                 out.extend(self.fail_steers().await);
-                self.prompt_echo_due.store(false, Ordering::SeqCst);
+                *self.prompt_echo.lock().await = None;
                 self.in_turn.store(false, Ordering::SeqCst);
                 let waiting: Vec<String> = self
                     .pending

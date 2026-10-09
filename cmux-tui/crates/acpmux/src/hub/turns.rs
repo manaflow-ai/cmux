@@ -198,9 +198,24 @@ impl Hub {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
             );
+            // The turn may end between this check and the agent: without
+            // steerOnly the message then becomes the next prompt, as before.
+            let fallback = (!opts.steer_only).then(|| blocks.clone());
             let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
             params["_meta"] = json!({"steer": true});
-            let mut r = child.request(method::SESSION_PROMPT, params).await?;
+            let mut r = match child.request(method::SESSION_PROMPT, params).await {
+                Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
+                    let Some(blocks) = fallback else { return Err(e) };
+                    let opts = PromptOptions {
+                        prompt_id: Some(prompt_id),
+                        control,
+                        trust_gate,
+                        ..PromptOptions::default()
+                    };
+                    return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;
+                }
+                r => r?,
+            };
             merge_mux_meta(
                 &mut r,
                 json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}),

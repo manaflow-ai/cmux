@@ -76,6 +76,10 @@ mod subagent_tests;
 #[cfg(test)]
 mod tests;
 
+/// The refusal of a steered prompt when no turn is running (the turn ended
+/// between the hub's check and the adapter).
+pub const STEER_NO_TURN: &str = "steer: no turn is running";
+
 /// What the hub's request becomes: lines for claude's stdin, or an
 /// immediate ACP reply when claude need not be asked.
 pub enum Outbound {
@@ -163,11 +167,13 @@ pub struct Translator {
     model: Mutex<String>,
     effort: Mutex<String>,
     in_turn: AtomicBool,
-    /// The turn's prompt line has not been echoed yet (`isReplay`).
-    prompt_echo_due: AtomicBool,
+    /// The `uuid` of the turn's prompt line until Claude Code echoes it
+    /// (`isReplay` carries the line's `uuid`).
+    prompt_echo: Mutex<Option<String>>,
     /// Steered prompts (user lines written during a turn) Claude Code has
-    /// not echoed yet, oldest first: each is answered at its echo.
-    steers: Mutex<std::collections::VecDeque<String>>,
+    /// not echoed yet, oldest first, as (line uuid, ACP request id): each is
+    /// answered at its echo.
+    steers: Mutex<std::collections::VecDeque<(String, String)>>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -213,7 +219,7 @@ impl Translator {
             model: Mutex::new(model.to_owned()),
             effort: Mutex::new(effort.to_owned()),
             in_turn: AtomicBool::new(false),
-            prompt_echo_due: AtomicBool::new(false),
+            prompt_echo: Mutex::new(None),
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
@@ -230,7 +236,7 @@ impl Translator {
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
-        ids.extend(self.steers.lock().await.drain(..));
+        ids.extend(self.steers.lock().await.drain(..).map(|(_, id)| id));
         ids.into_iter()
             .map(|id| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
@@ -246,7 +252,7 @@ impl Translator {
             .lock()
             .await
             .drain(..)
-            .map(|id| {
+            .map(|(_, id)| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
                 Message::err(
                     id,
