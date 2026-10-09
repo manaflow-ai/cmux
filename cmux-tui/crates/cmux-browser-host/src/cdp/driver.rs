@@ -55,9 +55,10 @@ pub(super) struct Inner {
     /// is in the default context, which `Storage.*` names by omission.
     pub(super) proxy_contexts: Mutex<std::collections::HashSet<String>>,
     /// A browser the driver owns (headless, or headful on Xvfb) has no
-    /// person's UI: it intercepts every file chooser (`choosers.rs`) and
-    /// runs Copy, Cut and Paste on the tab's clipboard (`clipboard.rs`). An
-    /// app's CEF tab keeps the app's Open panel and clipboard.
+    /// person's UI: it intercepts every file chooser (`choosers.rs`). An
+    /// app's CEF tab keeps the app's Open panel. Every
+    /// driven tab runs an agent's Copy, Cut and Paste on its own virtual
+    /// clipboard (`clipboard.rs`).
     pub(super) owns_browser: bool,
     /// Every tab intercepts its file choosers (headless); false: only the
     /// tabs a session drives (headful, `choosers.rs`).
@@ -313,12 +314,15 @@ impl Driver for CdpDriver {
             "frame.focused" => inner.focused_frame(params),
             "input.mouse" => inner.with_chooser_events(method, params, || inner.mouse(params)),
             "input.drag" => inner.drag(params),
+            // Every tab an agent drives has its own virtual clipboard, the
+            // person's Chromium tabs too: the agent never reads or writes the
+            // person's system clipboard.
             "input.key" => match super::clipboard::shortcut(method, params) {
-                Some(kind) if inner.owns_browser => inner.clipboard_key(kind, params),
-                _ => inner.with_chooser_events(method, params, || inner.key(params)),
+                Some(kind) => inner.clipboard_key(kind, params),
+                None => inner.with_chooser_events(method, params, || inner.key(params)),
             },
-            "clipboard.read" if inner.owns_browser => inner.clipboard_read(params),
-            "clipboard.write" if inner.owns_browser => inner.clipboard_write(params),
+            "clipboard.read" => inner.clipboard_read(params),
+            "clipboard.write" => inner.clipboard_write(params),
             "input.setFiles" => inner.set_files(params),
             "filechooser.respond" => inner.chooser_respond(params),
             "input.insertText" => inner.insert_text(params),
