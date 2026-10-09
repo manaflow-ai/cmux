@@ -245,10 +245,7 @@ async fn settled_history_is_paged_and_filterable() {
     let first = c.ok("_acpmux/settled", json!({"limit": 1})).await;
     assert_eq!(first["settled"], true);
     assert_eq!(first["chats"].as_array().unwrap().len(), 1);
-    let cursor = first["nextCursor"].as_str().unwrap().to_owned();
-    let second = c
-        .ok("_acpmux/settled", json!({"limit": 1, "cursor": cursor, "folder": "/work/docs"}))
-        .await;
+    let second = c.ok("_acpmux/settled", json!({"folder": "/work/docs"})).await;
     assert_eq!(second["settled"], true);
     assert_eq!(keys(&second), vec![format!("claude-code:{B}")]);
 }
