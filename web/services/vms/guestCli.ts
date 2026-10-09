@@ -141,8 +141,10 @@ load_model_env() {
 
 load_agent_config() {
   load_model_env
+  cmux_agent_config_loaded=0
   if [ -f /etc/cmux/agent-config.sh ]; then
     . /etc/cmux/agent-config.sh
+    cmux_agent_config_loaded=1
   fi
   # The machine env (\`cmux env set\`) reaches agents started through this shim
   # even when the calling shell predates the ~/.profile hook.
@@ -778,14 +780,20 @@ agent_exec() {
   CMUX_AGENT_PREFLIGHT_MODE="\${cmux_agent_mode:-shared}"
   export CMUX_AGENT_PREFLIGHT_AGENT CMUX_AGENT_PREFLIGHT_MODE
   cmux_agent_exec_rc=0
-  case "\$cmux_agent" in
-    codex) codex "\$@" || cmux_agent_exec_rc=\$? ;;
-    claude) claude "\$@" || cmux_agent_exec_rc=\$? ;;
-    opencode) opencode "\$@" || cmux_agent_exec_rc=\$? ;;
-    pi) pi "\$@" || cmux_agent_exec_rc=\$? ;;
-    hermes) hermes "\$@" || cmux_agent_exec_rc=\$? ;;
-    *) command "\$cmux_agent" "\$@" || cmux_agent_exec_rc=\$? ;;
-  esac
+  if [ "\${cmux_agent_config_loaded:-0}" -eq 0 ]; then
+    # Older images have no agent-config.sh, so the fallback runner owns the
+    # timeout wrapper. Newer images keep their provider functions below.
+    cmux_agent_run "\$cmux_agent" "\$@" || cmux_agent_exec_rc=\$?
+  else
+    case "\$cmux_agent" in
+      codex) codex "\$@" || cmux_agent_exec_rc=\$? ;;
+      claude) claude "\$@" || cmux_agent_exec_rc=\$? ;;
+      opencode) opencode "\$@" || cmux_agent_exec_rc=\$? ;;
+      pi) pi "\$@" || cmux_agent_exec_rc=\$? ;;
+      hermes) hermes "\$@" || cmux_agent_exec_rc=\$? ;;
+      *) command "\$cmux_agent" "\$@" || cmux_agent_exec_rc=\$? ;;
+    esac
+  fi
   [ "\$cmux_agent_exec_rc" -ne 124 ] || die "agent \$cmux_agent timed out after \${cmux_ag_timeout}s" 1
   return "\$cmux_agent_exec_rc"
 }
