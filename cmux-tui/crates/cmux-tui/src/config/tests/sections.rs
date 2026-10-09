@@ -21,14 +21,11 @@ fn machine_provider_command_parses_and_requires_a_program() {
     .unwrap();
     assert_eq!(
         raw.machine_provider.command.as_deref(),
-        Some(
-            ["/opt/provider/run.sh".to_string(), "--profile".into(), "prod".into()].as_slice()
-        )
+        Some(["/opt/provider/run.sh".to_string(), "--profile".into(), "prod".into()].as_slice())
     );
 
     // An empty argv or blank program is ignored at apply time.
-    let raw: RawConfig =
-        serde_json::from_str(r#"{"machine_provider":{"command":[]}}"#).unwrap();
+    let raw: RawConfig = serde_json::from_str(r#"{"machine_provider":{"command":[]}}"#).unwrap();
     assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c.is_empty()));
     let raw: RawConfig =
         serde_json::from_str(r#"{"machine_provider":{"command":["  "]}}"#).unwrap();
@@ -42,8 +39,7 @@ fn agent_plugin_requires_an_explicit_namespace_id() {
     let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
     let directory = TestDirectory::new("agent-plugin-id-required");
     let path = directory.path.join("mux.json");
-    std::fs::write(&path, r#"{"agents":{"plugin":{"command":["/tmp/agent-plugin"]}}}"#)
-        .unwrap();
+    std::fs::write(&path, r#"{"agents":{"plugin":{"command":["/tmp/agent-plugin"]}}}"#).unwrap();
     // SAFETY: environment mutation is serialized by CONFIG_ENV_LOCK.
     unsafe {
         std::env::remove_var("CMUX_TUI_CONFIG");
@@ -105,8 +101,7 @@ fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
 #[test]
 fn parses_websocket_server_config() {
     let raw: RawConfig =
-        serde_json::from_str(r#"{"server":{"ws":"127.0.0.1:7681","ws_token":"secret"}}"#)
-            .unwrap();
+        serde_json::from_str(r#"{"server":{"ws":"127.0.0.1:7681","ws_token":"secret"}}"#).unwrap();
     assert_eq!(raw.server.ws.as_deref(), Some("127.0.0.1:7681"));
     assert_eq!(raw.server.ws_token.as_deref(), Some("secret"));
 }
@@ -461,8 +456,8 @@ fn sidebar_views_parse_flat_columns_and_nested_resource_trees() {
 fn sidebar_profiles_select_one_named_native_layout() {
     let _guard = CONFIG_ENV_LOCK.lock().unwrap();
     let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
-    let dir = std::env::temp_dir()
-        .join(format!("cmux-sidebar-profiles-config-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("cmux-sidebar-profiles-config-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("cmux-tui.json");
     std::fs::write(
@@ -521,11 +516,8 @@ fn sidebar_resources_are_hidden_when_their_view_is_omitted() {
 fn sidebar_view_paths_reject_ambiguous_hierarchies() {
     assert!(validate_sidebar_levels(&[]).is_err());
     assert!(
-        validate_sidebar_levels(&[
-            SidebarResourceKind::Machines,
-            SidebarResourceKind::Workspaces,
-        ])
-        .is_err()
+        validate_sidebar_levels(&[SidebarResourceKind::Machines, SidebarResourceKind::Workspaces,])
+            .is_err()
     );
     assert!(
         validate_sidebar_levels(&[SidebarResourceKind::Tabs, SidebarResourceKind::Workspaces,])
@@ -567,10 +559,7 @@ fn compatibility_browser_keys_are_ignored_whatever_their_value() {
     unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
     let config = load();
     restore_env_var("CMUX_TUI_CONFIG", old);
-    assert_eq!(
-        config.browser.max_capture_megapixels,
-        Browser::default().max_capture_megapixels
-    );
+    assert_eq!(config.browser.max_capture_megapixels, Browser::default().max_capture_megapixels);
 }
 
 #[test]
@@ -588,10 +577,7 @@ fn invalid_section_does_not_discard_valid_sections() {
     let config = load();
     restore_env_var("CMUX_TUI_CONFIG", old);
     assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
-    assert_eq!(
-        config.browser.max_capture_megapixels,
-        Browser::default().max_capture_megapixels
-    );
+    assert_eq!(config.browser.max_capture_megapixels, Browser::default().max_capture_megapixels);
 }
 
 #[test]
@@ -701,18 +687,12 @@ fn browser_capture_config_validates_bounds() {
     assert_eq!(config.browser.max_capture_megapixels, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS);
     assert_eq!(config.browser.capture_scale, Some(0.5));
 
-    std::fs::write(
-        &path,
-        r##"{"browser": {"max_capture_megapixels": 0, "capture_scale": 1.5}}"##,
-    )
-    .unwrap();
+    std::fs::write(&path, r##"{"browser": {"max_capture_megapixels": 0, "capture_scale": 1.5}}"##)
+        .unwrap();
     let config = load();
     // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
     unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
     let _ = std::fs::remove_file(&path);
-    assert_eq!(
-        config.browser.max_capture_megapixels,
-        Browser::default().max_capture_megapixels
-    );
+    assert_eq!(config.browser.max_capture_megapixels, Browser::default().max_capture_megapixels);
     assert_eq!(config.browser.capture_scale, None);
 }

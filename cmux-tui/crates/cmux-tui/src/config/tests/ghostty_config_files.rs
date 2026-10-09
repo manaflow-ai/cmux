@@ -12,8 +12,8 @@ fn load_uses_file_ghostty_defaults_without_invoking_external_resolver() {
     let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
     let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
     let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
-    let dir = std::env::temp_dir()
-        .join(format!("mux-ghostty-startup-file-only-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("mux-ghostty-startup-file-only-{}", std::process::id()));
     let ghostty_dir = dir.join("ghostty");
     let marker = dir.join("resolver-ran");
     let resolver = dir.join("ghostty-resolver");
@@ -428,16 +428,13 @@ fn ghostty_config_file_expands_required_and_optional_home_relative_paths() {
          config-file = ?~/.config/ghostty/missing.conf\n",
     )
     .unwrap();
-    std::fs::write(
-        include_dir.join("colors.conf"),
-        "foreground = #010203\nbackground = #040506\n",
-    )
-    .unwrap();
+    std::fs::write(include_dir.join("colors.conf"), "foreground = #010203\nbackground = #040506\n")
+        .unwrap();
     // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
     unsafe { std::env::set_var("HOME", &home) };
 
-    let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
-        .expect("config parses");
+    let defaults =
+        parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[]).expect("config parses");
 
     restore_env_var("HOME", old_home);
     let _ = std::fs::remove_dir_all(dir);
@@ -466,8 +463,8 @@ fn ghostty_relative_theme_path_uses_declaring_config_directory() {
     )
     .unwrap();
 
-    let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
-        .expect("config parses");
+    let defaults =
+        parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[]).expect("config parses");
 
     let _ = std::fs::remove_dir_all(dir);
 
@@ -494,8 +491,8 @@ fn ghostty_config_file_skips_non_regular_includes() {
     .unwrap();
     std::fs::write(ghostty_dir.join("colors.conf"), "foreground = #010203\n").unwrap();
 
-    let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
-        .expect("config parses");
+    let defaults =
+        parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[]).expect("config parses");
 
     let _ = std::fs::remove_dir_all(dir);
 
@@ -558,8 +555,8 @@ fn ghostty_config_file_count_limit_bounds_broad_include_graph() {
     }
     std::fs::write(ghostty_dir.join("config"), root).unwrap();
 
-    let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
-        .expect("config parses");
+    let defaults =
+        parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[]).expect("config parses");
 
     let _ = std::fs::remove_dir_all(dir);
     let expected_index = GHOSTTY_CONFIG_MAX_FILES - 2;
@@ -593,8 +590,8 @@ fn ghostty_config_file_size_limit_skips_oversized_includes() {
     .unwrap();
     std::fs::write(ghostty_dir.join("later.conf"), "background = #040506\n").unwrap();
 
-    let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
-        .expect("config parses");
+    let defaults =
+        parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[]).expect("config parses");
 
     let _ = std::fs::remove_dir_all(dir);
 
@@ -612,11 +609,8 @@ fn ghostty_config_parse_deadline_discards_partial_defaults() {
     ));
     let ghostty_dir = dir.join("ghostty");
     std::fs::create_dir_all(&ghostty_dir).unwrap();
-    std::fs::write(
-        ghostty_dir.join("config"),
-        "background = #010203\nconfig-file = colors.conf\n",
-    )
-    .unwrap();
+    std::fs::write(ghostty_dir.join("config"), "background = #010203\nconfig-file = colors.conf\n")
+        .unwrap();
     std::fs::write(ghostty_dir.join("colors.conf"), "foreground = #040506\n").unwrap();
 
     let mut theme_candidates = Vec::new();
@@ -709,11 +703,8 @@ fn ghostty_theme_loader_skips_non_regular_and_oversized_candidates() {
         "foreground = #a0a1a2\n".repeat((GHOSTTY_CONFIG_MAX_BYTES as usize / 20) + 1),
     )
     .unwrap();
-    std::fs::write(
-        themes.join("Readable Theme"),
-        "foreground = #010203\nbackground = #040506\n",
-    )
-    .unwrap();
+    std::fs::write(themes.join("Readable Theme"), "foreground = #010203\nbackground = #040506\n")
+        .unwrap();
 
     let defaults = parse_ghostty_defaults_from_path(
         &ghostty_dir.join("config"),

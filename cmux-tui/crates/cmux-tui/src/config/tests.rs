@@ -78,13 +78,13 @@ fn assert_committed(outcome: ConfigWriteOutcome) {
     ));
 }
 
-mod ghostty_defaults;
 mod chrome_theme;
-mod ghostty_config_files;
-mod ghostty_helper;
-mod ghostty_theme_mode;
-mod sections;
-mod keys;
-mod status_and_sidebar_chrome;
 mod commands;
 mod config_write;
+mod ghostty_config_files;
+mod ghostty_defaults;
+mod ghostty_helper;
+mod ghostty_theme_mode;
+mod keys;
+mod sections;
+mod status_and_sidebar_chrome;

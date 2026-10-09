@@ -206,9 +206,8 @@ fn application_defaults_overlay_later_config_and_resolve_fallbacks() {
     std::fs::write(&legacy, "foreground = #010203\n").unwrap();
     std::fs::write(&current, "foreground = #070809\nbackground = #040506\n").unwrap();
 
-    let defaults =
-        parse_ghostty_application_defaults_from_paths(vec![legacy, current], Vec::new())
-            .expect("config files should parse");
+    let defaults = parse_ghostty_application_defaults_from_paths(vec![legacy, current], Vec::new())
+        .expect("config files should parse");
     assert_eq!(defaults.colors.fg, Some(Rgb { r: 7, g: 8, b: 9 }));
     assert_eq!(defaults.colors.bg, Some(Rgb { r: 4, g: 5, b: 6 }));
     assert_eq!(defaults.colors.cursor_style, Some(CursorShape::Block));

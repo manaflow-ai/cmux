@@ -25,11 +25,7 @@ fn sidebar_plugin_write_preserves_unrelated_config_keys() {
         write_sidebar_plugin_at_path(
             &path,
             Some(&SidebarPluginConfig {
-                command: vec![
-                    "/tmp/plugin".to_string(),
-                    "--mode".to_string(),
-                    "test".to_string(),
-                ],
+                command: vec!["/tmp/plugin".to_string(), "--mode".to_string(), "test".to_string()],
                 cwd: Some("/tmp".to_string()),
             }),
         )

@@ -13,8 +13,7 @@ fn border_style_parses_every_name_and_defaults_to_single() {
         ("none", BorderStyle::None),
     ] {
         let raw: RawConfig =
-            serde_json::from_str(&format!(r#"{{"theme":{{"border_style":"{name}"}}}}"#))
-                .unwrap();
+            serde_json::from_str(&format!(r#"{{"theme":{{"border_style":"{name}"}}}}"#)).unwrap();
         assert_eq!(raw.theme.border_style, Some(style), "{name} did not parse");
     }
     let hidden = BorderStyle::None.glyphs();
@@ -93,10 +92,8 @@ fn status_text_cap_uses_terminal_cells_without_splitting_graphemes() {
 #[test]
 #[allow(clippy::unicode_not_nfc)]
 fn status_text_cap_uses_terminal_cells_for_halfwidth_dakuten() {
-    let raw = vec![RawStatusSegment {
-        text: Some("界ﾞ".repeat(100)),
-        ..RawStatusSegment::default()
-    }];
+    let raw =
+        vec![RawStatusSegment { text: Some("界ﾞ".repeat(100)), ..RawStatusSegment::default() }];
     let resolved = resolve_status_segments(raw, "left");
     let StatusSegmentContent::Text(text) = &resolved[0].content else {
         panic!("literal status text did not resolve as text");
@@ -226,10 +223,7 @@ fn plus_buttons_parse_labels_actions_and_menus() {
         plus.menu,
         vec![
             SidebarActionSpec::plain(Action::NewTab),
-            SidebarActionSpec {
-                action: Action::NewBrowserTab,
-                label: Some("browser".to_string()),
-            },
+            SidebarActionSpec { action: Action::NewBrowserTab, label: Some("browser".to_string()) },
             SidebarActionSpec::plain(Action::user_command(0).unwrap()),
         ],
         "unknown command references drop from plus menus"

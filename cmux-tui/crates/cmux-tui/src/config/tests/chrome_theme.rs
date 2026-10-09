@@ -65,8 +65,7 @@ fn ghostty_defaults_survive_light_chrome_defaults() {
     let _guard = CONFIG_ENV_LOCK.lock().unwrap();
     let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
     let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
-    let dir =
-        std::env::temp_dir().join(format!("mux-ghostty-selection-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("mux-ghostty-selection-{}", std::process::id()));
     let ghostty_dir = dir.join("ghostty");
     std::fs::create_dir_all(&ghostty_dir).unwrap();
     std::fs::write(
@@ -103,30 +102,18 @@ fn ghostty_defaults_survive_light_chrome_defaults() {
 
 #[test]
 fn chrome_theme_selection_honors_auto_and_overrides() {
-    let light_defaults = DefaultColors {
-        fg: None,
-        bg: Some(Rgb { r: 240, g: 240, b: 240 }),
-        ..Default::default()
-    };
+    let light_defaults =
+        DefaultColors { fg: None, bg: Some(Rgb { r: 240, g: 240, b: 240 }), ..Default::default() };
     let dark_defaults =
         DefaultColors { fg: None, bg: Some(Rgb { r: 20, g: 20, b: 20 }), ..Default::default() };
-    assert_eq!(
-        ChromeTheme::for_defaults(ChromeMode::Auto, light_defaults),
-        ChromeTheme::light()
-    );
+    assert_eq!(ChromeTheme::for_defaults(ChromeMode::Auto, light_defaults), ChromeTheme::light());
     assert_eq!(ChromeTheme::for_defaults(ChromeMode::Auto, dark_defaults), ChromeTheme::dark());
     assert_eq!(
         ChromeTheme::for_defaults(ChromeMode::Auto, DefaultColors::default()),
         ChromeTheme::dark()
     );
-    assert_eq!(
-        ChromeTheme::for_defaults(ChromeMode::Dark, light_defaults),
-        ChromeTheme::dark()
-    );
-    assert_eq!(
-        ChromeTheme::for_defaults(ChromeMode::Light, dark_defaults),
-        ChromeTheme::light()
-    );
+    assert_eq!(ChromeTheme::for_defaults(ChromeMode::Dark, light_defaults), ChromeTheme::dark());
+    assert_eq!(ChromeTheme::for_defaults(ChromeMode::Light, dark_defaults), ChromeTheme::light());
 }
 
 #[test]
@@ -159,8 +146,7 @@ fn selection_foreground_absent_vs_null_are_distinct() {
 #[test]
 fn selection_foreground_null_clears_ghostty_seeded_default() {
     let _guard = CONFIG_ENV_LOCK.lock().unwrap();
-    let dir =
-        std::env::temp_dir().join(format!("mux-config-test-selfg-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("mux-config-test-selfg-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("mux.json");
     std::fs::write(&path, r##"{"theme": {"selection_foreground": null}}"##).unwrap();

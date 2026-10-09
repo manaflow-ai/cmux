@@ -83,8 +83,7 @@ impl TestProcessExit {
         #[cfg(target_vendor = "apple")]
         assert!(descriptor >= 0, "observe helper child {pid}: {}", io::Error::last_os_error());
         // SAFETY: pidfd_open and kqueue return a new owned descriptor.
-        let descriptor =
-            unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor as libc::c_int) };
+        let descriptor = unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor as libc::c_int) };
 
         #[cfg(target_vendor = "apple")]
         {
@@ -123,11 +122,8 @@ impl TestProcessExit {
 
         #[cfg(target_os = "linux")]
         let ready = {
-            let mut descriptor = libc::pollfd {
-                fd: self.descriptor.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            };
+            let mut descriptor =
+                libc::pollfd { fd: self.descriptor.as_raw_fd(), events: libc::POLLIN, revents: 0 };
             let timeout_ms = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
             unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) }
         };
@@ -315,8 +311,7 @@ fn unix_process_is_live(pid: libc::pid_t) -> bool {
     if !unix_process_exists(pid) {
         return false;
     }
-    let Ok(output) =
-        Command::new("/bin/ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
+    let Ok(output) = Command::new("/bin/ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
     else {
         return true;
     };
@@ -384,11 +379,8 @@ fn ghostty_defaults_falls_back_to_files_when_helper_is_unavailable() {
     let config = dir.join("config");
     std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
 
-    let defaults = ghostty_defaults_from_sources(
-        vec![config],
-        Vec::new(),
-        GhosttyHelperDefaults::Unavailable,
-    );
+    let defaults =
+        ghostty_defaults_from_sources(vec![config], Vec::new(), GhosttyHelperDefaults::Unavailable);
 
     let _ = std::fs::remove_dir_all(dir);
 
@@ -444,11 +436,8 @@ fn ghostty_defaults_do_not_retry_files_after_helper_timeout() {
     let config = dir.join("config");
     std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
 
-    let defaults = ghostty_defaults_from_sources(
-        vec![config],
-        Vec::new(),
-        GhosttyHelperDefaults::TimedOut,
-    );
+    let defaults =
+        ghostty_defaults_from_sources(vec![config], Vec::new(), GhosttyHelperDefaults::TimedOut);
 
     let _ = std::fs::remove_dir_all(dir);
 

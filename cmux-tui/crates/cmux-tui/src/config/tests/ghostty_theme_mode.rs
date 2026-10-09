@@ -180,10 +180,7 @@ fn ghostty_non_macos_desktop_sources_detect_system_theme_mode() {
         ),
         Some(GhosttyThemeMode::Dark)
     );
-    assert_eq!(
-        gtk_settings_theme_mode("[Settings]\ngtk-application-prefer-dark-theme=0\n"),
-        None
-    );
+    assert_eq!(gtk_settings_theme_mode("[Settings]\ngtk-application-prefer-dark-theme=0\n"), None);
     assert_eq!(
         gtk_settings_theme_mode("[Settings]\ngtk-theme-name=Adwaita-dark\n"),
         Some(GhosttyThemeMode::Dark)
@@ -206,16 +203,10 @@ fn ghostty_window_theme_does_not_use_resolved_background_for_terminal_theme() {
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(
-        dir.join("Light Source Theme"),
-        "background = #f0f1f2\nforeground = #f3f4f5\n",
-    )
-    .unwrap();
-    std::fs::write(
-        dir.join("Dark Source Theme"),
-        "background = #101112\nforeground = #131415\n",
-    )
-    .unwrap();
+    std::fs::write(dir.join("Light Source Theme"), "background = #f0f1f2\nforeground = #f3f4f5\n")
+        .unwrap();
+    std::fs::write(dir.join("Dark Source Theme"), "background = #101112\nforeground = #131415\n")
+        .unwrap();
     // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
     unsafe { std::env::set_var("AppleInterfaceStyle", "Light") };
 
