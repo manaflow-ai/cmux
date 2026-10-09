@@ -264,3 +264,53 @@ artifact step; peers below Medium integrity or in an AppContainer are
 refused.
 
 Open: none for steps 1-2.
+
+## Handoff (2026-10-08, GPUI lane)
+
+Landed on feat-cmux-next at a5d97f1f968 (CORE + LOCK window 9c8d9ff44dec):
+
+- `cmux::local_socket` in cmux-sdk (feature `local-socket`, always built on
+  Windows): AF_UNIX via uds_windows; `listen` makes an owner-only socket
+  directory and sets the socket file's owner to the token user; `accept`
+  refuses another user, integrity below Medium and AppContainer peers;
+  `connect_same_user` refuses a socket file another user owns. cmux-sdk and
+  cmux-daemon-client connect through it on Windows; cmux-tui-core uses it
+  with `default-features = false` + `local-socket`.
+- Daemon Windows process data (`cmux-tui-core/src/windows_processes.rs`,
+  `cmux-pty/src/windows_jobs.rs`): a Job Object per terminal; tree, usage,
+  name, cwd (64-bit only) and the foreground heuristic, read only for
+  processes in a terminal job, same user and session.
+- Hosted `test-windows` runs the SDK, daemon-client and windows_processes
+  tests and the LocalService other-user peer test (task deleted in always()).
+
+Open:
+
+1. GPUI app (next agent; after a GPUI pin bump that contains a5d97f1f968):
+   build cmux-daemon-client and cmux-daemon-layout on Windows too, drop
+   `apps/cmux2/src/daemon_off.rs`, route Windows daemon tabs to the shared
+   mirror (`native/offscreen/mirror.rs`, `daemon/terminal_mirror.rs`,
+   `daemon/output_queue.rs`, the same path as Linux), `daemon_binary.rs`
+   looks for `cmux-tui.exe`; test with a PowerShell port of
+   `scripts/daemon-terminal-test.sh` in the Windows VM's gpuitest session
+   only. GPUI already sends the linux/windows device kinds (GPUI main
+   a7bfc74).
+2. Windows cmux-tui tree artifact: publishes only after the coordinator's
+   signing decision (signed, or unsigned accepted); then `pin-cmux-tui.sh`
+   gets the Windows target and `scripts/fetch-cmux-tui.sh` uses it.
+3. The Medium-integrity (non-elevated) socket-owner check in the gpuitest
+   session (expected: the default owner is the user; `listen` sets it
+   anyway).
+4. Post-land hosted run on a5d97f1f968: `test (linux)` and `test (windows)`
+   fail on `cmux-daemon-client mirror_state_tests::
+   malformed_state_changes_leave_the_mirror_unchanged`, a base test
+   (workspace-group mirror, a815a221294), not this change; Windows shows it
+   because `test-windows` now runs the daemon-client tests.
+5. P2 (separate branch `gpui-sdk-peer-uid`, hosted green at d5bf3747b9c):
+   the SDK's Unix client refuses a server of another uid (SO_PEERCRED /
+   getpeereid); waits for the coordinator's scope decision before CORE.
+
+Leftovers: Windows VM `cmux2-gpui-windows` only under `C:\build-wb`
+(`clsgit`, a sparse clone, and cls-*/lockupd*/zigsetup* scripts and logs;
+10.5 GB free after cleanup). Linux VM `cmux2-gpui-linux`: `~/ldt/` (cmux-tui
+build at the old pin, test trees, `land/` and `land-target/` from the land
+check). The pre-land `cargo check --locked` ran on cmux2-gpui-linux.
