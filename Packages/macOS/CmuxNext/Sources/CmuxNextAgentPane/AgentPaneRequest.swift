@@ -66,6 +66,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case listProjects(String?)
     /// The empty-chat action opens the existing onboarding project/history import flow.
     case importAndSync
+    /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
+    /// opened through the app's shared Open Chat path.
+    case openChat(String)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -96,6 +99,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// the panel. `{sessionId}` is optional; without it the host uses the
     /// session the page last persisted.
     case quickOpenInWindow(sessionId: String?)
+    /// The quick panel's page (Start Agent's Return): its chat started;
+    /// hand the session to the sidebar in the background and hide the panel.
+    case quickStartInBackground(AgentPaneQuickStart)
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)

@@ -48,10 +48,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
-    /// Opens onboarding's existing project and agent-history import flow.
-    @ObservationIgnored public var onImportAndSync: (() -> Void)?
-    /// The chat's own menu for a right-click on empty space (Change Background, zoom, Find...),
-    /// detached items the App renders from its action placements.
+    @ObservationIgnored public var onImportAndSync: (() -> Void)? // onboarding's project and history import
+    @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
+    /// The chat's own right-click menu on empty space: detached items the App renders from its placements.
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
     /// Search the Web on selected chat text: a browser tab with the omnibar's search engine.
     @ObservationIgnored public var onSearchWeb: (@MainActor (String) -> Void)?
@@ -72,6 +71,9 @@ public final class AgentPaneModel {
     /// (`quick.openInWindow`). Gets the chat's session, nil before the
     /// first prompt.
     @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
+    /// The quick panel's Return started its chat (`quick.startInBackground`): the
+    /// session goes to the sidebar; the reply waits until the host placed it or failed.
+    @ObservationIgnored public var onQuickStartInBackground: (@MainActor (AgentPaneQuickStart) async -> Void)?
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
@@ -305,6 +307,7 @@ public final class AgentPaneModel {
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()
             return AgentPaneReply.success()
+        case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .paneAction, .tabState: return respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
@@ -336,6 +339,15 @@ public final class AgentPaneModel {
                 onSessionChange?(session)
             }
             onQuickOpenInWindow(sessionId)
+            return AgentPaneReply.success()
+        case .quickStartInBackground(let start):
+            guard let onQuickStartInBackground else { return Self.unsupported("quick.startInBackground") }
+            if start.sessionId != sessionId {
+                sessionId = start.sessionId
+                newTab = nil
+                onSessionChange?(start.sessionId)
+            }
+            await onQuickStartInBackground(start)
             return AgentPaneReply.success()
         case .git(let git):
             guard let onGit else { return Self.gitFailure(.notConnected) }

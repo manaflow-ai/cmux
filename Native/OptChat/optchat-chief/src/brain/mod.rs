@@ -186,6 +186,8 @@ pub enum EngineRequest {
         harness: Option<String>,
         model: Option<String>,
         effort: Option<String>,
+        speed: Option<String>,
+        compactor_speed: Option<String>,
     },
 }
 
@@ -241,6 +243,9 @@ pub struct Settings {
     pub agent_gap: Duration,
     /// Longest a turn may run (None: no limit).
     pub turn_limit: Option<Duration>,
+    /// A turn with no harness event for this long ends with a typed error
+    /// and runs once again (`OPTCHAT_CHIEF_TURN_IDLE_MIN`, default 10).
+    pub turn_idle_limit: Option<Duration>,
     pub engine: Engine,
     /// The turn sessions' acpmux preset on a Claude harness, whose system
     /// prompt each turn sets (the cached layout); None on another harness.
@@ -305,6 +310,10 @@ struct Queued {
     /// The side conversation of a human message; None for the main
     /// conversation, which also takes every note, child report and spawn.
     conversation: Option<String>,
+    /// Already logged as `user` (a steer on a harness that answers at the
+    /// turn's end, which then failed): the next turn takes it without
+    /// logging it again.
+    logged: bool,
 }
 
 impl Queued {
@@ -381,7 +390,7 @@ pub struct Brain {
     interrupt: Arc<crate::turn::Interrupt>,
     /// The steer on its way into the running turn (`steer.rs`), and the
     /// last steer's number.
-    steering: Option<steer::Steering>,
+    steering: Vec<steer::Steering>,
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
@@ -493,7 +502,7 @@ impl Brain {
             stop_wanted: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
-            steering: None,
+            steering: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
             marker_refused: crate::prompt::MarkLatch::default(),
@@ -598,7 +607,7 @@ impl Brain {
     pub fn is_idle(&self) -> bool {
         self.phase == Phase::Idle
             && !self.queue.iter().any(Queued::wakes)
-            && self.steering.is_none()
+            && self.steering.is_empty()
     }
 
     /// When the outbox timer fires, if armed.
@@ -907,6 +916,7 @@ impl Brain {
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
         let item = Queued {
+            logged: false,
             text,
             source,
             images,

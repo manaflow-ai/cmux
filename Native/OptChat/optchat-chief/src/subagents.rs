@@ -75,6 +75,8 @@ pub struct SpawnPlan {
 pub struct SpawnEngine {
     pub harness: String,
     pub model: Option<String>,
+    /// The calling turn's effort: subagents think as hard as it by default.
+    pub effort: Option<String>,
     /// Its family when it is not the default harness's: the subagents then
     /// take that family's preset, `<subagent preset>-<family>`.
     pub other_family: Option<crate::acpmux::Family>,
@@ -95,6 +97,8 @@ pub struct SubagentSettings {
     pub harness: String,
     pub policy: String,
     pub model: Option<String>,
+    /// How hard the subagents think (`spawn`'s effort, else the turn's).
+    pub effort: Option<String>,
     /// The subagent preset (required: never a fallback to the turn preset).
     pub preset: Option<String>,
     /// Every subagent's working directory (`optchat/subagent`).
@@ -274,7 +278,7 @@ impl Spawner {
             // The spawn floor (`Brain::spawn_policy`) wins over the setting.
             policy: floor.unwrap_or(&s.policy).to_owned(),
             model: s.model.clone(),
-            effort: None,
+            effort: s.effort.clone(),
             preset: s.preset.clone(),
             tags: {
                 let mut t = tags(&s.parent, spawn, id);
@@ -290,6 +294,7 @@ impl Spawner {
                 .iter()
                 .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
                 .collect(),
+            fast: false,
         };
         let session = self.agents.new_session(&spec)?;
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
@@ -298,6 +303,14 @@ impl Spawner {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
+        // codex under approve-all: no sandbox for its cmux calls (E6).
+        if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &spec.policy)
+            && let Err(e) = self.agents.set_mode(&session, mode)
+        {
+            (self.log)(&format!(
+                "subagent {id}: {e}; its cmux calls may be sandboxed"
+            ));
+        }
         // Registered before its prompt: its turn end can only follow.
         self.send(Input::SubagentStarted {
             id: id.to_owned(),
@@ -510,6 +523,23 @@ pub fn resolve_cwd(asked: &str, home: &Path) -> Result<PathBuf, String> {
 
 impl Orchestrator for Spawner {
     fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String> {
+        self.spawn_with_effort(tasks, cwd, None)
+    }
+
+    fn spawn_with_effort(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+    ) -> Result<String, String> {
+        if let Some(e) = effort.as_deref()
+            && !crate::tools::EFFORTS.contains(&e)
+        {
+            return Err(format!(
+                "no effort {e}; one of {}",
+                crate::tools::EFFORTS.join(", ")
+            ));
+        }
         if tasks.len() > MAX_TASKS {
             return Err(format!(
                 "spawn takes at most {MAX_TASKS} tasks; split the work"
@@ -555,8 +585,10 @@ impl Orchestrator for Spawner {
         let floor = self.spawn_floor();
         let (dir, dir_note) = self.run_dir(cwd.as_deref(), &run);
         // The run's settings in the directory they start in.
+        // How hard they think: as asked, else as hard as the calling turn.
         let launch = SubagentSettings {
             cwd: dir.clone(),
+            effort: effort.or_else(|| plan.engine.as_ref().and_then(|e| e.effort.clone())),
             ..run.clone()
         };
         let mut started = Vec::new();

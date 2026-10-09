@@ -520,11 +520,13 @@ impl Brain {
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
                 env: Default::default(),
+                fast: self.turn_fast(&engine, family),
             },
             blocks,
             system_prompt,
             key,
             limit: self.settings.turn_limit,
+            idle_limit: self.settings.turn_idle_limit,
         })
     }
 
@@ -538,6 +540,10 @@ impl Brain {
         items: &[Queued],
         update: impl FnOnce(&mut HostState, &Appended),
     ) -> Option<Appended> {
+        // Items logged already (a failed steer on a harness that answers at
+        // the turn's end) are not logged again.
+        let fresh: Vec<Queued> = items.iter().filter(|q| !q.logged).cloned().collect();
+        let items = &fresh[..];
         let main = self.state.conversation.clone().unwrap_or_default();
         let entries: Vec<NewMessage<'_>> = items
             .iter()
@@ -814,6 +820,22 @@ impl Brain {
 
     /// This turn's engine: engine.json over the defaults. A harness acpmux
     /// does not know keeps the default harness, and says so.
+    /// Whether this turn runs at the fast tier: `speed` fast on a harness
+    /// that has it; on another one the turn runs at the default speed and
+    /// the log says why.
+    fn turn_fast(&self, engine: &crate::engine::TurnEngine, family: crate::acpmux::Family) -> bool {
+        let Some(speed) = engine.speed.as_deref() else {
+            return false;
+        };
+        match crate::engine::check_speed(speed, family) {
+            Ok(()) => crate::engine::is_fast(Some(speed)),
+            Err(reason) => {
+                (self.log)(&format!("{reason}; this turn runs at the default speed"));
+                false
+            }
+        }
+    }
+
     fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
         let (engine, unknown) = self.next_engine();
         if let Some(named) = unknown {
@@ -834,6 +856,7 @@ impl Brain {
         Some(crate::subagents::SpawnEngine {
             harness: engine.harness.clone(),
             model: engine.model.clone(),
+            effort: engine.effort.clone(),
             other_family: (family != self.family_of(&self.settings.harness)).then_some(family),
         })
     }
@@ -1017,8 +1040,8 @@ impl Brain {
         if let Some(hook) = &self.after_turn {
             hook(key);
         }
-        self.prewarm_next_turn();
         self.maybe_start_turn();
+        self.prewarm_next_turn();
     }
 }
 

@@ -59,7 +59,7 @@ public struct TerminalEnvironment: Sendable {
     /// process only and are not forwarded, so a cmux-next started from one of
     /// its terminals does not inherit them.
     public func terminal(login: [String: String]?, base: [String: String]) -> [String: String] {
-        var env = filter(login ?? base)
+        var env: [String: String] = filter(login ?? base)
         for (key, value) in base where key.hasPrefix("CMUX_") && !key.hasPrefix("CMUX_NEXT_") && isAllowed(key) && env[key] == nil {
             env[key] = value
         }
@@ -73,7 +73,7 @@ public struct TerminalEnvironment: Sendable {
     /// Environment for the daemon process: `terminal(login:base:)` plus the
     /// app's process identity keys, plus `overrides`.
     public func daemon(login: [String: String]?, base: [String: String], overrides: [String: String]) -> [String: String] {
-        var env = terminal(login: login, base: base)
+        var env: [String: String] = terminal(login: login, base: base)
         for key in daemonIdentityKeys { if let value = base[key] { env[key] = value } }
         for (key, value) in overrides { env[key] = value }
         return env
@@ -133,7 +133,7 @@ public struct TerminalEnvironment: Sendable {
     ) -> @Sendable () async -> [String: String] {
         {
             let captured = if let login { await login() } else { await LoginEnvironmentCache.shared.value() }
-            var env = terminal(login: captured, base: base)
+            var env: [String: String] = terminal(login: captured, base: base)
             for (key, value) in overrides { env[key] = value }
             if let integration = await integration() { env = integration.apply(to: env) }
             if let cli { env = cli.apply(to: env) }

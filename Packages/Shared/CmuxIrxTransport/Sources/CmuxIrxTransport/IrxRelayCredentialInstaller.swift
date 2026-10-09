@@ -18,13 +18,13 @@ actor IrxRelayCredentialInstaller {
     private var stopped = false
 
     init(
-        installed: [IrxRelayCredential],
+        installed initial: [IrxRelayCredential],
         journal: IrxJournal,
         now: @escaping @Sendable () -> Date = { Date() },
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         install: @escaping Install
     ) {
-        self.installed = Self.index(installed)
+        self.installed = Self.index(initial)
         self.journal = journal
         self.now = now
         self.sleep = sleep
@@ -33,7 +33,7 @@ actor IrxRelayCredentialInstaller {
 
     func replace(with credentials: [IrxRelayCredential], ownership: IrxRelayCredentialInstallOwnership? = nil) {
         guard !stopped else { return }
-        let next = Self.index(credentials)
+        let next: [String: IrxRelayCredential] = Self.index(credentials)
         guard next != desired || self.ownership != ownership else { return }
         desired = next
         self.ownership = ownership

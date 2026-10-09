@@ -43,3 +43,12 @@
          return true
      }
  }
+@@ -260,7 +264,7 @@
+ 
+     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+-        if let j = job(dataTask), response.expectedContentLength > Int64(j.limit), !j.stopAtHeadEnd {
++        if let j = job(dataTask), response.expectedContentLength > Int64(truncatingIfNeeded: j.limit) /* cmux: Int is 64-bit */, !j.stopAtHeadEnd {
+             j.refusal = .tooLarge; completionHandler(.cancel); return
+         }
+         completionHandler(.allow)

@@ -89,6 +89,7 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            claude_profile: None,
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
