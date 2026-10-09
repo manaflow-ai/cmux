@@ -40,8 +40,10 @@ function cwd(ctx, event) {
   return firstString(
     data.info?.directory,
     data.info?.location?.directory,
+    data.location?.directory,
     data.directory,
     data.cwd,
+    event?.location?.directory,
     ctx?.location?.directory,
     ctx?.directory,
     process.cwd(),
@@ -178,9 +180,12 @@ function sessionEventName(event) {
 
 function reportError(ctx, _error) {
   try {
-    const report = ctx?.error || ctx?.ui?.error || ctx?.onError;
-    if (typeof report === "function") {
-      report.call(ctx, "cmux could not process the OpenCode event. Try again.");
+    const toast = ctx?.ui?.toast?.show;
+    if (typeof toast === "function") {
+      toast.call(ctx.ui.toast, {
+        message: "cmux could not process the OpenCode event. Try again.",
+        variant: "error",
+      });
     }
   } catch (_) {}
 }

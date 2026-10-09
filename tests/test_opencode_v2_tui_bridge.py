@@ -57,6 +57,8 @@ if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_ARGV_B64) throw new Error("session adm
 const socketPath = "/tmp/cmux-opencode-v2-" + process.pid + ".sock";
 try { await fs.unlink(socketPath); } catch (_) {}
 const observed = [];
+const delayedResponses = new Map();
+let holdNextResponse = false;
 const server = net.createServer((connection) => {
   connection.unref();
   connection.setEncoding("utf8");
@@ -70,7 +72,15 @@ const server = net.createServer((connection) => {
       const decision = event.hook_event_name === "PermissionRequest"
         ? { kind: "permission", mode: "once" }
         : { kind: "question", selections: ["yes"] };
-      if (!connection.destroyed) connection.write(JSON.stringify({ result: { request_id: event._opencode_request_id, status: "resolved", decision } }) + "\n");
+      const response = () => {
+        if (!connection.destroyed) connection.write(JSON.stringify({ result: { request_id: event._opencode_request_id, status: "resolved", decision } }) + "\n");
+      };
+      if (holdNextResponse) {
+        delayedResponses.set(event._opencode_request_id, response);
+        holdNextResponse = false;
+      } else {
+        response();
+      }
     }
   });
 });
@@ -81,7 +91,7 @@ const deferred = () => {
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
 };
-const repliesA = { permission: deferred(), form: deferred(), question: deferred() };
+const repliesA = { permission: deferred(), form: deferred(), question: deferred(), routeForm: deferred() };
 const repliesB = { permission: deferred() };
 const makeLive = (name, environment, replies) => {
   const live = makeContext(name);
@@ -98,7 +108,10 @@ const makeLive = (name, environment, replies) => {
       },
     },
   };
-  live.data.session.form = { reply: async (value, location) => { replies.form?.resolve({ value, location }); } };
+  live.data.session.form = { reply: async (value, location) => {
+    const target = value.formID === "form-route" ? replies.routeForm : replies.form;
+    target?.resolve({ value, location });
+  } };
   live.environment = environment;
   return live;
 };
@@ -107,28 +120,41 @@ const liveB = makeLive("b", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "su
 const cleanupA = await mod.createCMUXTUIBridge(liveA, { environment: liveA.environment });
 const cleanupB = await mod.createCMUXTUIBridge(liveB, { environment: liveB.environment });
 
-liveA.emit({ details: { type: "session.created", data: { info: { id: "child-a", directory: "/tmp/a" } } } });
+liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } }, location: { directory: "/tmp/a" } } });
 await new Promise((resolve) => setImmediate(resolve));
 liveB.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "child-b" } } });
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-a", action: "edit", resources: ["/tmp/a/file"] } } });
 liveB.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-wrong", action: "edit" } } });
 const permissionA = await Promise.race([repliesA.permission.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("permission reply timed out")), 2000))]);
-if (permissionA.sessionID !== "child-a" || permissionA.requestID !== "perm-a" || permissionA.reply !== "once") throw new Error("permission reply used the wrong TUI contract");
-if (permissionA.decision !== undefined) throw new Error("permission reply used the server-only decision field");
+if (permissionA.sessionID !== "child-a" || permissionA.requestID !== "perm-a" || permissionA.decision !== "once") throw new Error("permission reply used the wrong TUI contract");
 const permissionFrame = observed.find((event) => event._opencode_request_id === "perm-a");
 if (permissionFrame?.tool_input?.action !== "edit" || permissionFrame?.tool_input?.resources?.[0] !== "/tmp/a/file") throw new Error("permission request details were dropped from the Feed frame");
 
-liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-a", fields: [{ key: "choice", type: "string", options: [{ label: "yes" }] }] } } } });
+liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-a", fields: [{ key: "choice", type: "string", options: [{ value: "yes-value", label: "yes" }] }] } } } });
 const formA = await Promise.race([repliesA.form.promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`form reply timed out (${JSON.stringify(observed)})`)), 2000))]);
-if (formA.value.sessionID !== "child-a" || formA.value.formID !== "form-a" || formA.value.answer.choice !== "yes") throw new Error("form reply was not mapped to its owning TUI");
+if (formA.value.sessionID !== "child-a" || formA.value.formID !== "form-a" || formA.value.answer.choice !== "yes-value") throw new Error("form reply was not mapped to its owning TUI");
 
 liveA.emit({ details: { type: "question.asked", data: { sessionID: "child-a", id: "question-a", questions: [{ id: "choice", question: "Continue?", options: [{ label: "yes" }] }] } } });
 const questionA = await Promise.race([repliesA.question.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("legacy question reply timed out")), 2000))]);
 if (questionA.requestID !== "question-a" || JSON.stringify(questionA.answers) !== JSON.stringify([["yes"]])) throw new Error("legacy question reply used the wrong TUI contract");
 
+liveA.emit({ details: { type: "session.inbox.enqueued", data: { sessionID: "child-a", item: { type: "user", payload: { text: "hello from v2" } } } } });
+liveA.emit({ details: { type: "session.text.ended", data: { sessionID: "child-a", text: "assistant preamble" } } });
+
+holdNextResponse = true;
+liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-route", fields: [{ key: "choice", type: "string", options: [{ value: "yes-value", label: "yes" }] }] } } } });
+const routeFrameDeadline = Date.now() + 2000;
+while (!observed.some((event) => event._opencode_request_id === "form-route")) {
+  if (Date.now() > routeFrameDeadline) throw new Error("route-change form frame timed out");
+  await new Promise((resolve) => setImmediate(resolve));
+}
+liveA.ui.router.current = () => fixture.starterClosed.route;
+delayedResponses.get("form-route")?.();
+const routeForm = await Promise.race([repliesA.routeForm.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("route-change form reply timed out")), 2000))]);
+if (routeForm.value.formID !== "form-route" || routeForm.value.answer.choice !== "yes-value") throw new Error("resolved TUI reply was dropped after route change");
+
 liveB.emit({ details: { type: "session.updated", data: { sessionID: "child-b", info: { id: "child-b", time: { archived: true } } } } });
 
-liveA.ui.router.current = () => fixture.starterClosed.route;
 const beforeClosed = observed.length;
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-closed", action: "edit" } } });
 await new Promise((resolve) => setImmediate(resolve));
@@ -142,7 +168,10 @@ while (observed.filter((event) => event.hook_event_name === "SessionStart" || ev
 const sessionStart = observed.find((event) => event.hook_event_name === "SessionStart");
 const stop = observed.find((event) => event.hook_event_name === "Stop");
 if (sessionStart?.surface_id !== "surface-a" || sessionStart?.workspace_id !== "workspace-a") throw new Error("Feed event was routed to the wrong surface");
+if (sessionStart?.cwd !== "/tmp/a") throw new Error("V2 session location was dropped from Feed telemetry");
 if (stop?.surface_id !== "surface-b" || stop?.workspace_id !== "workspace-b") throw new Error("second TUI Feed event was routed to the first surface");
+const prompt = observed.find((event) => event.hook_event_name === "UserPromptSubmit");
+if (prompt?.tool_input?.prompt !== "hello from v2" || prompt?.context?.lastUserMessage !== "hello from v2") throw new Error("V2 inbox prompt was dropped from Feed context");
 const sessionEnd = observed.find((event) => event.hook_event_name === "SessionEnd");
 if (!sessionEnd) {
   await new Promise((resolve, reject) => {

@@ -148,13 +148,18 @@ const createCMUXFeed = async (ctx, options = {}) => {
     remember: reply === "always",
   });
 
-  const replyPermission = async ({ sessionId, requestId, reply, message }) => {
-    if (disposed || !(await ownsSession(sessionId))) return;
+  const ownsSessionForEvent = async (sessionId, ownerSessionId = null) => {
+    if (ownerSessionId && sessionId === ownerSessionId) return true;
+    return await ownsSession(sessionId);
+  };
+
+  const replyPermission = async ({ sessionId, requestId, reply, message, ownerSessionId = null }) => {
+    if (disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return;
     if (options.tui) {
       await ctx.client.permission.reply({
         sessionID: sessionId,
         requestID: requestId,
-        reply,
+        decision: reply,
         ...(message ? { message } : {}),
       });
       return;
@@ -195,8 +200,8 @@ const createCMUXFeed = async (ctx, options = {}) => {
     }
   };
 
-  const replyForm = async (sessionId, formId, answer, legacyAnswers = null) => {
-    if (disposed || !(await ownsSession(sessionId))) return;
+  const replyForm = async (sessionId, formId, answer, legacyAnswers = null, ownerSessionId = null) => {
+    if (disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return;
     if (options.tui) {
       if (legacyAnswers) {
         if (
@@ -252,8 +257,8 @@ const createCMUXFeed = async (ctx, options = {}) => {
     await callClientMethod(ctx?.client?.question, "reject", { requestID: requestId });
   };
 
-  const updateSessionPermission = async (sessionId, permission) => {
-    if (disposed || !(await ownsSession(sessionId))) return false;
+  const updateSessionPermission = async (sessionId, permission, ownerSessionId = null) => {
+    if (disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return false;
     if (!sessionId || !permission.length) return true;
     const permissions = permission.map((rule) => ({
       action: rule.permission,
@@ -289,15 +294,15 @@ const createCMUXFeed = async (ctx, options = {}) => {
     return await callClientMethod(ctx?.client?.session, "update", { path: { id: sessionId }, body: { permission } });
   };
 
-  const sendPlanFeedback = async (sessionId, text) => {
+  const sendPlanFeedback = async (sessionId, text, ownerSessionId = null) => {
     const message = normalizeText(text, 2000);
-    if (!sessionId || !message || disposed || !(await ownsSession(sessionId))) return;
+    if (!sessionId || !message || disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return;
     if (options.tui) {
       try {
-        await ctx.client.session.prompt({ sessionID: sessionId, text: { text: message }, resume: false });
+        await ctx.client.session.prompt({ sessionID: sessionId, text: { text: message, resume: false } });
         return;
       } catch (_) {}
-      await ctx.client.session.synthetic({ sessionID: sessionId, text: { text: message }, resume: false });
+      await ctx.client.session.synthetic({ sessionID: sessionId, text: { text: message, resume: false } });
       return;
     }
     try {
@@ -466,6 +471,15 @@ const createCMUXFeed = async (ctx, options = {}) => {
   });
 
   const answerForForm = (form, selections) => {
+    const optionValue = (field, value) => {
+      const selected = String(value ?? "");
+      const option = (Array.isArray(field.options) ? field.options : []).find((candidate) => (
+        String(candidate.value ?? "") === selected ||
+        String(candidate.id ?? "") === selected ||
+        String(candidate.label ?? candidate.title ?? candidate.name ?? "") === selected
+      ));
+      return option?.value ?? option?.id ?? option?.label ?? option?.title ?? option?.name ?? selected;
+    };
     const answer = {};
     const values = Array.isArray(selections) ? selections : [];
     form.fields.forEach((field, index) => {
@@ -473,46 +487,60 @@ const createCMUXFeed = async (ctx, options = {}) => {
       const multiSelect = field.multiple === true || field.multiSelect === true || field.type === "array" || field.type === "multiselect";
       const fieldValue = multiSelect && form.fields.length === 1 ? values : (values[index] ?? values[0]);
       if (multiSelect) {
-        answer[key] = Array.isArray(fieldValue) ? fieldValue.map(String) : fieldValue == null ? [] : [String(fieldValue)];
+        const rawValues = Array.isArray(fieldValue)
+          ? fieldValue
+          : fieldValue == null || fieldValue === ""
+            ? []
+            : String(fieldValue).split(/,\s*/);
+        answer[key] = rawValues.map((value) => optionValue(field, value));
       } else if (field.type === "number" || field.type === "integer") {
         answer[key] = fieldValue == null || fieldValue === "" ? 0 : Number(fieldValue);
       } else if (field.type === "boolean") {
         answer[key] = fieldValue === true || fieldValue === "true" || fieldValue === "Yes";
       } else {
-        answer[key] = fieldValue == null ? "" : String(fieldValue);
+        answer[key] = fieldValue == null ? "" : optionValue(field, fieldValue);
       }
     });
     return answer;
   };
 
-  const replyInteractive = async (sid, requestId, answer, legacyAnswers) => {
-    await replyForm(sid, requestId, answer, legacyAnswers);
+  const replyInteractive = async (sid, requestId, answer, legacyAnswers, ownerSessionId = null) => {
+    await replyForm(sid, requestId, answer, legacyAnswers, ownerSessionId);
   };
 
-  const handleExitPlanDecision = async (sid, requestId, decision, form = null) => {
+  const handleExitPlanDecision = async (sid, requestId, decision, form = null, ownerSessionId = null) => {
     const mode = decision?.mode || "manual";
     const planDecisionAnswer = (value) => form ? answerForForm(form, [value]) : { answer: value };
+    const replyPlanAnswer = async (value) => {
+      if (form) {
+        await replyInteractive(sid, requestId, planDecisionAnswer(value), null, ownerSessionId);
+      } else {
+        await replyInteractive(sid, requestId, planDecisionAnswer(value), [[value]], ownerSessionId);
+      }
+    };
     const feedback = normalizeText(decision?.feedback, 1800);
 
     if (feedback) {
-      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
+      await replyPlanAnswer("No");
       await sendPlanFeedback(
         sid,
-        `User rejected the plan via cmux Feed and wants this change: ${feedback}\n\nUpdate the plan file, then call plan_exit again.`
+        `User rejected the plan via cmux Feed and wants this change: ${feedback}\n\nUpdate the plan file, then call plan_exit again.`,
+        ownerSessionId
       );
       return;
     }
 
     if (mode === "deny") {
-      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
+      await replyPlanAnswer("No");
       return;
     }
 
     if (mode === "ultraplan") {
-      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
+      await replyPlanAnswer("No");
       await sendPlanFeedback(
         sid,
-        "User chose Ultraplan via cmux Feed. Refine the plan more deeply, update the plan file, then call plan_exit again."
+        "User chose Ultraplan via cmux Feed. Refine the plan more deeply, update the plan file, then call plan_exit again.",
+        ownerSessionId
       );
       return;
     }
@@ -520,19 +548,20 @@ const createCMUXFeed = async (ctx, options = {}) => {
     const rules = permissionRulesForExitPlanMode(mode);
     let permissionsApplied = true;
     try {
-      permissionsApplied = await updateSessionPermission(sid, rules);
+      permissionsApplied = await updateSessionPermission(sid, rules, ownerSessionId);
     } catch (_) {
       permissionsApplied = false;
     }
     if (!permissionsApplied) {
-      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
+      await replyPlanAnswer("No");
       await sendPlanFeedback(
         sid,
-        "cmux could not apply the selected permission mode. Ask the user to approve the plan again before switching to build mode."
+        "cmux could not apply the selected permission mode. Ask the user to approve the plan again before switching to build mode.",
+        ownerSessionId
       );
       return;
     }
-    await replyInteractive(sid, requestId, planDecisionAnswer("Yes"), [["Yes"]]);
+    await replyPlanAnswer("Yes");
   };
 
   const resolvePending = (requestId, value) => {
@@ -628,6 +657,25 @@ const createCMUXFeed = async (ctx, options = {}) => {
 
   const trackMessage = (event) => {
     const props = eventProperties(event);
+    if (event.type === "session.inbox.enqueued") {
+      const sid = firstString(props.sessionID);
+      const item = props.item || {};
+      const text = normalizeText(item.type === "user" ? item.payload?.text : null);
+      if (!sid || !text) return null;
+      const state = sessionState(sid);
+      state.lastUserMessage = text;
+      return base(sid, {
+        hook_event_name: "UserPromptSubmit",
+        tool_input: { prompt: text },
+        context: { lastUserMessage: text },
+      });
+    }
+    if (event.type === "session.text.ended") {
+      const sid = firstString(props.sessionID);
+      const text = normalizeText(props.text);
+      if (sid && text) sessionState(sid).assistantPreamble = text;
+      return null;
+    }
     if (event.type === "message.updated") {
       const info = props.info || props.message || {};
       const messageId = info.id || props.messageID;
@@ -721,7 +769,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           const info = props.info || {};
           const sid = sessionIdFromProperties(props) || "unknown";
           const state = sessionState(sid);
-          state.cwd = info.directory || ctx?.directory || state.cwd;
+          state.cwd = info.directory || props.location?.directory || event.location?.directory || ctx?.location?.directory || ctx?.directory || state.cwd;
           pushTelemetry(base(sid, {
             hook_event_name: "SessionStart",
             cwd: state.cwd,
@@ -819,7 +867,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           if (result?.status === "resolved" && result.decision?.kind === "permission") {
             const mode = result.decision.mode;
             try {
-              await updateSessionPermission(sid, permissionSessionRulesForMode(permission, mode));
+              await updateSessionPermission(sid, permissionSessionRulesForMode(permission, mode), ownedSessionId);
             } catch (_) {}
             try {
               await replyPermission({
@@ -827,6 +875,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
                 requestId,
                 reply: permissionReplyForMode(mode),
                 message: mode === "deny" ? "User denied permission via cmux Feed." : undefined,
+                ownerSessionId: ownedSessionId,
               });
             } catch (e) { /* ignore - opencode already moved on */ }
           }
@@ -860,9 +909,9 @@ const createCMUXFeed = async (ctx, options = {}) => {
           if (result?.status !== "resolved") break;
           try {
             if (planExit && result.decision?.kind === "exit_plan") {
-              await handleExitPlanDecision(form.sessionId, requestId, result.decision, form);
+              await handleExitPlanDecision(form.sessionId, requestId, result.decision, form, ownedSessionId);
             } else if (!planExit && result.decision?.kind === "question") {
-              await replyForm(form.sessionId, requestId, answerForForm(form, result.decision.selections));
+              await replyForm(form.sessionId, requestId, answerForForm(form, result.decision.selections), null, ownedSessionId);
             }
           } catch (_) {}
           break;
@@ -902,7 +951,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
             const result = await pushBlocking(frame, requestId);
             if (result?.status === "resolved" && result.decision?.kind === "exit_plan") {
               try {
-                await handleExitPlanDecision(sid, requestId, result.decision);
+                await handleExitPlanDecision(sid, requestId, result.decision, null, ownedSessionId);
               } catch (_) {}
             }
             break;
@@ -917,7 +966,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           const result = await pushBlocking(frame, requestId);
           if (result?.status === "resolved" && result.decision?.kind === "question") {
             try {
-              await replyForm(sid, requestId, {}, questionAnswers(result.decision.selections));
+              await replyForm(sid, requestId, {}, questionAnswers(result.decision.selections), ownedSessionId);
             } catch (_) {
               try { await rejectQuestion(requestId); } catch (_) {}
             }
