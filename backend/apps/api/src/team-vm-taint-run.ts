@@ -2,6 +2,7 @@ import type { OwnerFrame } from "@cmux/ownership"
 import { currentTaint, pausingRetired, retireDue, taintBlocks, type TeamVmTaint } from "./domains/team-vm-taint.ts"
 import type { TeamVmState } from "./domains/team-vm.ts"
 import { DriverError, type TeamVmDriver } from "./team-vm-driver.ts"
+import { exportRetired, type ExportRunDeps } from "./team-vm-export-run.ts"
 
 /**
  * TeamVmDO's side of the taint (cx-q4f3, domains/team-vm-taint.ts): the owner actions TeamDO
@@ -23,6 +24,7 @@ export type AdminRequest =
   | { readonly action: "accept"; readonly by: string; readonly epoch: number; readonly users: ReadonlyArray<string>; readonly key: string }
   | { readonly action: "rebuild"; readonly by: string; readonly epoch: number; readonly key: string }
   | { readonly action: "delete"; readonly by: string; readonly vm: string; readonly key: string }
+  | { readonly action: "export"; readonly by: string; readonly vm: string; readonly key: string }
 
 export type AdminReply = { ok: true; value: Record<string, unknown>; tainted_by: ReadonlyArray<string>; epoch: number } | { ok: false; code: string; message: string }
 
@@ -46,7 +48,7 @@ const outcome = (frames: ReadonlyArray<OwnerFrame>): { ok: true; value: Record<s
   return { ok: true, value: (f.t === "result" ? f.value : {}) as Record<string, unknown> }
 }
 
-export const adminAction = async (d: TaintRunDeps, req: AdminRequest): Promise<AdminReply> => {
+export const adminAction = async (d: ExportRunDeps, req: AdminRequest): Promise<AdminReply> => {
   const s = d.state()
   if (!s) return { ok: false, code: "owner.unreachable", message: "team VM record not open" }
   const taintedBy = currentTaint(s)?.users ?? []
@@ -65,6 +67,7 @@ export const adminAction = async (d: TaintRunDeps, req: AdminRequest): Promise<A
     await pauseRetired(d)
     return { ...r, tainted_by: taintedBy, epoch: req.epoch }
   }
+  if (req.action === "export") return exportRetired(d, req)
   const row = (s.retired ?? []).find((x) => x.vm === req.vm)
   if (!row) return { ok: false, code: "selector.not_found", message: "no retired team VM with this id" }
   const del = await d.deleteVm(row.vm, req.by)

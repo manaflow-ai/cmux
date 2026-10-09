@@ -47713,7 +47713,7 @@
         "expose": "never",
         "group": "team"
       },
-      "docs": "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (copy its files off first); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.",
+      "docs": "Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (download its files first with team_vm.retired.export); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -47887,6 +47887,214 @@
         "required": [
           "vm",
           "deleted"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team_vm.retired.export": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "vm": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "path": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "expires_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "files": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "bytes": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "archive_bytes": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "skipped": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "skipped_count": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "team_vm.export_no_files",
+        "team_vm.export_timeout",
+        "team_vm.export_too_large",
+        "team_vm.in_use",
+        "team_vm.not_configured",
+        "team_vm.not_in_ledger",
+        "team_vm.not_tainted",
+        "team_vm.plan_gate_missing",
+        "team_vm.provider_failed",
+        "team_vm.provider_refused",
+        "team_vm.retired_full",
+        "team_vm.retired_not_fenced",
+        "team_vm.stale_epoch",
+        "team_vm.stale_taint",
+        "team_vm.vm_missing",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team vm retired export",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Download the team files (/srv/team) of a VM that a rebuild replaced (team_vm.status `retired`) as one tar, without starting it: only a paused retired VM whose run budget is spent (fenced) is read, through the provider's file API. Answers a single-use download path valid for 5 minutes; refuses more than 2 GiB of files or 5000 entries (team_vm.export_too_large) and a VM not fenced yet (team_vm.retired_not_fenced). Symlinks and special files are skipped and listed. Owners and admins only, in a person's session; audited.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "vm"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "archive_bytes": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skipped_count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "vm",
+          "path",
+          "expires_at",
+          "files",
+          "bytes",
+          "archive_bytes",
+          "skipped",
+          "skipped_count"
         ],
         "additionalProperties": true,
         "$defs": {}

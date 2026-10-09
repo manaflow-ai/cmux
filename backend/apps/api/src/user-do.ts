@@ -7,7 +7,7 @@ import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
-import { chiefActive, grantFor, inboxRefusalFor, installActive, iosGrantsToMigrate, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
@@ -90,10 +90,10 @@ export class UserDO extends OwnerDO<UserState> {
     return true
   }
 
-  /** CLOUD-LINK-FOLLOWUPS decision 2: old iPhone grants get cloud-link once (idempotent; nothing to do = no op). */
+  /** One-time grant migrations (idempotent; nothing to do = no op): old iPhone grants get cloud-link (CLOUD-LINK-FOLLOWUPS decision 2); old Mac grants lose execute (cx-wb5.64). */
   protected override bind(entity: string) {
     const engine = super.bind(entity)
-    if (iosGrantsToMigrate(engine.currentState).length) this.submitSystem("install.ios_cloud_link_migrate", {}, `ios-cloud-link:${engine.currentSeq}`)
+    for (const [op, key] of grantMigrationsDue(engine.currentState)) this.submitSystem(op, {}, `${key}:${engine.currentSeq}`)
     return engine
   }
 

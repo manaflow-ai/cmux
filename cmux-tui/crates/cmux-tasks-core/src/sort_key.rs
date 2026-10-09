@@ -207,7 +207,9 @@ pub fn between(a: Option<&str>, b: Option<&str>) -> Option<String> {
 pub fn sequence(n: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(n);
     for _ in 0..n {
-        let next = between(out.last().map(String::as_str), None).expect("appends never exhaust");
+        // Appends never exhaust the integer space at rebalance sizes; should
+        // they, the sequence is shorter and the caller keeps the old keys.
+        let Some(next) = between(out.last().map(String::as_str), None) else { break };
         out.push(next);
     }
     out

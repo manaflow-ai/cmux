@@ -44,7 +44,8 @@ const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
   // A tainted team VM's owner actions: role check and audit here, the act in TeamVmDO (cx-q4f3).
   "team_vm.taint.accept",
   "team_vm.rebuild",
-  "team_vm.retired.delete"
+  "team_vm.retired.delete",
+  "team_vm.retired.export"
 ])
 
 export const teamDomain: Domain<TeamState> = {
@@ -237,7 +238,7 @@ export const teamDomain: Domain<TeamState> = {
         // TeamDO's own submit after an owner or admin acted on a tainted team VM (cx-q4f3): audit only.
         if (p.kind !== "system" || p.identity !== "system:team" || !state.team) return reject("auth.forbidden", "internal op")
         const t = params as { action?: string; by?: string; epoch?: number; tainted_by?: ReadonlyArray<string> }
-        const what = { cert_issued_while_tainted: "SSH certificate issued while the team VM is tainted", taint_accepted: "team VM taint accepted", rebuild: "team VM rebuilt", retired_deleted: "retired team VM deleted" }[t.action ?? ""]
+        const what = { cert_issued_while_tainted: "SSH certificate issued while the team VM is tainted", taint_accepted: "team VM taint accepted", rebuild: "team VM rebuilt", retired_deleted: "retired team VM deleted", retired_exported: "retired team VM files exported" }[t.action ?? ""]
         if (!what || typeof t.by !== "string") return reject("validation.invalid", "action and by required")
         return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `${what} (epoch ${t.epoch}, removed: ${(t.tainted_by ?? []).join(", ") || "none"})`, detail: params } }, state.team.id, ctx, op)
       }
