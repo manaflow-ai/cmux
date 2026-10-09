@@ -226,6 +226,16 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
       },
     },
+    "add-menu": {
+      note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
+      snapshot: chat(finished, {
+        commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
+      },
+    },
     "context-breakdown": {
       note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
       snapshot: chat(finished, {
@@ -269,20 +279,90 @@ export default agentPaneEntry({
         const picker = ".acpmux-model .acpmux-picker-button";
         await ctx.click({ selector: picker });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
+        const search = ctx.find({ selector: ".acpmux-mp input[role=combobox]" });
+        await ctx.waitFor(() => ctx.document.activeElement === search);
+        const previous = search.getAttribute("aria-activedescendant");
         await ctx.press("ArrowDown");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp-active"));
+        await ctx.waitFor(() => {
+          const current = search.getAttribute("aria-activedescendant");
+          return current !== previous && Boolean(current && ctx.document.getElementById(current));
+        });
       },
+    },
+    "reasoning-menu": {
+      note: "Play: open Reasoning; a small menu lists only the model's levels and checks the current one.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-reasoning",
+          harness: "codex",
+          model: "gpt-5.5",
+          cwd: CWD,
+          turnCount: 1,
+          configOptions: [
+            {
+              id: "reasoning_effort",
+              name: "Reasoning",
+              category: "thought_level",
+              currentValue: "high",
+              options: [
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+                { value: "high", name: "High" },
+                { value: "xhigh", name: "Extra high" },
+              ],
+            },
+          ],
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[data-menu="Effort"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+      },
+    },
+    "reasoning-none": {
+      note: "A model whose only level is the agent's default shows no reasoning control, never Default / Default.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-reasoning-none",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          cwd: CWD,
+          turnCount: 1,
+          configOptions: [
+            {
+              id: "effort",
+              name: "Effort",
+              category: "thought_level",
+              currentValue: "default",
+              options: [{ value: "default", name: "Default" }],
+            },
+          ],
+        },
+      }),
     },
     "model-menu-starred": {
       note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
       snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
+        const { translate } = await import("./i18n");
+        const starred = { role: "option", name: translate("picker.starred") };
+        const favorite = { selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' };
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
-        await ctx.click({ selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' });
-        await ctx.click({ selector: '.acpmux-mp [title="Starred"]' });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-mp-models [aria-label="Starred"], .acpmux-mp-models .acpmux-mp-row'),
+        // A full provider catalog places Sonnet below the visible rows. Filter it into view
+        // before pointer input, then reveal the row's hover-only favorite control.
+        await ctx.type("Sonnet 5.5", { selector: ".acpmux-mp input[role=combobox]" });
+        await ctx.hover(favorite);
+        // Replay retains the pane's favorites. Keep Sonnet starred instead of toggling it off.
+        if (ctx.find(favorite).getAttribute("aria-pressed") !== "true") await ctx.click(favorite);
+        // Tooltips consume title on hover; the translated accessible name stays available.
+        await ctx.click(starred);
+        await ctx.waitFor(
+          () =>
+            ctx.find(starred).getAttribute("aria-selected") === "true" &&
+            [...ctx.document.querySelectorAll(".acpmux-mp-models .acpmux-menu-label")].some((row) =>
+              row.textContent?.endsWith("Sonnet 5.5"),
+            ),
         );
       },
     },

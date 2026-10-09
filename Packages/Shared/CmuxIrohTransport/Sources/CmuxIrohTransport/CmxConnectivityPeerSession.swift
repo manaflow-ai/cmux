@@ -840,7 +840,7 @@ actor CmxConnectivityPeerSession {
             .transportSessionLifecycle,
             surface: peerAlias,
             a: kind.rawValue,
-            b: Int(purpose.rawValue),
+            b: Int(clamping: purpose.rawValue),
             c: sessionID
         ))
     }

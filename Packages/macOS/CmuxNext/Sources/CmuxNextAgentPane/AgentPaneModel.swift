@@ -41,8 +41,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
-    /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
-    @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
+    /// The new tab page's "default: X" toggle and template dots (`tab.setDefaultKind`, `newTab.setTemplate`).
+    @ObservationIgnored public var onNewTabSetting: ((AgentPaneNewTabSetting) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
     @ObservationIgnored public var onRunAction: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
@@ -73,6 +73,9 @@ public final class AgentPaneModel {
     /// (`quick.openInWindow`). Gets the chat's session, nil before the
     /// first prompt.
     @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
+    /// The quick panel's Return started its chat (`quick.startInBackground`): the
+    /// session goes to the sidebar; the reply waits until the host placed it or failed.
+    @ObservationIgnored public var onQuickStartInBackground: (@MainActor (AgentPaneQuickStart) async -> Void)?
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
@@ -125,7 +128,6 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
-    @ObservationIgnored private let draftStore: any AgentPaneDraftStoring
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored private let seed: AgentPaneSeedSource?
 
@@ -135,12 +137,10 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport(),
-        draftStore: any AgentPaneDraftStoring = UserDefaultsAgentPaneDraftStore()
+        transport: AgentPaneTransport = AgentPaneTransport()
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
-        self.draftStore = draftStore
         self.transport = transport
         self.sessionId = sessionId
         self.seed = seed
@@ -257,11 +257,6 @@ public final class AgentPaneModel {
                 onSessionChange?(id)
             }
             return AgentPaneReply.success()
-        case .readDraft(let id):
-            return AgentPaneReply.success(await draftStore.draft(for: id) ?? NSNull())
-        case .writeDraft(let id, let text):
-            await draftStore.setDraft(text, for: id)
-            return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
             return AgentPaneReply.success()
@@ -299,10 +294,8 @@ public final class AgentPaneModel {
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
             onJump(target, id)
             return AgentPaneReply.success()
-        case .setDefaultKind(let kind):
-            guard newTab != nil, let onSetDefaultKind else { return Self.unsupported("tab.setDefaultKind") }
-            onSetDefaultKind(kind)
-            return AgentPaneReply.success()
+        case .setDefaultKind(let kind): return write(.defaultKind(kind), method: "tab.setDefaultKind")
+        case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
         case .chooseFolder:
             return await chooseFolder()
         case .browseProject:
@@ -347,6 +340,15 @@ public final class AgentPaneModel {
                 onSessionChange?(session)
             }
             onQuickOpenInWindow(sessionId)
+            return AgentPaneReply.success()
+        case .quickStartInBackground(let start):
+            guard let onQuickStartInBackground else { return Self.unsupported("quick.startInBackground") }
+            if start.sessionId != sessionId {
+                sessionId = start.sessionId
+                newTab = nil
+                onSessionChange?(start.sessionId)
+            }
+            await onQuickStartInBackground(start)
             return AgentPaneReply.success()
         case .git(let git):
             guard let onGit else { return Self.gitFailure(.notConnected) }

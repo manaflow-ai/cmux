@@ -360,7 +360,7 @@ enum PartRenderer {
         TextDraw.line(name, font: nameFont, color: fg, x: x, baseline: body.minY + 43, in: ctx)
         var sub = Strings.fileKind(a) + " \u{00B7} " + Format.bytes(a.byteSize)
         if case let .uploading(pr) = a.transfer {
-            sub = Format.bytes(Int(Double(a.byteSize) * pr)) + " / " + Format.bytes(a.byteSize)
+            sub = Format.bytes(CrashGuard.int(Double(a.byteSize) * pr)) /* cmux: no trap on a NaN progress */ + " / " + Format.bytes(a.byteSize)
             let bar = CGRect(x: x, y: body.minY + 64, width: body.width - 100, height: 4)
             fg.withAlphaComponent(0.3).setFill()
             UIBezierPath(roundedRect: bar, cornerRadius: 2).fill()
@@ -659,8 +659,8 @@ final class RowBitmaps {
     static let byteBudget = 160 << 20
     private(set) var bytes = 0
 
-    func image(for spec: RowSpec) -> CGImage? { cache[spec] }
-    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache[spec] != nil || waiters[spec] != nil }
+    func image(for spec: RowSpec) -> CGImage? { cache.value(for: spec) } // cmux: dictionary read
+    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache.keys.contains(spec) || waiters.keys.contains(spec) } // cmux
 
     /// Main thread: get the bitmap now or when it is rendered.
     func request(_ spec: RowSpec, _ done: ((CGImage) -> Void)? = nil) {
@@ -750,15 +750,16 @@ final class RowBitmaps {
     private func store(_ spec: RowSpec, _ img: CGImage) {
         if TiledBubble.applies(spec) { return }
         if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
-        cache[spec] = img
+        cache.updateValue(img, forKey: spec) // cmux: dictionary write
         bytes += img.bytesPerRow * img.height
         // Trim in chunks (removing from the front of the order array on every
         // insert copied it each time). Bounded by rows and by bytes (media rows are large).
         if order.count > RowBitmaps.capacity + 100 || bytes > RowBitmaps.byteBudget {
             var n = max(0, order.count - RowBitmaps.capacity), freed = 0
             if bytes > RowBitmaps.byteBudget {
-                while n < order.count, bytes - freed > RowBitmaps.byteBudget * 4 / 5 {
-                    freed += cache[order[n]].map { $0.bytesPerRow * $0.height } ?? 0
+                for spec in order.dropFirst(n) { // cmux: no index math
+                    guard bytes - freed > RowBitmaps.byteBudget * 4 / 5 else { break }
+                    freed += cache.value(for: spec).map { $0.bytesPerRow * $0.height } ?? 0
                     n += 1
                 }
             }

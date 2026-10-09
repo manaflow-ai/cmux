@@ -46,6 +46,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/ChatCards.tsx",
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
+    "agent-session/acpmux/newtab/TemplateDots.tsx#TemplateDots",
   ],
   variants: {
     empty: {
@@ -138,6 +139,26 @@ export default agentPaneEntry({
         },
       }),
       snapshot: noChat(manySessions(3)),
+    },
+    "template-composer": {
+      note: "Composer template (tabs.newTabTemplate): one large prompt, no cards or Tools.",
+      ready: newTab({ template: "composer" }),
+      snapshot: noChat(manySessions(4)),
+    },
+    "template-threads": {
+      note: "Threads template: the field and the recent chats as a list.",
+      ready: newTab({ template: "threads" }),
+      snapshot: noChat(manySessions(6)),
+    },
+    "template-console": {
+      note: "Console template: a monospace field with a > prompt, chats as lines.",
+      ready: newTab({ template: "console" }),
+      snapshot: noChat(manySessions(6)),
+    },
+    "template-classic": {
+      note: "Classic template: the Terminal | Browser | Agent page, with the template dots.",
+      ready: newTab({ template: "classic" }),
+      snapshot: noChat(manySessions(4)),
     },
   },
 });

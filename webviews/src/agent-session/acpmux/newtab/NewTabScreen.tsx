@@ -15,6 +15,7 @@ import {
   type ScreenRow,
 } from "./screenModel";
 import { useNt } from "./strings";
+import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -57,6 +58,8 @@ type Props = NewTabScreenActions & {
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(): Promise<string | undefined>;
   chips?: NewTabChips;
+  /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
+  template?: ScreenTemplate;
 };
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
@@ -66,6 +69,8 @@ type Props = NewTabScreenActions & {
 export function NewTabScreen(props: Props) {
   const nt = useNt();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, tools = [], inputToken } = props;
+  const template = props.template ?? "default";
+  const sections = screenSections(template);
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
@@ -245,7 +250,7 @@ export function NewTabScreen(props: Props) {
   const chatFolder = project ?? props.cwd;
 
   return (
-    <div ref={screen} className="nt-screen" data-shell={shell || undefined}>
+    <div ref={screen} className="nt-screen" data-shell={shell || undefined} data-template={template}>
       <div className="nt-pickers" onPointerDownCapture={touch}>
         <ProjectChooser
           projects={props.projects ?? []}
@@ -261,10 +266,16 @@ export function NewTabScreen(props: Props) {
         {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
       </div>
       <div className="nt-box">
-        {shell && (
+        {shell ? (
           <span className="nt-shell-glyph" aria-hidden="true">
             !
           </span>
+        ) : (
+          sections.prompt && (
+            <span className="nt-prompt-glyph" aria-hidden="true">
+              &gt;
+            </span>
+          )
         )}
         <input
           ref={field}
@@ -320,13 +331,15 @@ export function NewTabScreen(props: Props) {
           ))}
         </div>
       )}
-      <ChatCards cards={cards} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
-      {props.onAddHarness && (
+      {sections.chats !== "none" && (
+        <ChatCards cards={cards} variant={sections.chats} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
+      )}
+      {sections.tools && props.onAddHarness && (
         <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>
           {t("newtab.addHarness")}
         </button>
       )}
-      <ToolsSection tools={tools} onRunAction={props.onRunAction} />
+      {sections.tools && <ToolsSection tools={tools} onRunAction={props.onRunAction} />}
     </div>
   );
 }

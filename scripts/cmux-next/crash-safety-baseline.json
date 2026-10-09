@@ -16,7 +16,7 @@
    "cmux-remote": 60,
    "cmux-terminal-client": 1,
    "cmux-tui": 87,
-   "cmux-tui-core": 293,
+   "cmux-tui-core": 287,
    "cmux-wg": 15
   },
   "panic_macro": {
@@ -50,22 +50,23 @@
   },
   "index_subscript": {
    "CMUXMobileCore": 15,
-   "CmuxIrohTransport": 59,
-   "CmuxIrxTransport": 30,
-   "CmuxNextControl": 22,
-   "CmuxNextDaemon": 88,
-   "CmuxNextMobile": 5,
-   "CmuxTerminalSizing": 5,
-   "MessagesLabHome": 739
+   "CmuxIrohTransport": 41,
+   "CmuxIrxTransport": 21,
+   "CmuxNextControl": 20,
+   "CmuxNextDaemon": 62,
+   "CmuxNextMobile": 1
   },
   "int_conversion": {
    "CMUXMobileCore": 18,
-   "CmuxIrohTransport": 72,
-   "CmuxIrxTransport": 43,
-   "CmuxNextControl": 45,
-   "CmuxNextDaemon": 8,
-   "CmuxNextMobile": 5,
-   "MessagesLabHome": 83
+   "CmuxIrohTransport": 16,
+   "CmuxIrxTransport": 10,
+   "CmuxNextControl": 5,
+   "CmuxNextDaemon": 4,
+   "CmuxNextMobile": 1
+  },
+  "objc_observer": {
+   "MessagesLabHome": 3,
+   "MessagesLabSidebar": 2
   },
   "render_font": {
    "CmuxHomeRender": 4,

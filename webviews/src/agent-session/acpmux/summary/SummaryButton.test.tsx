@@ -14,6 +14,7 @@ const saved = Object.fromEntries(
     "navigator",
     "Node",
     "HTMLElement",
+    "customElements",
     "requestAnimationFrame",
     "cancelAnimationFrame",
     "getComputedStyle",
@@ -25,6 +26,8 @@ Object.assign(globals, {
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // The summary reads the chat's images with the Markdown parser, which loads the diff viewer's element.
+  customElements: dom.window.customElements,
   Node: dom.window.Node,
   requestAnimationFrame: (callback: FrameRequestCallback) => {
     callback(Date.now());
@@ -180,4 +183,22 @@ test("automation opens the summary by its label", async () => {
   expect(popover()).not.toBeNull();
   await unmount();
   expect(openPicker("Chat summary")).toBe(false);
+});
+
+// POLISH (Leo 2026-10-08): focus returns where it was when a dialog closes. The gallery opens from
+// the summary popover, which is gone by then, so its close returns focus to the summary button.
+test("closing the gallery returns focus to the summary button", async () => {
+  const pictured: AcpmuxRow[] = [
+    ...rows,
+    { id: "assistant-3", version: 1, at: 3, kind: "assistant", text: "![plot](data:image/png;base64,AAAA)" },
+  ];
+  const { button, popover, unmount } = await render([], pictured);
+  await act(async () => button.click());
+  await act(async () => popover()!.querySelector<HTMLButtonElement>(".acpmux-summary-gallery")!.click());
+  const gallery = () => dom.window.document.querySelector<HTMLElement>(".acpmux-chat-gallery");
+  expect(gallery()).not.toBeNull();
+  await act(async () => gallery()!.querySelector<HTMLButtonElement>(".acpmux-image-viewer-action")!.click());
+  expect(gallery()).toBeNull();
+  expect(dom.window.document.activeElement).toBe(button);
+  await unmount();
 });

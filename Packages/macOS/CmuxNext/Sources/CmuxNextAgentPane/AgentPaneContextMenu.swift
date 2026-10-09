@@ -1,9 +1,10 @@
 import AppKit
 
-/// The message under the pointer when the agent pane's context menu opened, as the page reports it
-/// on `contextmenu` (webviews conversation/messageMenu.ts), before WebKit asks the host for the menu.
+/// The message and image under the pointer when the agent pane's context menu opened, as the page
+/// reports them on `contextmenu` (webviews conversation/messageMenu.ts), before WebKit asks the host
+/// for the menu.
 struct AgentPaneMessageTarget: Equatable, Sendable {
-    /// The message as a person reads it.
+    /// The message as a person reads it; empty for an image outside a message (the gallery).
     var text: String
     /// An agent reply's Markdown source; nil for a prompt (it is plain text already).
     var markdown: String?
@@ -14,21 +15,29 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var retryRowId: String?
     /// The message's web links and images, for Open Link.
     var links: [URL]
+    /// The pointer is on an image the page opens on click.
+    var opensImage: Bool
 
-    init(text: String, markdown: String? = nil, forkSeq: Int? = nil, retryRowId: String? = nil, links: [URL] = []) {
+    init(text: String, markdown: String? = nil, forkSeq: Int? = nil, retryRowId: String? = nil, links: [URL] = [],
+         opensImage: Bool = false) {
         self.text = text
         self.markdown = markdown
         self.forkSeq = forkSeq
         self.retryRowId = retryRowId
         self.links = links
+        self.opensImage = opensImage
     }
 
     /// A prompt (the person's own message) has no Markdown source.
     var isPrompt: Bool { markdown == nil }
 
-    /// The page's report; nil for anything but a message with text (the pointer was elsewhere).
+    /// The page's report; nil for anything but a message with text or an image (the pointer was
+    /// elsewhere).
     init?(report body: Any?) {
-        guard let object = body as? [String: Any], let text = object["text"] as? String, !text.isEmpty else { return nil }
+        guard let object = body as? [String: Any] else { return nil }
+        let text = object["text"] as? String ?? ""
+        opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
+        guard !text.isEmpty || opensImage else { return nil }
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         forkSeq = (object["forkSeq"] as? NSNumber).map(\.intValue)
@@ -44,7 +53,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 }
 
 /// The agent pane's native context menu. The pane is app chrome, so WebKit's default menu (Reload,
-/// Back, Look Up, Share...) never shows: Cut, Copy and Paste where WebKit offers them (Copy on a
+/// Back, Look Up, Share...) never shows: Open Image and WebKit's Copy Image on an image; Cut, Copy and Paste where WebKit offers them (Copy on a
 /// selection, Cut and Paste in the composer); for the message under the pointer Copy Message (a
 /// reply's Markdown) and Copy as Plain Text, Retry on a prompt that was not sent, Edit and Resend
 /// on a prompt, Fork from Here when its turn can be forked, and Open Link for its links and images;
@@ -58,6 +67,7 @@ enum AgentPaneContextMenu {
     /// WebKit's Look Up, kept on selected text: it shows the definition at the selection.
     static let lookUpItem = "WKMenuItemIdentifierLookUp"
     static let inspectItem = "WKMenuItemIdentifierInspectElement"
+    static let copyImageItem = "WKMenuItemIdentifierCopyImage"
 
     struct Actions {
         var copy: (String) -> Void
@@ -66,6 +76,7 @@ enum AgentPaneContextMenu {
         var edit: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
         var search: (String) -> Void = { _ in }
+        var openImage: () -> Void = {}
     }
 
     /// The selected transcript text the page reported with the menu (it reports a selection only
@@ -87,6 +98,7 @@ enum AgentPaneContextMenu {
         let edits = menu.items.filter { editItems.contains($0.identifier?.rawValue ?? "") }
         let inspect = devTools ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         let lookUp = menu.items.first { $0.identifier?.rawValue == lookUpItem }
+        let copyImage = menu.items.first { $0.identifier?.rawValue == copyImageItem }
         menu.removeAllItems()
         if let selection {
             // Selected text gets the selection menu alone (macOS adds Services last).
@@ -99,10 +111,15 @@ enum AgentPaneContextMenu {
             add([selected, find, inspect.map { [$0] } ?? []], to: menu)
             return
         }
+        var image: [NSMenuItem] = []
+        if target?.opensImage == true {
+            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage) { actions.openImage() })
+        }
+        if let copyImage { image.append(copyImage) }
         var copies = edits
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
-        if let target {
+        if let target, !target.text.isEmpty {
             if let markdown = target.markdown {
                 copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage) { actions.copy(markdown) })
                 copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyAsPlainText) { actions.copy(target.text) })
@@ -120,9 +137,9 @@ enum AgentPaneContextMenu {
             }
             links = linkItems(target.links, open: actions.open)
         }
-        // Empty space (no message, nothing to edit) gets the chat's own menu, its sections kept.
-        let chat = target == nil && edits.isEmpty ? chatMenu.filter { $0.menu == nil } : []
-        add([copies, message, links, chat, inspect.map { [$0] } ?? []], to: menu)
+        // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
+        let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
+        add([image, copies, message, links, chat, inspect.map { [$0] } ?? []], to: menu)
     }
 
     /// Adds the non-empty groups, split by separators.
@@ -149,6 +166,10 @@ enum AgentPaneContextMenu {
 
 /// The context menu's item titles.
 enum AgentPaneMenuStrings {
+    static var openImage: String {
+        String(localized: "agentPane.menu.openImage", defaultValue: "Open Image", bundle: .module)
+    }
+
     static var copyMessage: String {
         String(localized: "agentPane.menu.copyMessage", defaultValue: "Copy Message", bundle: .module)
     }

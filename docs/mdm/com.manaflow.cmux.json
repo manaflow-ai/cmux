@@ -118,6 +118,12 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.startAgentGlobalHotKey" : {
+      "default" : false,
+      "description" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Start Agent from Any App",
+      "type" : "boolean"
+    },
     "app.uiScale" : {
       "default" : 1,
       "description" : "app.uiScale",
@@ -2024,6 +2030,20 @@
         "auto"
       ],
       "title" : "New Tab Opens",
+      "type" : "string"
+    },
+    "tabs.newTabTemplate" : {
+      "default" : "default",
+      "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
+      "enum" : [
+        "default",
+        "composer",
+        "threads",
+        "console",
+        "classic",
+        "terminal"
+      ],
+      "title" : "New Tab Template",
       "type" : "string"
     },
     "tabs.plusButton" : {
