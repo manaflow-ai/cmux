@@ -13,6 +13,15 @@
 //! session's DOM changed: any `DOM.*` event marks it dirty (DOM events are
 //! sent once `DOM.getDocument` enabled the domain). A world adopts a frame's
 //! roots once per DOM state.
+//!
+//! The walk sends every node of the page (about 700 ms and 19 MB on a
+//! 100k-node page), so a node count goes first: `DOM.performSearch` with an
+//! empty query matches every element, text, comment and CDATA node outside
+//! user agent shadow roots, closed roots included, in every document of the
+//! session; the world counts the same nodes it can reach (open roots and
+//! same-origin frame documents). Equal counts mean no closed root holds a
+//! node, and the walk is skipped (about 30 ms on 200k nodes). Any other
+//! result, or an error, walks.
 
 use super::driver::{Inner, Session};
 use super::evaluate::{Context, handle_group};
@@ -31,11 +40,15 @@ pub struct WalkStats {
     pub roots: u64,
     /// `DOM.*` events received while the domain is on.
     pub dom_events: u64,
+    /// Syncs whose node count showed no closed root, so no walk ran.
+    pub skips: u64,
+    pub skip_ms: f64,
 }
 
 impl WalkStats {
     pub fn to_json(self) -> Value {
-        json!({"walks": self.walks, "walkMs": self.walk_ms, "roots": self.roots, "domEvents": self.dom_events})
+        json!({"walks": self.walks, "walkMs": self.walk_ms, "roots": self.roots, "domEvents": self.dom_events,
+            "skips": self.skips, "skipMs": self.skip_ms})
     }
 }
 
@@ -124,6 +137,15 @@ pub const WALKING_OBSERVE_METHODS: &[&str] = &[
 const ADOPT_AGENT: &str = "function (...pairs) { const a = globalThis[Symbol.for('cmux.browserRepl.agent')]; \
     if (!a || !a.adoptClosedRoot) return 0; for (let i = 0; i + 1 < pairs.length; i += 2) a.adoptClosedRoot(pairs[i], pairs[i + 1]); \
     return pairs.length / 2; }";
+/// The nodes `DOM.performSearch {query: ""}` matches that a world can
+/// reach: elements, text, comments and CDATA from each document element,
+/// through open shadow roots and same-origin frame documents.
+const COUNT_REACHABLE: &str = "(() => { let n = 0; const show = NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT | NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_CDATA_SECTION; \
+    const visit = (root) => { const w = document.createTreeWalker(root, show); \
+    for (let x = w.currentNode; x; x = w.nextNode()) { if (x === root && x.nodeType !== 1) continue; n++; if (x.nodeType !== 1) continue; \
+    if (x.shadowRoot) visit(x.shadowRoot); let d = null; try { d = x.contentDocument; } catch (e) {} if (d && d.documentElement) visit(d.documentElement); } }; \
+    if (document.documentElement) visit(document.documentElement); return n; })()";
+
 const ADOPT_HOST: &str = "function (...pairs) { const m = globalThis.__cmuxClosedRoots || (globalThis.__cmuxClosedRoots = new WeakMap()); \
     for (let i = 0; i + 1 < pairs.length; i += 2) m.set(pairs[i], pairs[i + 1]); return pairs.length / 2; }";
 
@@ -158,7 +180,7 @@ impl Inner {
             .and_then(|tab| tab.closed_roots.get(&cdp))
             .is_some_and(|roots| roots.fresh);
         if !fresh {
-            self.walk(session, &cdp, deadline)?;
+            self.walk(session, &cdp, world, deadline)?;
         }
         let pairs = {
             let mut state = self.lock();
@@ -181,7 +203,13 @@ impl Inner {
     }
 
     /// One `DOM.getDocument {pierce}` of a CDP session.
-    fn walk(&self, session: &Session, cdp: &str, deadline: Instant) -> Result<(), DriverError> {
+    fn walk(
+        &self,
+        session: &Session,
+        cdp: &str,
+        world: World,
+        deadline: Instant,
+    ) -> Result<(), DriverError> {
         let root_frame = {
             let mut state = self.lock();
             let Some(tab) = state.tabs.get_mut(&session.target_id) else {
@@ -206,6 +234,20 @@ impl Inner {
             return Ok(());
         };
         let started = Instant::now();
+        if self.no_closed_root_nodes(session, cdp, &root_frame, world, deadline) {
+            let mut state = self.lock();
+            if let Some(tab) = state.tabs.get_mut(&session.target_id) {
+                tab.closed_root_stats.skips += 1;
+                tab.closed_root_stats.skip_ms += started.elapsed().as_secs_f64() * 1000.0;
+                // Not fresh: without getDocument no node events come, so
+                // the next sync counts again.
+                if let Some(entry) = tab.closed_roots.get_mut(cdp) {
+                    entry.fresh = false;
+                    entry.by_frame.clear();
+                }
+            }
+            return Ok(());
+        }
         let document =
             self.send_on(cdp, "DOM.getDocument", json!({"depth": -1, "pierce": true}), deadline)?;
         let mut by_frame = HashMap::new();
@@ -222,6 +264,52 @@ impl Inner {
             }
         }
         Ok(())
+    }
+
+    /// True when the node count shows that no closed shadow root of the
+    /// session holds a node. False on any error (the caller walks).
+    fn no_closed_root_nodes(
+        &self,
+        session: &Session,
+        cdp: &str,
+        root_frame: &str,
+        world: World,
+        deadline: Instant,
+    ) -> bool {
+        let Ok(context) = self.context(session, root_frame, world, deadline) else {
+            return false;
+        };
+        if context.session != cdp {
+            return false;
+        }
+        let reachable = self
+            .send_on(
+                cdp,
+                "Runtime.evaluate",
+                json!({"expression": COUNT_REACHABLE, "contextId": context.id, "returnByValue": true}),
+                deadline,
+            )
+            .ok()
+            .and_then(|reply| reply["result"]["value"].as_u64());
+        let Some(reachable) = reachable else {
+            return false;
+        };
+        // performSearch needs the DOM domain (a walk turns it on too).
+        if self.send_on(cdp, "DOM.enable", json!({}), deadline).is_err() {
+            return false;
+        }
+        let Ok(search) = self.send_on(
+            cdp,
+            "DOM.performSearch",
+            json!({"query": "", "includeUserAgentShadowDOM": false}),
+            deadline,
+        ) else {
+            return false;
+        };
+        if let Some(id) = search["searchId"].as_str() {
+            let _ = self.send_on(cdp, "DOM.discardSearchResults", json!({"searchId": id}), deadline);
+        }
+        search["resultCount"].as_u64() == Some(reachable)
     }
 
     fn adopt(
