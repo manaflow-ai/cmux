@@ -112,9 +112,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             updateHover(at: nil)
             return
         }
-        let pointerInWindow = window.convertFromScreen(
-            NSRect(origin: window.mouseLocationOutsideOfEventStream, size: .zero)
-        ).origin
+        let pointerInWindow = window.mouseLocationOutsideOfEventStream
         updateHover(at: convert(pointerInWindow, from: nil))
     }
 
