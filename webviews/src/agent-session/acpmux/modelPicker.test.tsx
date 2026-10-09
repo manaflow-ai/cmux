@@ -192,7 +192,10 @@ describe("T3 model picker", () => {
 
   test.each([
     ["harness row", ".acpmux-mp-harness"],
-    ["favorites filter", ".acpmux-mp-harness-favorites"],
+    // Use the control's accessible contract here instead of its layout class. The
+    // filter is the only pressed Model button inside the open picker, and this
+    // keeps the focus/escape test independent of class-name serialization.
+    ["favorites filter", 'button[aria-label="Model"][aria-pressed]'],
     ["model row", ".acpmux-mp-row"],
     ["favorite button", ".acpmux-mp-favorite"],
   ])("Escape from the %s closes the picker and restores the trigger", async (_name, selector) => {
