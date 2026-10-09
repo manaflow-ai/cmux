@@ -479,6 +479,11 @@ pub struct Agents {
     pub steer_at_end: bool,
     /// Turns whose prompt was answered.
     pub answered_turns: usize,
+    /// Each prompt's session id, in prompt order.
+    pub prompt_sessions: Vec<String>,
+    /// Each session's `.claude/settings.json` in its cwd when it started
+    /// (None: no file), in `specs` order.
+    pub session_settings: Vec<Option<String>>,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -633,6 +638,8 @@ impl AgentPort for FakeAgents {
             .and_then(|p| inner.preset_prompts.get(p))
             .cloned();
         inner.systems.push(system);
+        let settings = std::fs::read_to_string(spec.cwd.join(".claude").join("settings.json")).ok();
+        inner.session_settings.push(settings);
         inner.specs.push(spec.clone());
         Ok(format!("s{}", inner.specs.len()))
     }
@@ -648,6 +655,7 @@ impl AgentPort for FakeAgents {
             let mut inner = self.inner.lock().unwrap();
             inner.prompts.push(blocks.clone());
             inner.prompt_ids.push(prompt_id.to_owned());
+            inner.prompt_sessions.push(session.to_owned());
             inner.signals.insert(session.to_owned(), signals.clone());
             inner.prompts.len() - 1
         };

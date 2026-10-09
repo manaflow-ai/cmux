@@ -695,12 +695,12 @@ impl Memory {
         self.complete_in(node, text, &NoStore)
     }
 
-    /// `complete` for any memory. Building a node never merges the chat's
-    /// view (spec 3.2: it merges at messages, so a turn's cached prefix
-    /// holds), but it may merge the compaction view: an import appends every
-    /// message before any node is built, so no merge can happen then, and
-    /// the compaction view would grow without bound (the reference client
-    /// fits its views after each node it stores).
+    /// `complete` for any memory. An import appends every message before
+    /// any node is built, so no merge can happen then, and both views would
+    /// stay as long as the import. As the reference client fits its views
+    /// after each node it stores, a view past its budget merges here too,
+    /// but only in a whole batch (spec 3.2: a turn's cached prefix changes
+    /// once per batch, not at every node).
     pub fn complete_in(
         &mut self,
         node: NodeId,
@@ -719,6 +719,20 @@ impl Memory {
         // to its low mark (or down by a whole budget). A smaller merge would
         // change an early line at almost every completion, and every call's
         // cached prefix after it with it; the view waits over budget instead.
+        // The chat's view the same way: an import appends every message
+        // before any node is built, so no message-time merge can shrink it,
+        // and the first turn after an import would see the whole import.
+        // A whole batch changes the turn's cached prefix once.
+        if self.view_size > self.budget {
+            let (view, size) = (self.view.clone(), self.view_size);
+            self.merge_down(Which::Chat, self.view_low(), store);
+            let enough = self.view_low().max(size - self.budget);
+            if self.view_size > enough {
+                self.view = view;
+                self.view_size = size;
+            }
+            self.merging = self.view_size > self.view_low();
+        }
         if self.compact_size > self.compact_high() {
             let (view, size) = (self.compact_view.clone(), self.compact_size);
             self.merge_down(Which::Compact, self.compact_low(), store);

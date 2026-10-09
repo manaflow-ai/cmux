@@ -30,6 +30,19 @@ impl AcceptWaker {
         while matches!((&self.reader).read(&mut buffer), Ok(count) if count > 0) {}
     }
 
+    /// Wait up to `timeout` (at least 1 ms) for a wake. Ok(false) on timeout;
+    /// the raw `poll` error otherwise (the caller retries `Interrupted`).
+    pub(crate) fn wait_readable(&self, timeout: std::time::Duration) -> std_io::Result<bool> {
+        let timeout = i32::try_from(timeout.as_millis().max(1)).unwrap_or(i32::MAX);
+        let mut fds = [libc::pollfd { fd: self.fd(), events: libc::POLLIN, revents: 0 }];
+        // SAFETY: the waker descriptor stays open as long as `self`.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, timeout) };
+        if ready < 0 {
+            return Err(std_io::Error::last_os_error());
+        }
+        Ok(ready > 0)
+    }
+
     pub(crate) fn fd(&self) -> RawFd {
         self.reader.as_raw_fd()
     }
