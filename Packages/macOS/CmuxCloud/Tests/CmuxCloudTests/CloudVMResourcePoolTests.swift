@@ -68,6 +68,20 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func validatorUsesFreeFallbackForMissingOrUnknownPlan() throws {
+        let validator = CloudVMResizePlanValidator()
+        for rawLimits in [
+            [:] as [String: Any],
+            ["planId": "unrecognized"] as [String: Any],
+        ] {
+            let plan = try validator.plan(from: rawLimits)
+            #expect(plan.limits.maxMemoryMb == 8 * 1_024)
+            #expect(plan.limits.maxVcpus == 4)
+            #expect(plan.limits.maxDiskMb == 128 * 1_024)
+        }
+    }
+
+    @Test
     func validatorCapsLegacyLadderAtTheCurrentPlanCeiling() throws {
         let limits: [String: Any] = [
             "planId": "pro",
