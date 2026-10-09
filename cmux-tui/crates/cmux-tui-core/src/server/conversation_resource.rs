@@ -133,7 +133,8 @@ fn answer(
             Ok(publish_result(conversation, mux, true))
         }
         Operation::ConversationDraft => draft(mux, request, conversation, &principal),
-        _ => unreachable!("conversation_resource::handles names every operation"),
+        // `handles` names every operation above; anything else is refused.
+        _ => Err(refused(operation, "not_a_conversation_operation", "not a conversation")),
     }
 }
 
