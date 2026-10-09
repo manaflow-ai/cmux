@@ -111,6 +111,25 @@ struct WorkstreamEventTests {
         }
     }
 
+    @Test("Constructed idle reminder markers survive Codable round trips")
+    func idleReminderMarkerRoundTrips() throws {
+        let event = WorkstreamEvent(
+            sessionId: "grok-session",
+            hookEventName: .notification,
+            source: "grok",
+            isIdleReminder: true
+        )
+
+        let encoded = try JSONEncoder().encode(event)
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        #expect(object["_is_idle_reminder"] as? Bool == true)
+
+        let decoded = try JSONDecoder().decode(WorkstreamEvent.self, from: encoded)
+        #expect(decoded.isIdleReminder)
+    }
+
     @Test("Codex CLI lifecycle feed events decode at the app boundary")
     func codexLifecycleFeedEventsDecode() throws {
         let cases: [(String, WorkstreamEvent.HookEventName)] = [
