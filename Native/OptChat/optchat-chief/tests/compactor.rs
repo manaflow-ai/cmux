@@ -1985,7 +1985,10 @@ fn a_capacity_wait_is_one_trace_event_with_its_route_wait_and_failover() {
     let mut events = Vec::new();
     for entry in std::fs::read_dir(&traces).unwrap().flatten() {
         let text = std::fs::read_to_string(entry.path()).unwrap();
-        events.extend(text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()));
+        events.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
     }
     let capacity: Vec<&Value> = events
         .iter()
