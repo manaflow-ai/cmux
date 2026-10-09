@@ -863,7 +863,8 @@
         "error": "TestFlight could not be updated. Try again shortly.",
         "ineligible": "An active personal Pro subscription is required for iOS TestFlight.",
         "needs_email": "Add a verified primary email before joining iOS TestFlight.",
-        "unavailable": "TestFlight enrollment is not available right now."
+        "unavailable": "TestFlight enrollment is not available right now.",
+        "busy": "Another change to your account is in progress. Try again in a moment."
       },
       "notEligible": {
         "title": "Subscription required",
