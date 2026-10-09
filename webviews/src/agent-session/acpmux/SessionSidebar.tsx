@@ -1,8 +1,10 @@
 import React, { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import {
+  filterSessions,
   groupMark,
   sessionMark,
   sessionPlace,
+  sortByRecency,
   shortAge,
   sidebarSections,
   visibleSessions,
@@ -13,6 +15,7 @@ import { type StringKey, useT } from "./i18n";
 
 import { Icon } from "./icons/Icon";
 import { rowIconSize } from "./icons/iconSize";
+import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 
 const MARK_LABELS = {
   input: "sidebar.markInput",
@@ -59,14 +62,21 @@ const OpenSessions = createContext<ReadonlySet<string> | undefined>(undefined);
 /** The pane's sidebar: an icon rail, the list it switches, and the account at the bottom. */
 export function SessionSidebar({
   sessions,
+  settledSessions = [],
   selectedId,
   openIds,
   onSelect,
   onNewChat,
   account,
   preview = false,
+  groupProjects = false,
+  onContinue,
+  onSettle,
+  onShowMoreSettled,
 }: {
   sessions: AcpmuxSessionEntry[];
+  /** Read-only history from the `_acpmux/settled` seam. */
+  settledSessions?: AcpmuxSessionEntry[];
   selectedId?: string;
   /** Sessions already open in a tab; their rows say so, and opening one jumps to it. */
   openIds?: ReadonlySet<string>;
@@ -75,6 +85,11 @@ export function SessionSidebar({
   account?: SidebarAccount;
   /** Preview features are on (`labs.previewFeatures`): the rail offers the Pull requests view. */
   preview?: boolean;
+  /** Preserves project grouping as an option while keeping the default compact and ungrouped. */
+  groupProjects?: boolean;
+  onContinue?: (sessionIds: string[]) => void;
+  onSettle?: (sessionIds: string[]) => void;
+  onShowMoreSettled?: () => void;
 }) {
   const t = useT();
   const [picked, setView] = useState<SidebarView>("sessions");
@@ -137,6 +152,11 @@ export function SessionSidebar({
                 onQuery={setQuery}
                 expanded={expanded}
                 onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
+                settledSessions={settledSessions}
+                groupProjects={groupProjects}
+                onContinue={onContinue}
+                onSettle={onSettle}
+                onShowMoreSettled={onShowMoreSettled}
               />
             ) : (
               <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
@@ -193,6 +213,7 @@ function RailButton({
 /** Pinned sessions, then every other acpmux session grouped by folder, newest first. */
 function SessionsView({
   sessions,
+  settledSessions,
   selectedId,
   onSelect,
   onNewChat,
@@ -200,8 +221,13 @@ function SessionsView({
   onQuery,
   expanded,
   onExpand,
+  groupProjects,
+  onContinue,
+  onSettle,
+  onShowMoreSettled,
 }: {
   sessions: AcpmuxSessionEntry[];
+  settledSessions: AcpmuxSessionEntry[];
   selectedId?: string;
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
@@ -209,6 +235,10 @@ function SessionsView({
   onQuery: (query: string) => void;
   expanded: Set<string>;
   onExpand: (groupKey: string) => void;
+  groupProjects: boolean;
+  onContinue?: (sessionIds: string[]) => void;
+  onSettle?: (sessionIds: string[]) => void;
+  onShowMoreSettled?: () => void;
 }) {
   const t = useT();
   const newChat = onNewChat && (
@@ -219,15 +249,18 @@ function SessionsView({
   );
   const searching = query.trim() !== "";
   const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
-  if (sessions.length === 0)
+  const active = useMemo(
+    () => sortByRecency(filterSessions(sessions.filter((session) => !session.pinned), query)),
+    [sessions, query],
+  );
+  const settled = useMemo(() => sortByRecency(filterSessions(settledSessions, query)), [settledSessions, query]);
+  if (sessions.length === 0 && settledSessions.length === 0)
     return (
       <>
         {newChat}
         <div className="acpmux-sidebar-empty">{t("sidebar.noSessions")}</div>
       </>
     );
-  // Section labels only earn their place when both sections show.
-  const labelled = pinned.length > 0 && groups.length > 0;
   // Escape clears a query first; with the field empty it reaches the overlay, which closes.
   const onSearchKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Escape") return;
@@ -257,15 +290,11 @@ function SessionsView({
       </search>
       {/* Always present, so a screen reader announces the text when it appears. */}
       <output className="acpmux-sidebar-empty">
-        {pinned.length === 0 && groups.length === 0 ? t("sidebar.noMatches") : ""}
+        {pinned.length === 0 && active.length === 0 && settled.length === 0 ? t("sidebar.noMatches") : ""}
       </output>
       {pinned.length > 0 && (
         <section className="acpmux-sidebar-pinned" aria-label={t("sidebar.pinned")}>
-          {labelled && (
-            <div className="acpmux-sidebar-section" aria-hidden="true">
-              {t("sidebar.pinned")}
-            </div>
-          )}
+          <div className="acpmux-sidebar-section" aria-hidden="true">{t("sidebar.pinned")}</div>
           <ul>
             {pinned.map((session) => (
               <SessionRow
@@ -273,18 +302,33 @@ function SessionsView({
                 session={session}
                 selected={session.sessionId === selectedId}
                 onSelect={onSelect}
+                section="active"
+                onSettle={onSettle}
               />
             ))}
           </ul>
         </section>
       )}
-      {groups.length > 0 && (
+      {active.length > 0 && !groupProjects && (
+        <section className="acpmux-sidebar-active" aria-label={t("sidebar.active")}>
+          <div className="acpmux-sidebar-section" aria-hidden="true">{t("sidebar.active")}</div>
+          <ul>
+            {active.map((session) => (
+              <SessionRow
+                key={session.sessionId}
+                session={session}
+                selected={session.sessionId === selectedId}
+                onSelect={onSelect}
+                section="active"
+                onSettle={onSettle}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+      {groups.length > 0 && groupProjects && (
         <section className="acpmux-sidebar-projects" aria-label={t("sidebar.projects")}>
-          {labelled && (
-            <div className="acpmux-sidebar-section" aria-hidden="true">
-              {t("sidebar.projects")}
-            </div>
-          )}
+          <div className="acpmux-sidebar-section" aria-hidden="true">{t("sidebar.projects")}</div>
           {groups.map((group) => {
             // A search shows every match, so it never hides rows behind "Show more".
             const { rows, hidden } = visibleSessions(group, searching || expanded.has(group.key), selectedId);
@@ -315,6 +359,8 @@ function SessionsView({
                       selected={session.sessionId === selectedId}
                       groupHost={group.host}
                       onSelect={onSelect}
+                      section="active"
+                      onSettle={onSettle}
                     />
                   ))}
                 </ul>
@@ -333,6 +379,31 @@ function SessionsView({
           })}
         </section>
       )}
+      <section className="acpmux-sidebar-settled" aria-label={t("sidebar.settled")}>
+        <div className="acpmux-sidebar-section" aria-hidden="true">{t("sidebar.settled")}</div>
+        {settled.length === 0 ? (
+          <div className="acpmux-sidebar-empty">{t("sidebar.noSettled")}</div>
+        ) : (
+          <ul>
+            {settled.map((session) => (
+              <SessionRow
+                key={session.sessionId}
+                session={session}
+                selected={session.sessionId === selectedId}
+                onSelect={onSelect}
+                section="settled"
+                onContinue={onContinue}
+                flat
+              />
+            ))}
+          </ul>
+        )}
+        {onShowMoreSettled && settled.length > 0 && (
+          <button type="button" className="acpmux-sidebar-more" onClick={onShowMoreSettled}>
+            {t("sidebar.showMore")}
+          </button>
+        )}
+      </section>
     </>
   );
 }
@@ -391,6 +462,9 @@ const SessionRow = memo(function SessionRow({
   onSelect,
   flat,
   trailing,
+  section,
+  onContinue,
+  onSettle,
 }: {
   session: AcpmuxSessionEntry;
   selected: boolean;
@@ -398,6 +472,9 @@ const SessionRow = memo(function SessionRow({
   onSelect: (sessionId: string) => void;
   flat?: boolean;
   trailing?: string;
+  section?: "active" | "settled";
+  onContinue?: (sessionIds: string[]) => void;
+  onSettle?: (sessionIds: string[]) => void;
 }) {
   const t = useT();
   const open = useContext(OpenSessions)?.has(session.sessionId);
@@ -407,8 +484,22 @@ const SessionRow = memo(function SessionRow({
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
-  return (
-    <li>
+  const menuItems: ContextMenuItem[] = [];
+  if (section === "settled" && onContinue) {
+    menuItems.push({
+      id: "continue",
+      label: t("sidebar.continue"),
+      onSelect: () => onContinue([session.sessionId]),
+    });
+  }
+  if (section === "active" && onSettle) {
+    menuItems.push({
+      id: "settle",
+      label: t("sidebar.settle"),
+      onSelect: () => onSettle([session.sessionId]),
+    });
+  }
+  const row = (
       <button
         type="button"
         className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
@@ -447,6 +538,6 @@ const SessionRow = memo(function SessionRow({
           place && <span className="acpmux-session-mark" aria-hidden="true" />
         )}
       </button>
-    </li>
   );
+  return <li>{menuItems.length > 0 ? <ContextMenu items={menuItems}>{row}</ContextMenu> : row}</li>;
 });
