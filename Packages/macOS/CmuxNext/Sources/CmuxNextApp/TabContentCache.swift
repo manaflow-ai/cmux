@@ -321,7 +321,9 @@ final class TabContentCache {
         entry.chrome.addressBar.tabKey = key
         // Every page of a tab (web, app page, a late Chromium start) shows
         // the tab's pending notice once.
-        if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) { entry.chrome.showNotice(notice) }
+        if let notice = browserTabs.takeNotice(forKey: key) ?? browserTabs.tabModel(key).flatMap(browserTabs.takeNotice(for:)) {
+            entry.chrome.showNotice(notice)
+        }
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)

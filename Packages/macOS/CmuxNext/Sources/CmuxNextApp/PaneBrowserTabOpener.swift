@@ -16,6 +16,17 @@ import CmuxNextTabs
 struct PaneBrowserTabOpener {
     let controller: PaneController
 
+    /// Where a new tab of a pane's machine goes (cx-2cob): the machine's
+    /// daemon when it serves browser tabs; a refusal with the machine's name
+    /// when another machine is not connected; else this Mac's session-local
+    /// tab (a Cloud image whose cmux-tui predates daemon browser tabs).
+    enum MachineRoute: Equatable { case daemon, sessionLocal, refuseNotConnected }
+
+    nonisolated static func machineRoute(isLocal: Bool, connected: Bool, servesTabs: Bool) -> MachineRoute {
+        if !isLocal && !connected { return .refuseNotConnected }
+        return servesTabs ? .daemon : .sessionLocal
+    }
+
     /// Whether a session-local (WebKit) tab may stand in when the daemon
     /// cannot make browser tabs.
     /// Never for a Chromium request or a Chromium internal page: those are
@@ -46,13 +57,16 @@ struct PaneBrowserTabOpener {
         }
         let requested = requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)
         let browserTabs = services.cache.browserTabs
-        // Another machine's pane that cannot take a tab says why (cx-2cob).
-        if let refusal = browserTabs.refusal(in: controller.pane) {
+        let daemon = controller.daemon
+        let route = Self.machineRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil,
+                                      servesTabs: browserTabs.isAvailable(in: controller.pane))
+        // Another machine that is not connected says so (cx-2cob).
+        if route == .refuseNotConnected {
             child?.close()
-            services.registry.refuse(refusal)
+            services.registry.refuse(RemoteStrings.browserMachineNotConnected(browserTabs.machineName(daemon)))
             return false
         }
-        if browserTabs.isAvailable(in: controller.pane) {
+        if route == .daemon {
             var choice: BrowserEngineChoice
             switch browserTabs.resolve(requested: requested, inherited: inherited) {
             case .refuse(let reason):
@@ -95,6 +109,10 @@ struct PaneBrowserTabOpener {
         }
         child?.close()  // Session-local tabs are WebKit pages made on demand.
         let local = LocalBrowserTab.make(url: url)
+        // Another machine's workspace: the tab is this Mac's; its page says so.
+        if !controller.daemon.isLocal {
+            browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(controller.daemon)), forKey: local.id)
+        }
         controller.state?.localBrowserTabs[controller.paneKey, default: []].append(local)
         controller.apply(controller.snapshot())
         if background { return true }

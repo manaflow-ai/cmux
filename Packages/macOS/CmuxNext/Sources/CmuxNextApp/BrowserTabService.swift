@@ -166,16 +166,21 @@ final class BrowserTabService {
     func isAvailable(on daemon: DaemonService) -> Bool { serves(daemon) }
 
     /// Why no browser tab can open in `pane` now, for the person (never a
-    /// silent no-op): its machine is not connected, or its cmux-tui lacks
-    /// browser tabs. Nil when it can, and for this Mac's own daemon, whose
-    /// callers keep their session-local fallback.
+    /// silent no-op): its machine is not connected. Nil otherwise; a
+    /// connected machine whose cmux-tui lacks daemon browser tabs gets the
+    /// session-local fallback where the caller has one
+    /// (`PaneBrowserTabOpener.machineRoute`), else the caller's capability refusal.
     func refusal(in pane: PaneModel) -> String? {
         let daemon = daemonForPane(pane)
-        guard !daemon.isLocal else { return nil }
-        guard daemon.connection != nil else { return RemoteStrings.browserMachineNotConnected(machineName(daemon)) }
-        guard serves(daemon) else { return RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs) }
-        return nil
+        guard !daemon.isLocal, daemon.connection == nil else { return nil }
+        return RemoteStrings.browserMachineNotConnected(machineName(daemon))
     }
+
+    /// The notice for the page of session-local tab `key` (no daemon record).
+    func setNotice(_ text: String, forKey key: String) { pendingTabNotices[key] = text }
+
+    /// The pending notice of the page with tab key `key`, once.
+    func takeNotice(forKey key: String) -> String? { pendingTabNotices.removeValue(forKey: key) }
 
     /// Whether `tab` was created in this process (`open`), not restored.
     func wasOpenedHere(_ tab: TabModel) -> Bool { openedSurfaces.contains(key(daemonForTab(tab), tab.surface)) }
