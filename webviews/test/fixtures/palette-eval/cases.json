@@ -1,903 +1,638 @@
 {
- "profiles": {
-  "lawrence": {
-   "action:newColumn": 31.57,
-   "action:palette.newAgentChat": 14.99,
-   "action:openDebugSettings": 7,
-   "action:sidebar.section.toggleCollapsed": 7,
-   "action:browser.extensions.menu": 7,
-   "action:column.focusRight": 6,
-   "action:screen.new": 5.99,
-   "action:appearance.paneBorder.toggle": 5.96,
-   "action:tabGroup.rename": 5,
-   "action:appearance.density.comfortable": 4.99,
-   "action:openBrowser.chromium": 4,
-   "action:space.new": 4,
-   "action:palette.workspaceColor": 4,
-   "action:column.dock": 4,
-   "action:appearance.density.compact": 3.99,
-   "action:tabGroup.color.pink": 3.99,
-   "action:palette.quickAgentChat": 3,
-   "action:zoomWindow": 3,
-   "action:workspace.setIcon": 3,
-   "action:tabGroup.toggleCollapsed": 3,
-   "action:browser.extension.options": 2,
-   "action:cloudDiagnostics": 2,
-   "action:space.setIcon": 2,
-   "action:reloadTab": 2,
-   "action:column.makeSticky": 2,
-   "action:openBrowser": 2,
-   "action:newSurface": 2,
-   "action:newWindow": 2,
-   "action:splitRight": 2,
-   "setting:layout.paneBorder": 2
-  }
- },
- "cases": [
-  {
-   "query": "new tab",
-   "expect": [
-    "action:newTab.sameKind",
-    "action:newSurface",
-    "action:openBrowser"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "new workspace",
-   "expect": [
-    "action:newTab"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "new window",
-   "expect": [
-    "action:newWindow"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "split right",
-   "expect": [
-    "action:splitRight"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "split down",
-   "expect": [
-    "action:splitDown"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "close tab",
-   "expect": [
-    "action:closeTab"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "settings",
-   "expect": [
-    "action:openSettings"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "new column",
-   "expect": [
-    "action:newColumn"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "new agent chat",
-   "expect": [
-    "action:palette.newAgentChat"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "reload tab",
-   "expect": [
-    "action:reloadTab"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "find",
-   "expect": [
-    "action:find"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "toggle sidebar",
-   "expect": [
-    "action:toggleSidebar",
-    "action:toggleRightSidebar"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "zoom",
-   "expect": [
-    "action:zoomWindow",
-    "action:toggleSplitZoom",
-    "action:browserZoomIn"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "rename tab",
-   "expect": [
-    "action:renameTab"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "new browser tab",
-   "expect": [
-    "action:openBrowser"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "open folder",
-   "expect": [
-    "action:openFolder"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "quit",
-   "expect": [
-    "action:quit"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "next tab",
-   "expect": [
-    "action:nextSurface"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "previous tab",
-   "expect": [
-    "action:prevSurface"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "rename workspace",
-   "expect": [
-    "action:renameWorkspace"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "full screen",
-   "expect": [
-    "action:toggleFullScreen"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "split",
-   "expect": [
-    "action:splitRight",
-    "action:splitDown"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "new",
-   "expect": [
-    "action:newTab.sameKind",
-    "action:newTab",
-    "action:newWindow",
-    "action:newSurface"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "close",
-   "expect": [
-    "action:closeTab",
-    "action:closeWindow",
-    "action:closeWorkspace"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "brows",
-   "expect": [
-    "action:openBrowser",
-    "action:newBrowserWorkspace"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "sett",
-   "expect": [
-    "action:openSettings"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "sidebar",
-   "expect": [
-    "action:toggleSidebar",
-    "action:toggleRightSidebar"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "term",
-   "expect": [
-    "action:newSurface",
-    "action:terminal.setTheme"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "agent",
-   "expect": [
-    "action:palette.newAgentChat",
-    "action:palette.quickAgentChat"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "chat",
-   "expect": [
-    "action:palette.newAgentChat",
-    "action:palette.quickAgentChat",
-    "action:agentPane.searchChats"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "column",
-   "expect": [
-    "action:newColumn"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "screen",
-   "expect": [
-    "action:screen.new"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "space",
-   "expect": [
-    "action:space.new"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "diff",
-   "expect": [
-    "action:openDiffViewer"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "pane",
-   "expect": [
-    "action:newPaneAutoLayout",
-    "action:closePane",
-    "action:splitRight"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "bookmark",
-   "expect": [
-    "action:bookmark.addPage",
-    "action:bookmark.open"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "history",
-   "expect": [
-    "action:history.show",
-    "action:history.search",
-    "action:recentlyFocused",
-    "action:history.commands"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "extension",
-   "expect": [
-    "action:browser.extensions.menu",
-    "action:browser.extensions.manage"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "copy",
-   "expect": [
-    "action:terminalCopy",
-    "action:palette.copyWorkspaceID",
-    "action:workspace.copyPath"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "font",
-   "expect": [
-    "setting:terminal.fontSize",
-    "setting:terminal.fontFamily",
-    "action:terminal.increaseFontSize",
-    "action:increaseWorkspaceTerminalFontSize"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "density",
-   "expect": [
-    "setting:appearance.density",
-    "action:appearance.density.compact",
-    "action:appearance.density.comfortable"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "border",
-   "expect": [
-    "setting:layout.paneBorder",
-    "action:appearance.paneBorder.toggle",
-    "action:appearance.paneBorderWidth.toggle"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "padding",
-   "expect": [
-    "setting:layout.panePadding",
-    "action:appearance.panePadding.toggle"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "reload",
-   "expect": [
-    "action:reloadTab",
-    "action:browserReload"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "chromium",
-   "expect": [
-    "action:browser.defaultEngine.chromium",
-    "action:browser.openInChromium"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "incognito",
-   "expect": [
-    "action:newIncognitoWindow"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "downloads",
-   "expect": [
-    "action:browser.downloads.showFolder"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "password",
-   "expect": [
-    "action:passwords.open",
-    "action:password.importCSV"
-   ],
-   "group": "partial"
-  },
-  {
-   "query": "theme",
-   "expect": [
-    "setting:appearance.theme",
-    "action:terminal.setTheme",
-    "action:workspace.setTheme",
-    "setting:appearance.appTheme"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "preferences",
-   "expect": [
-    "action:openSettings"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "ssh",
-   "expect": [
-    "action:remote.connect",
-    "tab:t9",
-    "action:cloudSSH"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "remote",
-   "expect": [
-    "action:remote.connect"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "terminal",
-   "expect": [
-    "action:newSurface"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "browser",
-   "expect": [
-    "action:openBrowser"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "keyboard shortcuts",
-   "expect": [
-    "action:keybindings.open",
-    "action:palette.searchShortcuts"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "shortcuts",
-   "expect": [
-    "action:keybindings.open",
-    "action:palette.searchShortcuts"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "notifications",
-   "expect": [
-    "action:showNotifications"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "sign in",
-   "expect": [
-    "action:palette.auth.signIn"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "account",
-   "expect": [
-    "action:palette.auth.signIn",
-    "action:sidebar.profileMenu"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "cloud",
-   "expect": [
-    "action:newCloudWorkspace",
-    "action:newCloudMachine",
-    "action:palette.openCloudPane"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "debug",
-   "expect": [
-    "action:openDebugSettings"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "update",
-   "expect": [
-    "action:palette.checkForUpdates"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "help",
-   "expect": [
-    "action:help.documentation",
-    "action:sendFeedback"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "color",
-   "expect": [
-    "action:palette.workspaceColor"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "icon",
-   "expect": [
-    "action:workspace.setIcon"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "back",
-   "expect": [
-    "action:browserBack",
-    "action:focusHistoryBack"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "files",
-   "expect": [
-    "action:switchRightSidebarToFiles",
-    "action:palette.openFilesPane",
-    "action:file.open"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "markdown",
-   "expect": [
-    "action:openMarkdownFile"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "vscode",
-   "expect": [
-    "action:palette.openFolderInVSCodeInline"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "nt",
-   "expect": [
-    "action:newTab.sameKind",
-    "action:newSurface"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "nw",
-   "expect": [
-    "action:newWindow",
-    "action:newTab"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "sr",
-   "expect": [
-    "action:splitRight"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "sd",
-   "expect": [
-    "action:splitDown"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "ct",
-   "expect": [
-    "action:closeTab"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "nac",
-   "expect": [
-    "action:palette.newAgentChat"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "tfs",
-   "expect": [
-    "action:toggleFullScreen"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "ns",
-   "expect": [
-    "action:screen.new",
-    "action:space.new"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "nbt",
-   "expect": [
-    "action:openBrowser"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "ws",
-   "expect": [
-    "action:newTab",
-    "action:goToWorkspace"
-   ],
-   "group": "acronym"
-  },
-  {
-   "query": "spilt",
-   "expect": [
-    "action:splitRight",
-    "action:splitDown"
-   ],
-   "group": "typo"
-  },
-  {
-   "query": "sttings",
-   "expect": [
-    "action:openSettings"
-   ],
-   "group": "typo"
-  },
-  {
-   "query": "brwoser",
-   "expect": [
-    "action:openBrowser"
-   ],
-   "group": "typo"
-  },
-  {
-   "query": "new tba",
-   "expect": [
-    "action:newTab.sameKind",
-    "action:newSurface",
-    "action:openBrowser"
-   ],
-   "group": "typo"
-  },
-  {
-   "query": "clsoe tab",
-   "expect": [
-    "action:closeTab"
-   ],
-   "group": "typo"
-  },
-  {
-   "query": "reaload",
-   "expect": [
-    "action:reloadTab",
-    "action:browserReload"
-   ],
-   "group": "typo"
-  },
-  {
-   "query": "agnet",
-   "expect": [
-    "action:palette.newAgentChat"
-   ],
-   "group": "typo"
-  },
-  {
-   "query": "colum",
-   "expect": [
-    "action:newColumn"
-   ],
-   "group": "typo"
-  },
-  {
-   "query": "chatmux",
-   "expect": [
-    "workspace:w3"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "subrouter",
-   "expect": [
-    "workspace:w4"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "feat",
-   "expect": [
-    "workspace:w2"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "claude",
-   "expect": [
-    "tab:t2"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "htop",
-   "expect": [
-    "tab:t7"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "nvim",
-   "expect": [
-    "tab:t4"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "ranker",
-   "expect": [
-    "tab:t4"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "localhost",
-   "expect": [
-    "tab:t6"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "github",
-   "expect": [
-    "tab:t5"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "palette rank",
-   "expect": [
-    "workspace:w7"
-   ],
-   "group": "entity"
-  },
-  {
-   "query": "new",
-   "expect": [
-    "action:newColumn"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "n",
-   "expect": [
-    "action:newColumn"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "col",
-   "expect": [
-    "action:newColumn"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "new a",
-   "expect": [
-    "action:palette.newAgentChat"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "debug",
-   "expect": [
-    "action:openDebugSettings"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "ext",
-   "expect": [
-    "action:browser.extensions.menu"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "density",
-   "expect": [
-    "action:appearance.density.comfortable"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "",
-   "expect": [
-    "action:newColumn"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "chat",
-   "expect": [
-    "action:palette.newAgentChat"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "screen",
-   "expect": [
-    "action:screen.new"
-   ],
-   "group": "usage",
-   "profile": "lawrence"
-  },
-  {
-   "query": "",
-   "expect": [
-    "action:newTab.sameKind",
-    "action:newSurface",
-    "action:splitRight",
-    "action:newTab",
-    "action:openSettings",
-    "action:palette.newAgentChat",
-    "action:newWindow"
-   ],
-   "group": "empty"
-  },
-  {
-   "query": "dark mode",
-   "expect": [
-    "setting:appearance.theme",
-    "setting:appearance.appTheme"
-   ],
-   "group": "concept"
-  },
-  {
-   "query": "font size",
-   "expect": [
-    "setting:terminal.fontSize",
-    "action:terminal.increaseFontSize"
-   ],
-   "group": "exact"
-  },
-  {
-   "query": "theme",
-   "expect": [
-    "setting:appearance.theme"
-   ],
-   "group": "guard",
-   "guard": true,
-   "note": "the one Theme setting stays in the top 3 (chief, 2026-10-09)"
-  },
-  {
-   "query": "color",
-   "expect": [
-    "action:palette.workspaceColor"
-   ],
-   "group": "guard",
-   "guard": true,
-   "note": "ten settings titled Color never bury Set Workspace Color (chief, 2026-10-09)"
-  }
- ]
+  "profiles": {
+    "lawrence": {
+      "action:newColumn": 31.57,
+      "action:palette.newAgentChat": 14.99,
+      "action:openDebugSettings": 7,
+      "action:sidebar.section.toggleCollapsed": 7,
+      "action:browser.extensions.menu": 7,
+      "action:column.focusRight": 6,
+      "action:screen.new": 5.99,
+      "action:appearance.paneBorder.toggle": 5.96,
+      "action:tabGroup.rename": 5,
+      "action:appearance.density.comfortable": 4.99,
+      "action:openBrowser.chromium": 4,
+      "action:space.new": 4,
+      "action:palette.workspaceColor": 4,
+      "action:column.dock": 4,
+      "action:appearance.density.compact": 3.99,
+      "action:tabGroup.color.pink": 3.99,
+      "action:palette.quickAgentChat": 3,
+      "action:zoomWindow": 3,
+      "action:workspace.setIcon": 3,
+      "action:tabGroup.toggleCollapsed": 3,
+      "action:browser.extension.options": 2,
+      "action:cloudDiagnostics": 2,
+      "action:space.setIcon": 2,
+      "action:reloadTab": 2,
+      "action:column.makeSticky": 2,
+      "action:openBrowser": 2,
+      "action:newSurface": 2,
+      "action:newWindow": 2,
+      "action:splitRight": 2,
+      "setting:layout.paneBorder": 2
+    }
+  },
+  "cases": [
+    {
+      "query": "new tab",
+      "expect": ["action:newTab.sameKind", "action:newSurface", "action:openBrowser"],
+      "group": "exact"
+    },
+    {
+      "query": "new workspace",
+      "expect": ["action:newTab"],
+      "group": "exact"
+    },
+    {
+      "query": "new window",
+      "expect": ["action:newWindow"],
+      "group": "exact"
+    },
+    {
+      "query": "split right",
+      "expect": ["action:splitRight"],
+      "group": "exact"
+    },
+    {
+      "query": "split down",
+      "expect": ["action:splitDown"],
+      "group": "exact"
+    },
+    {
+      "query": "close tab",
+      "expect": ["action:closeTab"],
+      "group": "exact"
+    },
+    {
+      "query": "settings",
+      "expect": ["action:openSettings"],
+      "group": "exact"
+    },
+    {
+      "query": "new column",
+      "expect": ["action:newColumn"],
+      "group": "exact"
+    },
+    {
+      "query": "new agent chat",
+      "expect": ["action:palette.newAgentChat"],
+      "group": "exact"
+    },
+    {
+      "query": "reload tab",
+      "expect": ["action:reloadTab"],
+      "group": "exact"
+    },
+    {
+      "query": "find",
+      "expect": ["action:find"],
+      "group": "exact"
+    },
+    {
+      "query": "toggle sidebar",
+      "expect": ["action:toggleSidebar", "action:toggleRightSidebar"],
+      "group": "exact"
+    },
+    {
+      "query": "zoom",
+      "expect": ["action:zoomWindow", "action:toggleSplitZoom", "action:browserZoomIn"],
+      "group": "exact"
+    },
+    {
+      "query": "rename tab",
+      "expect": ["action:renameTab"],
+      "group": "exact"
+    },
+    {
+      "query": "new browser tab",
+      "expect": ["action:openBrowser"],
+      "group": "exact"
+    },
+    {
+      "query": "open folder",
+      "expect": ["action:openFolder"],
+      "group": "exact"
+    },
+    {
+      "query": "quit",
+      "expect": ["action:quit"],
+      "group": "exact"
+    },
+    {
+      "query": "next tab",
+      "expect": ["action:nextSurface"],
+      "group": "exact"
+    },
+    {
+      "query": "previous tab",
+      "expect": ["action:prevSurface"],
+      "group": "exact"
+    },
+    {
+      "query": "rename workspace",
+      "expect": ["action:renameWorkspace"],
+      "group": "exact"
+    },
+    {
+      "query": "full screen",
+      "expect": ["action:toggleFullScreen"],
+      "group": "exact"
+    },
+    {
+      "query": "split",
+      "expect": ["action:splitRight", "action:splitDown"],
+      "group": "partial"
+    },
+    {
+      "query": "new",
+      "expect": ["action:newTab.sameKind", "action:newTab", "action:newWindow", "action:newSurface"],
+      "group": "partial"
+    },
+    {
+      "query": "close",
+      "expect": ["action:closeTab", "action:closeWindow", "action:closeWorkspace"],
+      "group": "partial"
+    },
+    {
+      "query": "brows",
+      "expect": ["action:openBrowser", "action:newBrowserWorkspace"],
+      "group": "partial"
+    },
+    {
+      "query": "sett",
+      "expect": ["action:openSettings"],
+      "group": "partial"
+    },
+    {
+      "query": "sidebar",
+      "expect": ["action:toggleSidebar", "action:toggleRightSidebar"],
+      "group": "partial"
+    },
+    {
+      "query": "term",
+      "expect": ["action:newSurface", "action:terminal.setTheme"],
+      "group": "partial"
+    },
+    {
+      "query": "agent",
+      "expect": ["action:palette.newAgentChat", "action:palette.quickAgentChat"],
+      "group": "partial"
+    },
+    {
+      "query": "chat",
+      "expect": ["action:palette.newAgentChat", "action:palette.quickAgentChat", "action:agentPane.searchChats"],
+      "group": "partial"
+    },
+    {
+      "query": "column",
+      "expect": ["action:newColumn"],
+      "group": "partial"
+    },
+    {
+      "query": "screen",
+      "expect": ["action:screen.new"],
+      "group": "partial"
+    },
+    {
+      "query": "space",
+      "expect": ["action:space.new"],
+      "group": "partial"
+    },
+    {
+      "query": "diff",
+      "expect": ["action:openDiffViewer"],
+      "group": "partial"
+    },
+    {
+      "query": "pane",
+      "expect": ["action:newPaneAutoLayout", "action:closePane", "action:splitRight"],
+      "group": "partial"
+    },
+    {
+      "query": "bookmark",
+      "expect": ["action:bookmark.addPage", "action:bookmark.open"],
+      "group": "partial"
+    },
+    {
+      "query": "history",
+      "expect": ["action:history.show", "action:history.search", "action:recentlyFocused", "action:history.commands"],
+      "group": "partial"
+    },
+    {
+      "query": "extension",
+      "expect": ["action:browser.extensions.menu", "action:browser.extensions.manage"],
+      "group": "partial"
+    },
+    {
+      "query": "copy",
+      "expect": ["action:terminalCopy", "action:palette.copyWorkspaceID", "action:workspace.copyPath"],
+      "group": "partial"
+    },
+    {
+      "query": "font",
+      "expect": [
+        "setting:terminal.fontSize",
+        "setting:terminal.fontFamily",
+        "action:terminal.increaseFontSize",
+        "action:increaseWorkspaceTerminalFontSize"
+      ],
+      "group": "partial"
+    },
+    {
+      "query": "density",
+      "expect": [
+        "setting:appearance.density",
+        "action:appearance.density.compact",
+        "action:appearance.density.comfortable"
+      ],
+      "group": "partial"
+    },
+    {
+      "query": "border",
+      "expect": [
+        "setting:layout.paneBorder",
+        "action:appearance.paneBorder.toggle",
+        "action:appearance.paneBorderWidth.toggle"
+      ],
+      "group": "partial"
+    },
+    {
+      "query": "padding",
+      "expect": ["setting:layout.panePadding", "action:appearance.panePadding.toggle"],
+      "group": "partial"
+    },
+    {
+      "query": "reload",
+      "expect": ["action:reloadTab", "action:browserReload"],
+      "group": "partial"
+    },
+    {
+      "query": "chromium",
+      "expect": ["action:browser.defaultEngine.chromium", "action:browser.openInChromium"],
+      "group": "partial"
+    },
+    {
+      "query": "incognito",
+      "expect": ["action:newIncognitoWindow"],
+      "group": "partial"
+    },
+    {
+      "query": "downloads",
+      "expect": ["action:browser.downloads.showFolder"],
+      "group": "partial"
+    },
+    {
+      "query": "password",
+      "expect": ["action:passwords.open", "action:password.importCSV"],
+      "group": "partial"
+    },
+    {
+      "query": "theme",
+      "expect": [
+        "setting:appearance.theme",
+        "action:terminal.setTheme",
+        "action:workspace.setTheme",
+        "setting:appearance.appTheme"
+      ],
+      "group": "concept"
+    },
+    {
+      "query": "preferences",
+      "expect": ["action:openSettings"],
+      "group": "concept"
+    },
+    {
+      "query": "ssh",
+      "expect": ["action:remote.connect", "tab:t9", "action:cloudSSH"],
+      "group": "concept"
+    },
+    {
+      "query": "remote",
+      "expect": ["action:remote.connect"],
+      "group": "concept"
+    },
+    {
+      "query": "terminal",
+      "expect": ["action:newSurface"],
+      "group": "concept"
+    },
+    {
+      "query": "browser",
+      "expect": ["action:openBrowser"],
+      "group": "concept"
+    },
+    {
+      "query": "keyboard shortcuts",
+      "expect": ["action:keybindings.open", "action:palette.searchShortcuts"],
+      "group": "concept"
+    },
+    {
+      "query": "shortcuts",
+      "expect": ["action:keybindings.open", "action:palette.searchShortcuts"],
+      "group": "concept"
+    },
+    {
+      "query": "notifications",
+      "expect": ["action:showNotifications"],
+      "group": "concept"
+    },
+    {
+      "query": "sign in",
+      "expect": ["action:palette.auth.signIn"],
+      "group": "concept"
+    },
+    {
+      "query": "account",
+      "expect": ["action:palette.auth.signIn", "action:sidebar.profileMenu"],
+      "group": "concept"
+    },
+    {
+      "query": "cloud",
+      "expect": ["action:newCloudWorkspace", "action:newCloudMachine", "action:palette.openCloudPane"],
+      "group": "concept"
+    },
+    {
+      "query": "debug",
+      "expect": ["action:openDebugSettings"],
+      "group": "concept"
+    },
+    {
+      "query": "update",
+      "expect": ["action:palette.checkForUpdates"],
+      "group": "concept"
+    },
+    {
+      "query": "help",
+      "expect": ["action:help.documentation", "action:sendFeedback"],
+      "group": "concept"
+    },
+    {
+      "query": "color",
+      "expect": ["action:palette.workspaceColor"],
+      "group": "concept"
+    },
+    {
+      "query": "icon",
+      "expect": ["action:workspace.setIcon"],
+      "group": "concept"
+    },
+    {
+      "query": "back",
+      "expect": ["action:browserBack", "action:focusHistoryBack"],
+      "group": "concept"
+    },
+    {
+      "query": "files",
+      "expect": ["action:switchRightSidebarToFiles", "action:palette.openFilesPane", "action:file.open"],
+      "group": "concept"
+    },
+    {
+      "query": "markdown",
+      "expect": ["action:openMarkdownFile"],
+      "group": "concept"
+    },
+    {
+      "query": "vscode",
+      "expect": ["action:palette.openFolderInVSCodeInline"],
+      "group": "concept"
+    },
+    {
+      "query": "nt",
+      "expect": ["action:newTab.sameKind", "action:newSurface"],
+      "group": "acronym"
+    },
+    {
+      "query": "nw",
+      "expect": ["action:newWindow", "action:newTab"],
+      "group": "acronym"
+    },
+    {
+      "query": "sr",
+      "expect": ["action:splitRight"],
+      "group": "acronym"
+    },
+    {
+      "query": "sd",
+      "expect": ["action:splitDown"],
+      "group": "acronym"
+    },
+    {
+      "query": "ct",
+      "expect": ["action:closeTab"],
+      "group": "acronym"
+    },
+    {
+      "query": "nac",
+      "expect": ["action:palette.newAgentChat"],
+      "group": "acronym"
+    },
+    {
+      "query": "tfs",
+      "expect": ["action:toggleFullScreen"],
+      "group": "acronym"
+    },
+    {
+      "query": "ns",
+      "expect": ["action:screen.new", "action:space.new"],
+      "group": "acronym"
+    },
+    {
+      "query": "nbt",
+      "expect": ["action:openBrowser"],
+      "group": "acronym"
+    },
+    {
+      "query": "ws",
+      "expect": ["action:newTab", "action:goToWorkspace"],
+      "group": "acronym"
+    },
+    {
+      "query": "spilt",
+      "expect": ["action:splitRight", "action:splitDown"],
+      "group": "typo"
+    },
+    {
+      "query": "sttings",
+      "expect": ["action:openSettings"],
+      "group": "typo"
+    },
+    {
+      "query": "brwoser",
+      "expect": ["action:openBrowser"],
+      "group": "typo"
+    },
+    {
+      "query": "new tba",
+      "expect": ["action:newTab.sameKind", "action:newSurface", "action:openBrowser"],
+      "group": "typo"
+    },
+    {
+      "query": "clsoe tab",
+      "expect": ["action:closeTab"],
+      "group": "typo"
+    },
+    {
+      "query": "reaload",
+      "expect": ["action:reloadTab", "action:browserReload"],
+      "group": "typo"
+    },
+    {
+      "query": "agnet",
+      "expect": ["action:palette.newAgentChat"],
+      "group": "typo"
+    },
+    {
+      "query": "colum",
+      "expect": ["action:newColumn"],
+      "group": "typo"
+    },
+    {
+      "query": "chatmux",
+      "expect": ["workspace:w3"],
+      "group": "entity"
+    },
+    {
+      "query": "subrouter",
+      "expect": ["workspace:w4"],
+      "group": "entity"
+    },
+    {
+      "query": "feat",
+      "expect": ["workspace:w2"],
+      "group": "entity"
+    },
+    {
+      "query": "claude",
+      "expect": ["tab:t2"],
+      "group": "entity"
+    },
+    {
+      "query": "htop",
+      "expect": ["tab:t7"],
+      "group": "entity"
+    },
+    {
+      "query": "nvim",
+      "expect": ["tab:t4"],
+      "group": "entity"
+    },
+    {
+      "query": "ranker",
+      "expect": ["tab:t4"],
+      "group": "entity"
+    },
+    {
+      "query": "localhost",
+      "expect": ["tab:t6"],
+      "group": "entity"
+    },
+    {
+      "query": "github",
+      "expect": ["tab:t5"],
+      "group": "entity"
+    },
+    {
+      "query": "palette rank",
+      "expect": ["workspace:w7"],
+      "group": "entity"
+    },
+    {
+      "query": "new",
+      "expect": ["action:newColumn"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "n",
+      "expect": ["action:newColumn"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "col",
+      "expect": ["action:newColumn"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "new a",
+      "expect": ["action:palette.newAgentChat"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "debug",
+      "expect": ["action:openDebugSettings"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "ext",
+      "expect": ["action:browser.extensions.menu"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "density",
+      "expect": ["action:appearance.density.comfortable"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "",
+      "expect": ["action:newColumn"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "chat",
+      "expect": ["action:palette.newAgentChat"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "screen",
+      "expect": ["action:screen.new"],
+      "group": "usage",
+      "profile": "lawrence"
+    },
+    {
+      "query": "",
+      "expect": [
+        "action:newTab.sameKind",
+        "action:newSurface",
+        "action:splitRight",
+        "action:newTab",
+        "action:openSettings",
+        "action:palette.newAgentChat",
+        "action:newWindow"
+      ],
+      "group": "empty"
+    },
+    {
+      "query": "dark mode",
+      "expect": ["setting:appearance.theme", "setting:appearance.appTheme"],
+      "group": "concept"
+    },
+    {
+      "query": "font size",
+      "expect": ["setting:terminal.fontSize", "action:terminal.increaseFontSize"],
+      "group": "exact"
+    },
+    {
+      "query": "theme",
+      "expect": ["setting:appearance.theme"],
+      "group": "guard",
+      "guard": true,
+      "note": "the one Theme setting stays in the top 3 (chief, 2026-10-09)"
+    },
+    {
+      "query": "color",
+      "expect": ["action:palette.workspaceColor"],
+      "group": "guard",
+      "guard": true,
+      "note": "ten settings titled Color never bury Set Workspace Color (chief, 2026-10-09)"
+    }
+  ]
 }
