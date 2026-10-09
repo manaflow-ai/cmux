@@ -59,7 +59,8 @@ final class AppServices {
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
-    private(set) lazy var palette: PaletteController = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))  // first read in init (no IUO)
+    private(set) lazy var palette: PaletteController = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
+                                                                          usage: DaemonPaletteUsageStore(services: self))  // first read in init (no IUO)
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)

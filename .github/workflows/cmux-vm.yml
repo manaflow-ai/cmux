@@ -33,8 +33,13 @@
 # the staging Worker then needs that key's hash in the environment secret
 # CMUX_VM_SERVICE_KEYS, which deploy-staging installs when it is set.
 #
-# Production deploys are added with the protected cmux-vm-production
-# environment (cx-b4h.5), not here.
+# Production: workflow_dispatch action deploy-production from feat-cmux-next runs
+# check, deploy-staging and smoke-staging, then deploy-production and
+# smoke-production in the same run, for the same SHA (cx-b4h.5). Environment
+# cmux-vm-production (feat-cmux-next only) holds the same secret names as
+# staging plus CMUX_VM_SERVICE_KEYS and CMUX_VM_SMOKE_SERVICE_KEY, and the
+# variables CMUX_VM_DEPLOY_ENABLED, CMUX_VM_PRODUCTION_URL and
+# CMUX_VM_SMOKE_SERVICE_TEAM. first_production_deploy=true only for the first.
 #
 # Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 # Environment secrets (each environment): CMUX_VM_UPSTREAM_API_KEY,
@@ -75,13 +80,17 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
         type: choice
         options: [cmux-vm-staging, cmux-vm-preview]
         default: cmux-vm-staging
+      first_production_deploy:
+        description: deploy-production only, the Worker's first production deploy (no version to roll back to)
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -92,7 +101,7 @@ permissions:
 
 jobs:
   check:
-    if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging'
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:
@@ -299,7 +308,7 @@ jobs:
   deploy-staging:
     if: >-
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-staging')
+      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
     needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 25
@@ -390,7 +399,7 @@ jobs:
   smoke-staging:
     if: >-
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-staging')
+      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
     needs: deploy-staging
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -429,6 +438,144 @@ jobs:
           CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_STAGING_URL }}
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
           CMUX_VM_SMOKE_API_KEY_B: ${{ secrets.CMUX_VM_SMOKE_API_KEY_B }}
+          # Optional (cx-b4h.13): a service key limited to role=chief and to this synthetic team.
+          CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
+          CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
+        run: bun scripts/smoke.ts
+
+  deploy-production:
+    # Production (cx-b4h.5): dispatch only, from feat-cmux-next, in the same run as and after the green
+    # staging deploy and smoke of this exact SHA. The cmux-vm-production environment admits only
+    # feat-cmux-next. cmux-old never calls vm.cmux.dev; the schema is applied by the release rails first.
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && github.ref == 'refs/heads/feat-cmux-next'
+    needs: smoke-staging
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 25
+    environment: cmux-vm-production
+    concurrency:
+      group: cmux-vm-deploy-production
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      # The gate is an environment variable, which a job-level `if` cannot see
+      # (it is evaluated before the environment attaches), so it is read here.
+      - id: gate
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+        run: |
+          if [ "$ENABLED" = 1 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Deploy skipped: CMUX_VM_DEPLOY_ENABLED is not 1 in this environment."
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+        if: steps.gate.outputs.enabled == 'true'
+      - name: Install the release rails
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile
+      # Deploy ordering (plans/cmux-next/release-rails.md): read the staging database and refuse a
+      # commit whose migrations are not applied there, before anything ships. On 2026-10-07 a push
+      # ran ahead of 0008 and every Stack webhook answered 503.
+      - name: Deploy ordering gate (production has every migration this commit needs)
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: scripts/cmux-next/release
+        env:
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+        run: bun db-release.ts gate --tree cmux-vm --target production --url-env CMUX_VM_DATABASE_URL
+      - name: Record the serving version (the rollback target)
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun ../../scripts/cmux-next/release/worker-release.ts previous --worker cmux-vm-production --wrangler node_modules/.bin/wrangler --out "$RUNNER_TEMP/cmux-vm-previous-version" ${{ inputs.first_production_deploy && '--allow-first-deploy' || '' }}
+      - name: Deploy and set secrets
+        id: deploy
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          TARGET: production
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CMUX_VM_UPSTREAM_API_KEY: ${{ secrets.CMUX_VM_UPSTREAM_API_KEY }}
+          CMUX_VM_STACK_PROJECT_ID: ${{ secrets.CMUX_VM_STACK_PROJECT_ID }}
+          CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+          # Optional (cx-b4h.13): service key hashes; absent leaves the Worker's current value.
+          CMUX_VM_SERVICE_KEYS: ${{ secrets.CMUX_VM_SERVICE_KEYS }}
+        run: bash scripts/deploy.sh
+      # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
+      # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
+      # on a cancel or timeout (always()).
+      - name: Smoke health and changed routes; roll back on red
+        if: ${{ always() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
+          BEFORE: ${{ github.event.before }}
+        run: >-
+          bun ../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-vm-production
+          --url "${URL:-https://vm.cmux.dev}" --routes release-smoke.json
+          --previous-file "$RUNNER_TEMP/cmux-vm-previous-version" --changed-since "$BEFORE" --source-dir .
+          --wrangler node_modules/.bin/wrangler
+
+  smoke-production:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && github.ref == 'refs/heads/feat-cmux-next'
+    needs: deploy-production
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    environment: cmux-vm-production
+    concurrency:
+      group: cmux-vm-smoke-production
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - id: gate
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+          URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
+          HAS_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY != '' }}
+        run: |
+          if [ "$ENABLED" = 1 ] && [ -n "$URL" ] && [ "$HAS_KEY" = true ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Production smoke cannot run: needs CMUX_VM_DEPLOY_ENABLED=1, CMUX_VM_PRODUCTION_URL and CMUX_VM_SMOKE_SERVICE_KEY in cmux-vm-production."
+            exit 1
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          bun-version: "1.4.2"
+      # Production has no tenant smoke key: the service leg alone, on a synthetic dev/test team
+      # (DEV_TEST_TENANT_IDS), create, exec, pause and delete by exact id.
+      - name: Smoke the production Worker (service key, dev/test team)
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
           # Optional (cx-b4h.13): a service key limited to role=chief and to this synthetic team.
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}

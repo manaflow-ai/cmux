@@ -13,9 +13,11 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use cmux_pty::PtySize;
+use ghostty_vt::Terminal;
 
 use super::super::sys::HostStream;
 use super::super::*;
+use super::codec::encode_hex;
 
 pub(crate) const HOST_TERMINATE_GRACE: Duration = Duration::from_millis(250);
 // Match the remote PTY bridge's bounded outstanding-write precedent.
@@ -508,4 +510,94 @@ pub(crate) fn enqueue_parser_output(
     parser_budget.release(accounted_bytes);
     smart.close_failed_transition(Some(source_cursor));
     false
+}
+
+pub(crate) fn publish_host_frames(
+    broadcast_lock: &Mutex<()>,
+    sequence: &AtomicU64,
+    taps: &Mutex<HashMap<u64, HostTap>>,
+    frames: impl IntoIterator<Item = Frame>,
+) {
+    let _ = publish_host_frames_and_targeted(broadcast_lock, sequence, taps, frames, None);
+}
+
+pub(crate) fn publish_host_frames_and_targeted(
+    broadcast_lock: &Mutex<()>,
+    sequence: &AtomicU64,
+    taps: &Mutex<HashMap<u64, HostTap>>,
+    frames: impl IntoIterator<Item = Frame>,
+    targeted: Option<(&HostTap, Frame)>,
+) -> bool {
+    // Sequence allocation and publication are one critical section;
+    // otherwise concurrent output/resize/exit producers could mint N
+    // then publish N+1 first, split a coupled Output/Colors pair, or place
+    // a targeted acknowledgement before its canonical transition.
+    let _broadcast = broadcast_lock.lock().unwrap();
+    let mut taps = taps.lock().unwrap();
+    for mut frame in frames {
+        let sequence = sequence.fetch_add(1, Ordering::AcqRel) + 1;
+        frame.sequence = sequence;
+        taps.retain(|_, tap| tap.try_send(frame.clone()));
+    }
+    drop(taps);
+    targeted.is_none_or(|(tap, frame)| tap.try_send(frame))
+}
+
+pub(crate) fn changed_pwd_frame(
+    last_pwd: &mut Option<String>,
+    current_pwd: Option<String>,
+) -> Option<Frame> {
+    // Track only the parser's raw OSC 7 state. Folding in the spawn-CWD
+    // fallback here would hide a Some -> None transition from live clients.
+    if last_pwd.as_deref() == current_pwd.as_deref() {
+        return None;
+    }
+    let payload = current_pwd.as_deref().unwrap_or_default().as_bytes().to_vec();
+    *last_pwd = current_pwd;
+    Some(Frame::new(MessageKind::Pwd, payload))
+}
+
+pub(crate) fn output_transition_frames(
+    output: Vec<u8>,
+    colors: Option<Vec<u8>>,
+    pwd: Option<Frame>,
+) -> Vec<Frame> {
+    let mut frames = Vec::with_capacity(3);
+    let mut output = Frame::new(MessageKind::Output, output);
+    if let Some(colors) = colors {
+        output.flags = FLAG_COLORS_FOLLOW;
+        frames.push(output);
+        frames.push(Frame::new(MessageKind::Colors, colors));
+    } else {
+        frames.push(output);
+    }
+    frames.extend(pwd);
+    frames
+}
+
+/// Persist a local spawn path with host-authenticated provenance. A host
+/// can outlive its daemon, so a raw OSC 7 URL here would become the next
+/// surface's inherited spawn directory after reattachment.
+pub(crate) fn snapshot_cwd(
+    term: &Terminal,
+    spawn_cwd: Option<&str>,
+    owner_token: &CapabilityToken,
+    protocol_version: u16,
+) -> Option<String> {
+    // OSC 7 is terminal-controlled metadata and cannot prove that a path
+    // belongs to this host. Use only the authenticated spawn fallback.
+    let _ = term;
+    let path = spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path)?;
+    // Only the negotiated current protocol understands authenticated
+    // provenance markers. Treat legacy and unknown values as legacy wire
+    // format so peers never receive a marker they cannot decode.
+    if protocol_version != PROTOCOL_VERSION {
+        return Some(path.to_string_lossy().into_owned());
+    }
+    Some(format!(
+        "{}{}:{}",
+        crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+        encode_hex(owner_token.as_bytes()),
+        path.to_string_lossy()
+    ))
 }
