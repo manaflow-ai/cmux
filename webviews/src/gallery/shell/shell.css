@@ -309,7 +309,7 @@ body {
   flex-direction: column;
   gap: 4px;
   color: var(--g-muted);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .gallery-browse-filter input {
   min-width: 0;
@@ -319,7 +319,7 @@ body {
   background: var(--g-bg);
   color: var(--g-text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .gallery-browse-filter input:focus-visible {
   outline: 2px solid var(--g-text);
