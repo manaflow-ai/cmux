@@ -64,7 +64,7 @@ extension HomeScene {
             guard let row = model.rows[checked: i] else { continue }
             let key = row.spec.key
             let newWin = layout.contentTop(i) - newOffset
-            if let oldTop = oldSnap.contentTop(key), let oi = oldSnap.index[key], oldSnap.rows[oi].ghost == row.ghost || row.ghost {
+            if let oldTop = oldSnap.contentTop(key), let oi = oldSnap.index[key], let oldRow = oldSnap.rows[checked: oi], oldRow.ghost == row.ghost || row.ghost {
                 let d = (oldTop + oldRowsTop - oldOffset) - newWin
                 deltas[key] = d
                 for pending in pendingNew { deltas[pending] = d }
