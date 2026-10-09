@@ -49,8 +49,9 @@ run
 [[ "$status" == 0 ]] || fail "a swapped shared bun must be replaced by the pinned release (exit $status): $out"
 [[ "$("$(private)/bun" --version)" == 9.9.9 ]] || fail "the downloaded bun must be the pinned version"
 
-# A release that does not match its checksums is refused.
-(cd "$TMP/release/bun-v9.9.9" && sed -i.bak 's/^[0-9a-f]/0/' SHASUMS256.txt && rm SHASUMS256.txt.bak)
+# A release that does not match its checksums is refused. Always change the first
+# digit: replacing it with zero alone leaves checksums that already start with zero intact.
+(cd "$TMP/release/bun-v9.9.9" && awk '{ sub(/^./, substr($0, 1, 1) == "0" ? "1" : "0"); print }' SHASUMS256.txt > bad-checksums && mv bad-checksums SHASUMS256.txt)
 run
 [[ "$status" != 0 ]] || fail "a checksum mismatch must fail: $out"
 [[ ! -s "$TMP/runner/path" ]] || fail "a refused download must not reach GITHUB_PATH"
