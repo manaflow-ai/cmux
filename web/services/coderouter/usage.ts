@@ -1,14 +1,289 @@
 import type { CoderouterAccountAccess } from "./accountAccess";
+import type { EncryptedCredential } from "./encryption";
 import {
   listAccounts,
   listEncryptedCredentials,
   markAccountCooldown,
 } from "./repository";
-import { freshCredential } from "./refresh";
+import {
+  CodeRouterCredentialBroken,
+  CodeRouterRefreshBusy,
+  freshCredential,
+} from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import { recordCoderouterSpan } from "./requestTelemetry";
+import type { CodeRouterAccountSummary, CodeRouterCredential } from "./types";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+
+export type AccountsUsageDependencies = {
+  readonly listAccounts: typeof listAccounts;
+  readonly listEncryptedCredentials: typeof listEncryptedCredentials;
+  readonly markCooldown: (accountId: string, durationMs: number) => Promise<void>;
+  readonly credential: typeof freshCredential;
+  readonly fetchUsage: (credential: CodeRouterCredential) => Promise<Response>;
+  readonly report: typeof reportCoderouterFailure;
+  /** Records a usage-read timeout that is not reported. Defaults to a log line and a route span. */
+  readonly observeTimeout?: (observation: UsageTimeoutObservation) => void;
+  /** Consecutive usage-read timeouts per account; defaults to one tracker per loader. */
+  readonly timeoutStreaks?: UsageTimeoutStreaks;
+};
+
+/**
+ * Consecutive timed-out polls after which one account's usage read is
+ * reported as an error instead of a transient upstream warning.
+ */
+export const USAGE_TIMEOUT_ERROR_STREAK = 3;
+const MAX_TRACKED_TIMEOUT_ACCOUNTS = 1_000;
+
+export type UsageTimeoutObservation = {
+  readonly provider: string;
+  readonly consecutive: number;
+};
+
+export type UsageTimeoutStreaks = {
+  readonly record: (accountId: string) => number;
+  readonly clear: (accountId: string) => void;
+};
+
+/**
+ * Counts consecutive usage-read timeouts per account on this server
+ * instance. Best effort: a new instance starts at zero, which delays an
+ * escalation but never invents one. Bounded so a long-lived instance
+ * cannot grow it without limit.
+ */
+export function createUsageTimeoutStreaks(): UsageTimeoutStreaks {
+  const streaks = new Map<string, number>();
+  return {
+    record: (accountId) => {
+      const next = (streaks.get(accountId) ?? 0) + 1;
+      streaks.delete(accountId);
+      streaks.set(accountId, next);
+      if (streaks.size > MAX_TRACKED_TIMEOUT_ACCOUNTS) {
+        const oldest = streaks.keys().next().value;
+        if (oldest !== undefined) streaks.delete(oldest);
+      }
+      return next;
+    },
+    clear: (accountId) => {
+      streaks.delete(accountId);
+    },
+  };
+}
+
+
+type AccountWithUsage = CodeRouterAccountSummary & {
+  readonly usage?: unknown;
+  readonly usageError?: string;
+};
+
+type ResolvedUsageDependencies = AccountsUsageDependencies & {
+  readonly timeoutStreaks: UsageTimeoutStreaks;
+  readonly observeTimeout: (observation: UsageTimeoutObservation) => void;
+};
+
+export function createAccountsUsageLoader(supplied: AccountsUsageDependencies) {
+  const dependencies: ResolvedUsageDependencies = {
+    ...supplied,
+    timeoutStreaks: supplied.timeoutStreaks ?? createUsageTimeoutStreaks(),
+    observeTimeout: supplied.observeTimeout ?? observeUsageTimeout,
+  };
+  return async (teamId: string, access?: CoderouterAccountAccess) => {
+    const startedAt = performance.now();
+    addCoderouterBreadcrumb("status", "Loading account usage");
+    // Account metadata and encrypted envelopes are independent RDS reads.
+    const rdsStartedAt = performance.now();
+    const [accounts, credentials] = await Promise.all([
+      dependencies.listAccounts(teamId, access),
+      dependencies.listEncryptedCredentials(teamId),
+    ]);
+    const rdsMs = performance.now() - rdsStartedAt;
+    const credentialsByAccount = new Map(
+      credentials.map((credential) => [credential.accountId, credential]),
+    );
+    const providerStartedAt = performance.now();
+    const withUsage = await Promise.all(accounts.map((account) =>
+      account.provider === "codex" && account.state === "active"
+        ? accountUsage(dependencies, teamId, account, credentialsByAccount.get(account.id))
+        : account
+    ));
+    addCoderouterBreadcrumb("status", "Provider usage fanout completed", {
+      account_count: accounts.length,
+      provider_ms: Math.round(performance.now() - providerStartedAt),
+    });
+    return {
+      accounts: withUsage,
+      usageAsOf: new Date().toISOString(),
+      usageGeneratedAtMs: Date.now(),
+      cacheMaxAgeSeconds: 0,
+      timing: {
+        rdsMs,
+        providerMs: performance.now() - providerStartedAt,
+        totalMs: performance.now() - startedAt,
+      },
+    };
+  };
+}
+
+async function accountUsage(
+  dependencies: ResolvedUsageDependencies,
+  teamId: string,
+  account: CodeRouterAccountSummary,
+  known: EncryptedCredential | undefined,
+): Promise<AccountWithUsage> {
+  try {
+    const credential = await dependencies.credential({
+      teamId,
+      accountId: account.id,
+      expectedRevision: known?.credentialRevision ?? 0,
+      known,
+    });
+    if (credential.provider !== "codex") return account;
+    let response = await usageRead(() => dependencies.fetchUsage(credential));
+    if (response.status === 401) {
+      // Release the rejected response's connection before the retry.
+      await response.body?.cancel().catch(() => undefined);
+      const refreshed = await refreshRejectedCredential(dependencies, teamId, account, known);
+      if (refreshed.provider !== "codex") return account;
+      response = await usageRead(() => dependencies.fetchUsage(refreshed));
+    }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      dependencies.report(
+        response.status === 429 ? "provider_rate_limit" : "provider_usage",
+        new Error("provider usage request failed"),
+        { provider: account.provider, status: response.status },
+        // A token the provider just minted and still rejects means the
+        // workspace itself no longer grants access: the team's to fix.
+        response.status === 401 ? { fault: "tenant" } : {},
+      );
+      return { ...account, usageError: `HTTP ${response.status}` };
+    }
+    const usage: unknown = await usageRead(() => response.json());
+    dependencies.timeoutStreaks.clear(account.id);
+    const cooldownMs = usageCooldown(usage);
+    if (cooldownMs !== null) {
+      await dependencies.markCooldown(account.id, cooldownMs);
+    }
+    return { ...account, usage };
+  } catch (error) {
+    // The refresher already reported a revoked sign-in as a tenant fault and
+    // marked the account broken; show that state now instead of next poll.
+    if (error instanceof CodeRouterCredentialBroken && error.reported) {
+      return { ...account, state: "broken", usageError: "credential_broken" };
+    }
+    // Another request holds the refresh lease and will settle this account.
+    if (error instanceof CodeRouterRefreshBusy) {
+      return { ...account, usageError: "credential_refreshing" };
+    }
+    if (error instanceof UsageReadTimeout) return reportUsageTimeout(dependencies, account, error.cause);
+    dependencies.report("provider_usage", error, {
+      provider: account.provider,
+    });
+    return { ...account, usageError: "unavailable" };
+  }
+}
+
+/**
+ * The usage endpoint answers in ~0.35 s at p50; its tail stalls a response
+ * body past the 5 s budget on a few percent of reads while the provider is
+ * degraded. The account list is polled, so the next poll retries. A timeout
+ * is always logged and kept on the route trace; only an account that keeps
+ * timing out reports to Sentry, as an error.
+ */
+function reportUsageTimeout(
+  dependencies: ResolvedUsageDependencies,
+  account: CodeRouterAccountSummary,
+  error: unknown,
+): AccountWithUsage {
+  const consecutive = dependencies.timeoutStreaks.record(account.id);
+  dependencies.observeTimeout({ provider: account.provider, consecutive });
+  if (consecutive >= USAGE_TIMEOUT_ERROR_STREAK) {
+    dependencies.report(
+      "provider_usage",
+      error,
+      { provider: account.provider, timeout: true, consecutive },
+    );
+  }
+  return { ...account, usageError: "timeout" };
+}
+
+function observeUsageTimeout(observation: UsageTimeoutObservation): void {
+  console.warn("coderouter.usage_timeout", observation);
+  recordCoderouterSpan({
+    name: "usage_timeout",
+    startedAt: performance.now(),
+    attributes: { provider: observation.provider, timeout: true, consecutive: observation.consecutive },
+  });
+}
+
+/**
+ * Marks a timeout from the usage read itself. Credential refresh timeouts
+ * keep their normal reporting and never count toward the streak.
+ */
+class UsageReadTimeout extends Error {
+  constructor(readonly cause: unknown) {
+    super("usage read timed out");
+    this.name = "TimeoutError";
+  }
+}
+
+async function usageRead<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") throw new UsageReadTimeout(error);
+    throw error;
+  }
+}
+
+/**
+ * A 401 on the usage read means the stored access token was revoked before
+ * its recorded expiry. Force one refresh, the same recovery the model routes
+ * use: a rotated token answers the retry, and a revoked sign-in is marked
+ * broken by the refresher so the dashboard asks the team to reconnect it and
+ * later polls skip it instead of re-reading a dead credential forever.
+ */
+async function refreshRejectedCredential(
+  dependencies: AccountsUsageDependencies,
+  teamId: string,
+  account: CodeRouterAccountSummary,
+  known: EncryptedCredential | undefined,
+): Promise<CodeRouterCredential> {
+  addCoderouterBreadcrumb("refresh", "Refreshing credential rejected by usage read", {
+    provider: account.provider,
+  }, "warning");
+  return await dependencies.credential({
+    teamId,
+    accountId: account.id,
+    expectedRevision: known?.credentialRevision ?? 0,
+    force: true,
+  });
+}
+
+const loadAccountsWithUsage = createAccountsUsageLoader({
+  listAccounts,
+  listEncryptedCredentials,
+  markCooldown: (accountId, durationMs) => markAccountCooldown(accountId, durationMs),
+  credential: freshCredential,
+  fetchUsage: (credential) => {
+    if (credential.provider !== "codex") {
+      throw new Error("usage reads are only supported for Codex sign-ins");
+    }
+    return fetchProviderRead(() => fetch(CODEX_USAGE_URL, {
+      headers: {
+        authorization: `Bearer ${credential.accessToken}`,
+        "chatgpt-account-id": credential.accountId,
+        "user-agent": "coderouter/0.2",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
+    }));
+  },
+  report: reportCoderouterFailure,
+});
+
 const usageRequests = new Map<
   string,
   Promise<Awaited<ReturnType<typeof loadAccountsWithUsage>>>
@@ -28,79 +303,6 @@ export async function accountsWithUsage(teamId: string, access?: CoderouterAccou
   } finally {
     usageRequests.delete(key);
   }
-}
-
-async function loadAccountsWithUsage(teamId: string, access?: CoderouterAccountAccess) {
-  const startedAt = performance.now();
-  addCoderouterBreadcrumb("status", "Loading account usage");
-  // Account metadata and encrypted envelopes are independent RDS reads.
-  const rdsStartedAt = performance.now();
-  const [accounts, credentials] = await Promise.all([
-    listAccounts(teamId, access),
-    listEncryptedCredentials(teamId),
-  ]);
-  const rdsMs = performance.now() - rdsStartedAt;
-  const credentialsByAccount = new Map(
-    credentials.map((credential) => [credential.accountId, credential]),
-  );
-  const providerStartedAt = performance.now();
-  const withUsage = await Promise.all(accounts.map(async (account) => {
-    if (account.provider !== "codex" || account.state !== "active") {
-      return account;
-    }
-    try {
-      const credential = await freshCredential({
-        teamId,
-        accountId: account.id,
-        expectedRevision: credentialsByAccount.get(account.id)?.credentialRevision ?? 0,
-        known: credentialsByAccount.get(account.id),
-      });
-      if (credential.provider !== "codex") return account;
-      const response = await fetchProviderRead(() => fetch(CODEX_USAGE_URL, {
-        headers: {
-          authorization: `Bearer ${credential.accessToken}`,
-          "chatgpt-account-id": credential.accountId,
-          "user-agent": "coderouter/0.2",
-        },
-        cache: "no-store",
-        signal: AbortSignal.timeout(5_000),
-      }));
-      if (!response.ok) {
-        reportCoderouterFailure(
-          response.status === 429 ? "provider_rate_limit" : "provider_usage",
-          new Error("provider usage request failed"),
-          { provider: account.provider, status: response.status },
-        );
-        return { ...account, usageError: `HTTP ${response.status}` };
-      }
-      const usage: unknown = await response.json();
-      const cooldownMs = usageCooldown(usage);
-      if (cooldownMs !== null) {
-        await markAccountCooldown(account.id, cooldownMs);
-      }
-      return { ...account, usage };
-    } catch (error) {
-      reportCoderouterFailure("provider_usage", error, {
-        provider: account.provider,
-      });
-      return { ...account, usageError: "unavailable" };
-    }
-  }));
-  addCoderouterBreadcrumb("status", "Provider usage fanout completed", {
-    account_count: accounts.length,
-    provider_ms: Math.round(performance.now() - providerStartedAt),
-  });
-  return {
-    accounts: withUsage,
-    usageAsOf: new Date().toISOString(),
-    usageGeneratedAtMs: Date.now(),
-    cacheMaxAgeSeconds: 0,
-    timing: {
-      rdsMs,
-      providerMs: performance.now() - providerStartedAt,
-      totalMs: performance.now() - startedAt,
-    },
-  };
 }
 
 function usageCooldown(value: unknown): number | null {

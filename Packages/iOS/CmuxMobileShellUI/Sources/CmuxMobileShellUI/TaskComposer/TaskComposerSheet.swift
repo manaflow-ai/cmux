@@ -246,21 +246,12 @@ struct TaskComposerSheet: View {
         ) : nil
         let initialWorkspaceGroupID = draft == nil
             ? rememberedPickers?.workspaceGroupID : draft?.workspaceGroupID
-        let draftTemplateID: MobileTaskTemplate.ID?
-        if let candidate = draft?.templateID,
-           templates.contains(where: { $0.id == candidate }) {
-            draftTemplateID = candidate
-        } else {
-            draftTemplateID = nil
-        }
-        func validTemplateID(_ candidate: MobileTaskTemplate.ID?) -> MobileTaskTemplate.ID? {
-            guard let candidate, templates.contains(where: { $0.id == candidate }) else {
-                return nil
-            }
-            return candidate
-        }
-        let rememberedTemplateID = validTemplateID(rememberedPickers?.templateID)
-        let lastTemplateID = validTemplateID(store.taskTemplateStore?.lastTemplateID())
+        let draftTemplateID = Self.validTemplateID(draft?.templateID, in: templates)
+        let rememberedTemplateID = Self.validTemplateID(rememberedPickers?.templateID, in: templates)
+        let lastTemplateID = Self.validTemplateID(
+            store.taskTemplateStore?.lastTemplateID(),
+            in: templates
+        )
         let selectedTemplateID = draftTemplateID
             ?? rememberedTemplateID
             ?? lastTemplateID
@@ -456,6 +447,14 @@ struct TaskComposerSheet: View {
         _failureTitleStyle = State(
             initialValue: initialCompletedOperationRecovery == nil ? .launchFailed : .taskAccepted
         )
+    }
+
+    private static func validTemplateID(
+        _ id: MobileTaskTemplate.ID?,
+        in templates: [MobileTaskTemplate]
+    ) -> MobileTaskTemplate.ID? {
+        guard let id, templates.contains(where: { $0.id == id }) else { return nil }
+        return id
     }
 
     var body: some View {

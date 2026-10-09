@@ -30,21 +30,15 @@ extension TaskComposerSheet {
 
     /// Called after changing the Mac identity, before the next model refresh.
     func restorePickerPreferences(templates: [MobileTaskTemplate]) {
-        let fallbackTemplateID = selectedTemplateID
+        let previousTemplateID = selectedTemplateID
         let pairingID = MobilePairedMac.pairingID(
             macDeviceID: selectedMacDeviceID, instanceTag: selectedMacInstanceTag
         )
         let preferences = store.taskTemplateStore?.composerPickerPreferences(macPairingID: pairingID)
-        func validTemplateID(_ candidate: MobileTaskTemplate.ID?) -> MobileTaskTemplate.ID? {
-            guard let candidate, templates.contains(where: { $0.id == candidate }) else {
-                return nil
-            }
-            return candidate
-        }
-        selectedTemplateID = validTemplateID(preferences?.templateID)
-            ?? validTemplateID(fallbackTemplateID)
-            ?? validTemplateID(store.taskTemplateStore?.lastTemplateID())
-            ?? templates.first?.id
+        let rememberedTemplateID = matchingTemplateID(preferences?.templateID, in: templates)
+        let fallbackTemplateID = matchingTemplateID(previousTemplateID, in: templates)
+        let lastTemplateID = matchingTemplateID(store.taskTemplateStore?.lastTemplateID(), in: templates)
+        selectedTemplateID = rememberedTemplateID ?? fallbackTemplateID ?? lastTemplateID ?? templates.first?.id
         let matchingPreferences = preferences?.templateID == selectedTemplateID ? preferences : nil
         selectedModelID = matchingPreferences?.model?.id
         explicitlySelectedModel = matchingPreferences?.model
@@ -62,6 +56,14 @@ extension TaskComposerSheet {
         } else {
             syncSuggestedDirectory()
         }
+    }
+
+    private func matchingTemplateID(
+        _ id: MobileTaskTemplate.ID?,
+        in templates: [MobileTaskTemplate]
+    ) -> MobileTaskTemplate.ID? {
+        guard let id, templates.contains(where: { $0.id == id }) else { return nil }
+        return id
     }
 }
 #endif

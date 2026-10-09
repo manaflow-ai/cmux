@@ -224,9 +224,9 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   }
 
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
-  const intervalError = unavailableIntervalResponse(request);
+  const intervalError = unavailableIntervalResponse(request, plan);
   if (intervalError) return intervalError;
-  const interval = CHECKOUT_BILLING_INTERVAL;
+  const interval = checkoutInterval(request, plan);
   const rawCallbackScheme = request.nextUrl.searchParams.get("cmux_scheme");
   const verifiedRelayScheme = verifiedAppPricingRelayScheme(request.nextUrl);
   const hasRelayAssertion =
@@ -352,18 +352,18 @@ async function stripePersonalCheckout(
       }
       forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
       captureCheckoutDecision(user.id, plan, stripeBillingStatus.activePlanId,
-        portalURL.searchParams.has("flow") ? "switch_plan" : "manage_billing", attribution);
+        portalURL.searchParams.has("flow") ? "switch_plan" : "manage_billing", attribution, interval);
       return NextResponse.redirect(portalURL);
     }
     const status = await resolveProPlanStatus(user, { stripeBillingStatus });
     // An App Store subscriber changes plans in the App Store; a Stripe
     // subscription on top would bill them twice for one entitlement.
     if (status.billingSource === "apple") {
-      captureCheckoutDecision(user.id, plan, status.planId, "app_store_managed", attribution);
+      captureCheckoutDecision(user.id, plan, status.planId, "app_store_managed", attribution, interval);
       return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
     }
     if (status.isPro && (plan !== MAX_PLAN_ID || status.planId === MAX_PLAN_ID)) {
-      captureCheckoutDecision(user.id, plan, status.planId, "already_active", attribution);
+      captureCheckoutDecision(user.id, plan, status.planId, "already_active", attribution, interval);
       return NextResponse.redirect(new URL("/pricing?welcome=active", requestOrigin(request)));
     }
 
@@ -567,12 +567,13 @@ function captureCheckoutDecision(
   currentPlan: string | null,
   decision: "switch_plan" | "manage_billing" | "already_active" | "app_store_managed",
   attribution: CheckoutAttribution,
+  interval: BillingInterval = "month",
 ): void {
   void captureServerEvent({
     event: "cmux_billing_checkout_routed",
     distinctId: userId,
     properties: { requested_plan: plan, current_plan: currentPlan, decision,
-      billing_interval: "month", ...checkoutAttributionProperties(attribution) },
+      billing_interval: interval, ...checkoutAttributionProperties(attribution) },
   });
 }
 
@@ -749,11 +750,25 @@ function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null 
   return null;
 }
 
-function unavailableIntervalResponse(request: NextRequest): NextResponse | null {
+/** Pro alone sells a yearly Price; every other plan refuses `interval=year`. */
+function unavailableIntervalResponse(
+  request: NextRequest,
+  plan: ReturnType<typeof checkoutPlan>,
+): NextResponse | null {
   const raw = request.nextUrl.searchParams.get("interval");
   if (raw === null || raw === CHECKOUT_BILLING_INTERVAL) return null;
+  if (raw === "year" && plan === "pro") return null;
   const error = raw === "year" ? "annual_unavailable" : "invalid_plan";
   return NextResponse.redirect(new URL(`/pricing?billing=${error}`, requestOrigin(request)));
+}
+
+function checkoutInterval(
+  request: NextRequest,
+  plan: ReturnType<typeof checkoutPlan>,
+): BillingInterval {
+  return plan === "pro" && request.nextUrl.searchParams.get("interval") === "year"
+    ? "year"
+    : CHECKOUT_BILLING_INTERVAL;
 }
 
 async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {

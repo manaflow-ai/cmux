@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import SwiftUI
 
 /// Sidebar-footer button that reveals the full keyboard-shortcut list in a
@@ -6,9 +7,8 @@ import SwiftUI
 /// reveal used for the per-row shortcut badges, so it appears next to the
 /// update pill / help button while ⌘ is held and hides on release.
 ///
-/// The popover is a native SwiftUI `.popover` (not an AppKit host): it has no
-/// first-responder text field, so the hover-tracking pitfalls that pushed other
-/// surfaces onto a custom AppKit anchor do not apply here.
+/// Uses the same AppKit popover host as Help so the content resolves its colors
+/// from the popover's appearance, independently of the sidebar's color scheme.
 struct ShortcutDiscoveryButton: View {
     private let buttonSize: CGFloat = 22
     private let iconSize: CGFloat = 11
@@ -30,9 +30,13 @@ struct ShortcutDiscoveryButton: View {
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        .popover(isPresented: $isPopoverPresented, arrowEdge: .top) {
+        .background(ArrowlessPopoverAnchor(
+            isPresented: $isPopoverPresented,
+            preferredEdge: .maxY,
+            detachedGap: 4
+        ) {
             AllShortcutsPopover()
-        }
+        })
         .accessibilityElement(children: .ignore)
         .safeHelp(helpText)
         .accessibilityLabel(helpText)

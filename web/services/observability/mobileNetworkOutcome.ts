@@ -1,6 +1,7 @@
 import { SpanStatusCode } from "@opentelemetry/api";
 
 import { withSpan } from "../telemetry";
+import { emitMobileFeedPerformance, parseMobileFeedPerformanceEvent, type MobileFeedPerformanceEvent } from "./mobileFeedPerformance";
 
 export const MAX_MOBILE_NETWORK_OUTCOME_REQUEST_BYTES = 64 * 1_024;
 export const MAX_MOBILE_NETWORK_OUTCOME_BATCH_EVENTS = 100;
@@ -287,7 +288,7 @@ export type MobileTerminalViewportResize = {
   readonly deviceModel?: string;
 };
 
-export type MobileObservabilityEvent = MobileNetworkOutcome | MobileIrohPathEvent | MobileIrohPathInventory | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTerminalViewportResize | MobileTaskModelDiscovery | MobileTaskModelResult;
+export type MobileObservabilityEvent = MobileNetworkOutcome | MobileIrohPathEvent | MobileIrohPathInventory | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTerminalViewportResize | MobileTaskModelDiscovery | MobileTaskModelResult | MobileFeedPerformanceEvent;
 
 export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutcome | null {
   if (!isRecord(candidate) || candidate.event !== EVENT_NAME || !isRecord(candidate.properties)) return null;
@@ -531,7 +532,8 @@ export function parseMobileTerminalViewportResize(candidate: unknown): MobileTer
 }
 
 export function parseMobileObservabilityEvent(candidate: unknown): MobileObservabilityEvent | null {
-  return parseMobileIrohPathInventory(candidate)
+  return parseMobileFeedPerformanceEvent(candidate)
+    ?? parseMobileIrohPathInventory(candidate)
     ?? parseMobileIrohPathEvent(candidate)
     ?? parseMobileTaskModelResult(candidate)
     ?? parseMobileTaskModelDiscovery(candidate)
@@ -923,6 +925,9 @@ export async function emitMobileObservabilityEvents(
   batch: readonly MobileObservabilityEvent[],
 ): Promise<void> {
   await Promise.all(batch.map((observation) => {
+    if ("feedEvent" in observation) {
+      return emitMobileFeedPerformance(userId, observation);
+    }
     if ("nonRelayPathCount" in observation) {
       return withSpan(
         "cmux-mobile-network",

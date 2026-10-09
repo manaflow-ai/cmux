@@ -31,6 +31,7 @@ final class AgentAutoResumeCoordinator {
 
     func observe(_ draft: AgentJournalEventDraft) {
         guard let surfaceId = draft.surfaceId else { return }
+        let hadResumes = tracker.totalResumes(surfaceId: surfaceId) > 0
         let action = tracker.observe(
             kind: draft.kind,
             surfaceId: surfaceId,
@@ -38,7 +39,8 @@ final class AgentAutoResumeCoordinator {
             detail: draft.detail,
             sessionId: draft.sessionId
         )
-        if draft.kind == .sessionEnded {
+        // The marker lasts until the agent finishes a turn on its own.
+        if draft.kind == .sessionEnded || (hadResumes && tracker.totalResumes(surfaceId: surfaceId) == 0) {
             clearMarker(surfaceId: surfaceId, workspaceHint: draft.workspaceId)
         }
         switch action {

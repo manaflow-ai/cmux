@@ -26,14 +26,9 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         super.tearDown()
     }
 
-    /// Forces the Cloud Machines flag on and sets the activation marker.
-    /// Plist-typed booleans: the flag reader accepts only real booleans, so a
-    /// bare "YES" string via the argument domain never enables it. The
-    /// argument domain also reaches a tagged bundle's defaults, which a write
-    /// to a fixed suite would miss.
+    /// Sets the local Cloud activation marker in the launch argument domain.
     private func cloudArguments(betaEnabled: Bool) -> [String] {
         [
-            "-cmux.flags.override.cloud-machines-enabled-release", "<true/>",
             "-cloud.beta.machines.enabled", betaEnabled ? "<true/>" : "<false/>",
         ]
     }

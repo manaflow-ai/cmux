@@ -412,7 +412,10 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
     owners = set(PATH_OWNERS.get(path, ()))
     owners.update(derived.get(path, ()))
     if _python_syntax_scan(path):
-        owners.add("preflight")
+        # Syntax compilation is a cheap, deterministic check. Keep it out of
+        # the serial preflight bucket, whose other steps install and exercise
+        # unrelated tooling such as agent-chat and control-plane generators.
+        owners.add("quality-determinism")
     if _determinism_scan(path):
         owners.add("quality-determinism")
 

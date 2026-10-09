@@ -28,6 +28,9 @@ public extension ClientConfigFlag where Value == Bool {
         }
     }
 
+    // FLAG(key: ios-feed-performance-release, owner: azooz2003-bit, reviewBy: 2026-11-06, defaultWhenUnavailable: false)
+    /// Enables Feed timing after the authenticated ingestion schema is deployed.
+    static let iosFeedPerformanceRelease = Self(booleanKey: "ios-feed-performance-release")
     /// Stops terminal timing collection remotely while preserving connectivity diagnostics.
     static let iosTerminalLatencyEnabled = Self(booleanKey: "ios-terminal-latency-enabled", defaultValue: true)
     /// Enables Windows download/sign-up surfaces.
@@ -36,8 +39,6 @@ public extension ClientConfigFlag where Value == Bool {
     static let cmuxForLinux = Self(booleanKey: "cmux-for-linux")
     /// Enables Android download/sign-up surfaces.
     static let cmuxForAndroid = Self(booleanKey: "cmux-for-android")
-    /// Enables the production upgrade UI.
-    static let proUpgradeUIEnabledRelease = Self(booleanKey: "pro-upgrade-ui-enabled-release")
     /// Enables the production mobile connect button.
     static let mobileConnectButtonEnabledRelease = Self(booleanKey: "mobile-connect-button-enabled-release")
     /// Enables the iOS terminal Files chip. Defaults on so an unavailable

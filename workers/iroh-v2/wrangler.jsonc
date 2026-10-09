@@ -24,6 +24,10 @@
       {
         "name": "USER_USAGE",
         "class_name": "UserUsage"
+      },
+      {
+        "name": "ACCOUNT_CONTROL",
+        "class_name": "AccountControl"
       }
     ]
   },
@@ -48,6 +52,12 @@
       "new_sqlite_classes": [
         "TeamControl",
         "UserUsage"
+      ]
+    },
+    {
+      "tag": "iroh-v2-account-control-1",
+      "new_sqlite_classes": [
+        "AccountControl"
       ]
     }
   ],
@@ -79,6 +89,10 @@
           {
             "name": "USER_USAGE",
             "class_name": "UserUsage"
+          },
+          {
+            "name": "ACCOUNT_CONTROL",
+            "class_name": "AccountControl"
           }
         ]
       },
@@ -116,6 +130,10 @@
           {
             "name": "USER_USAGE",
             "class_name": "UserUsage"
+          },
+          {
+            "name": "ACCOUNT_CONTROL",
+            "class_name": "AccountControl"
           }
         ]
       },
@@ -153,6 +171,10 @@
           {
             "name": "USER_USAGE",
             "class_name": "UserUsage"
+          },
+          {
+            "name": "ACCOUNT_CONTROL",
+            "class_name": "AccountControl"
           }
         ]
       },

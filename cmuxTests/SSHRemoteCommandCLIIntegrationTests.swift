@@ -1,4 +1,5 @@
 import Darwin
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -13,6 +14,32 @@ struct SSHRemoteCommandCLIIntegrationTests {
     private typealias Harness = SSHStartupManualReconnectTests
 
     private final class RemoteCommandBundleToken {}
+
+    @Test
+    func cmuxGeneratedControlPathIsRecomputedByTheAppForTUI() throws {
+        let sharingOptions = SSHConnectionSharingOptions()
+        let generatedPath = try #require(sharingOptions.defaultControlPath)
+        let options = [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=\(generatedPath)",
+        ]
+
+        #expect(sharingOptions.optionsForTUIHandoff(options) == ["ControlMaster=auto", "ControlPersist=600"])
+        let routeIdentifier = String(repeating: "c", count: 64)
+        #expect(sharingOptions.optionsForTUIHandoff(options, routeIdentifier: routeIdentifier)
+            == ["ControlMaster=auto", "ControlPersist=600"])
+        let routeSpecificPath = generatedPath.replacingOccurrences(of: "%C", with: String(repeating: "a", count: 40))
+        let routeSpecificOptions = [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=\(routeSpecificPath)",
+        ]
+        #expect(sharingOptions.optionsForTUIHandoff(routeSpecificOptions, routeIdentifier: routeIdentifier)
+            == ["ControlMaster=auto", "ControlPersist=600", "__cmux_route_sensitive=\(routeIdentifier)"])
+        let callerOwnedOptions = ["ControlMaster=auto", "ControlPath=/tmp/caller-owned"]
+        #expect(sharingOptions.optionsForTUIHandoff(callerOwnedOptions) == callerOwnedOptions)
+    }
 
     private struct RemoteCommandMockedSSHRun {
         let requests: [[String: Any]]

@@ -1,11 +1,30 @@
 #if DEBUG && os(iOS)
+import CMUXMobileCore
 import Foundation
 import QuartzCore
 import UIKit
 
 /// DEBUG-only frame pacing collector for the Agent Feed stress fixture.
 @MainActor
-final class AgentFeedScrollStressFrameMonitor: NSObject {
+final class AgentFeedScrollStressFrameMonitor: NSObject, MobileFeedPerformanceObserving {
+    private var feedVisible = false
+    private var feedScrolling = false
+    private var nativeScrollCallbacks = 0
+    private var publishedProjections = 0
+
+    var isSamplingEnabled: Bool { feedVisible }
+
+    func setVisible(_ visible: Bool, itemCount: Int) { feedVisible = visible }
+    func setScrolling(_ scrolling: Bool) { feedScrolling = scrolling }
+
+    func callback(at timestamp: Double, expectedInterval: Double) {
+        guard feedVisible, feedScrolling else { return }
+        nativeScrollCallbacks += 1
+    }
+
+    func updateCompleted(stage: MobileFeedUpdateStage, startedAt: Double, endedAt: Double, itemCount: Int) {
+        if stage == .projection { publishedProjections += 1 }
+    }
     private var displayLink: CADisplayLink?
     private var previousTimestamp: CFTimeInterval?
     private(set) var frameIntervals: [TimeInterval] = []
@@ -40,6 +59,8 @@ final class AgentFeedScrollStressFrameMonitor: NSObject {
         return [
             "state=\(state)",
             "frames=\(frameIntervals.count)",
+            "native_scroll_callbacks=\(nativeScrollCallbacks)",
+            "published_projections=\(publishedProjections)",
             "frame_p95_ms=\(milliseconds(p95))",
             "frame_max_ms=\(milliseconds(maxInterval))",
             "hitches=\(hitchCount)",

@@ -3,9 +3,9 @@ import Foundation
 /// Host callbacks used by the Cloud Machines Settings section.
 @MainActor
 public protocol CloudMachinesSettingsActions: AnyObject {
-    /// Whether rollout and managed policy expose Cloud on this Mac.
+    /// Whether managed policy exposes Cloud on this Mac.
     var isCloudMachinesAvailable: Bool { get }
-    /// Whether the activation marker and rollout currently admit operations.
+    /// Whether the local activation marker and managed policy admit operations.
     var isCloudMachinesEnabled: Bool { get }
     /// The shared first-use setup state.
     var cloudMachinesActivationState: CloudMachinesActivationState { get }

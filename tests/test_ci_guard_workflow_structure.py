@@ -89,6 +89,16 @@ def test_agent_chat_uses_a_pinned_local_compiler_and_runs_tests_once() -> None:
     package = json.loads((ROOT / "agent-chat/package.json").read_text(encoding="utf-8"))
     assert re.fullmatch(r"\d+\.\d+\.\d+", package["devDependencies"]["typescript"])
     assert package["scripts"]["check"] == "./node_modules/.bin/tsc --noEmit && bun run test"
+
+
+def test_python_syntax_check_uses_the_cheap_quality_lane() -> None:
+    workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    step = next(
+        step
+        for step in workflow["jobs"]["workflow-guard-tests"]["steps"]
+        if step.get("name") == "Validate Python test harness syntax"
+    )
+    assert step["if"] == "${{ matrix.group == 'quality-determinism' }}"
 def test_ci_group_deduplication_gates_only_the_overlapping_matrix_leg() -> None:
     workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["workflow-guard-tests"]

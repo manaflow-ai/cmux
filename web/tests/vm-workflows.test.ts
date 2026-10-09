@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as TestClock from "effect/TestClock";
+import * as TestContext from "effect/TestContext";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import {
@@ -56,6 +60,8 @@ import {
 import {
   createVm,
   destroyVm,
+  EXEC_ANSWER_MARGIN_MS,
+  execAnswerBudgetMs,
   execVm,
   forkVm,
   getVm,
@@ -1680,6 +1686,100 @@ describe("VM Effect workflows", () => {
     expect(statusCalls).toBe(0);
     expect(resumeCalls).toBe(0);
     expect(usageEvents).toHaveLength(0);
+  });
+
+  // The exec route owns its answer deadline: the Mac client gives up at the
+  // requested timeout plus 5 s, so a provider answer that comes later (a
+  // background-request poll failing at 75 s on a 60 s exec, production
+  // 2026-10-08) never reaches anyone. At the deadline the workflow answers
+  // the command's timeout itself, and a provider failure after the command's
+  // own timeout has elapsed is that same timeout.
+  const execDeadlineFixture = (exec: VmProviderGatewayShape["exec"], key: string) => {
+    const vm = testCloudVmRow({
+      id: `00000000-0000-4000-8000-0000000001${key}`,
+      userId: `user-workflow-exec-deadline-${key}`,
+      providerVmId: `provider-vm-exec-deadline-${key}`,
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec,
+      getStatus: () => Effect.succeed("running" as const),
+    };
+    return { vm, usageEvents, layer: workflowLayer(repo, provider) };
+  };
+
+  // Runs `execVm` on the test clock, advancing virtual time in `stepMs` steps
+  // until it answers; returns the answer and the virtual time it took.
+  const execOnTestClock = (layer: ReturnType<typeof workflowLayer>, input: Parameters<typeof execVm>[0], stepMs = 10) =>
+    Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(execVm(input).pipe(Effect.provide(layer)));
+      let elapsedMs = 0;
+      while (Option.isNone(yield* Fiber.poll(fiber))) {
+        yield* TestClock.adjust(stepMs);
+        elapsedMs += stepMs;
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      }
+      return { result: yield* Fiber.join(fiber), elapsedMs };
+    }).pipe(Effect.provide(TestContext.TestContext)));
+
+  test("exec answers the command timeout at its deadline when the provider has not answered", async () => {
+    const { vm, usageEvents, layer } = execDeadlineFixture(() => Effect.never, "91");
+    const { result, elapsedMs } = await execOnTestClock(layer, {
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+      command: "sleep 999",
+      timeoutMs: 60_000,
+      answerWithinMs: 61_000,
+    }, 500);
+    expect(elapsedMs).toBeGreaterThanOrEqual(61_000);
+    expect(elapsedMs).toBeLessThanOrEqual(61_500);
+    expect(result.exitCode).toBe(124);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("did not finish within 60s");
+    expect(usageEvents.find((event) => event.eventType === "vm.exec")?.metadata).toMatchObject({ exitCode: 124 });
+  });
+
+  test("exec reads a provider failure after the command timeout elapsed as that timeout", async () => {
+    const late = providerOperationError("exec", "Internal server error");
+    const { vm, layer } = execDeadlineFixture(
+      () => Effect.sleep("2 seconds").pipe(Effect.andThen(Effect.fail(late))),
+      "92",
+    );
+    const { result } = await execOnTestClock(layer, {
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+      command: "sleep 999",
+      timeoutMs: 1_000,
+      answerWithinMs: 4_000,
+    });
+    expect(result.exitCode).toBe(124);
+    expect(result.stderr).toContain("may still be running");
+  });
+
+  test("the exec answer budget is the timeout plus the margin, less the route's own time", () => {
+    expect(execAnswerBudgetMs(60_000, 0)).toBe(60_000 + EXEC_ANSWER_MARGIN_MS);
+    expect(execAnswerBudgetMs(60_000, 1_200)).toBe(60_000 + EXEC_ANSWER_MARGIN_MS - 1_200);
+    expect(execAnswerBudgetMs(1_000, 10_000)).toBe(0);
+    // Inside the Mac client's request budget (timeout + 5 s, VMClient+Exec.swift).
+    expect(EXEC_ANSWER_MARGIN_MS).toBeLessThan(5_000);
+  });
+
+  test("exec gives a dispatched command its own timeout even when the request budget is spent", async () => {
+    const { vm, layer } = execDeadlineFixture(
+      () => Effect.sleep("500 millis").pipe(Effect.as({ exitCode: 0, stdout: "ran", stderr: "" })),
+      "93",
+    );
+    const { result } = await execOnTestClock(layer, {
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+      command: "true",
+      timeoutMs: 1_000,
+      answerWithinMs: 0,
+    });
+    expect(result).toEqual({ exitCode: 0, stdout: "ran", stderr: "" });
   });
 
   test("exec preflight resume failure propagates the resume error without exec", async () => {

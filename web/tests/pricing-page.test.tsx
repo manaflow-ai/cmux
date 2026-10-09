@@ -114,7 +114,7 @@ mock.module("../db/client", () => ({
 const { default: PricingPage } = await import("../app/[locale]/(landing)/pricing/page");
 
 describe("localized pricing page", () => {
-  test("hides Go and all annual offers when the Go rollout is disabled", async () => {
+  test("hides Go when the Go rollout is disabled", async () => {
     const previous = process.env.CMUX_TEST_GO_PLAN_DISABLED;
     process.env.CMUX_TEST_GO_PLAN_DISABLED = "1";
     try {
@@ -123,8 +123,6 @@ describe("localized pricing page", () => {
       expect(html).toContain("Get Max");
       expect(html).not.toContain("Get Go");
       expect(html).not.toContain("$10");
-      expect(html).not.toContain("Save 20%");
-      expect(html).not.toContain("interval=year");
       expect(html).toContain("25% repeat(5,15%)");
     } finally {
       if (previous === undefined) delete process.env.CMUX_TEST_GO_PLAN_DISABLED;
@@ -168,15 +166,15 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("shows monthly prices only even for old annual pricing links", async () => {
+  test("offers yearly billing on Pro only", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
     const html = (await renderSettled(element));
     expect(html).toContain("$50");
     expect(html).toContain("$200");
-    expect(html).not.toContain('role="radiogroup"');
-    expect(html).not.toContain("Save 20%");
-    expect(html).not.toContain("interval=year");
-    expect(html).not.toContain("billed annually");
+    expect(html).not.toMatch(/billed yearly, save/);
+    expect(html).toContain("$40");
+    expect(html).toMatch(/interval(=|%3D|%253D)year/);
+    expect(html).not.toMatch(/plan=(go|max|team)[^"]*interval=year/);
   });
 
   test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
@@ -282,13 +280,13 @@ describe("localized pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dteam[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dteam[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dmax[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Max/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dmax[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Max/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');

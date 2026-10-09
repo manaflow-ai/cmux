@@ -1873,6 +1873,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
+                // Report Objective-C exceptions that reach NSApplication's
+                // reportException: hook with their reason and throw stack. The
+                // matching executor-corruption path reaches this hook before
+                // AppKit terminates the process. Some macOS 26+ drawing paths
+                // call the class-level _crashOnException: method directly and
+                // remain outside Sentry Cocoa 9.3.0's hook; a future SDK upgrade
+                // can cover those paths too.
+                options.enableUncaughtNSExceptionReporting = true
                 // Structured logs power the transport diagnostics bridge
                 // (TransportSentryReporter on the host diagnostic ring below).
                 options.enableLogs = true
@@ -2209,9 +2217,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
         let hasSudoApprovalRuntime = sudoApprovalCoordinator?.requiresShutdown == true
+        // A mirror that owes tmux a goodbye is owned cleanup too. Without this the app can quit
+        // with the deferred phase never running, and the remote half keeps the tmux client —
+        // along with the per-window size claims that pin those windows for everyone else.
+        let mirrorsOwingDetach = remoteTmuxController.connectionsOwingDeliberateDetach.count
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
-            || hasSudoApprovalRuntime
+            || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
             || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else { return false }
@@ -2223,6 +2235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fields: [
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
+                    "mirrorsOwingDetach": String(mirrorsOwingDetach),
                     "freshAgentIndex": "1",
                     "sudoApproval": hasSudoApprovalRuntime ? "1" : "0",
                     "reason": reason,
@@ -2230,7 +2243,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             let cleanupTask = Task { @MainActor [weak self] in
                 guard let self else { return }
-                await self.sudoApprovalCoordinator?.stop()
+                // Before anything else: let go of the remote tmux clients, and wait for the
+                // server to say it heard us. Everything after this stops transports, which is
+                // what would otherwise swallow the goodbye.
+                await self.remoteTmuxController.detachAllAwaitingExit()
                 guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
@@ -2249,8 +2265,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 self.terminateCleanupPhase = .freshSnapshot
                 let ttyDeviceBindings = self.currentSurfaceTTYDeviceBindings()
-                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh(
-                    ttyDeviceBindings: ttyDeviceBindings
+                // A complete census is useful when it is already warm, but it is
+                // not worth holding AppKit's terminate-later run loop for a slow
+                // process table. The cached shared index is still checked by the
+                // exact PID-generation and ownership validation before any agent
+                // receives a signal.
+                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+                    ttyDeviceBindings: ttyDeviceBindings,
+                    processSnapshotService: self.processSnapshotService,
+                    deadline: .milliseconds(750)
+                )
+                let indexesForQuit = resumeIndexes ?? ProcessDetectedResumeIndexes.cached(
+                    restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+                )
+                StartupBreadcrumbLog.append(
+                    "appDelegate.shouldTerminate.freshSnapshot",
+                    fields: [
+                        "source": resumeIndexes == nil ? "cached" : "fresh",
+                        "deadline_ms": "750",
+                    ]
                 )
                 guard !Task.isCancelled else { return }
                 self.mainWindowLifecycleCoordinator
@@ -2258,13 +2291,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let savedForQuit = self.saveSessionSnapshot(
                     includeScrollback: true,
                     removeWhenEmpty: false,
-                    restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                    surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+                    restorableAgentIndex: indexesForQuit.restorableAgentIndex,
+                    surfaceResumeBindingIndex: indexesForQuit.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
                 self.terminateCleanupPhase = .agentTermination
                 if savedForQuit {
-                    await self.terminateAgentProcessesBeforeQuit(index: resumeIndexes.restorableAgentIndex)
+                    await self.terminateAgentProcessesBeforeQuit(index: indexesForQuit.restorableAgentIndex)
                 }
                 guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
@@ -2366,6 +2399,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func prepareForConfirmedAppTermination() {
         isTerminatingApp = true
         computerUseUXCoordinator.teardownForTermination()
+        // Sudo broker observation and recovery must be released, but a slow
+        // recovery join must not delay session persistence or AppKit termination.
+        sudoApprovalCoordinator?.stopInBackgroundForTermination()
         // The terminate-later cleanup loads the authoritative agent index off-main and
         // persists it immediately before replying to AppKit.
         // The hard AppKit watchdog is armed immediately before the terminate
@@ -2428,9 +2464,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let buildFlavor = BuildFlavor.current
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
-        let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = quitConfirmationStore.confirmQuitMode
         let quitReason: QuitRequestReason = isRelaunchingForUpdate ? .updateRelaunch : Self.currentQuitRequestReason()
+        let shouldEvaluateDirtyWorkspaces = Self.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            buildFlavor: buildFlavor,
+            confirmQuitMode: confirmQuitMode,
+            quitReason: quitReason
+        )
+        let hasDirtyWorkspaces = shouldEvaluateDirtyWorkspaces
+            ? hasQuitConfirmationDirtyWorkspaces()
+            : false
 
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
@@ -2438,6 +2482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "buildFlavor": buildFlavor.rawValue,
                 "confirmQuitMode": confirmQuitMode.rawValue,
                 "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
+                "dirtyWorkspaceScan": shouldEvaluateDirtyWorkspaces ? "performed" : "skipped",
                 "quitReason": Self.breadcrumbName(for: quitReason),
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
                 "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
@@ -3702,7 +3747,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
             }
         }
@@ -5567,14 +5612,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         presentCloudWelcomeIfNeeded(over: window)
     }
 
-    /// Once per Mac, after the first main window is up. Tests never see it.
+    /// In release builds, once per Mac after the first main window is up. Tests
+    /// never see it; debug builds can open it from Help when needed.
     private func presentCloudWelcomeIfNeeded(over window: NSWindow) {
+#if DEBUG
+        // Keep the first-run welcome available from Help while iterating on the
+        // app, but do not interrupt every development launch with it.
+        return
+#else
         let env = ProcessInfo.processInfo.environment
         guard !isRunningUnderXCTestCached, !isRunningUnderXCTest(env), env["CMUX_UI_TEST_MODE"] != "1" else { return }
         // Next turn of the main loop, so the window is on screen to place it over.
         DispatchQueue.main.async { [weak self, weak window] in
             self?.cloudWelcomeWindowController.presentIfNeeded(over: window)
         }
+#endif
     }
 
 #if DEBUG
@@ -14372,13 +14424,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return notificationStore?.notifications.first(where: { $0.id == openedId })
     }
 
+    /// Installs the production responder guards plus the test window-routing override.
     static func installWindowResponderSwizzlesForTesting() {
+        TextViewUndoRegistrationLifetime.install()
         _ = didInstallApplicationAccessibilitySwizzle
         _ = didInstallApplicationSendActionSwizzle
         _ = didInstallApplicationSendEventSwizzle
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
+        SwiftUIKeyViewProxyResponderGuard.install()
 #if DEBUG
         installShortcutRoutingFocusedWindowSwizzleForTesting()
 #endif
@@ -14396,13 +14451,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    /// Installs event routing and stale SwiftUI proxy guards once during application setup.
     private func installWindowResponderSwizzles() {
+        TextViewUndoRegistrationLifetime.install()
         _ = Self.didInstallApplicationAccessibilitySwizzle
         _ = Self.didInstallApplicationSendActionSwizzle
         _ = Self.didInstallApplicationSendEventSwizzle
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
         _ = Self.didInstallWindowSendEventSwizzle
+        SwiftUIKeyViewProxyResponderGuard.install()
     }
 
     private func installShortcutMonitor() {
@@ -14495,14 +14553,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    self?.handleShortcutDefaultsDidChange()
-                }
-            } else {
-                Task { @MainActor [weak self] in
-                    self?.handleShortcutDefaultsDidChange()
-                }
+            Task { @MainActor [weak self] in
+                self?.handleShortcutDefaultsDidChange()
             }
         }
     }
@@ -14566,7 +14618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.ghosttyConfigDidReloadForLiveReload()
             }
         }
@@ -14632,7 +14684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             GhosttyConfig.invalidateLoadCache()
-            _ = MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.reloadConfiguration(
                     source: "globalFontMagnificationDidChange",
                     reloadSettingsFromFile: false
@@ -14764,10 +14816,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
+        let buildFlavor = BuildFlavor.current
+        let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
+        let confirmQuitMode = quitConfirmationStore.confirmQuitMode
+        let shouldEvaluateDirtyWorkspaces = Self.shouldEvaluateQuitConfirmationDirtyWorkspaces(
             isQuitWarningConfirmed: false,
-            hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
-            isDevBuild: BuildFlavor.current == .dev
+            buildFlavor: buildFlavor,
+            confirmQuitMode: confirmQuitMode
+        )
+        let hasDirtyWorkspaces = shouldEvaluateDirtyWorkspaces
+            ? hasQuitConfirmationDirtyWorkspaces()
+            : false
+        if !quitConfirmationStore.shouldShowConfirmation(
+            isQuitWarningConfirmed: false,
+            hasDirtyWorkspaces: hasDirtyWorkspaces,
+            isDevBuild: buildFlavor == .dev
         ) {
             Self.requestApplicationTermination()
             return true
@@ -18468,15 +18531,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) else {
                 return
             }
-            // A relaunch of this same bundle is meant to replace us (its
-            // enforceSingleInstance asks us to quit gracefully); let it live.
+            // Leave same-bundle launches to the incoming process. It yields to
+            // this instance by default and can replace it only with the
+            // explicit reload override.
             if let launchedBundleURL = app.bundleURL,
-               SingleInstanceConflictPolicy(environment: [:]).action(
-                   currentBundleURL: launchedBundleURL,
-                   existingBundleURL: Bundle.main.bundleURL
-               ) == .replaceExisting {
+               SingleInstanceConflictPolicy.isSameBundle(launchedBundleURL, Bundle.main.bundleURL) {
                 StartupBreadcrumbLog.append(
-                    "singleInstance.observe.sameBundleRelaunch",
+                    "singleInstance.observe.sameBundleLaunch",
                     fields: ["duplicatePid": String(app.processIdentifier)]
                 )
                 return
@@ -18596,7 +18657,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.handleBrowserWebViewFirstResponderNotification(notification)
             }
         }
@@ -19641,7 +19702,6 @@ private extension NSWindow {
                     "window=\(ObjectIdentifier(self)) " +
                     "web=\(ObjectIdentifier(webView)) " +
                     "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
                     "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
                 )
 #endif
@@ -19652,7 +19712,6 @@ private extension NSWindow {
                     "window=\(ObjectIdentifier(self)) " +
                     "web=\(ObjectIdentifier(webView)) " +
                     "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
                     "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
                 )
 #endif
@@ -19666,8 +19725,7 @@ private extension NSWindow {
                 "focus.guard allowFirstResponder responder=\(String(describing: type(of: responder))) " +
                 "window=\(ObjectIdentifier(self)) " +
                 "web=\(ObjectIdentifier(webView)) " +
-                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                "pointerDepth=\(webView.debugPointerFocusAllowanceDepth)"
+                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0)"
             )
         }
 #endif
@@ -20603,7 +20661,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func updaterWillRelaunchApplication() {
         isRelaunchingForUpdate = true
         persistSessionForUpdateRelaunch()
-        TerminalController.shared.stop(cleanupDiscoveryState: true)
         NSApp.invalidateRestorableState()
         for window in NSApp.windows {
             window.invalidateRestorableState()

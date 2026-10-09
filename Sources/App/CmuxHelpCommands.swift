@@ -27,17 +27,13 @@ extension cmuxApp {
 
             helpResourceButton(.githubIssues)
             helpResourceButton(.discord)
-            if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
-                Button(String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")) {
-                    ProUpgradePresenter.present(source: .helpMenu)
-                }
-                #if DEBUG
-                Button(String(localized: "menu.help.previewNativePricing", defaultValue: "Preview Native Pro Pricing…")) {
-                    ProUpgradePresenter.presentNativePricingPreview()
-                }
-                #endif
+            Button(String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")) {
+                ProUpgradePresenter.present(source: .helpMenu)
             }
             #if DEBUG
+            Button(String(localized: "menu.help.previewNativePricing", defaultValue: "Preview Native Pro Pricing…")) {
+                ProUpgradePresenter.presentNativePricingPreview()
+            }
             Button(String(localized: "debug.menu.cloudSidebarSpacingLab", defaultValue: "Cloud Sidebar Spacing Lab…")) {
                 AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
             }
