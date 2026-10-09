@@ -145,8 +145,9 @@ struct QuickComposerControllerTests {
         #expect(controller.chat?.model.sessionId == nil)
     }
 
-    /// No daemon to hold the session: the chat stays in the panel with its draft.
-    @Test func aBackgroundStartWithNowhereToGoKeepsTheChat() async throws {
+    /// Nowhere to put the session (daemon offline, the workspace failed):
+    /// the panel comes back with the chat, so the session stays reachable.
+    @Test func aBackgroundStartWithNowhereToGoShowsTheChatAgain() async throws {
         let harness = Harness()
         harness.canOpen = false
         let controller = harness.controller
@@ -154,6 +155,7 @@ struct QuickComposerControllerTests {
         let chat = try #require(controller.chat)
         _ = await chat.model.respond(to: .quickStartInBackground(AgentPaneQuickStart(sessionId: "s-9", cwd: nil, name: nil)))
         #expect(controller.chat === chat)
+        #expect(controller.isShown)
     }
 
     @Test func aBuildWithoutTheAgentPageShowsNothing() {

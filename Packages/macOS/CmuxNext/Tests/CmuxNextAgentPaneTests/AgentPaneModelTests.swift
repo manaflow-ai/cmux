@@ -288,7 +288,7 @@ private actor RecordingHost: AgentPaneHostProviding {
         let model = AgentPaneModel(host: RecordingHost())
         var started: [AgentPaneQuickStart] = []
         var reported: [String] = []
-        model.onQuickStartInBackground = { started.append($0) }
+        model.onQuickStartInBackground = { start in started.append(start) }
         model.onSessionChange = { reported.append($0) }
         let start = AgentPaneQuickStart(sessionId: "s-9", cwd: "/repo", name: "ship it")
         #expect(await model.respond(to: .quickStartInBackground(start))["ok"] as? Bool == true)

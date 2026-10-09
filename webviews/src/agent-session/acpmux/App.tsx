@@ -232,7 +232,8 @@ export function quickChatName(text: string): string | undefined {
     .split("\n")
     .map((part) => part.trim())
     .find((part) => part !== "");
-  return line ? line.slice(0, QUICK_NAME_LIMIT) : undefined;
+  // By code point, so the cut never splits a surrogate pair.
+  return line ? Array.from(line).slice(0, QUICK_NAME_LIMIT).join("") : undefined;
 }
 
 /// Asks the host to put the Quick Composer's started chat in the sidebar, in the background.
@@ -1325,22 +1326,35 @@ function AcpmuxPane() {
   // host puts it in the sidebar), ⌘Return starts it and opens it in a window. Each waits until the
   // prompt is on its way (closing the page sooner drops it) and the chat has a session; a send
   // that fails, or Escape, cancels the hand-off.
-  const handOff = useRef<{ pending: boolean; landed: boolean; background?: { name?: string } }>({
-    pending: false,
-    landed: false,
-  });
+  const handOff = useRef<{
+    pending: boolean;
+    landed: boolean;
+    /// Return's hand-off also waits until acpmux took the prompt: one it refuses (folder trust,
+    /// the remote guard) stays in this panel with its question.
+    background?: { name?: string; accepted: boolean };
+  }>({ pending: false, landed: false });
   const quickCwd = useRef<string | undefined>(undefined);
   const flushOpenInWindow = () => {
     const sessionId = sessionIdRef.current;
     if (!handOff.current.pending || !handOff.current.landed || !sessionId) return;
-    handOff.current.pending = false;
     const background = handOff.current.background;
+    if (background && !background.accepted) return;
+    handOff.current.pending = false;
     if (background) postStartInBackground(sessionId, quickCwd.current, background.name);
     else postOpenInWindow(sessionId);
   };
   /// Return's send in the Quick Composer: hand the chat to the sidebar once it lands.
-  const startInBackground = (text: string) => {
-    handOff.current = { pending: true, landed: false, background: { name: quickChatName(text) } };
+  const startInBackground = (text: string, taken: Promise<unknown>) => {
+    const next = { pending: true, landed: false, background: { name: quickChatName(text), accepted: false } };
+    handOff.current = next;
+    void taken.then(
+      () => {
+        if (handOff.current !== next) return;
+        next.background.accepted = true;
+        flushOpenInWindow();
+      },
+      () => undefined,
+    );
   };
   const promptLanded = useRef(() => {});
   promptLanded.current = () => {
@@ -1355,7 +1369,9 @@ function AcpmuxPane() {
     else if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
   };
   // The started chat's folder: the session's, else the one picked before the first send.
-  quickCwd.current = snapshot.summary?.cwd ?? projectDraft;
+  // A peer's (SSH, Cloud) folder is a path on that machine: the host's workspace gets none.
+  const remoteChat = Boolean(snapshot.summary?.peer) || snapshot.summary?.hostKind === "cloud";
+  quickCwd.current = remoteChat ? undefined : (snapshot.summary?.cwd ?? projectDraft);
   useEffect(flushOpenInWindow, [snapshot.sessionId]);
   useEscapeToDismiss(quick, () => {
     cancelOpenInWindow();
@@ -2330,7 +2346,7 @@ function AcpmuxPane() {
             // swaps it when the chat's session starts) puts the prompt in the one shown now.
             const holder = composerHandle.current;
             // Start Agent's Return; ⌘Return (onOpenInWindow, right after this) opens a window instead.
-            if (surfaceRef.current === "quick") startInBackground(text);
+            if (surfaceRef.current === "quick") startInBackground(text, taken);
             const turn = send();
             turn.then(() => promptLanded.current(), cancelOpenInWindow);
             // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).

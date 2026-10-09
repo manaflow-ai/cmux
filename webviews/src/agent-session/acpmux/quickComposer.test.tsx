@@ -203,6 +203,12 @@ test("Escape that closes the command menu does not dismiss the quick surface", a
 
 test("Return in the quick surface sends, then starts the chat in the background once its session exists", async () => {
   await mount("quick", snapshot(undefined));
+  // acpmux takes the prompt: the in-page client calls `accepted`.
+  host.cmuxAcpmuxActions!["chat.send"] = async (params) => {
+    calls.push(["chat.send", params]);
+    (params.accepted as () => void)();
+    return null;
+  };
   await type("fix the flaky test\nin the sidebar suite");
   await key("Enter");
   expect(methods()).toEqual(["chat.send"]);
@@ -215,6 +221,32 @@ test("Return in the quick surface sends, then starts the chat in the background 
   expect(calls.slice(1)).toEqual([
     ["quick.startInBackground", { sessionId: "s6", cwd: "/repo", name: "fix the flaky test" }],
   ]);
+});
+
+test("a prompt acpmux has not taken stays in the panel: no background start", async () => {
+  await mount("quick", snapshot(undefined));
+  await type("start something");
+  await key("Enter");
+  await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot("s8")));
+  expect(methods()).toEqual(["chat.send"]);
+});
+
+test("a peer chat's background start names no local folder", async () => {
+  await mount("quick", snapshot(undefined));
+  host.cmuxAcpmuxActions!["chat.send"] = async (params) => {
+    calls.push(["chat.send", params]);
+    (params.accepted as () => void)();
+    return null;
+  };
+  await type("check the build box");
+  await key("Enter");
+  await act(async () =>
+    host.cmuxAcpmuxBridge!.receive({
+      ...snapshot("s9", [{ id: "u1", version: 1, at: 1, kind: "user", text: "check the build box" }]),
+      summary: { sessionId: "s9", turnCount: 1, cwd: "/home/me/repo", peer: "build-box" },
+    }),
+  );
+  expect(calls.slice(1)).toEqual([["quick.startInBackground", { sessionId: "s9", name: "check the build box" }]]);
 });
 
 test("a failed send keeps the quick chat: no background start", async () => {

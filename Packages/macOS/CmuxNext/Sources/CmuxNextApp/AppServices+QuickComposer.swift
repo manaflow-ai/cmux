@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDesign
 
@@ -18,7 +19,7 @@ extension AppServices {
             },
             makeWindow: { QuickComposerPanel() },
             openInWindow: { [weak self] session in self?.openQuickChat(session: session) ?? false },
-            startInBackground: { [weak self] start in self?.startQuickChatInBackground(start) ?? false }
+            startInBackground: { [weak self] start in await self?.startQuickChatInBackground(start) ?? false }
         )
     }
 
@@ -38,15 +39,21 @@ extension AppServices {
 
     /// A new workspace in the sidebar whose selected tab is the started chat
     /// (`agent.openSessionWorkspace`'s path): nothing takes focus or
-    /// switches workspaces. False when the daemon is offline.
-    private func startQuickChatInBackground(_ start: AgentPaneQuickStart) -> Bool {
+    /// switches workspaces. False when the daemon is offline or the
+    /// workspace or its tab could not be made.
+    private func startQuickChatInBackground(_ start: AgentPaneQuickStart) async -> Bool {
+        let work: ActionWork
         do {
-            let work = try AgentSessionWorkspace.open(session: start.sessionId, name: start.name, cwd: start.cwd, services: self)
-            registry.track(work)
-            return true
+            work = try AgentSessionWorkspace.open(session: start.sessionId, name: start.name, cwd: start.cwd, services: self)
         } catch {
-            daemon.logger.error("start agent: background start failed: \(String(describing: error), privacy: .public)")
+            daemon.logger.error("start agent: background start refused: \(String(describing: error), privacy: .public)")
             return false
         }
+        registry.track(work)
+        if let failure = await work.value {
+            daemon.logger.error("start agent: background start failed: \(failure.message, privacy: .public)")
+            return false
+        }
+        return true
     }
 }

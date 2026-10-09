@@ -17,8 +17,9 @@ final class QuickComposerController {
     /// brings that window forward; false when there was nowhere to open it.
     private let openInWindow: (String?) -> Bool
     /// Puts a started chat in the sidebar without bringing a window forward;
-    /// false when there was nowhere to put it.
-    private let startInBackground: (AgentPaneQuickStart) -> Bool
+    /// false when there was nowhere to put it (daemon offline, workspace
+    /// creation failed).
+    private let startInBackground: @MainActor (AgentPaneQuickStart) async -> Bool
     private var window: (any QuickComposerWindow)?
     /// The hosted chat, kept while the panel is hidden.
     private(set) var chat: AgentPaneView?
@@ -28,7 +29,7 @@ final class QuickComposerController {
         makeChat: @escaping () -> AgentPaneView?,
         makeWindow: @escaping () -> any QuickComposerWindow,
         openInWindow: @escaping (String?) -> Bool,
-        startInBackground: @escaping (AgentPaneQuickStart) -> Bool
+        startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
@@ -71,12 +72,17 @@ final class QuickComposerController {
         releaseChat()
     }
 
-    /// The page's Return: the started chat goes to the sidebar in the
-    /// background, the panel hides, and the next show is a fresh chat.
-    func startChatInBackground(_ start: AgentPaneQuickStart) {
+    /// The page's Return: the panel hides, the started chat goes to the
+    /// sidebar in the background, and the next show is a fresh chat. When it
+    /// could not be placed the panel comes back with the chat, so the
+    /// session is never left with nowhere to show it.
+    func startChatInBackground(_ start: AgentPaneQuickStart) async {
         hide()
-        // Nowhere to put it (no daemon): the chat stays in the panel.
-        guard startInBackground(start) else { return }
+        guard await startInBackground(start) else {
+            logger.error("start agent: the started chat could not be placed; it stays in the panel")
+            show()
+            return
+        }
         releaseChat()
     }
 
@@ -93,7 +99,7 @@ final class QuickComposerController {
         guard let chat = makeChat() else { return nil }
         chat.model.onQuickDismiss = { [weak self] in self?.hide() }
         chat.model.onQuickOpenInWindow = { [weak self] session in self?.openChatInWindow(session: session) }
-        chat.model.onQuickStartInBackground = { [weak self] start in self?.startChatInBackground(start) }
+        chat.model.onQuickStartInBackground = { [weak self] start in await self?.startChatInBackground(start) }
         self.chat = chat
         return chat
     }

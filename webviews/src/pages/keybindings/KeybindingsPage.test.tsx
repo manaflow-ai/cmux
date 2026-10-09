@@ -100,7 +100,7 @@ describe("KeybindingsPage", () => {
     const marks = $$(".keys-held-elsewhere");
     expect(marks).toHaveLength(1);
     expect(rowOf("Go to File").contains(marks[0])).toBe(true);
-    expect(marks[0].getAttribute("title")).toBe("Another app holds this key, so it does nothing outside cmux.");
+    expect(marks[0].getAttribute("title")).toContain("another app or another cmux global key holds it");
   });
 
   test("Japanese strings", async () => {
