@@ -16,7 +16,6 @@ public struct CmxIrohConnectionDiagnosticRecorder: Sendable {
         sessionID: Int,
         peerAlias: UInt32? = nil
     ) {
-        precondition(sessionID > 0)
         self.diagnosticLog = diagnosticLog
         self.sessionID = sessionID
         self.peerAlias = peerAlias

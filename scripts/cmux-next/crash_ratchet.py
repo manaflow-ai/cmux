@@ -24,6 +24,19 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     objc_selector     a non-override @objc func with a labeled parameter and no explicit
                       @objc(selector:) (Swift infers `mouseEnteredWith:` for
                       `mouseEntered(with:)`, and AppKit raised "unrecognized selector")
+    render_font       in the background-render modules (RENDER_MODULES): an AppKit or Core
+                      Text font made in place (NSFont/UIFont factories, NSFont(name:/descriptor:),
+                      CTFontCreate*) outside a `static let`. Factories annotated nonnull return
+                      nil when threads make and drop the last instance at once (cx-qpqs); fonts
+                      come from a process-wide cache (HomeFonts) instead
+    index_subscript   in the background, render and decoder modules (INDEX_MODULES): a
+                      subscript with a computed index (`rows[i]`, `bytes[n - 1]`, a range), not
+                      followed by `?`/`??` and not an optional binding; an out-of-range index
+                      traps. Use a checked accessor. Dictionary lookups with a variable key
+                      also count (no types here); convert them to `.first(where:)`/`?? default`
+                      or keep and lower the count elsewhere
+    int_conversion    in INDEX_MODULES: `Int(x)`, `UInt8(x)`, ... that trap when the value does
+                      not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
@@ -65,14 +78,73 @@ SWIFT = {
     "fatal_error": re.compile(r"\bfatalError\("),
     "precondition": re.compile(r"\bprecondition(Failure)?\("),
     "assume_isolated": re.compile(r"\bassumeIsolated\b"),
-    "unowned": re.compile(r"\bunowned\b"),
-    "iuo": re.compile(r"\b(var|let)\s+\w+\s*:\s*[A-Z][\w\.]*(<[^>]*>)?!"),
+    # Not an enum case or member named `unowned` (`case unowned = 0`, `.unowned`).
+    "unowned": re.compile(r"(?<!\.)(?<!case )\bunowned\b"),
+    # Declarations, parameters (`navigation: WKNavigation!`) and return types.
+    "iuo": re.compile(r"(?:\b(?:var|let)\s+\w+|[(,]\s*(?:\w+\s+)?\w+)\s*:\s*[A-Z][\w\.]*(?:<[^>]*>)?!"
+                      r"|->\s*[A-Z][\w\.]*(?:<[^>]*>)?!"),
     "unchecked": re.compile(r"nonisolated\(unsafe\)|@unchecked\s+Sendable"),
     "dynamic_dispatch": re.compile(
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
 }
 # Counted by objc_selector_hits (needs the declaration, which may span two lines).
-SWIFT_KINDS = list(SWIFT) + ["objc_selector"]
+SWIFT_KINDS = list(SWIFT) + ["objc_selector", "render_font", "index_subscript", "int_conversion"]
+# Modules whose drawing runs on background threads (RowBitmaps, tile and measure queues,
+# the sidebar's concurrentPerform), and their font caches (allowlisted when banned).
+RENDER_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender"}
+RENDER_FONT = re.compile(
+    r"\b(?:UIFont|NSFont)\s*\.\s*(?:systemFont|boldSystemFont|monospacedSystemFont|monospacedDigitSystemFont|userFont|userFixedPitchFont)\("
+    r"|\b(?:UIFont|NSFont)\((?:name|descriptor):|\bCTFontCreate\w*\("
+    r"|(?<![\w.])\.(?:systemFont|boldSystemFont|monospacedSystemFont|monospacedDigitSystemFont)\(ofSize")
+STATIC_LET = re.compile(r"\bstatic\s+let\b")
+# Modules that decode external input or draw on background threads (Lawrence, 2026-10-09).
+INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMUXMobileCore", "CmuxIrxTransport",
+                 "CmuxIrohTransport", "CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile", "CmuxTerminalSizing"}
+INDEX_SUBSCRIPT = re.compile(r"(?<![\w.])(?:[a-z_]\w*|self)(?:\.\w+)*(?:\(\))?\[([^\[\]]+)\]")
+OPTIONAL_BINDING = re.compile(r"\b(?:if|guard|while)\s+(?:let|var)\b|,\s*let\s+\w+\s*=")
+INT_CONVERSION = re.compile(
+    r"(?<![\w.])U?Int(?:8|16|32|64)?\((?!\s*(?:truncatingIfNeeded|clamping|exactly|bitPattern|littleEndian|bigEndian)\s*:)(?!\s*\))")
+
+
+def int_conversion_hits(code):
+    """Integer conversions in CODE that can trap. `Int(someString)` returns an optional:
+    a conversion followed by `?`/`??` or inside an optional binding is not counted."""
+    hits = 0
+    binding = OPTIONAL_BINDING.search(code)
+    for match in INT_CONVERSION.finditer(code):
+        depth, end = 1, None
+        for pos in range(match.end(), len(code)):
+            if code[pos] == "(":
+                depth += 1
+            elif code[pos] == ")":
+                depth -= 1
+                if depth == 0:
+                    end = pos + 1
+                    break
+        after = code[end:].lstrip() if end else ""
+        if after.startswith("?") or (binding and binding.start() < match.start()):
+            continue
+        hits += 1
+    return hits
+
+
+def index_hits(code):
+    """Computed subscripts in CODE that can trap (see index_subscript)."""
+    hits = 0
+    binding = OPTIONAL_BINDING.search(code)
+    for match in INDEX_SUBSCRIPT.finditer(code):
+        inner = match.group(1).strip()
+        if not inner or inner[0] in "\"'" or re.fullmatch(r"\d+", inner):
+            continue
+        if re.fullmatch(r"[A-Z][\w.<>?, ]*(?:\s*:\s*[A-Z][\w.<>?, \[\]]*)?", inner):
+            continue  # a type: [String], [Key: Value]
+        after = code[match.end():].lstrip()
+        if after.startswith("?"):
+            continue
+        if binding and binding.start() < match.start():
+            continue
+        hits += 1
+    return hits
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
 OBJC_FUNC = re.compile(r"\bfunc\s+[\w`]+\s*(?:<[^>]*>)?\s*\(")
 OTHER_DECL = re.compile(r"\b(protocol|class|struct|enum|extension|var|let|init|subscript|case)\b")
@@ -88,13 +160,60 @@ RUST = {
 }
 ENV_WRITE = re.compile(r"\b(setenv|unsetenv|putenv)\s*\(|\benviron\s*(\[[^\]]*\]\s*)?=(?!=)")
 ENV_ALLOWLIST = os.path.join(HERE, "env-write-allowlist.json")
-INLINE_TESTS = re.compile(r"#\[cfg\(test\)\]\s*(#\[[^\]]*\]\s*)*(pub(\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+# A test-only cfg: `cfg(test)`, or `cfg(all(...))` with `test` as one of its
+# top-level predicates (`cfg(all(test, unix))`). Never `any(test, ...)` or
+# `not(test)`: those also compile outside tests.
+_CFG_ITEM = r'(?:(?:any|all|not)\([^()]*\)|\w+\s*=\s*"[^"]*"|\w+)'
+_TEST_CFG = (r"(?:test|all\(\s*(?:" + _CFG_ITEM + r"\s*,\s*)*test\s*(?:,\s*" + _CFG_ITEM
+             + r"\s*)*,?\s*\))")
+INLINE_TESTS = re.compile(r"#\[cfg\(" + _TEST_CFG
+                          + r"\)\]\s*(#\[[^\]]*\]\s*)*(pub(\([^)]*\))?\s+)?mod\s+\w+\s*\{")
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
 
 def swift_code(line):
-    # Drop a trailing comment when no string literal could contain "//".
-    return line.split("//", 1)[0] if '"' not in line else line
+    """LINE without its comments and with string literal text blanked (quotes and
+    interpolated code kept), so `"Hello! world"` or `// x!` never count and
+    `"\\(value!)"` still does. One line at a time: the inside of a multi-line string
+    literal is read as code."""
+    out, i, n = [], 0, len(line)
+    in_string, depth = False, 0  # depth > 0: inside \( ... ) of a string
+    while i < n:
+        ch = line[i]
+        if in_string and depth == 0:
+            if ch == "\\" and i + 1 < n and line[i + 1] == "(":
+                out.append("\\(")
+                depth, i = 1, i + 2
+                continue
+            if ch == "\\":
+                out.append("  ")
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+                out.append(ch)
+            else:
+                out.append(" ")
+            i += 1
+            continue
+        if line.startswith("//", i):
+            break
+        if line.startswith("/*", i):
+            end = line.find("*/", i + 2)
+            if end < 0:
+                break
+            out.append(" " * (end + 2 - i))
+            i = end + 2
+            continue
+        if ch == '"':
+            in_string = True
+        elif in_string and ch == "(":
+            depth += 1
+        elif in_string and ch == ")":
+            depth -= 1
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def allowed(lines, index):
@@ -182,13 +301,15 @@ def objc_selector_hits(lines, index, code):
     return 0
 
 
-def swift_line_hits(lines, index):
+def swift_line_hits(lines, index, module=None):
     """{kind: hits} for one Swift line (comment lines and crash-allow are the caller's)."""
     line = lines[index]
     code = swift_code(line)
+    # A force unwrap is not `as!`, `try!` (own classes) or an IUO type (`: T!`).
+    unwrap_code = SWIFT["iuo"].sub(lambda m: " " * len(m.group(0)), re.sub(r"\b(as|try)!", r"\1 ", code))
     hits = {}
     for kind, pattern in SWIFT.items():
-        found = len(pattern.findall(code))
+        found = len(pattern.findall(unwrap_code if kind == "force_unwrap" else code))
         if not found:
             continue
         if kind == "fatal_error" and UNREACHABLE_INIT.search(" ".join(lines[max(0, index - 2):index + 1])):
@@ -198,6 +319,17 @@ def swift_line_hits(lines, index):
         hits[kind] = found
     if objc_selector_hits(lines, index, code):
         hits["objc_selector"] = 1
+    if module in INDEX_MODULES:
+        found = index_hits(code)
+        if found:
+            hits["index_subscript"] = found
+        found = int_conversion_hits(code)
+        if found:
+            hits["int_conversion"] = found
+    if module in RENDER_MODULES and not STATIC_LET.search(code):
+        found = len(RENDER_FONT.findall(code))
+        if found:
+            hits["render_font"] = found
     return hits
 
 
@@ -217,7 +349,7 @@ def scan_swift(repo, counts, banned_files=None):
                 if line.lstrip().startswith("//"):
                     continue
                 is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index).items():
+                for kind, hits in swift_line_hits(lines, index, rel).items():
                     if kind in banned:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))

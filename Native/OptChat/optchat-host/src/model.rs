@@ -39,6 +39,8 @@ pub struct ModelError {
     /// declined again, so the compactor asks its fallback model instead of
     /// only waiting `RETRY` and repeating it.
     pub refused: bool,
+    /// How long the server asked to wait before the next try (`retry-after`).
+    pub retry_after: Option<std::time::Duration>,
 }
 
 impl ModelError {
@@ -46,6 +48,7 @@ impl ModelError {
         ModelError {
             message: message.into(),
             refused: false,
+            retry_after: None,
         }
     }
 
@@ -53,7 +56,16 @@ impl ModelError {
         ModelError {
             message: message.into(),
             refused: true,
+            retry_after: None,
         }
+    }
+}
+
+impl ModelError {
+    /// The same error with the server's `retry-after`.
+    pub fn with_retry_after(mut self, wait: std::time::Duration) -> ModelError {
+        self.retry_after = Some(wait);
+        self
     }
 }
 

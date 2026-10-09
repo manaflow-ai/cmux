@@ -25,8 +25,8 @@
 //!   `user` message, `[id] report`.
 //!
 //! Deviation: `tell` reaches a running subagent after its current turn
-//! (acpmux queues the prompt; claude-sr offers no steering), not between its
-//! tool calls.
+//! (acpmux queues the prompt), not between its tool calls; it does not
+//! steer yet.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -239,6 +239,7 @@ impl Spawner {
     /// Starts subagent `id`'s session (in `s.cwd`) and first prompt, then its
     /// workspace; answers what the user can see of it: its workspace and
     /// where it lives, or that it has none and why.
+    #[allow(clippy::too_many_arguments)]
     fn start_one(
         &self,
         spawn: &str,
@@ -255,6 +256,12 @@ impl Spawner {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
+        // No mark of ours in a subagent's first message: Claude Code marks
+        // its two system blocks and the last two messages of every later
+        // request in the session (each tool step), and the API takes at
+        // most 4 marks, so ours would fail the subagent's second request
+        // (Claude Code 2.1.287, measured 2026-10-08). Claude Code's own
+        // marks cache the long session step by step.
         // The workspace key is chosen first, so the session starts knowing
         // its workspace (CMUX_WORKSPACE_ID; acpmux per-session env).
         let key = self
@@ -410,7 +417,7 @@ impl Spawner {
         std::thread::spawn(move || {
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    TurnSignal::Changed => {}
+                    TurnSignal::Changed | TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;

@@ -519,7 +519,7 @@ final class RowCell: UICollectionViewCell {
     deinit {
         RowCell.destroyed += 1
         if ProcessInfo.processInfo.environment["ML_CELLS"] != nil, RowCell.destroyed % 500 == 7 {
-            FileHandle.standardError.write(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").data(using: .utf8)!)
+            FileHandle.standardError.write(Data(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").utf8)) // cmux: no force unwrap
         }
     }
 

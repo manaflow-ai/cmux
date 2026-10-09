@@ -26,8 +26,13 @@ struct BcryptPBKDF {
     }()
 
     /// Derives `keyLength` bytes from `password` and `salt` using ``rounds`` iterations.
-    func derive(password: [UInt8], salt: [UInt8], keyLength: Int) -> [UInt8] {
-        precondition(rounds >= 1 && keyLength >= 1 && keyLength <= Self.hashSize * Self.hashSize)
+    ///
+    /// - Throws: ``SSHPrivateKeyParseError/malformed`` when `rounds` is below 1 or
+    ///   `keyLength` is outside 1...1024.
+    func derive(password: [UInt8], salt: [UInt8], keyLength: Int) throws -> [UInt8] {
+        guard rounds >= 1, keyLength >= 1, keyLength <= Self.hashSize * Self.hashSize else {
+            throw SSHPrivateKeyParseError.malformed
+        }
         let stride = (keyLength + Self.hashSize - 1) / Self.hashSize
         var amount = (keyLength + stride - 1) / stride
         var key = [UInt8](repeating: 0, count: keyLength)

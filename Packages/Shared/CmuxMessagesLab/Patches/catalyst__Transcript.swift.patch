@@ -1,5 +1,14 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
+@@ -519,7 +519,7 @@
+     deinit {
+         RowCell.destroyed += 1
+         if ProcessInfo.processInfo.environment["ML_CELLS"] != nil, RowCell.destroyed % 500 == 7 {
+-            FileHandle.standardError.write(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").data(using: .utf8)!)
++            FileHandle.standardError.write(Data(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").utf8)) // cmux: no force unwrap
+         }
+     }
+ 
 @@ -541,8 +541,7 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
@@ -46,12 +55,10 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -963,6 +966,16 @@
-             RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
-         }
+@@ -965,6 +968,16 @@
          CATransaction.commit()
-+    }
-+
+     }
+ 
 +    /// cmux: the outgoing gradient's colours and their locations from one
 +    /// stop list. A palette change that set only the colours left a cell
 +    /// made under the measured palette (8 stops) with 11 themed colours.
@@ -60,6 +67,8 @@
 +            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
 +        fillGradient.colors = stops.map(\.1)
 +        fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
-     }
- 
++    }
++
      /// Window y of the cell's top: the outgoing fill shades with it.
+     var windowY: CGFloat = 0 {
+         didSet {

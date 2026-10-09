@@ -1510,6 +1510,12 @@
       "title" : "Show Chats",
       "type" : "boolean"
     },
+    "sidebar.showProjects" : {
+      "default" : true,
+      "description" : "sidebar.showProjects",
+      "title" : "Show Projects",
+      "type" : "boolean"
+    },
     "sidebar.showWorkspaceTabs" : {
       "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",

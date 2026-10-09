@@ -91,6 +91,8 @@ mod apps;
 pub use apps::start_apps_when_ready;
 #[path = "server/image_paste.rs"]
 mod image_paste;
+#[cfg(unix)]
+mod scripts;
 #[path = "server/window_title.rs"]
 mod window_title;
 use window_title::sanitize_window_title;
@@ -101,6 +103,10 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[cfg(unix)]
+mod agent_session_attach;
+#[cfg(unix)]
+pub use agent_session_attach::AGENT_SESSION_ATTACH_CAPABILITY;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
@@ -122,6 +128,9 @@ pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_conversations;
 mod conversation_attachments;
+mod conversation_resource;
+mod resource_trust;
+use resource_trust::trusted_local_resource_client;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -5163,8 +5172,13 @@ pub(crate) struct ClientRegistry {
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
+    /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
+    #[cfg(unix)]
+    agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
+    /// Script sessions by connection (`script-*`, crate::scripts).
+    pub(crate) scripts: crate::scripts::ScriptsSlot,
     origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     app_trust: app_trust::AppTrust,
@@ -5183,8 +5197,11 @@ impl ClientRegistry {
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
+            #[cfg(unix)]
+            agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
@@ -6240,7 +6257,10 @@ impl ClientRegistry {
         self.url_opens.disconnect(client);
         self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
+        #[cfg(unix)]
+        self.agent_sessions.disconnect(client);
         self.apps.disconnect(client);
+        self.scripts.disconnect(client);
         // Safety: a removal never grants access; on a poisoned registry the
         // record still goes, so a fail-closed close never panics here.
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -7304,24 +7324,7 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::SidebarViewAttach
             | ResourceOperation::StreamCancel
             | ResourceOperation::OriginConfirmationIssue
-    )
-}
-
-fn trusted_local_resource_client(
-    mux: &Mux,
-    client: u64,
-    operation: ResourceOperation,
-) -> Result<(), ResourceError> {
-    if mux.control_clients.is_unix(client) {
-        Ok(())
-    } else {
-        let operation = operation.wire_name().to_owned();
-        Err(ResourceError::operation_failed(
-            operation,
-            "operation requires a trusted local connection",
-            json!({"required_authority":"trusted_local"}),
-        ))
-    }
+    ) || conversation_resource::handles(operation)
 }
 
 fn handle_resource_session_shutdown(
@@ -7404,6 +7407,9 @@ fn handle_resource_connection_message(
         crate::resource_router::requires_connection_context(operation)
     );
     match operation {
+        operation if conversation_resource::handles(operation) => {
+            conversation_resource::handle(mux, client, request, writer)
+        }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
         }
@@ -10461,7 +10467,15 @@ fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
+    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
     if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = scripts::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     #[cfg(unix)]
@@ -15068,6 +15082,7 @@ fn handle_command_with_cancellation(
                         {
                             continue;
                         }
+                        MuxEvent::Conversation(event) if event.is_draft() => continue,
                         MuxEvent::Conversation(_) | MuxEvent::CloudConversation(_)
                             if !trusted_pairing_client =>
                         {
@@ -15855,6 +15870,10 @@ pub fn cleanup(path: &Path) {
 #[cfg(test)]
 #[path = "server/loopback_forward_tests.rs"]
 mod loopback_forward_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_session_attach_tests.rs"]
+mod agent_session_attach_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
@@ -20054,7 +20073,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 33);
+        assert_eq!(connection_operations, 41);
     }
 
     #[test]

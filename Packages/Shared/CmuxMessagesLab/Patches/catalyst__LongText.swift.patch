@@ -1,26 +1,68 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
-@@ -523,10 +523,12 @@
-                 let total = first + counts.reduce(0) { $0 + $1.1 }
-                 var line = first
-                 for (b, c) in counts {
-+                    // cmux: every block in `counts` has its layout; no force unwrap (crash ratchet).
-+                    guard let layout = layouts[b] else { line += c; continue }
-                     let from = b == blocks.lowerBound ? max(0, oldFirst - 1) / n : 0
-                     for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {
-                         let k = TiledBubble.tileKey(self, block: b, chunk: chunk, outgoing: h.outgoing, scale: h.scale, palette: h.palette)
--                        tiles.append((k, TiledBubble.render(layouts[b]!, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale)))
-+                        tiles.append((k, TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale)))
-                     }
-                     line += c
-                 }
-@@ -817,7 +819,8 @@
+@@ -218,7 +218,8 @@
+     func blockString(_ b: Int) -> NSString {
+         let a = starts[b], e = starts[b + 1]
+         return withBytes { p in
+-            NSString(bytes: p.baseAddress! + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
++            guard let base = p.baseAddress else { return "" } // cmux: no force unwrap
++            return NSString(bytes: base + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
+         }
+     }
+ 
+@@ -248,8 +249,10 @@
+         guard !n.isEmpty, from < count else { return nil }
+         return withBytes { p in
+             n.withUnsafeBufferPointer { q in
+-                guard let r = memmem(p.baseAddress! + from, count - from, q.baseAddress!, q.count) else { return nil }
+-                let o = UnsafeRawPointer(r) - UnsafeRawPointer(p.baseAddress!)
++                // cmux: no force unwraps (crash program)
++                guard let base = p.baseAddress, let needle = q.baseAddress,
++                      let r = memmem(base + from, count - from, needle, q.count) else { return nil }
++                let o = UnsafeRawPointer(r) - UnsafeRawPointer(base)
+                 return o..<(o + q.count)
+             }
+         }
+@@ -337,14 +340,15 @@
+         let a = NSMutableAttributedString(string: string as String,
+                                           attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
+         if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
+-            for m in BlockLayout.detector.matches(in: string as String, range: NSRange(location: 0, length: string.length)) {
++            for m in BlockLayout.detector?.matches(in: string as String, range: NSRange(location: 0, length: string.length)) ?? [] {
+                 a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
+             }
+         }
+         drawAttr[outgoing] = a
+         return a
+     }
+-    static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
++    // cmux: optional, no try! (crash program); without it no link is underlined.
++    static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+ }
+ 
+ /// Block layouts by (lineage, byte range, column): LRU, 256 blocks.
+@@ -818,8 +822,10 @@
+     /// The layout of a long text at a width. `message`: a message shown as source
      /// (MarkdownStore.showsSource) lays its markdown text out as plain text.
      func layout(_ text: String, width: CGFloat, message: ID? = nil) -> LongTextLayout {
-         let idx = index(for: text)!
+-        let idx = index(for: text)!
 -        let md = idx.markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
++        // cmux: index(for:) builds one when asked to; an unregistered index stands in (crash program).
++        let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
 +        // cmux: a plain message (MarkdownStore.isPlain) is laid out as plain text too.
 +        let md = idx.markdown && !(message.map { MarkdownStore.shared.showsSource($0) || MarkdownStore.shared.isPlain($0) } ?? false)
          let wk = md || !idx.markdown ? width : -width
          lock.lock()
          let id = ObjectIdentifier(idx)
+@@ -873,7 +879,10 @@
+                prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p[prev.starts[prev.blockCount - 1]...]), as: UTF8.self)) {
+                 let keep = prev.blockCount - 1
+                 let from = max(0, prev.starts[keep] - 256)
+-                let same = prev.withBytes { q in memcmp(q.baseAddress! + from, p.baseAddress! + from, prev.count - from) == 0 }
++                let same = prev.withBytes { q in // cmux: no force unwraps
++                    guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
++                    return memcmp(qb + from, pb + from, prev.count - from) == 0
++                }
+                 if same {
+                     let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
+                     LongTextStats.streamExtends += 1

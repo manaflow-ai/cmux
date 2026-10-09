@@ -27,8 +27,8 @@ struct ImportEverything: OnboardingScreenVariant {
 /// the hidden list, in a narrow centered column.
 final class ImportEverythingBody: NSView {
     private let model: ImportStepModel
-    private var master: NSButton!
-    private var disclosure: NSButton!
+    private lazy var master: NSButton = OnboardingControl.checkbox(ImportVariantStrings.everything, target: self, action: #selector(masterToggled))  // no IUO (crash program)
+    private lazy var disclosure: NSButton = NSButton(title: "", target: self, action: #selector(disclose))  // no IUO (crash program)
     private var disclosureRow: NSView?
     private let list: ImportProfileList
     private var loop: RenderLoop?
@@ -37,13 +37,11 @@ final class ImportEverythingBody: NSView {
         self.model = model
         list = ImportProfileList(model: model, style: .checkboxes, spacing: 10, emptyAlignment: .center)
         super.init(frame: .zero)
-        master = OnboardingControl.checkbox(ImportVariantStrings.everything, target: self, action: #selector(masterToggled))
         master.controlSize = .large
         master.allowsMixedState = true
         master.attributedTitle = NSAttributedString(string: ImportVariantStrings.everything, attributes: [
             .font: NSFont.systemFont(ofSize: 15, weight: .medium), .foregroundColor: Palette.textPrimary,
         ])
-        disclosure = NSButton(title: "", target: self, action: #selector(disclose))
         disclosure.bezelStyle = .disclosure
         disclosure.setButtonType(.pushOnPushOff)
         disclosure.contentTintColor = Palette.textSecondary

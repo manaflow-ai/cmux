@@ -65,6 +65,9 @@ if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
   fi
   printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
 fi
+if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "info" ]; then
+  printf '{"id":"%s","status":"%s"}\n' "${3:-}" "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
+fi
 EOF
 
 cat > "$FAKE_BIN/hdiutil" <<'EOF'
@@ -351,6 +354,110 @@ if ! grep -Fq 'xcrun stapler staple' "$LOG" || [ ! -e "$IMMUTABLE" ] \
   || { [ -e "$PENDING_GITHUB_OUTPUT" ] && grep -Fq "submission_pending=true" "$PENDING_GITHUB_OUTPUT"; }; then
   echo "FAIL: an Accepted submission must be stapled and published in the job" >&2
   cat "$LOG" >&2
+  exit 1
+fi
+
+# The next nightly-next run continues a saved submission: it checks the exact
+# DMG against the state, asks Apple for the status instead of submitting, and
+# staples and validates only an Accepted one.
+continue_state() {
+  local state="$1" dmg="$2"
+  {
+    printf 'submission_id=fixture-saved-id\n'
+    printf 'status=In Progress\n'
+    printf 'dmg_path=%s\n' "$dmg"
+    printf 'dmg_sha256=%s\n' "$(shasum -a 256 "$dmg" | awk '{print $1}')"
+    printf 'submit_exit=1\n'
+    printf 'wait_timed_out=true\n'
+  } > "$state"
+}
+CONTINUE_DMG="$TMP_DIR/cmux-nightly-continue.dmg"
+CONTINUE_STATE="$TMP_DIR/cmux-nightly-continue.state"
+CONTINUE_IMMUTABLE="$TMP_DIR/cmux-nightly-continue-1.dmg"
+CONTINUE_GITHUB_OUTPUT="$TMP_DIR/continue.github-output"
+run_continue() {
+  CMUX_TEST_CALL_LOG="$LOG" \
+  CMUX_TEST_SOURCE_APP="$APP" \
+  CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried" \
+  CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-nightly-mount" \
+  CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
+  CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
+  CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
+  CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
+  CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
+  CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
+  CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
+  CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+  CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-helper" \
+  CMUX_NOTARY_CONTINUE_STATE="$CONTINUE_STATE" \
+  GITHUB_OUTPUT="$CONTINUE_GITHUB_OUTPUT" \
+  ASC_API_KEY_ID=FIXTUREKEY \
+  ASC_API_ISSUER_ID=fixture-issuer \
+  ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
+  "$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh" "$APP" "$CONTINUE_DMG" "$CONTINUE_IMMUTABLE"
+}
+reset_continue() {
+  : > "$LOG"
+  rm -f "$CONTINUE_GITHUB_OUTPUT" "$CONTINUE_IMMUTABLE"
+  rm -rf "$TMP_DIR/cmux-nightly-mount"
+  printf 'signed dmg from an earlier run\n' > "$CONTINUE_DMG"
+  continue_state "$CONTINUE_STATE" "$CONTINUE_DMG"
+}
+
+reset_continue
+if ! run_continue >/dev/null 2>"$TMP_DIR/continue.err"; then
+  echo "FAIL: continuing an Accepted saved submission failed" >&2
+  cat "$TMP_DIR/continue.err" >&2
+  exit 1
+fi
+if ! grep -q '^xcrun notarytool info fixture-saved-id ' "$LOG" \
+  || grep -q '^xcrun notarytool submit' "$LOG" \
+  || grep -q '^create-dmg' "$LOG" \
+  || grep -q '^codesign' "$LOG" \
+  || grep -q '^notarize-helper' "$LOG" \
+  || ! grep -Fq "xcrun stapler staple $APP" "$LOG" \
+  || ! grep -Fq "xcrun stapler staple $CONTINUE_DMG" "$LOG" \
+  || ! grep -Fq "spctl -a -vv --type execute $TMP_DIR/cmux-nightly-mount" "$LOG" \
+  || [ ! -e "$CONTINUE_IMMUTABLE" ] \
+  || { [ -e "$CONTINUE_GITHUB_OUTPUT" ] && grep -Fq "submission_pending=true" "$CONTINUE_GITHUB_OUTPUT"; }; then
+  echo "FAIL: an Accepted saved submission must be stapled and validated without resubmitting or rebuilding" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+
+reset_continue
+if ! CMUX_TEST_NOTARY_STATUS="In Progress" run_continue >/dev/null 2>"$TMP_DIR/continue-pending.err"; then
+  echo "FAIL: a saved submission still in progress must stay pending, not fail" >&2
+  cat "$TMP_DIR/continue-pending.err" >&2
+  exit 1
+fi
+if ! grep -Fxq "submission_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
+  || grep -Fq 'xcrun stapler staple' "$LOG" || [ -e "$CONTINUE_IMMUTABLE" ] \
+  || ! grep -Fxq "submission_id=fixture-saved-id" "$CONTINUE_STATE"; then
+  echo "FAIL: a saved submission in progress must stay pending, unstapled and unchanged" >&2
+  cat "$LOG" "$CONTINUE_STATE" >&2
+  exit 1
+fi
+
+reset_continue
+if CMUX_TEST_NOTARY_STATUS=Invalid run_continue >/dev/null 2>"$TMP_DIR/continue-invalid.err"; then
+  echo "FAIL: an Invalid saved submission must fail" >&2
+  exit 1
+fi
+if grep -Fq 'xcrun stapler staple' "$LOG" || [ -e "$CONTINUE_IMMUTABLE" ]; then
+  echo "FAIL: an Invalid saved submission must not be stapled" >&2
+  exit 1
+fi
+
+reset_continue
+printf 'a different dmg\n' > "$CONTINUE_DMG"
+if run_continue >/dev/null 2>"$TMP_DIR/continue-sha.err"; then
+  echo "FAIL: a DMG that is not the submitted one must be refused" >&2
+  exit 1
+fi
+if grep -q '^xcrun notarytool' "$LOG" || ! grep -q 'SHA-256' "$TMP_DIR/continue-sha.err"; then
+  echo "FAIL: a DMG mismatch must be refused before asking Apple, naming the SHA-256" >&2
+  cat "$LOG" "$TMP_DIR/continue-sha.err" >&2
   exit 1
 fi
 

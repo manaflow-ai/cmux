@@ -11,9 +11,10 @@ final class LoadErrorView: NSView {
     var onProceed: (() -> Void)?
     private let titleLabel = NSTextField(labelWithString: Strings.loadFailedTitle)
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
-    private(set) var retryButton: ChromeTextButton!
-    private(set) var backButton: ChromeTextButton!
-    private(set) var proceedButton: ChromeTextButton!
+    // Targets are set in init (no IUOs).
+    let retryButton = ChromeTextButton(title: Strings.tryAgain, prominent: true, action: #selector(LoadErrorView.retry), target: nil)
+    let backButton = ChromeTextButton(title: Strings.certificateBackToSafety, prominent: true, action: #selector(LoadErrorView.goBack), target: nil)
+    let proceedButton = ChromeTextButton(title: "", prominent: false, action: #selector(LoadErrorView.proceed), target: nil)
     let detailsButton = ChromeTextButton(title: Strings.certificateShowDetails, prominent: false, action: nil, target: nil)
     let detailsLabel = NSTextField(wrappingLabelWithString: "")
     private(set) var showsDetails = false
@@ -24,12 +25,8 @@ final class LoadErrorView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         messageLabel.alignment = .center
-        let retry = ChromeTextButton(title: Strings.tryAgain, prominent: true, action: #selector(retry), target: self)
-        let back = ChromeTextButton(title: Strings.certificateBackToSafety, prominent: true, action: #selector(goBack), target: self)
-        let proceed = ChromeTextButton(title: "", prominent: false, action: #selector(proceed), target: self)
-        retryButton = retry
-        backButton = back
-        proceedButton = proceed
+        let retry = retryButton, back = backButton, proceed = proceedButton
+        for button in [retry, back, proceed] { button.target = self }
         detailsButton.action = #selector(toggleDetails)
         detailsButton.target = self
         detailsLabel.alignment = .center

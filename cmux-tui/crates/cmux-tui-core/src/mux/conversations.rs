@@ -7,7 +7,20 @@ use super::*;
 use crate::conversation_store::ConversationStore;
 use crate::remote_relay_state::{RelayLock, RelayStateError, lock_checked};
 
+/// The binding of a connection whose agent token was replaced.
+pub(crate) const REVOKED_BINDING_PREFIX: &str = "revoked:";
+
 impl Mux {
+    /// `conversation.draft`'s replay and rate gate (memory only).
+    pub(crate) fn admit_conversation_draft(
+        &self,
+        draft: crate::conversation_drafts::DraftAdmission<'_>,
+        now: Instant,
+    ) -> Result<bool, crate::conversation_drafts::DraftRefusal> {
+        let mut gate = self.conversations.drafts.lock().unwrap_or_else(PoisonError::into_inner);
+        gate.admit(draft, now)
+    }
+
     /// Run `operation` on the conversation store, opening
     /// `conversations.sqlite3` in the session state directory on first use
     /// (in memory for an in-memory session).
@@ -108,13 +121,20 @@ impl Mux {
         }
     }
 
-    /// Ends every binding of `participant` (its token was replaced).
+    /// Ends every binding of `participant` (its token was replaced). The
+    /// connection keeps a revoked marker instead of losing its binding: an
+    /// unbound trusted connection is `user_local`, so removing the binding
+    /// would make the old agent connection the person. The marker names no
+    /// participant (`:` is not allowed in a participant id), so it fails
+    /// closed until the connection binds again with the new token.
     pub(crate) fn unbind_conversation_participant(&self, participant: &str) {
-        // Safety: a removal never grants access.
-        self.conversations
-            .bindings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|_, bound| bound != participant);
+        let revoked = format!("{REVOKED_BINDING_PREFIX}{participant}");
+        let mut bindings =
+            self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner);
+        for bound in bindings.values_mut() {
+            if bound == participant {
+                bound.clone_from(&revoked);
+            }
+        }
     }
 }

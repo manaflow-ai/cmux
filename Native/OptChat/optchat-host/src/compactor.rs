@@ -33,6 +33,8 @@ pub struct State {
     pub stuck: BTreeSet<NodeId>,
     /// Every stuck node built since the last one got stuck.
     pub recovered: bool,
+    /// Failed tries of each node since its last success.
+    pub tries: BTreeMap<NodeId, u32>,
     pub closed: bool,
     /// Set by a failed write; the chat stops writing until a restart.
     pub fatal: Option<String>,
@@ -330,6 +332,7 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
                 return shared.unlock(st);
             }
             st.failing.remove(&node);
+            st.tries.remove(&node);
             if st.stuck.remove(&node) && st.stuck.is_empty() {
                 st.recovered = true;
             }
@@ -344,30 +347,52 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         }
         Err(e) => e,
     };
-    let class = crate::model::error_class(&error.message).filter(|c| c.permanent());
+    let class = crate::model::error_class(&error.message);
+    let tries = {
+        let t = st.tries.entry(node).or_insert(0);
+        *t += 1;
+        *t
+    };
     if !st.failing.contains_key(&node) {
         st.reports.push(Report::NodeFailed {
             node,
             error: error.message.clone(),
         });
-        st.failing.insert(node, error.message);
+        st.failing.insert(node, error.message.clone());
     }
-    if let Some(class) = &class {
-        if st.stuck.insert(node) {
-            st.recovered = false;
-            st.reports.push(Report::NodeStuck {
-                node,
-                class: class.to_string(),
-            });
-        }
+    // A request error repeats on every try; a transient one may pass, up to
+    // COMPACT_TRIES. Either way, past that the node stops holding turns.
+    let permanent = class.as_ref().is_some_and(|c| c.permanent());
+    let stuck = permanent || tries >= crate::COMPACT_TRIES;
+    if stuck && st.stuck.insert(node) {
+        st.recovered = false;
+        let class = match &class {
+            Some(c) if permanent => c.to_string(),
+            Some(c) => format!("{tries} tries, last {c}"),
+            None => format!(
+                "{tries} tries, last: {}",
+                optchat_core::cut_at_bytes(&error.message, 200)
+            ),
+        };
+        st.reports.push(Report::NodeStuck { node, class });
     }
     shared.changed.notify_all();
     shared.unlock(st);
-    shared.clock.sleep(if class.is_some() {
-        crate::STUCK_RETRY
+    if stuck {
+        shared.clock.sleep(crate::STUCK_RETRY);
     } else {
-        shared.retry
-    });
+        let backoff = shared.retry.saturating_mul(1 << (tries - 1).min(16));
+        let wait = error
+            .retry_after
+            .unwrap_or(backoff)
+            .min(crate::MAX_RETRY_WAIT);
+        shared.clock.sleep(wait);
+        // A rate limit or an overload: a turn waiting on the same account
+        // goes first.
+        if class.is_some_and(|c| c.status == 429 || c.status == 529) {
+            crate::rate::background_wait(crate::MAX_RETRY_WAIT);
+        }
+    }
     let mut st = shared.lock();
     if !st.writable() {
         return;

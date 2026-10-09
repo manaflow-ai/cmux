@@ -23,6 +23,21 @@
 //! - [`role_spec`] and [`role_proc`]: process roles from `server.json`
 //!   and their restart and health reducer (server.md 5.1).
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 pub mod access;
 pub mod catalog;
 pub mod health;

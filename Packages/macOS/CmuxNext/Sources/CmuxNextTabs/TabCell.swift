@@ -74,6 +74,7 @@ final class TabCell {
     // unread or showing status, close button on the selected/hovered tab.
     var spinnerLayer: StatusIndicatorLayer?
     var badgeLayer: CALayer?
+    var statusGlyphLayer: StatusIndicatorLayer? // a status icon set's badge mark (TabCell+StatusBadge)
     var closeBackgroundLayer: CALayer?
     var closeGlyphLayer: CAShapeLayer?
     /// The machine badge, created while the item names a remote machine.
@@ -152,6 +153,7 @@ final class TabCell {
         if previous?.indicator != item.indicator || previous?.busyStyle != item.busyStyle {
             updateSpinner()
         }
+        if previous?.status != item.status || previous?.blockedKind != item.blockedKind { updateStatusGlyph() }
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
@@ -212,7 +214,9 @@ final class TabCell {
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
             applyProfileDotColors()
-            spinnerLayer?.colors = .current(loading: StatusIndicatorAppearance.shared.config.settings.color)
+            let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
+            spinnerLayer?.colors = indicatorColors
+            statusGlyphLayer?.colors = indicatorColors
             separatorLayer.backgroundColor = Palette.separator.cgColor
             iconLayer.contents = iconImage(tint: item.tint?.swatch ?? text)
         }
@@ -301,7 +305,8 @@ final class TabCell {
             }
         }
 
-        if visibility.showsIcon, badgeColor != nil {
+        let drawsStatusGlyph = layoutStatusGlyph(iconFrame: iconFrame, visible: visibility.showsIcon)
+        if visibility.showsIcon, badgeColor != nil, !drawsStatusGlyph {
             let badgeLayer = makeBadge()
             let badge = m.badgeSize
             badgeLayer.frame = CGRect(

@@ -309,9 +309,13 @@ impl Mux {
         // daemon value always wins. The warning names the key, never the value.
         let dropped = crate::daemon_env::merge_caller_env(&mut opts.extra_env, env);
         crate::daemon_env::warn_dropped(&dropped);
-        // After the merge: a caller PATH (the app's login-shell PATH) may
-        // replace the daemon PATH, but the `claude` shim directory stays first
-        // on it, so `claude` still starts with the session's agent hooks.
+        // After the merge: a caller PATH (the app's login-shell PATH, an
+        // agent's PATH) may replace the daemon PATH, but the app's bundled
+        // `cmux` stays first on it, so a command that runs plain `cmux` gets
+        // the app's CLI, not an older one the caller lists first.
+        crate::daemon_env::keep_bundled_cli_first(&mut opts.extra_env, opts.bundled_cli.as_deref());
+        // The `claude` shim directory stays first on it, so `claude` still
+        // starts with the session's agent hooks.
         crate::daemon_env::keep_shim_first_on_path(
             &mut opts.extra_env,
             opts.claude_shim_dir.as_deref(),

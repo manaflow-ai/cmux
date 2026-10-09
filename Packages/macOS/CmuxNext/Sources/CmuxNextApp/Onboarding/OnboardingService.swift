@@ -234,7 +234,7 @@ final class OnboardingService {
         // Only the first run's Skip or Done ends the first run; another
         // window's (Import and Sync, a single step) leaves it as it is.
         if controller?.model.isFirstRun ?? true { markDone(completed: completed) }
-        guard Self.opensNewTab(completed: completed, shown: services.windows?.active?.shownTopPage) else { return }
+        guard Self.opensNewTab(completed: completed, shown: services.windows.active?.shownTopPage) else { return }
         services.registry.perform("newTab")
     }
 

@@ -297,7 +297,7 @@ extension TabStripView {
         menuEndObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification, object: menu, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endMenuTracking() }
+            MainActor.assumeIsolated { self?.endMenuTracking() } // main-proof: observer on queue: .main
         }
     }
 

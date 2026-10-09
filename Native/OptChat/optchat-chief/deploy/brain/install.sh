@@ -100,6 +100,13 @@ domain="gui/$(id -u)"
 launchctl print "$domain" >/dev/null 2>&1 || domain="user/$(id -u)"
 boot() {
   launchctl bootout "$domain/$1" 2>/dev/null || true
+  # bootout returns before launchd has unloaded the agent; a bootstrap before
+  # that fails with "5: Input/output error". Wait for it (at most 30 s).
+  local i
+  for i in $(seq 1 60); do
+    launchctl print "$domain/$1" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
   launchctl bootstrap "$domain" "$LA/$1.plist"
   echo "started $1 in $domain"
 }

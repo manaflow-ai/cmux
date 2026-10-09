@@ -37,7 +37,7 @@ final class ControlSnapshotPublisher {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.invalidate() }
+                MainActor.assumeIsolated { self?.invalidate() } // main-proof: observer on queue: .main
             })
         }
         publishNow()

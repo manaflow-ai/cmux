@@ -150,8 +150,11 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
-No cache marker is added to a subagent's first message: one spawn's subagents
-start together, so none could read another's entry.
+A subagent's first message carries no cache mark of ours, and all of a
+spawn's subagents start at once: Claude Code marks its two system blocks and
+the last two messages of every later request in a session, the API takes at
+most 4 marks, and a subagent's long tool loop needs Claude Code's own rolling
+marks (decision 2026-10-08; see Cache marks and TTL).
 
 ## Engine: harness, model and effort per turn
 
@@ -617,7 +620,7 @@ nodes never race on one prompt. The prompt changes only when the view
 before the 50k mark changes (a merge of old lines), so consecutive turns
 send byte-identical system prompts. A 4-breakpoint refusal (`A maximum of 4
 blocks with cache_control`) reruns the turn once without the marker, and
-later turns skip it. An acpmux without `systemPrompt` keeps the old layout
+the next 10 turns skip it (`MARK_RETRY_AFTER`); then it is tried again. An acpmux without `systemPrompt` keeps the old layout
 (no marker, CLAUDE.md, host.log says so).
 
 **Cache marks and TTL.** Measured on the requests Claude Code 2.1.287
@@ -635,7 +638,9 @@ through it. Two rules keep that true:
   than 16 blocks (`MARK_REACH`) past the last turn's mark: the API looks back
   only 20 blocks from a mark, so a turn that added more than 80 view lines (a
   long tool run) would otherwise write the whole view again. Such a turn
-  writes the new lines once and the next turns catch up.
+  writes the new lines once and the next turns catch up. The last turn's
+  marked prefix (its size and hash) is saved in the host state with that
+  turn's messages, so a restart keeps the rule.
 - Every mark of one request has one TTL, since the API refuses a 1h mark
   after a 5m one. On the Claude Code path our mark is 1 hour by default
   (a human reply 5 to 60 minutes later still reads the view), and each turn
@@ -649,9 +654,25 @@ through it. Two rules keep that true:
   and reads the same two at host start. A route that refuses the 1-hour TTL
   reruns the turn at 5 minutes, and later turns stay at 5 minutes until the
   host restarts or `cache.ttl` is set again (`turn.ttl_refused` trace event).
-  Compactor sessions pin `promptCacheTtl` to 5m, the TTL of their own mark;
-  1h and 5m entries are one cache (measured), so a node still reads what a
-  turn wrote.
+  Compactor nodes on the Claude Code path take the turns' current TTL (one
+  TTL per route, shared with the brain): their mark, their slot's
+  `promptCacheTtl` (plus `FORCE_PROMPT_CACHING_5M` at 5 minutes) and the
+  warm-session key follow it, so a warm session started under the other TTL
+  is not reused. 1h and 5m entries are one cache (measured), so a node reads
+  what a turn wrote either way.
+
+**At most 4 marks.** Claude Code 2.1.287 marks its two system blocks and
+the last message of a session's first request, and the last TWO messages of
+every later request in the session (a tool step, a size-loop follow-up, a
+steered message), on the subscription login and through `sr` alike
+(measured 2026-10-08). Our view mark stays in the first message's history,
+so it would make 5 on the session's second request, which the API refuses.
+So a turn or a compactor node that carries our mark runs with
+`DISABLE_PROMPT_CACHING=1` in its directory's settings env: Claude Code
+places none, every request of the session reads up to our mark, and a
+turn's tool steps send their own tail uncached. A turn or node too small
+for a mark keeps Claude Code's own. Subagents never carry our mark: their
+sessions are long, and Claude Code's own marks cache them step by step.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
 `layout.ttl`) and the inspector lays the prompt out from them.
@@ -858,9 +879,9 @@ Trade-offs and risks:
   every marked prompt fails with that 400. The compactor then ends the
   session, retries the node once in a fresh session without the marker, and
   logs `compactor node <id>: Claude Code refused the cache_control marker
-  (...); retrying without it, and later nodes go without it`; later nodes of
-  that host skip the marker (only the system prompt is cached) until it
-  restarts.
+  (...); retrying without it, and the next 10 nodes go without it`; those
+  nodes skip the marker (only the system prompt is cached), then the next
+  node tries it again.
 - **Feature detection.** The host installs the presets with their args and
   a seed `systemPrompt`; an acpmux that does not know a key refuses it
   (`unknown preset key "systemPrompt"`), host.log says `acpmux refused the

@@ -178,6 +178,10 @@ pub struct SurfaceOptions {
     pub extra_env: Vec<(String, String)>,
     /// The `claude` shim directory, kept first on every child's PATH.
     pub claude_shim_dir: Option<String>,
+    /// The app's bundled CLI (`CMUX_BUNDLED_CLI_PATH` in the daemon's own
+    /// environment): its dir stays first on every child's PATH after the
+    /// shim, also over a caller PATH, and the value wins over a caller's.
+    pub bundled_cli: Option<String>,
     /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
     pub cdp_url: Option<String>,
     /// Maximum browser capture size before downscaling, in megapixels.
@@ -245,6 +249,7 @@ impl Default for SurfaceOptions {
             scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             claude_shim_dir: None,
+            bundled_cli: None,
             cdp_url: None,
             browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
