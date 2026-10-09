@@ -116,15 +116,12 @@ extension DaemonConnection {
     /// report after the write.
     public func setChiefEngine(harness: String? = nil, model: String? = nil,
                                effort: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
-        var params: [String: JSONValue] = [:]
-        for (key, value) in [("harness", harness), ("model", model), ("effort", effort)] {
-            if let value { params[key] = .string(value) }
-        }
+        let fields = [("harness", harness), ("model", model), ("effort", effort)]
+        let params = Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, JSONValue.string($0)) } })
         let key = "cmux-next-chief-engine-" + UUID().uuidString.lowercased()
-        let fields = params
         do {
             return try await resourceRequest({ id in
-                ResourceRequestEnvelope(id: id, operation: "chief.engine.set", params: fields, idempotencyKey: key)
+                ResourceRequestEnvelope(id: id, operation: "chief.engine.set", params: params, idempotencyKey: key)
             }, as: ResourceMutationResult<ChiefEngineReport>.self).value
         } catch {
             throw ChiefControlError(error)
