@@ -98,7 +98,8 @@ import Testing
             #expect(!ok, "\(op) returned \(body)")
             let code = body["code"]?.stringValue ?? ""
             #expect(["operation.unsupported", "method_not_found"].contains(code), "\(op): \(code)")
-            #expect(PrivacyScan.emails(in: body["message"]?.stringValue ?? "").isEmpty)
+            let message: String = body["message"]?.stringValue ?? ""
+            #expect(PrivacyScan.emails(in: message).isEmpty)
         }
     }
 }
