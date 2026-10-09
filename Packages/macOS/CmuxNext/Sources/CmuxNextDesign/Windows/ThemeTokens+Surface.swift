@@ -24,4 +24,12 @@ extension ThemeTokens {
 
     /// How much of the surface background ``legibilityScrim`` adds.
     public nonisolated static let legibilityScrimOpacity = 0.35
+
+    /// A small capsule behind a label over busy content (the Home header's
+    /// name pill): the surface background at ``capsuleScrimOpacity``.
+    public nonisolated var capsuleScrim: ThemeRGB { surfaceBackground.withAlpha(Self.capsuleScrimOpacity) }
+
+    /// How much of the surface background ``capsuleScrim`` covers: enough
+    /// for a title over text, still translucent.
+    public nonisolated static let capsuleScrimOpacity = 0.72
 }

@@ -260,6 +260,10 @@ async fn dispatch_request(
                 .and_then(|m| m.get("resend"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            let steer_only = mux_meta(&params)
+                .and_then(|m| m.get("steerOnly"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
@@ -269,6 +273,7 @@ async fn dispatch_request(
                 resend,
                 control: super::remote_guard::control_of(conn.origin, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
+                steer_only,
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }

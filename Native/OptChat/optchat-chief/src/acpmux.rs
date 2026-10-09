@@ -175,6 +175,13 @@ pub trait AgentPort: Send + Sync {
     ) -> Result<(), String> {
         Err("answering permissions is not supported".into())
     }
+    /// Delivers `blocks` into `session`'s running turn between its tool
+    /// calls (a steered `session/prompt`, `steerOnly`): Ok once the harness
+    /// read them. Err: the session could not take them now (no running turn,
+    /// a harness that does not steer); nothing was delivered.
+    fn steer(&self, _session: &str, _blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+        Err("steering is not supported".into())
+    }
     /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
     /// session of `harness` and `preset` in `cwd`, so the next `session/new`
     /// of exactly that shape takes a harness that is already up.
@@ -735,6 +742,21 @@ impl AgentPort for Acpmux {
             .request("_acpmux/permission_respond", params)
             .map(|_| ())
             .map_err(|e| format!("permission_respond: {e}"))
+    }
+
+    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        // No timeout: acpmux answers when the harness reads the message, at
+        // its next tool boundary, however long the running tool takes.
+        let answer = self.client()?.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
+        );
+        match answer.recv() {
+            Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("steered") => Ok(()),
+            Ok(Ok(v)) => Err(format!("acpmux did not steer the message ({v})")),
+            Ok(Err(e)) => Err(format!("steer: {e}")),
+            Err(_) => Err("steer: the acpmux connection closed".into()),
+        }
     }
 
     fn prewarm(
