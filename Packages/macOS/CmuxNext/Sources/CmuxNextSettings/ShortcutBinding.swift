@@ -185,6 +185,7 @@ public struct ShortcutBindingFormat {
     }
 
     private static func functionKey(_ code: Int) -> String {
-        String(Character(UnicodeScalar(UInt32(code))!))
+        // Function-key codes are valid private-use scalars; NUL stands in otherwise (no trap).
+        String(Character(UnicodeScalar(UInt32(code)) ?? UnicodeScalar(0)))
     }
 }

@@ -1,0 +1,709 @@
+{
+  "schema": 1,
+  "tag": "v0.65.0",
+  "sha": "499779c6c2c080588bdec36a20bbb27c45920c30",
+  "origin": "https://cmux.com",
+  "generated_at": "2026-10-09T03:05:21.547Z",
+  "requests": [
+    {
+      "method": "DELETE",
+      "path": "/api/account",
+      "headers": [
+        "Authorization",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AccountDeletionClient.swift:25"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/events",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileAnalytics/Sources/CmuxMobileAnalytics/HTTPAnalyticsUploader.swift:49",
+        "Packages/iOS/CmuxMobileAnalytics/Sources/CmuxMobileAnalytics/HTTPAnalyticsUploader.swift:65"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/email-verification",
+      "headers": [],
+      "sources": [
+        "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/EmailVerificationRecoveryClient.swift:29"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/billing/apple/account-token",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/HTTPBillingAPI.swift:57"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/billing/apple/transactions",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/HTTPBillingAPI.swift:63"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/billing/checkout",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1536"
+      ],
+      "expect": "307"
+    },
+    {
+      "method": "POST",
+      "path": "/api/billing/recover",
+      "headers": [
+        "Content-Type"
+      ],
+      "sources": [
+        "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/EmailVerificationRecoveryClient.swift:37"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/client-config",
+      "headers": [
+        "Accept",
+        "Content-Type"
+      ],
+      "sources": [
+        "Packages/Shared/CmuxClientConfig/Sources/CmuxClientConfig/HTTPClientConfigLoader.swift:34"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/coderouter/claude-upstream",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:109",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:148",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:98"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/coderouter/claude-upstream/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:125",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/CoderouterClient.swift:137"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/coderouter/vm-usage/team",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:18",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:24",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:36",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:3067"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/device-tokens",
+      "headers": [],
+      "sources": [
+        "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Push/PushRegistrationService.swift:874"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/device-tokens",
+      "headers": [
+        "Authorization",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Sources/Cloud/PhonePushClient.swift:471"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "POST",
+      "path": "/api/device-tokens",
+      "headers": [],
+      "sources": [
+        "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Push/PushRegistrationService.swift:657"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/devices",
+      "headers": [
+        "Authorization",
+        "X-Cmux-Team-Id",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/DeviceRegistryService.swift:745",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift:146",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift:220",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift:57",
+        "Sources/Cloud/DeviceRegistryClient.swift:280",
+        "Sources/Devices/DeviceRegistryDirectoryClient.swift:69"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/feedback",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileFeedbackEmailClient.swift:29"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mobile-mac-compat",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileMacCompatCenter.swift:24"
+      ],
+      "expect": "2xx",
+      "keys": [
+        "downloads",
+        "entries"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/push/e2e",
+      "headers": [],
+      "sources": [
+        "Sources/Cloud/PhonePushClient.swift:1089"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/observability/mobile-network",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileAnalytics/Sources/CmuxMobileAnalytics/HTTPMobileNetworkOutcomeUploader.swift:74"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/subrouter/accounts",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:48",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:69"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/subrouter/accounts/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Accounts/AIAccountsClient.swift:80"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:43"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/cmuxold-smoke/invitations",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:83"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/cmuxold-smoke/invitations/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:120"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/cmuxold-smoke/links",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:110"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/cmuxold-smoke/links/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:127"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/cmuxold-smoke/members/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:135",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:144"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/invitations",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:50"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/invitations/cmuxold-smoke/accept",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:59"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams/invitations/cmuxold-smoke/decline",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/TeamsClient.swift:66"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/theme",
+      "headers": [],
+      "sources": [
+        "Sources/AgentChatThemeSync.swift:181"
+      ],
+      "expect": "404"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1",
+      "headers": [],
+      "sources": [
+        "Packages/Shared/CmuxAPIClient/Sources/CmuxAPIClient/CmuxAPIClient.swift:11"
+      ],
+      "expect": "404"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm",
+      "headers": [
+        "Idempotency-Key",
+        "Server-Timing"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:36",
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:58",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:17",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:23",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:32",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+CloudActivation.swift:14",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1567",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2408",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2469",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/{id}",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/{id}/sessions",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/{id}/stats",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/base/open",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1622"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/base/reset",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1628"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:83",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:21",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1671",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1709",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1722"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/agent-updates",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+AgentUpdates.swift:12"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/attach-endpoint",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:144",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1984",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2034"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/cmux-remote/approve",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:162"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1751"
+      ],
+      "expect": "404"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/exec",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+Exec.swift:21"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/fork",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1872"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/network",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:18",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:29"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/open-port",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2276"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/pause",
+      "headers": [
+        "Idempotency-Key"
+      ],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:69"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/reflection",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1776"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/resize",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+ResourceStats.swift:38"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/resume",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:75"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/scp-endpoint",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1948"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/sessions",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2170",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2199"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/snapshot",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1844"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/snapshots",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1799"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/snapshots/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1825"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/ssh-endpoint",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1938"
+      ],
+      "expect": "404"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/cmuxold-smoke/stats",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:46",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+ResourceStats.swift:11"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/domains",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1199"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/domains/cmuxold-smoke/verify",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1218"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/leases/revoke",
+      "headers": [
+        "Authorization",
+        "X-Stack-Refresh-Token",
+        "content-type"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2306"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/network-presets",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+NetworkPolicy.swift:8"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/publications",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1183",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1253"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/publications/cmuxold-smoke",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1289",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1312"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/publications/cmuxold-smoke/grants",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1303"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/publications/cmuxold-smoke/verify",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1266"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/restore",
+      "headers": [],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadMutation.swift:13",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:1912"
+      ],
+      "expect": "405"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/vm/tunnel",
+      "headers": [
+        "Authorization",
+        "X-Stack-Refresh-Token"
+      ],
+      "sources": [
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2337"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/vm/tunnel",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:106",
+        "Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudAPIRequestBuilder.swift:118",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient+CloudActivation.swift:133",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClient.swift:2114",
+        "Packages/macOS/CmuxCloud/Sources/CmuxCloud/VMClient/VMClientTelemetry.swift:235"
+      ],
+      "expect": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/whats-new",
+      "headers": [],
+      "sources": [
+        "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MobileWhatsNewCenter.swift:33"
+      ],
+      "expect": "2xx",
+      "keys": [
+        "announcements",
+        "visibleEntryIds"
+      ]
+    }
+  ]
+}

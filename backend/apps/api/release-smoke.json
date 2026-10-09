@@ -1,0 +1,7 @@
+{
+  "_doc": "Post-deploy smoke for scripts/cmux-next/release/worker-release.ts verify (backend.yml deploy jobs). Routes without sources run after every deploy; the others when a matching file under backend/apps/api changed.",
+  "routes": [
+    { "name": "health", "method": "GET", "path": "/v1/health", "expect": [200], "bodyIncludes": "\"ok\":true" },
+    { "name": "sso discover", "method": "GET", "path": "/v1/sso/discover?email=release-smoke%40example.com", "expect": [200], "sources": ["src/**sso*", "src/auth.ts"] }
+  ]
+}

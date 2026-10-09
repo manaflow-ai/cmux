@@ -97,6 +97,6 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         }
         // `fd7a:115c:a1e0::53` is the local MagicDNS service, not a peer.
         let magicDNS = [UInt8](repeating: 0, count: 9) + [0x53]
-        return Array(bytes[6...]) != magicDNS
+        return Array(bytes.dropFirst(6)) != magicDNS
     }
 }

@@ -137,22 +137,19 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
         }
 
         if error.domain == NSPOSIXErrorDomain {
-            switch error.code {
-            case Int(POSIXErrorCode.ECONNREFUSED.rawValue):
+            // A code outside Int32 or unknown to POSIXErrorCode is .unknown.
+            switch Int32(exactly: error.code).flatMap(POSIXErrorCode.init(rawValue:)) {
+            case .ECONNREFUSED:
                 return .connectionRefused
-            case Int(POSIXErrorCode.EHOSTUNREACH.rawValue),
-                 Int(POSIXErrorCode.ENETUNREACH.rawValue):
+            case .EHOSTUNREACH, .ENETUNREACH:
                 return .hostUnreachable
-            case Int(POSIXErrorCode.ETIMEDOUT.rawValue):
+            case .ETIMEDOUT:
                 return .timedOut
-            case Int(POSIXErrorCode.EACCES.rawValue),
-                 Int(POSIXErrorCode.EPERM.rawValue):
+            case .EACCES, .EPERM:
                 return .permissionDenied
-            case Int(POSIXErrorCode.ECONNRESET.rawValue),
-                 Int(POSIXErrorCode.EPIPE.rawValue),
-                 Int(POSIXErrorCode.ENOTCONN.rawValue):
+            case .ECONNRESET, .EPIPE, .ENOTCONN:
                 return .connectionClosed
-            case Int(POSIXErrorCode.ECANCELED.rawValue):
+            case .ECANCELED:
                 return .cancelled
             default:
                 return .unknown

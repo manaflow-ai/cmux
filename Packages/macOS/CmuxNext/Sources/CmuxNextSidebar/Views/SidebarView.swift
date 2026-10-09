@@ -31,7 +31,7 @@ public final class SidebarView: NSView {
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private var edgeFade: ScrollEdgeFadeView!
+    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
@@ -45,8 +45,9 @@ public final class SidebarView: NSView {
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
-    var aboveFade: ScrollEdgeFadeView!
-    var belowFade: ScrollEdgeFadeView!
+    // Built in the sections setup (no IUOs).
+    lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
+    lazy var belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
     /// The hairline between the top band and the list (quiet look). The
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
@@ -201,7 +202,6 @@ public final class SidebarView: NSView {
         NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
-        edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
         buildBands()

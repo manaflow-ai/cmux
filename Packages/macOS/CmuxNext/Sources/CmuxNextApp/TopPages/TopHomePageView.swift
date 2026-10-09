@@ -63,7 +63,15 @@ final class TopHomePageView: NSView {
             sidebar.setMarkedUnread(false, id)
             self?.show(id)
         }
-        list.onSetPinned = { on, id in sidebar.setPinned(on, id) }
+        // The list redraws in the same turn, so a dropped tile lands from where it was drawn.
+        list.onSetPinned = { [weak self] on, id in
+            sidebar.setPinned(on, id)
+            self?.list.update(sidebar.model())
+        }
+        list.onPlacePinned = { [weak self] id, index in
+            sidebar.place(id, at: index)
+            self?.list.update(sidebar.model())
+        }
         let home = services.home
         let registry = services.registry
         // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
