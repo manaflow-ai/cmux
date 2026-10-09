@@ -77,7 +77,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (arg, None),
         };
-        let first = index == 0;
+        let first = parsed.control.is_none() && parsed.prompt.is_none();
         let mut value = || -> Result<String, String> {
             if let Some(value) = inline.clone() {
                 return Ok(value);

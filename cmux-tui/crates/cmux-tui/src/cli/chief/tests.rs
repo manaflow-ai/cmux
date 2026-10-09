@@ -321,6 +321,8 @@ fn engine_and_stop_are_one_call_each() {
         Some(Control::Engine(vec![("model".into(), "m".into()), ("effort".into(), "high".into())]))
     );
     assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop));
+    let homed = parse_args(&strings(&["--chief-home", "/tmp/h", "engine"])).unwrap();
+    assert_eq!(homed.control, Some(Control::Engine(vec![])), "a global flag may come first");
     assert!(parse_args(&strings(&["--model", "m"])).is_err(), "--model goes with engine");
     let report = json!({"engine": {"harness": "claude", "model": "", "effort": "high"}});
     assert_eq!(engine_line(&report), "claude · default · high");
@@ -353,4 +355,18 @@ fn a_dropped_typing_off_is_recovered_from_the_snapshot_after_a_gap() {
     assert_eq!(busy.replies.len(), 1, "a reply posted during the gap is kept");
     busy.on(&typing(false));
     assert!(busy.done);
+}
+
+#[test]
+fn a_reply_posted_after_the_typing_off_still_ends_the_turn() {
+    // The owner's agent rate limit can hold the brain's reply in its outbox
+    // until after the turn's typing-off (seen live): the turn ends with the
+    // reply, not with the typing-off.
+    let mut watch = TurnWatch::new(3);
+    watch.on(&cursor(3));
+    watch.on(&typing(true));
+    watch.on(&typing(false));
+    assert!(!watch.done, "no reply yet");
+    assert!(watch.on(&UiEvent::Message(message(4, "agent_mux", "late", "turn:optchat:2"))).is_some());
+    assert!(watch.done);
 }
