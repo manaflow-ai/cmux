@@ -34,6 +34,7 @@ impl Brain {
         if tasks.is_empty() {
             return Err("spawn needs at least one task".into());
         }
+        let mut free = crate::subagents::MAX_LIVE.saturating_sub(self.live_subs());
         let first = self.state.next_subagent.max(1);
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
@@ -44,23 +45,47 @@ impl Brain {
             subs: ids
                 .iter()
                 .zip(tasks)
-                .map(|(id, task)| SubRecord {
-                    id: id.clone(),
-                    title: crate::workspaces::name(id, task),
-                    run_ms: now_ms(),
-                    ..SubRecord::default()
+                .map(|(id, task)| {
+                    // Over the cap it waits for a free slot.
+                    let status = if free > 0 {
+                        free -= 1;
+                        SubStatus::Starting
+                    } else {
+                        SubStatus::Queued
+                    };
+                    SubRecord {
+                        id: id.clone(),
+                        title: crate::workspaces::name(id, task),
+                        run_ms: now_ms(),
+                        status,
+                        ..SubRecord::default()
+                    }
                 })
                 .collect(),
             delivered: false,
             started_ms: now_ms(),
             turn: self.state.turn.as_ref().map(|t| t.key.clone()),
         };
+        let queued: Vec<String> = record
+            .subs
+            .iter()
+            .filter(|s| s.status == SubStatus::Queued)
+            .map(|s| s.id.clone())
+            .collect();
         self.state.spawns.insert(spawn.clone(), record);
         self.save();
         (self.log)(&format!("spawn {spawn}: {}", ids.join(", ")));
+        // The turns' TTL for a Claude subagent's mark; none once a route
+        // refused our marks.
+        let ttl = (!self
+            .marker_refused
+            .load(std::sync::atomic::Ordering::SeqCst))
+        .then(|| self.turn_cache_ttl());
         Ok(SpawnPlan {
             spawn,
             ids,
+            queued,
+            ttl,
             engine: self.spawn_engine(),
         })
     }
@@ -103,6 +128,7 @@ impl Brain {
         if let Some(spawn) = spawn {
             self.deliver(&spawn);
         }
+        self.start_queued();
     }
 
     pub(super) fn sub_answer(&mut self, id: &str, answer: &Result<Value, String>) {
@@ -112,6 +138,16 @@ impl Brain {
             fields["spawn"] = json!(spawn);
         }
         self.trace.emit("subagent.answer", fields);
+        // A prompt the harness failed ends the run with a failure report,
+        // never a subagent that runs forever.
+        if let Err(e) = answer
+            && self
+                .state
+                .sub(id)
+                .is_some_and(|(_, s)| s.status == SubStatus::Running)
+        {
+            self.sub_done(id, format!("(failed: {e})"), false, None, None);
+        }
     }
 
     /// A session changed: when it is a subagent's, its runs and turn ends
@@ -217,6 +253,7 @@ impl Brain {
         (self.log)(&format!("subagent {id} finished"));
         self.mark_workspace(id, true);
         self.deliver(&spawn);
+        self.start_queued();
     }
 
     /// The subagent's tool calls, model requests and the messages the user
@@ -244,8 +281,9 @@ impl Brain {
         crate::trace::requests(&self.trace, &scope, fold.requests());
     }
 
-    /// Renames a subagent's workspace: done mark on, or off when it runs again.
-    fn mark_workspace(&self, id: &str, done: bool) {
+    /// Renames a subagent's workspace: done mark on, or off when it runs
+    /// again; or, under the close setting, closes it when it finishes.
+    fn mark_workspace(&mut self, id: &str, done: bool) {
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
@@ -253,10 +291,24 @@ impl Brain {
         let Some(key) = sub.workspace.clone() else {
             return;
         };
+        let title = sub.title.clone();
+        if done && self.sub_close_on_finish {
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.workspace = None;
+            }
+            self.save();
+            let (log, id) = (self.log.clone(), id.to_owned());
+            std::thread::spawn(move || {
+                if let Err(e) = workspaces.close(&key) {
+                    log(&format!("subagent {id}: closing its workspace: {e}"));
+                }
+            });
+            return;
+        }
         let name = if done {
-            crate::workspaces::done_name(&sub.title)
+            crate::workspaces::done_name(&title)
         } else {
-            sub.title.clone()
+            title.clone()
         };
         let log = self.log.clone();
         let id = id.to_owned();
@@ -279,9 +331,10 @@ impl Brain {
             .filter(|s| s.status == SubStatus::Done)
             .map(|s| {
                 let report = s.report.as_deref().unwrap_or("");
+                let footer = crate::agent_chat::footer(&s.id);
                 (
                     s.id.clone(),
-                    format!("[{}] {report}", s.id),
+                    format!("[{}] {report}\n{footer}", s.id),
                     s.floor,
                     s.stopped,
                 )
@@ -420,10 +473,115 @@ impl Brain {
         for spawn in spawns {
             self.deliver(&spawn);
         }
+        self.start_queued();
+    }
+
+    /// Subagents starting or running now.
+    fn live_subs(&self) -> usize {
+        self.state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .count()
+    }
+
+    /// Starts queued subagents, oldest first, while slots are free.
+    pub(super) fn start_queued(&mut self) {
+        while self.live_subs() < crate::subagents::MAX_LIVE {
+            let next = self
+                .state
+                .spawns
+                .values()
+                .flat_map(|r| r.subs.iter())
+                .filter(|s| s.status == SubStatus::Queued)
+                .min_by_key(|s| {
+                    s.id.trim_start_matches('a')
+                        .parse::<u64>()
+                        .unwrap_or(u64::MAX)
+                })
+                .map(|s| s.id.clone());
+            let Some(id) = next else { return };
+            let sent = self
+                .sub_starter
+                .as_ref()
+                .is_some_and(|starter| starter.send(id.clone()).is_ok());
+            if !sent {
+                self.sub_failed(&id, "this Chief host cannot start queued subagents");
+                continue;
+            }
+            if let Some(sub) = self.state.sub_mut(&id) {
+                sub.status = SubStatus::Starting;
+                sub.run_ms = now_ms();
+            }
+            self.save();
+            (self.log)(&format!("subagent {id}: a slot is free, starting it"));
+        }
+    }
+
+    /// chief.stop: every subagent at work stops (`session/cancel`; its
+    /// report comes quiet) and every queued one is dropped. Their ids.
+    pub(super) fn stop_subagents(&mut self) -> Vec<String> {
+        let subs: Vec<(String, SubStatus, Option<String>)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| {
+                matches!(
+                    s.status,
+                    SubStatus::Starting | SubStatus::Running | SubStatus::Queued
+                )
+            })
+            .map(|s| (s.id.clone(), s.status, s.session_id.clone()))
+            .collect();
+        let mut stopped = Vec::new();
+        for (id, status, session) in subs {
+            match (status, session) {
+                (SubStatus::Queued, _) => {
+                    self.sub_done(
+                        &id,
+                        "(stopped by the user before it started)".into(),
+                        true,
+                        None,
+                        None,
+                    );
+                }
+                (_, Some(session)) => {
+                    if let Err(e) = self.agents.cancel(&session) {
+                        (self.log)(&format!("subagent {id}: stopping it: {e}"));
+                        continue;
+                    }
+                }
+                // Its session is not made yet: nothing to stop.
+                (_, None) => continue,
+            }
+            stopped.push(id);
+        }
+        stopped.sort_by_key(|id| {
+            id.trim_start_matches('a')
+                .parse::<u64>()
+                .unwrap_or(u64::MAX)
+        });
+        stopped
     }
 }
 
 impl Brain {
+    /// `Subagents at work now: a1, a3.` when any runs (a turn's line after
+    /// the view); None when none does.
+    pub(super) fn at_work_line(&self) -> Option<String> {
+        let ids: Vec<&str> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .map(|s| s.id.as_str())
+            .collect();
+        (!ids.is_empty()).then(|| format!("Subagents at work now: {}.", ids.join(", ")))
+    }
+
     /// A running subagent spawned under the spawn floor: the floor stays
     /// `ask` while one lives (`spawn_policy`).
     pub(super) fn ask_subagent_live(&self) -> bool {

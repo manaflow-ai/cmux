@@ -15,8 +15,15 @@ pub const API_KEY_ENV: &str = "OPTCHAT_ANTHROPIC_API_KEY";
 /// What the team subrouter gets: it ignores the key, and a real key must not
 /// travel to it.
 pub const SUBROUTER_KEY: &str = "subrouter";
-/// The compactor model: cheap but competent (section 4.2 uses Sonnet).
-pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
+/// The compactor model: Claude Haiku 5.5 at high effort, as the reference
+/// client runs it (section 4.2 uses Sonnet at medium). About half the time
+/// per node and a fraction of the cost; it writes over-long lines more
+/// often, which the ruler and the "Too long" retry handle.
+/// `OPTCHAT_COMPACTOR_MODEL` (or engine.json's `compactor-model`) picks
+/// another, e.g. `claude-sonnet-5-5`.
+pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
+/// The compactor's `output_config.effort` (`OPTCHAT_COMPACTOR_EFFORT`).
+pub const DEFAULT_EFFORT: &str = "high";
 /// Where a node goes when the compactor model declines it. Claude Sonnet 5
 /// declines in fewer safeguard categories than Sonnet 5.5 (no bio,
 /// reasoning-extraction or general-harms classifiers on the same scale), so a
@@ -42,8 +49,8 @@ pub struct Config {
     /// `server-side-fallback-2026-07-01`). Off by default: the team subrouter
     /// may not forward the beta, and a 400 there would fail every call.
     pub server_fallback: bool,
-    /// `output_config.effort`; the spec runs the compactor at medium, since
-    /// low effort overshot the size limit much more (section 4.2).
+    /// `output_config.effort` (`DEFAULT_EFFORT`); low effort overshot the
+    /// size limit much more (section 4.2).
     pub effort: Option<String>,
     /// Base URL of the Messages API (`/v1/messages` is appended).
     pub base_url: String,
@@ -82,7 +89,7 @@ impl Default for Config {
             model: DEFAULT_MODEL.to_string(),
             fallback_model: Some(DEFAULT_FALLBACK_MODEL.to_string()),
             server_fallback: false,
-            effort: Some("medium".to_string()),
+            effort: Some(DEFAULT_EFFORT.to_string()),
             api_key: api_key(&base_url, |k| std::env::var(k).ok()),
             base_url,
             max_tokens: 16_000,

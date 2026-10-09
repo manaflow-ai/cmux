@@ -59,7 +59,8 @@ public struct AgentCursorPalette: Sendable, Equatable {
         }
         if suffix.unicodeScalars.count == 1, let scalar = suffix.unicodeScalars.first,
            scalar.isASCII, CharacterSet.letters.contains(scalar) {
-            let lower = Character(scalar).lowercased().unicodeScalars.first!.value
+            // An ASCII letter lowercases to one ASCII scalar; `scalar` itself stands in otherwise.
+            let lower = Character(scalar).lowercased().unicodeScalars.first?.value ?? scalar.value
             return Int(lower - 97) % count
         }
         var hash: UInt32 = 2_166_136_261
