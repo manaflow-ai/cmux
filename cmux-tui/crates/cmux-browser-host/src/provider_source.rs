@@ -228,6 +228,19 @@ impl TabSource for ProviderSource {
             .collect()
     }
 
+    fn remember_kept(&self, target_id: &str) {
+        let mut kept = self.0.kept_tabs.lock().unwrap_or_else(PoisonError::into_inner);
+        kept.insert(target_id.to_owned());
+    }
+
+    fn kept_tabs(&self) -> Vec<String> {
+        self.0.kept_tabs.lock().unwrap_or_else(PoisonError::into_inner).iter().cloned().collect()
+    }
+
+    fn all_tab_rows(&self) -> Vec<TabRow> {
+        ["cef", "webkit"].iter().flat_map(|engine| self.tab_rows(engine)).collect()
+    }
+
     fn tab_engine(&self, target_id: &str) -> Option<String> {
         self.0.tab_engine(target_id)
     }

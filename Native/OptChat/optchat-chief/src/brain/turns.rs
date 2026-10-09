@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
 use crate::compactor::is_marker_limit_error;
-use crate::prompt::{CacheTtl, Mark, cached_layout_marked, is_ttl_refused_error, turn_blocks};
+use crate::prompt::{CacheTtl, Mark, is_ttl_refused_error, turn_blocks, turn_layout};
 use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
@@ -302,7 +302,9 @@ impl Brain {
             self.phase = Phase::Idle;
             return None;
         }
-        if self.chat.status().unbuilt > 0 {
+        // The same check as settle's: an imported line still being built
+        // (or a stuck one) does not hold the turn.
+        if !self.chat.turn_ready() {
             self.phase = Phase::Idle;
             self.maybe_start_turn();
             return None;
@@ -415,7 +417,7 @@ impl Brain {
                     Source::Message {
                         remote: Some(_),
                         ..
-                    } | Source::Resume { remote: true }
+                    } | Source::Resume { remote: true, .. }
                 )
             });
         self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
@@ -437,7 +439,15 @@ impl Brain {
             .filter_map(super::images::TurnImage::block)
             .collect();
         self.describe_images(&images);
-        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // A resume note carries the cut messages' full text (never logged
+        // again) before the newer messages.
+        let texts: Vec<String> = items
+            .into_iter()
+            .map(|i| match &i.source {
+                Source::Resume { cut, .. } => super::recover::resume_prompt(cut),
+                _ => i.text,
+            })
+            .collect();
         // Per-turn state goes after the view, never in the system prompt:
         // the subagents at work now (the reference client's line), before
         // the new messages. Never logged.
@@ -459,11 +469,12 @@ impl Brain {
                 ) {
                     (self.log)(&format!("updating the session's promptCacheTtl: {e}"));
                 }
-                let layout = cached_layout_marked(
+                let layout = turn_layout(
                     &self.settings.system_text,
                     &view.text,
                     &prompt_texts.join("\n\n"),
                     mark,
+                    true,
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
@@ -489,6 +500,7 @@ impl Brain {
                 "kind": "cached",
                 "marker": mark.is_some(),
                 "mark": mark.map(|m| m.piece),
+                "head_mark": true,
                 "ttl": ttl.as_str(),
             })
         } else {
@@ -1086,10 +1098,11 @@ fn item(queued: &Queued) -> Item {
             remote: remote.is_some(),
             ..Item::default()
         },
-        Source::Resume { remote } => Item {
+        Source::Resume { remote, cut } => Item {
             conversation: queued.conversation.clone(),
             remote: *remote,
             resume: true,
+            cut: cut.clone(),
             ..Item::default()
         },
         Source::Child { session_id, floor } => Item {

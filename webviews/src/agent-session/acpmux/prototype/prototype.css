@@ -475,23 +475,57 @@ body {
 .proto-tab {
   display: flex;
   align-items: center;
-  gap: 7px;
   max-width: 260px;
   height: 28px;
-  padding: 0 10px;
-  border: 0;
   border-radius: 7px;
   background: none;
   color: var(--agent-muted) !important;
 }
-.proto-tab span {
+.proto-tab-select {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 6px 0 10px;
+  border: 0;
+  border-radius: 7px 0 0 7px;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.proto-tab-select span {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.proto-tab[aria-selected="true"] {
+.proto-tab.is-active {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   color: var(--agent-text) !important;
+}
+.proto-tab-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-right: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+  opacity: 0;
+}
+.proto-tab:hover .proto-tab-close,
+.proto-tab:focus-within .proto-tab-close,
+.proto-tab-close:focus-visible {
+  opacity: 1;
+}
+.proto-tab-close:hover,
+.proto-tab-close:focus-visible {
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
 }
 .proto-body {
   position: relative;

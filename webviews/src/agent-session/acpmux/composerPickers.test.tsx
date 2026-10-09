@@ -47,7 +47,7 @@ afterAll(() => {
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
-const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
+const { ComposerPickers, Picker, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
 const { openPicker, pickerLabels } = await import("./pickerOpeners");
 const { webKitPress } = await import("./popoverTriggerTesting");
 
@@ -112,7 +112,10 @@ describe("acpmux composer pickers", () => {
     return () => void pendingSettles.delete(job);
   };
   const settle = () => act(async () => [...pendingSettles].forEach((job) => job()));
-  const render = async (value: AcpmuxSnapshot, extra: { showPlan?: boolean; onCompact?(): void } = {}) =>
+  const render = async (
+    value: AcpmuxSnapshot,
+    extra: { showPlan?: boolean; onCompact?(): void; onShowContextUsage?(show: boolean): void } = {},
+  ) =>
     act(async () =>
       root.render(
         createElement(ComposerPickers, {
@@ -164,7 +167,8 @@ describe("acpmux composer pickers", () => {
     const chipRow = model.closest(".acpmux-chips")!;
     const controls = [...chipRow.children];
     expect(controls.indexOf(model.closest(".acpmux-model")!)).toBeLessThan(
-      controls.indexOf(doc.querySelector(".acpmux-context")!),
+      // The ring sits in its right-click host, which draws no box (display: contents).
+      controls.indexOf(doc.querySelector(".acpmux-context")!.closest(".acpmux-chips > *")!),
     );
     await act(async () => model.click());
     const menu = doc.querySelector(".acpmux-mp[role=dialog]")!;
@@ -441,9 +445,7 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-plan")).toBeNull();
   });
 
-  // Quarantined (bead cx-svv2): run alone, the Mode chip (a Base UI menu) reopens on this press.
-  // It passed only on state other files leaked into the shared test process.
-  test.skip("pressing an open chip closes its menu, as WebKit delivers the press; it never reopens", async () => {
+  test("pressing an open chip closes its menu, as WebKit delivers the press; it never reopens", async () => {
     await render(snapshot({ modes }));
     for (const label of ["Model", "Mode"]) {
       const chip = button(label)!;
@@ -472,6 +474,38 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector("[role=menu]")).toBeNull();
     expect(doc.activeElement).toBe(mode);
     expect(calls).toEqual(["mode bypassPermissions"]);
+  });
+
+  test("the composer action picker jumps to its first and last row with Home and End", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Picker, {
+          label: "Actions",
+          className: "acpmux-composer-plus",
+          button: "Actions",
+          align: "start",
+          sections: [
+            {
+              choices: [
+                { id: "attach", name: "Attach" },
+                { id: "mention", name: "Mention" },
+                { id: "plan", name: "Plan" },
+              ],
+              current: "mention",
+              onPick: () => undefined,
+            },
+          ],
+        }),
+      ),
+    );
+    const trigger = doc.querySelector<HTMLButtonElement>('[aria-label="Actions"]')!;
+    await key(trigger, "ArrowDown");
+    const rows = [...doc.querySelectorAll<HTMLElement>('[role="option"]')];
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(rows[1]?.id);
+    await key(trigger, "End");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(rows.at(-1)!.id);
+    await key(trigger, "Home");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(rows[0]!.id);
   });
 
   test("Space picks on keyup without the button's click reopening the menu, and a shrunk list keeps a row highlighted", async () => {
@@ -986,6 +1020,37 @@ describe("acpmux composer pickers", () => {
     await open();
     expect(pop()!.querySelector(".acpmux-context-part")).toBeNull();
     expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("90K of 258.4K tokens");
+  });
+
+  test("the ring's right-click hides context usage, and the footer's right-click shows it again", async () => {
+    const { setComposerSettings } = await import("./composerSettings");
+    const shown: boolean[] = [];
+    const onShowContextUsage = (show: boolean) => void shown.push(show);
+    await act(async () => setComposerSettings({ showContextUsage: true }));
+    await render(snapshot({ usage: { used: 34000, size: 200000 } }), { onShowContextUsage });
+    const ring = () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring");
+    const items = () => [...doc.querySelectorAll<HTMLButtonElement>(".ui-context-menu [role=menuitem]")];
+    const rightClick = (target: Element) =>
+      act(async () =>
+        target.dispatchEvent(
+          new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }),
+        ),
+      );
+    await rightClick(ring()!);
+    expect(items().map((item) => item.textContent)).toEqual(["Hide Context Usage"]);
+    await act(async () => items()[0]!.click());
+    expect(shown).toEqual([false]);
+    // Hidden at once; the host's write of agentPane.showContextUsage then keeps it hidden.
+    expect(ring()).toBeNull();
+    await act(async () => setComposerSettings({ showContextUsage: false }));
+    expect(ring()).toBeNull();
+    // The way back: a right-click anywhere on the footer's controls.
+    await rightClick(button("Model")!);
+    expect(items().map((item) => item.textContent)).toEqual(["Show Context Usage"]);
+    await act(async () => items()[0]!.click());
+    expect(shown).toEqual([false, true]);
+    expect(ring()).not.toBeNull();
+    await act(async () => setComposerSettings({ showContextUsage: true }));
   });
 });
 
