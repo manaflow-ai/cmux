@@ -52,10 +52,10 @@ impl OpVisitor for CaseTrip<'_> {
     fn visit<O: Op>(self) -> Self::Output {
         let case = self.0;
         let name = case["name"].as_str().unwrap_or("?");
-        if let Some(class) = case["class"].as_str() {
-            if class != O::CLASS.as_str() {
-                return Err(format!("{name}: class {class}, catalog {}", O::CLASS.as_str()));
-            }
+        if let Some(class) = case["class"].as_str()
+            && class != O::CLASS.as_str()
+        {
+            return Err(format!("{name}: class {class}, catalog {}", O::CLASS.as_str()));
         }
         let params = &case["params"];
         round_trip::<O::Params>(&format!("{name} params"), params)?;
@@ -149,8 +149,10 @@ impl OpVisitor for CatalogRow<'_> {
                 O::IDEMPOTENCY.as_str()
             ));
         }
-        let declared: Vec<&str> =
+        let mut declared: Vec<&str> =
             row["errors"].as_array().expect("errors").iter().filter_map(Value::as_str).collect();
+        // A row may list a code twice; the generated set holds it once.
+        declared.dedup();
         if declared != O::Error::CODES {
             wrong.push(format!("{name}: errors {declared:?} vs {:?}", O::Error::CODES));
         }
