@@ -15,13 +15,22 @@ type Props = Record<string, never>;
 const keyboard: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Effort" });
   await ctx.waitFor(() => {
-    const range = ctx.document.querySelector<HTMLInputElement>(".acpmux-effort-range");
-    return range !== null && ctx.document.activeElement === range;
+    const selected = ctx.document.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]');
+    return selected !== null && ctx.document.activeElement === selected;
   });
-  await ctx.press("ArrowRight");
+  await ctx.press("ArrowDown");
+  await ctx.waitFor(
+    () =>
+      ctx.document
+        .querySelector<HTMLElement>('[role="menuitemradio"][data-highlighted]')
+        ?.textContent?.includes("High") ?? false,
+  );
+  await ctx.press("Enter");
   await ctx.waitFor(
     () => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button > span")?.textContent === "High",
   );
+  await ctx.click({ role: "button", name: "Effort" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
   await ctx.press("Escape");
   await ctx.waitFor(() => {
     const trigger = ctx.find({ role: "button", name: "Effort" });
@@ -57,7 +66,7 @@ export default componentEntry<Props>({
       return <EffortPicker label="effort" efforts={efforts} current={current} onPick={setCurrent} />;
     };
   },
-  styles: () => import("./styles.css"),
+  styles: () => Promise.all([import("./styles.css"), import("./composerControls.css")]),
   variants: {
     closed: { props: {} },
     keyboard: {
