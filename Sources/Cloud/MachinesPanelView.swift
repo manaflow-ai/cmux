@@ -575,23 +575,21 @@ struct MachinesPanelView: View {
         }
         // Every type adds through the CodeRouter CLI's active organization, the
         // one the sidebar refresh keeps on the selected team and reads back.
-        let command = provider.addCommand
-
-        if let panel = tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
-            panel.sendInput(command + "\r")
-            return
+        let launch = CoderouterAccountTerminalLaunch(provider: provider)
+        let destination = tabManager?.selectedWorkspace.map {
+            SurfaceDestination.workspace(id: $0.id, placement: .split)
         }
 
         Task { @MainActor in
             do {
                 _ = try await TerminalController.surfaceNewTerminal(
                     machine: .local,
-                    command: ["sh", "-lc", command],
+                    command: launch.command,
                     cwd: nil,
-                    name: "CodeRouter",
+                    name: launch.name,
                     remoteWorkspaceID: nil,
-                    destination: nil,
-                    focus: true
+                    destination: destination,
+                    focus: launch.focus
                 )
             } catch {
                 viewModel.noteTreeFailure(error.localizedDescription)

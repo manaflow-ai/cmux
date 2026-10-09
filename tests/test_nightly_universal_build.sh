@@ -540,6 +540,8 @@ assert "resume-helper-notarization.sh" in auto
 assert "Install recovered DMG packaging tools" in auto
 assert "Import signing certificate for recovered DMG" in auto
 assert "Prepare outer DMG recovery after bounded wait" in auto
+assert "runner.temp" not in auto.split("  wait-and-staple:", 1)[1].split("  poll-outer:", 1)[0]
+assert 'outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"' in auto
 assert "poll-outer:" in auto and "staple-outer:" in auto
 assert "outer-notarization-metadata-" in auto
 assert "fromJSON(needs.poll-outer.outputs.outer_variants)" in auto
