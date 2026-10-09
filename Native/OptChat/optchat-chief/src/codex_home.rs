@@ -24,19 +24,29 @@ pub const CODEX_PATH_ENV: &str = "CODEX_PATH";
 
 /// The Chief's own codex (the cmux codex fork, which reads
 /// `CODEX_PROMPT_CACHE_KEY`): `OPTCHAT_CODEX_PATH` when it names a file,
-/// else `paths.codex_bin` when installed. None: codex-acp runs the PATH
-/// codex, which may be upstream codex (it ignores the key, so the view is
-/// never read back from the cache).
-/// Where the app bundles the codex fork next to this binary (no copy yet).
-pub fn chief_codex_in(_paths: &Paths, _exe_dir: &Path) -> Option<PathBuf> {
-    None
-}
-
+/// else `paths.codex_bin` when installed, else the copy DEV and NIGHTLY
+/// app builds bundle next to this binary (`Resources/bin/chief-codex/codex`).
+/// None: codex-acp runs the PATH codex, which may be upstream codex (it
+/// ignores the key, so the view is never read back from the cache).
 pub fn chief_codex(paths: &Paths) -> Option<PathBuf> {
-    crate::cli::env("OPTCHAT_CODEX_PATH")
+    if let Some(path) = crate::cli::env("OPTCHAT_CODEX_PATH")
         .map(PathBuf::from)
         .filter(|p| p.is_file())
-        .or_else(|| paths.codex_bin.is_file().then(|| paths.codex_bin.clone()))
+    {
+        return Some(path);
+    }
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    chief_codex_in(paths, &exe_dir)
+}
+
+/// `chief_codex` without the env: the Chief home's copy, else the one
+/// bundled beside the binary in `exe_dir`.
+pub fn chief_codex_in(paths: &Paths, exe_dir: &Path) -> Option<PathBuf> {
+    if paths.codex_bin.is_file() {
+        return Some(paths.codex_bin.clone());
+    }
+    let bundled = exe_dir.join("chief-codex").join("codex");
+    bundled.is_file().then_some(bundled)
 }
 
 /// The private, empty HOME every codex compactor slot runs with (under
