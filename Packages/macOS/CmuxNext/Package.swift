@@ -101,8 +101,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-eee4e4fffe22964457034c3fd2a8fb22388dec2b/CCmuxAppFFI.xcframework.zip",
-    checksum: "29b59f4c85596393ab656ac27edb7b55bde9036f3c73450e361bdb1ecd649de1"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-52ac077be908e2cd6d9eeb5dd35573e331dab4d1/CCmuxAppFFI.xcframework.zip",
+    checksum: "0c417fb6d94a249f1cca71dc279196a198a176ae0c0ed95971dce0edd4443532"
 )
 
 let package = Package(
@@ -117,6 +117,7 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../../Shared/CMUXAuthCore"),
+        .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
@@ -640,13 +641,14 @@ let package = Package(
             dependencies: [
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextCloudTests",
-            dependencies: ["CmuxNextCloud"],
+            dependencies: ["CmuxNextCloud", .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore")],
             swiftSettings: daemonSwiftSettings
         ),
         // Machines reached over the user's own OpenSSH: destinations, the

@@ -898,8 +898,8 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final ServerStatsResult serverStats() throws CmuxException {
-        Object result = execute(Commands.SERVER_STATS, Map.of());
+    public final ServerStatsResult serverStats(ServerStatsRequest request) throws CmuxException {
+        Object result = execute(Commands.SERVER_STATS, request.toWire());
         return ServerStatsResult.fromWire(result);
     }
 

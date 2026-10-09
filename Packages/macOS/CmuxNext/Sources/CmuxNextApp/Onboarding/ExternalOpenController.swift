@@ -57,7 +57,7 @@ final class ExternalOpenController {
     /// Workspace services: a new workspace (in the current window, or a new
     /// one) whose terminal starts in the folder.
     func newWorkspace(at path: String, newWindow: Bool) {
-        guard case .terminal(let cwd, _) = router.newTabHere(path), let windows = services.windows else { return }
+        guard case .terminal(let cwd, _) = router.newTabHere(path), case let windows = services.windows else { return }
         let target = newWindow ? UUID().uuidString.lowercased() : windows.targetWindow(preferring: windows.active?.state.id)
         let logger = services.daemon.logger
         Task {
@@ -71,7 +71,7 @@ final class ExternalOpenController {
     }
 
     func perform(_ route: ExternalOpenRoute) {
-        guard let windows = services.windows else { return pending.append(route) }
+        let windows = services.windows
         guard let controller = windows.active else {
             pending.append(route)
             if windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
@@ -99,7 +99,7 @@ final class ExternalOpenController {
     private var creatingWorkspace = false
 
     private func createWorkspaceForPending(in controller: WindowController) {
-        guard !creatingWorkspace, let windows = services.windows else { return }
+        guard !creatingWorkspace, case let windows = services.windows else { return }
         creatingWorkspace = true
         let target = windows.targetWindow(preferring: controller.state.id)
         let logger = services.daemon.logger

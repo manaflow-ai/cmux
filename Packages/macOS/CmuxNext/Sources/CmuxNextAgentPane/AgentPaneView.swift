@@ -74,9 +74,10 @@ public final class AgentPaneView: NSView {
     private var gestureMonitor: Any?
     /// Paces the transport's pushes (stopped when the pane closes).
     var transportPacer: AgentPaneFramePacer?
-    /// The message the page reported under the pointer for the next context menu, and where the
-    /// menu's copies go (tests record them instead).
+    /// The message and the selected transcript text the page reported under the pointer for the
+    /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
+    var menuSelection: String?
     var copyText: @MainActor (String) -> Void = { text in
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)

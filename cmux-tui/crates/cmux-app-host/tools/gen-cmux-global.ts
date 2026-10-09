@@ -30,7 +30,8 @@ const SCOPE_FAMILY: Record<string, string> = { tab: "workspace", pane: "workspac
 /** Families apps never reach in phase 1 (grants, installs, accounts, pairing, raw client plumbing, origin confirmations). */
 const NEVER_FAMILIES = new Set(["install", "grant", "host", "pairing_request", "client", "request", "stream", "frontend_projection", "user", "app", "origin"])
 const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attach|project)$|^browser\.input\.|^session\.journal\.hook\.put$)/
-const NEVER = /(\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_folder\.)/
+// team_vm.retired.export (cx-lyvg) is risk read but hands out the whole team's files: a person's session only, never an app.
+const NEVER = /(\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_folder\.|^team_vm\.retired\.export$)/
 
 const readJSON = (p: string) => JSON.parse(readFileSync(join(repo, p), "utf8"))
 

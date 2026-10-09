@@ -205,10 +205,11 @@ public struct MobileSyncFrameCodec {
     public static let defaultMaximumDecodedFrameCount = 256
 
     public static func encodeFrame(_ payload: Data) throws -> Data {
-        guard payload.count <= defaultMaximumFrameByteCount else {
+        guard payload.count <= defaultMaximumFrameByteCount,
+              let payloadLength = UInt32(exactly: payload.count) else {
             throw MobileSyncFrameCodecError.frameTooLarge(payload.count)
         }
-        var length = UInt32(payload.count).bigEndian
+        var length = payloadLength.bigEndian
         var frame = Data(bytes: &length, count: headerByteCount)
         frame.append(payload)
         return frame
@@ -228,45 +229,19 @@ public struct MobileSyncFrameCodec {
         }
         var frames: [Data] = []
         frames.reserveCapacity(min(maximumDecodedFrameCount, 16))
-        var consumedByteCount = 0
+        var reader = WireByteReader(buffer)
         defer {
-            if consumedByteCount > 0 {
-                buffer.removeSubrange(
-                    buffer.startIndex..<buffer.index(
-                        buffer.startIndex,
-                        offsetBy: consumedByteCount
-                    )
-                )
-            }
+            if reader.remainingCount < buffer.count { buffer = reader.remaining }
         }
-
-        while frames.count < maximumDecodedFrameCount,
-              buffer.count - consumedByteCount >= headerByteCount {
-            let frameStart = buffer.index(
-                buffer.startIndex,
-                offsetBy: consumedByteCount
-            )
-            let headerEnd = buffer.index(
-                frameStart,
-                offsetBy: headerByteCount
-            )
-            let length = buffer[frameStart..<headerEnd].reduce(UInt32(0)) { partial, byte in
-                (partial << 8) | UInt32(byte)
+        while frames.count < maximumDecodedFrameCount {
+            var frame = reader
+            guard let length = frame.bigEndian(UInt32.self) else { break }
+            guard let payloadLength = Int(exactly: length), payloadLength <= maximumFrameByteCount else {
+                throw MobileSyncFrameCodecError.frameTooLarge(Int(clamping: length))
             }
-            let payloadLength = Int(length)
-            guard payloadLength <= maximumFrameByteCount else {
-                throw MobileSyncFrameCodecError.frameTooLarge(payloadLength)
-            }
-            guard buffer.count - consumedByteCount >= headerByteCount + payloadLength else {
-                break
-            }
-            let payloadStart = headerEnd
-            let payloadEnd = buffer.index(
-                payloadStart,
-                offsetBy: payloadLength
-            )
-            frames.append(buffer.subdata(in: payloadStart..<payloadEnd))
-            consumedByteCount += headerByteCount + payloadLength
+            guard let payload = frame.bytes(payloadLength) else { break }
+            frames.append(payload)
+            reader = frame
         }
         return frames
     }

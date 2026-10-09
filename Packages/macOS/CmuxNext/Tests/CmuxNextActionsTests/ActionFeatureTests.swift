@@ -27,6 +27,17 @@ import Testing
         #expect(Self.ids(.browserAutomation).isEmpty && Self.ids(.mcp).isEmpty)
     }
 
+    /// cx-7py7: the Apps feature is the App Store catalog's own actions, not
+    /// every id that starts with "app."; Share cmux stays with Apps off.
+    @Test func shareCmuxStaysWithAppsTurnedOff() {
+        #expect(ActionFeature.feature(of: ActionCatalog.all.first { $0.id == "app.shareCmux" }!) == nil)  // crash-allow: catalog action
+        let registry = ActionRegistry.standard()
+        registry.bind("app.shareCmux") {}
+        registry.disabledFeatures = [.apps]
+        #expect(registry.disabledFeature(for: "app.shareCmux") == nil)
+        #expect(registry.isAvailable("app.shareCmux"))
+    }
+
     @Test func aDisabledFeatureLeavesTheRegistry() throws {
         let registry = ActionRegistry.standard()
         var ran: [ActionID] = []

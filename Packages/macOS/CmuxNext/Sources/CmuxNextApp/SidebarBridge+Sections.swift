@@ -91,8 +91,8 @@ extension SidebarBridge {
                         DesignSettings.shared.sidebarSections.showChats, SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs))
             }) {
                 guard let self else { return }
+                // `model.layout` is written with the rows it projects (SidebarBridge.show).
                 let visibleLayout = layout.chatsLayout(enabled: showChats)
-                if model.layout != visibleLayout { model.layout = visibleLayout }
                 self.chatsMount.show(showChats, services: self.services)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread,

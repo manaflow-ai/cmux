@@ -13,7 +13,7 @@ final class SSHMachineSession {
     let machineID: String
     let daemon: DaemonService
     @ObservationIgnored let link: SSHMachineLink
-    @ObservationIgnored private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
+    @ObservationIgnored let emptyWorkspaces: EmptyWorkspaceRepair
     /// The link's gate status (`SSHConnectionMachine`), mirrored from the actor.
     var linkStatus: SSHConnectionMachine.Status = .offline
     /// The install step in progress, for the header's detail.

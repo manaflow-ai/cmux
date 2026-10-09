@@ -75,14 +75,10 @@ impl Brain {
         self.state.spawns.insert(spawn.clone(), record);
         self.save();
         (self.log)(&format!("spawn {spawn}: {}", ids.join(", ")));
-        // The turns' TTL for a Claude subagent's mark; none once a route
-        // refused our marks.
-        let ttl = (!self.marker_refused.is_off()).then(|| self.turn_cache_ttl());
         Ok(SpawnPlan {
             spawn,
             ids,
             queued,
-            ttl,
             engine: self.spawn_engine(),
         })
     }
@@ -343,6 +339,16 @@ impl Brain {
                 subs: vec![(id.clone(), floor)],
                 quiet,
             });
+            // On its way into the running turn (a steer not read yet): it is
+            // logged when the harness reads it, never queued twice.
+            let steering = self.steering.as_ref().is_some_and(|st| {
+                st.items.iter().any(|q| {
+                    matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
+                })
+            });
+            if steering {
+                continue;
+            }
             let queued = self.queue.iter().position(|q| {
                 matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
             });

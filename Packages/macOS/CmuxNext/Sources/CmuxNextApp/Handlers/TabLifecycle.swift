@@ -20,7 +20,7 @@ enum TabLifecycle {
             toggled: invocation["toggleWorkspace"]?.boolValue == true
         )
         noteUserChoice(.terminal, ctx, invocation, pane: focused)
-        if invocation.origin == .user, opensWorkspace, let windows = ctx.services.windows,
+        if invocation.origin == .user, opensWorkspace, case let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
             let daemon = ctx.services.daemon(for: focused)
             let start = cwd ?? ctx.services.paneController(for: focused)?.selectedTab?.cwd ?? focused.tabs.first?.cwd
@@ -110,7 +110,8 @@ enum TabLifecycle {
         var kind = sameKind
         if user {
             let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback
-            kind = NewTabKind.resolve(setting, sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
+            kind = NewTabKind.resolve(setting, template: ctx.services.settings?.snapshot.newTabTemplate,
+                                      sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
         }
         // Agent tabs and the page live in a shown pane whose daemon holds agent tabs; elsewhere,
         // a terminal. A build without the agent page has no new tab page either.
@@ -162,7 +163,7 @@ enum TabLifecycle {
         if engine == .webkit, ctx.services.cache.pageRequests.proxiedTabs.isProxied(tab.id) {
             return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
         }
-        if engine == .cef, let reason = ctx.services.cache.browserTabs?.cefUnavailableReason() {
+        if engine == .cef, let reason = ctx.services.cache.browserTabs.cefUnavailableReason() {
             return ctx.refuse(reason)
         }
         let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
@@ -210,7 +211,7 @@ enum TabLifecycle {
             pane = invoked
         }
         // A refused engine is not remembered, or Auto would repeat the refusal on every Cmd-T in the folder.
-        if case .open? = ctx.services.cache.browserTabs?.resolve(requested: engine) {
+        if case .open = ctx.services.cache.browserTabs.resolve(requested: engine) {
             noteUserChoice(.browser(engine: plan.recordedEngine), ctx, invocation, pane: pane)
         }
         if docked { return }
@@ -253,7 +254,7 @@ enum TabLifecycle {
             else { controller.newBrowserTab(url: url, engine: engine, then: then) }
             return
         }
-        let browserTabs = ctx.services.cache.browserTabs!
+        let browserTabs = ctx.services.cache.browserTabs
         guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
         let choice: BrowserEngineChoice
         switch browserTabs.resolve(requested: engine) {
@@ -278,7 +279,7 @@ enum TabLifecycle {
     /// frontend tab on the resolved engine, else nil (the chat stays).
     private static func chatRespawn(_ ctx: AppActionContext, url: URL?, engine: String?,
                                     profile: AgentBrowserProfile.Request) -> SplitRespawn? {
-        guard let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(),
+        guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(),
               case .open(let choice) = browserTabs.resolve(requested: engine) else { return nil }
         var profileID: String?
         if case .explicit(let id) = profile { profileID = id }
@@ -294,7 +295,7 @@ enum TabLifecycle {
             controller.newBrowserTab(url: url, engine: engine, profile: profile, then: agentTab)
             return
         }
-        guard let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable() else {
+        guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable() else {
             return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
         }
         let choice: BrowserEngineChoice

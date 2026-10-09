@@ -17,47 +17,58 @@ pub const CLI_RESERVED: &str = include_str!("../../cmux-app-host/schema/v2/cli-r
 /// 64 characters and prefix them (`mcp__cmux__`), so 48 leaves room.
 pub const MCP_TOOL_NAME_MAX: usize = 48;
 
-struct Reserved {
+pub(crate) struct Reserved {
     names: HashSet<String>,
     first_party: BTreeMap<String, String>,
 }
 
-fn reserved() -> &'static Reserved {
-    static TABLE: OnceLock<Reserved> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let table: Value = serde_json::from_str(CLI_RESERVED).expect("cli-reserved.json is JSON");
-        let names = table["names"]
-            .as_array()
-            .expect("cli-reserved.json has names")
-            .iter()
-            .map(|n| n.as_str().expect("reserved names are strings").to_owned())
-            .collect();
-        let first_party = table["firstParty"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .map(|(word, app)| {
-                (word.clone(), app.as_str().expect("firstParty maps to app ids").to_owned())
-            })
-            .collect();
-        Reserved { names, first_party }
-    })
+pub(crate) fn parse_reserved(raw: &str) -> Result<Reserved, String> {
+    let table: Value =
+        serde_json::from_str(raw).map_err(|e| format!("cli-reserved.json is not JSON: {e}"))?;
+    let names = table["names"]
+        .as_array()
+        .ok_or("cli-reserved.json has no names")?
+        .iter()
+        .map(|n| n.as_str().map(str::to_owned).ok_or("cli-reserved.json names are not strings"))
+        .collect::<Result<_, _>>()?;
+    let first_party = table["firstParty"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(word, app)| {
+            app.as_str()
+                .map(|app| (word.clone(), app.to_owned()))
+                .ok_or("cli-reserved.json firstParty values are not app ids")
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(Reserved { names, first_party })
 }
 
-/// True when `name` is a built-in or reserved top-level CLI word.
+/// The embedded table, or `Err` when it does not load (a unit test loads it).
+pub(crate) fn reserved() -> Result<&'static Reserved, &'static str> {
+    static TABLE: OnceLock<Result<Reserved, String>> = OnceLock::new();
+    TABLE.get_or_init(|| parse_reserved(CLI_RESERVED)).as_ref().map_err(String::as_str)
+}
+
+/// True when `name` is a built-in or reserved top-level CLI word. Without
+/// the table every word counts as reserved (fail closed).
 pub fn is_reserved_cli_name(name: &str) -> bool {
-    reserved().names.contains(name)
+    reserved().map_or(true, |table| table.names.contains(name))
 }
 
 /// The first-party app id that may claim the reserved word `name` as its
 /// `cli.name` (for example `cloud` -> `cmux/cloud`), if any.
 pub fn first_party_cli_owner(name: &str) -> Option<&'static str> {
-    reserved().first_party.get(name).map(String::as_str)
+    reserved().ok()?.first_party.get(name).map(String::as_str)
 }
 
 /// Every reserved word a first-party app may claim, with that app's id.
 pub fn first_party_cli_names() -> impl Iterator<Item = (&'static str, &'static str)> {
-    reserved().first_party.iter().map(|(word, app)| (word.as_str(), app.as_str()))
+    reserved()
+        .ok()
+        .into_iter()
+        .flat_map(|table| table.first_party.iter())
+        .map(|(word, app)| (word.as_str(), app.as_str()))
 }
 
 /// The MCP tool name of an op: its full name with `.` and `-` as `_`.
