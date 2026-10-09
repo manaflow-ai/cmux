@@ -45982,7 +45982,9 @@
       },
       "errors": [
         "auth.forbidden",
-        "auth.unauthenticated"
+        "auth.unauthenticated",
+        "owner.unreachable",
+        "team_vm.stale_epoch"
       ],
       "owner": "cloud:TeamDO",
       "risk": "read",
@@ -46007,7 +46009,7 @@
         "expose": "never",
         "group": "team"
       },
-      "docs": "The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins).",
+      "docs": "The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise).",
       "since": "cloud-1",
       "input_json_schema": {
         "not": {
@@ -47126,6 +47128,15 @@
               "max_length": 128
             }
           },
+          "files_copied": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                true
+              ]
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -47174,6 +47185,7 @@
         "team_vm.not_in_ledger",
         "team_vm.not_tainted",
         "team_vm.plan_gate_missing",
+        "team_vm.retired_files_unconfirmed",
         "team_vm.retired_full",
         "team_vm.stale_epoch",
         "team_vm.stale_taint",
@@ -47201,7 +47213,7 @@
         "expose": "never",
         "group": "team"
       },
-      "docs": "Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good. Owners and admins only, in a person's session; audited.",
+      "docs": "Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -47210,10 +47222,17 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128
+          },
+          "files_copied": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
           }
         },
         "required": [
-          "vm"
+          "vm",
+          "files_copied"
         ],
         "additionalProperties": true,
         "$defs": {}

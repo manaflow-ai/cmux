@@ -68,13 +68,10 @@
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 4,
    "CmuxNextApp": 33,
-   "CmuxNextDesign": 15,
    "CmuxNextHome": 1,
    "CmuxNextOnboarding": 1,
-   "CmuxNextPalette": 1,
    "CmuxNextRemoteView": 1,
    "CmuxNextSidebar": 3,
-   "CmuxNextTabs": 5,
    "CmuxNextTasks": 3
   },
   "dynamic_dispatch": {
