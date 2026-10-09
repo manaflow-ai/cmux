@@ -322,8 +322,8 @@ export function ModelPicker(props: ModelPickerProps) {
   useEscapeCloses(open, close);
 
   useLayoutEffect(() => {
-    // The anchored menu is hidden for its measurement frame. Browsers reject focus while hidden,
-    // so retry once the shared anchor has made the menu visible.
+    // The anchor's first render is hidden while it measures. Browsers cannot focus search
+    // until the positioned menu is visible, even though JSDOM accepts that early focus.
     if (open && menuStyle.visibility === "visible") search.current?.focus({ preventScroll: true });
   }, [open, menuStyle.visibility]);
   useLayoutEffect(() => {
