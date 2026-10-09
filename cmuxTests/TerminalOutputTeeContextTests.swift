@@ -1,6 +1,7 @@
 import Foundation
 import CmuxTerminalCore
 import Testing
+import os
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -50,5 +51,13 @@ struct TerminalOutputTeeContextTests {
         }
 
         #expect(context.forwardedSubmissionCount(for: "test-agent") == 1)
+    }
+}
+
+private extension TerminalOutputTeeContext {
+    func forwardedSubmissionCount(for agentID: String) -> UInt64? {
+        detectorsLock.lock()
+        defer { detectorsLock.unlock() }
+        return detectors.first { $0.agentID == agentID }?.forwardedSubmissionCount
     }
 }

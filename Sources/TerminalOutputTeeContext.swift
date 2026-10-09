@@ -10,7 +10,7 @@ import os
 /// detector state across both callback paths; other threads receive copied
 /// value identifiers after a match.
 final class TerminalOutputTeeContext: @unchecked Sendable {
-    private struct DetectorBinding {
+    struct DetectorBinding {
         let agentID: String
         var detector: PromptLineTurnDetector
         var forwardedRevision: UInt64 = 0
@@ -49,9 +49,9 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     let scrollbackCheckpointFlags: TerminalScrollbackOutputFlags
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
-    private var detectors: [DetectorBinding]
+    private(set) var detectors: [DetectorBinding]
     // Tee callbacks are synchronous C callbacks; an actor hop would let detector chunks reorder.
-    private let detectorsLock = OSAllocatedUnfairLock(initialState: ())
+    let detectorsLock = OSAllocatedUnfairLock(initialState: ())
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
     init(
@@ -95,12 +95,6 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             detectors[index].detector.consume(bytes)
             forwardDetectorChangeIfNeeded(at: index, now: now)
         }
-    }
-
-    func forwardedSubmissionCount(for agentID: String) -> UInt64? {
-        detectorsLock.lock()
-        defer { detectorsLock.unlock() }
-        return detectors.first { $0.agentID == agentID }?.forwardedSubmissionCount
     }
 
     private func forwardDetectorChangeIfNeeded(
