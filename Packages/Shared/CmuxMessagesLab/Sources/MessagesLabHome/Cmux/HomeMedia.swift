@@ -19,7 +19,7 @@ final class HomeMedia {
     typealias Fetch = @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL
 
     /// Where the pictures are written (one folder per process).
-    static let directory: URL = FileManager.default.temporaryDirectory
+    nonisolated static let directory: URL = FileManager.default.temporaryDirectory
         .appendingPathComponent("cmux-home-media-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
 
     var fetch: Fetch?

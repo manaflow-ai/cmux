@@ -341,7 +341,10 @@ final class BlockLayout: @unchecked Sendable {
         let a = NSMutableAttributedString(string: string as String,
                                           attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
         if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
+            // Long text is untrusted too: only URLs the link policy allows look like links
+            // (MarkdownLinkPolicy, shared/MARKDOWN.md Security; same rule as TextParts.linkRuns).
             for m in BlockLayout.detector?.matches(in: string as String, range: NSRange(location: 0, length: string.length)) ?? [] {
+                guard let url = m.url, MarkdownLinkPolicy.allows(url) else { continue }
                 a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
             }
         }
@@ -815,21 +818,21 @@ final class LongTextStore: @unchecked Sendable {
 
     func size(_ text: String, width: CGFloat) -> CGSize { layout(text, width: width).size }
     /// The row size of a message's long text part: folded (LongTextFold) or full.
-    func size(_ text: String, width: CGFloat, message id: ID) -> CGSize {
-        let l = layout(text, width: width, message: id)
+    func size(_ text: String, width: CGFloat, message id: ID, markdown: Bool) -> CGSize {
+        let l = layout(text, width: width, message: id, markdown: markdown)
         if LongTextFold.isFolded(id, l) { return LongTextFold.size(l) }
         // Expanded: the "Show less" band follows the last line.
         if LongTextFold.isFoldable(l) { return CGSize(width: l.size.width, height: l.size.height + LongTextFold.bandHeight) }
         return l.size
     }
 
-    /// The layout of a long text at a width. `message`: a message shown as source
-    /// (MarkdownStore.showsSource) lays its markdown text out as plain text.
-    func layout(_ text: String, width: CGFloat, message: ID? = nil) -> LongTextLayout {
+    /// The layout of a long text at a width. Markdown tiles only for a message the host marked
+    /// markdown (`markdown`, Message.format; plain by default) and not shown as source
+    /// (MarkdownStore.showsSource); otherwise a markdown index is laid out as plain text.
+    func layout(_ text: String, width: CGFloat, message: ID? = nil, markdown: Bool = false) -> LongTextLayout {
         // cmux: index(for:) builds one when asked to; an unregistered index stands in (crash program).
         let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
-        // cmux: a plain message (MarkdownStore.isPlain) is laid out as plain text too.
-        let md = idx.markdown && !(message.map { MarkdownStore.shared.showsSource($0) || MarkdownStore.shared.isPlain($0) } ?? false)
+        let md = idx.markdown && markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
         let wk = md || !idx.markdown ? width : -width
         lock.lock()
         let id = ObjectIdentifier(idx)
@@ -995,7 +998,7 @@ enum LongTextFold {
                height: CGFloat(headLines + tailLines) * Fixture.lineHeight + bandHeight + 2 * Fixture.bubblePadY)
     }
     static func label(_ n: Int) -> String {
-        String(format: String(localized: "longtext.showAll", defaultValue: "Show all %lld lines"), n)
+        String(format: MessagesLabLocalization.string("longtext.showAll", "Show all %lld lines"), n)
     }
-    static var lessLabel: String { String(localized: "longtext.showLess", defaultValue: "Show less") }
+    static var lessLabel: String { MessagesLabLocalization.string("longtext.showLess", "Show less") }
 }

@@ -63,7 +63,7 @@ final class LinkPreviews: LinkPreviewFetching {
             return
         }
         if waiting[url] != nil { waiting[url]?.append(done); return } // cmux: no force unwrap
-        guard let u = URL(string: url), u.scheme == "https" || u.scheme == "http" else { done(nil); return }
+        guard let u = URL(string: url), u.scheme == "https" || u.scheme == "http", LinkGuard.checkURL(u) != .scheme else { done(nil); return }
         waiting[url] = [done]
         let file = dir.appendingPathComponent(String(format: "%016llx.png", LinkPreviews.fnv1a(url)))
         // Every request goes through LinkGuard (LinkGuard.swift): public addresses

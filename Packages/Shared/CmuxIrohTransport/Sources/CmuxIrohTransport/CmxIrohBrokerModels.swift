@@ -62,7 +62,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
               Self.isCanonicalUUID(appInstanceID),
               cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
               cmxIrohIsSafeToken(tag),
-              (1 ... Int(Int32.max)).contains(identityGeneration),
+              identityGeneration.isValidIdentityGeneration,
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
               capabilities.allSatisfy({ cmxIrohIsSafeToken($0) }),
@@ -71,7 +71,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
               pathHints.filter({ $0.kind == .relayURL }).count <= 2,
               pathHints.allSatisfy(Self.isBrokerHint),
               !pathHints.enumerated().contains(where: { index, hint in
-                  pathHints[..<index].contains(hint)
+                  pathHints.prefix(index).contains(hint)
               }),
               CmxIrohISO8601Date.parse(lastSeenAt) != nil else {
             throw DecodingError.dataCorrupted(
@@ -179,7 +179,7 @@ public struct CmxIrohLANRendezvous: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let generation = try container.decode(Int.self, forKey: .generation)
         let key = try container.decode(String.self, forKey: .key)
-        guard (1 ... Int(Int32.max)).contains(generation),
+        guard generation.isValidIdentityGeneration,
               Self.decodeBase64URL(key)?.count == 32 else {
             throw DecodingError.dataCorrupted(
                 .init(codingPath: decoder.codingPath, debugDescription: "Invalid LAN rendezvous")

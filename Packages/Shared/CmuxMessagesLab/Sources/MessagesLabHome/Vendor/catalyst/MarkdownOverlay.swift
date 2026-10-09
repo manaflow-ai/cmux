@@ -202,8 +202,8 @@ final class MarkdownOverlay {
         CATransaction.commit()
     }
 
-    static let copyTitle = String(localized: "markdown.copy", defaultValue: "Copy")
-    static let copiedTitle = String(localized: "markdown.copied", defaultValue: "Copied")
+    static var copyTitle: String { MessagesLabLocalization.string("markdown.copy", "Copy") }
+    static var copiedTitle: String { MessagesLabLocalization.string("markdown.copied", "Copied") }
 
     func copyRect(_ i: Int) -> CGRect? {
         guard let md = layout, i < md.regions.count else { return nil }
