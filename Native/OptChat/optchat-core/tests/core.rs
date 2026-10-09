@@ -799,8 +799,8 @@ fn the_task_aims_well_inside_the_limit_and_the_note_names_the_last_line() {
 /// is built, so no merge can happen at append time, and the compaction view
 /// never merged afterwards: node contexts grew to 350 KB (79k tokens read
 /// per prompt, \$117 for the import). The reference client fits its views
-/// after each node it stores. A compaction context stays within the
-/// compaction view's budget (a quarter of the view's) after an import.
+/// after each node it stores. A compaction context stays within half the
+/// view's budget during an import.
 #[test]
 fn an_import_keeps_every_compaction_context_within_its_budget() {
     let store = Mem::default();
@@ -835,9 +835,13 @@ fn an_import_keeps_every_compaction_context_within_its_budget() {
         }
     }
     assert!(memory.settled());
-    // A quarter of the view's budget, plus one batch's last merged lines.
+    // The compaction view merges only in whole batches (the reference
+    // client's rule, so cached prefixes hold): it may wait past its quarter
+    // of the budget until a batch can take it to its low mark, or down by a
+    // whole quarter. It stays within half the view's budget (52,594 bytes
+    // here; 494,904 before the view merged during an import at all).
     assert!(
-        largest <= VIEW / 4 + 2 * NODE,
+        largest <= VIEW / 2 + 2 * NODE,
         "a compaction context of {largest} bytes"
     );
 }
