@@ -136,3 +136,170 @@ fn remote_link_state_dir_holds_the_mux_owner_registry() {
         daemon_log.unwrap_or_default()
     );
 }
+
+fn find_named(root: &Path, name: &str) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.file_name().is_some_and(|file| file == name) {
+                found.push(path);
+            }
+        }
+    }
+    found
+}
+
+impl Fixture {
+    /// A default-root registry for the session, as an older remote-link left it.
+    fn seed_default_root(&self) -> PathBuf {
+        let socket = self.dir.join("seed.sock");
+        let output = self
+            .command()
+            .args(["server", "ensure", "--json", "--session", &self.session, "--socket"])
+            .arg(&socket)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "seed ensure: {output:?}");
+        let output = self
+            .command()
+            .args(["server", "stop", "--json", "--session", &self.session, "--socket"])
+            .arg(&socket)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "seed stop: {output:?}");
+        let registries = registries_under(&self.default_state());
+        assert_eq!(registries.len(), 1, "{registries:?}");
+        registries[0].clone()
+    }
+
+    /// One `remote-link --state-dir` start; waits until its mux owner has a
+    /// registry, then stops the link, the sidecar and the mux owner.
+    fn link_once(&self) {
+        let mut link = self
+            .command()
+            .args(["remote-link", "--stdio", "--session", &self.session, "--state-dir"])
+            .arg(self.remote_state())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline
+            && find_named(&self.remote_state(), "mux.sock").is_empty()
+            && link.try_wait().unwrap().is_none()
+        {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let _ = link.kill();
+        let _ = link.wait();
+        let _ = self
+            .command()
+            .args(["remote", "stop", "--session", &self.session, "--state-dir"])
+            .arg(self.remote_state())
+            .stdin(Stdio::null())
+            .output();
+        for socket in find_named(&self.remote_state(), "mux.sock") {
+            let _ = self
+                .command()
+                .args(["server", "stop", "--json", "--session", &self.session, "--socket"])
+                .arg(&socket)
+                .stdin(Stdio::null())
+                .output();
+        }
+    }
+}
+
+fn meta(path: &Path, key: &str) -> Option<String> {
+    let connection =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    rusqlite::OptionalExtension::optional(connection.query_row(
+        "SELECT value FROM meta WHERE key = ?1",
+        [key],
+        |row| row.get::<_, String>(0),
+    ))
+    .unwrap()
+}
+
+fn workspace_rows(path: &Path) -> i64 {
+    let connection =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    connection.query_row("SELECT COUNT(*) FROM workspaces", [], |row| row.get(0)).unwrap()
+}
+
+fn file_bytes(path: &Path) -> Vec<u8> {
+    fs::read(path).unwrap()
+}
+
+/// cx-0b8z: workspaces of an older default-root session do not vanish when
+/// the link gains an explicit state directory. The first start copies that
+/// registry once into `<state-dir>/workspace`; the original stays unchanged,
+/// and a later start never copies again.
+#[test]
+fn an_empty_state_dir_imports_the_default_root_session_once() {
+    let fixture = Fixture::new();
+    let source = fixture.seed_default_root();
+    let registry_id = meta(&source, "registry_id").expect("seeded registry id");
+    let source_rows = workspace_rows(&source);
+    let source_bytes = file_bytes(&source);
+
+    fixture.link_once();
+    let targets = registries_under(&fixture.remote_state());
+    assert_eq!(targets.len(), 1, "no imported registry under --state-dir: {targets:?}");
+    let target = &targets[0];
+    assert_eq!(meta(target, "registry_id").as_deref(), Some(registry_id.as_str()));
+    assert_eq!(workspace_rows(target), source_rows, "the imported workspaces are missing");
+    assert_eq!(file_bytes(&source), source_bytes, "the default-root registry changed");
+
+    // A mark the second start must keep: it never copies over the store.
+    {
+        let connection = rusqlite::Connection::open(target).unwrap();
+        connection
+            .execute("INSERT INTO meta(key, value) VALUES('import_probe', 'kept')", [])
+            .unwrap();
+    }
+    fixture.link_once();
+    assert_eq!(meta(target, "import_probe").as_deref(), Some("kept"), "a second start copied again");
+    assert_eq!(file_bytes(&source), source_bytes);
+}
+
+/// A state directory whose store has data is never overwritten by an import.
+#[test]
+fn a_state_dir_with_a_store_is_not_overwritten_by_an_import() {
+    let fixture = Fixture::new();
+    let source = fixture.seed_default_root();
+    let source_id = meta(&source, "registry_id").unwrap();
+    // The state directory's own store, from an earlier link.
+    let output = fixture
+        .command()
+        .args(["server", "ensure", "--json", "--session", &fixture.session, "--socket"])
+        .arg(fixture.dir.join("own.sock"))
+        .env("CMUX_TUI_STATE_DIR", fixture.remote_state().join("workspace"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "own ensure: {output:?}");
+    let _ = fixture
+        .command()
+        .args(["server", "stop", "--json", "--session", &fixture.session, "--socket"])
+        .arg(fixture.dir.join("own.sock"))
+        .env("CMUX_TUI_STATE_DIR", fixture.remote_state().join("workspace"))
+        .stdin(Stdio::null())
+        .output();
+    let own = registries_under(&fixture.remote_state());
+    assert_eq!(own.len(), 1, "{own:?}");
+    let own_id = meta(&own[0], "registry_id").unwrap();
+    assert_ne!(own_id, source_id);
+
+    fixture.link_once();
+    assert_eq!(meta(&own[0], "registry_id").as_deref(), Some(own_id.as_str()));
+}
