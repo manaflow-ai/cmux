@@ -9581,11 +9581,7 @@ impl Mux {
         terminal_id: &TerminalPublicId,
     ) -> Option<Arc<Surface>> {
         let mut state = self.state.lock().unwrap();
-        let removed = state.terminal_catalog.remove(terminal_id)?;
-        if let Some(runtime_id) = removed.terminal_runtime_id() {
-            state.terminal_catalog_by_runtime.remove(&runtime_id);
-        }
-        Some(removed)
+        state.remove_catalog_terminal(terminal_id)
     }
 
     /// Resolve a terminal identity to its durable record and one live view
@@ -16733,16 +16729,7 @@ fn register_terminal_runtime_checked(
             "terminal content identity points at two runtimes"
         );
     } else {
-        if let Some(identity) = surface.terminal_host_identity() {
-            for existing in state.terminal_catalog.values().filter(|existing| {
-                existing
-                    .terminal_host_identity()
-                    .is_some_and(|candidate| candidate.terminal_id == identity.terminal_id)
-            }) {
-                anyhow::ensure!(existing.shares_terminal_runtime(surface), "duplicate_terminal_id");
-            }
-        }
-        state.terminal_catalog.insert(terminal_id.clone(), surface.clone());
+        state.insert_catalog_terminal(terminal_id, surface)?;
     }
     state.terminal_catalog_by_runtime.insert(runtime_id, terminal_id.clone());
     Ok(())
@@ -16757,10 +16744,7 @@ fn remove_terminal_content_from_state(
     state: &mut State,
     terminal_id: &TerminalPublicId,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
-    let runtime = state.terminal_catalog.remove(terminal_id);
-    if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
-        state.terminal_catalog_by_runtime.remove(&runtime_id);
-    }
+    let runtime = state.remove_catalog_terminal(terminal_id);
     let mut targets =
         state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).to_vec();
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
@@ -17220,6 +17204,7 @@ fn restore_resource_state(
             surfaces: HashMap::new(),
             terminal_catalog: HashMap::new(),
             terminal_catalog_by_runtime: HashMap::new(),
+            terminal_catalog_by_host: HashMap::new(),
             split_screens: HashMap::new(),
             resource_indexes: indexes,
         },
