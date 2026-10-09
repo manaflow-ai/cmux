@@ -19,6 +19,7 @@ struct Fake {
     actions: Value,
     fail_resources: bool,
     fail_apps: bool,
+    daemon_snapshot: Option<Value>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -61,7 +62,7 @@ impl Backend for Fake {
                 idempotency_key: key,
             });
         }
-        Ok(json!([]))
+        Ok(self.daemon_snapshot.clone().unwrap_or_else(|| json!([])))
     }
 
     fn app(
@@ -339,6 +340,47 @@ fn agents_snapshot_reports_total_owner_outage() {
     assert_eq!(result["isError"], true);
     assert_eq!(result["structuredContent"]["error"]["code"], "agents.unavailable");
     assert_eq!(result["structuredContent"]["state"], "not_run");
+}
+
+#[test]
+fn agents_snapshot_pages_large_topologies_without_losing_objects() {
+    let tabs = (0..250)
+        .map(|i| json!({"id": format!("tab_{i:032x}"), "title": "x".repeat(2048)}))
+        .collect::<Vec<_>>();
+    let mut server =
+        Server::new(Fake { daemon_snapshot: Some(json!({"tabs": tabs})), ..Fake::default() }, None);
+    let mut offset = 0;
+    let mut seen = BTreeSet::new();
+    for _ in 0..300 {
+        let result = call(&mut server, "agents_snapshot", json!({"offset": offset, "limit": 1000}));
+        assert_eq!(result["isError"], false, "{result}");
+        let page = &result["structuredContent"];
+        assert!(serde_json::to_vec(page).unwrap().len() <= MAX_RESULT_BYTES);
+        for item in page["items"].as_array().expect("paged objects") {
+            if item["kind"] == "tab" {
+                assert!(seen.insert(item["value"]["id"].as_str().unwrap().to_owned()));
+            }
+        }
+        let Some(next) = page["next_offset"].as_u64() else { break };
+        assert!(next > offset);
+        offset = next;
+    }
+    assert_eq!(seen.len(), 250);
+}
+
+#[test]
+fn agents_snapshot_rejects_invalid_pagination_before_reading_owners() {
+    for args in [
+        json!({"offset": -1}),
+        json!({"limit": 0}),
+        json!({"limit": 1001}),
+        json!({"offset": "one"}),
+    ] {
+        let mut server = Server::new(Fake::default(), None);
+        let result = call(&mut server, "agents_snapshot", args);
+        assert_eq!(result["isError"], true);
+        assert!(server.backend.sent.borrow().is_empty());
+    }
 }
 
 #[test]
