@@ -164,3 +164,69 @@ same breakaway rule).
    host-reported resources.
 4. Process count: one `cmux-tui.exe` per terminal (~10-20 MB private each,
    to measure); standby hosts as on Unix.
+
+## Handoff (2026-10-10, GPUI lane agent at its context limit)
+
+State of branch `gpui-windows-terminal-hosts` (side branch; force-pushed only by
+this lane after rebases), head c42d00e53ae, rebased on feat-cmux-next with B1
+(70bb57f3e77c):
+
+- Decisions taken: no PTY custody in v1 (host crash -> `host_lost`); named
+  owner-only Job Object; breakaway forbidden -> in-process ConPTY, logged AND
+  shown to the user (new string on the host-loss banner pattern, en + ja; a
+  persistent terminal state field in the protocol, CORE spec change).
+- Split (crate-split lane, only writer of `terminal_host_runtime.rs`): item list
+  and its FINAL NAMES section in cmuxterm-hq
+  `.cmux-scratch/cx-ko2e-split-items.md` (A1-A3 and B1 landed so far). Build
+  against the names there; B1 `sys::HostStream` = `uds_windows::UnixStream`.
+- Red test: `cmux-tui/crates/cmux-tui/tests/windows_terminal_hosts.rs`
+  (`a_terminal_survives_a_fenced_daemon_restart_on_windows`), red on hosted
+  test (windows): runs 37905235782, 37930026163 ("did not adopt ... exit code 1").
+- Windows layer done, 13 unit tests green on hosted test (windows) (run
+  37930026163): `terminal_host_runtime/windows/{liveness,endpoint,jobs}.rs`
+  (LockFileEx leases; per-user endpoint path, `bind`, `connect_record` on
+  `sys::HostStream`; named job create / `open_checked` with
+  JOB_OBJECT_QUERY | READ_CONTROL / `contains`). Wiring: one
+  `#[cfg(windows)] pub mod windows;` in `terminal_host_runtime.rs`, five
+  windows-sys features in cmux-tui-core `Cargo.toml` (no Cargo.lock change).
+- Branch-only CI line: `test (windows)` in `.github/workflows/cmux-tui.yml`
+  runs `terminal_host_runtime::windows::` and `--test windows_terminal_hosts`;
+  it lands with the CORE request. Hosted checks: `gh workflow run
+  cmux-tui.yml --ref gpui-windows-terminal-hosts -f commit=<sha> -f mode=full
+  -f request_id=<token>` (full mode is the only path that runs these on
+  Windows); read the job log with `gh api --allow-escape-sequences
+  repos/manaflow-ai/cmux/actions/jobs/<id>/logs`.
+
+Next steps (in order):
+
+1. Breakaway notice, independent of the split (coordinator, 2026-10-10):
+   a. Spec + daemon + bindings: a persistent terminal state field saying the
+      terminal runs in-process and will not survive a daemon restart (name it
+      with the spec owner; a reconnecting client must see it, so it is
+      terminal state, not an event). Red test first; then
+      `cmux-tui/bindings/codegen/generate.py --write`,
+      `cmux-tui/scripts/check-spec-inventory.py`,
+      `cmux-tui/scripts/check-sdk-schema.py`; old clients must decode it
+      (optional field, ignored when unknown).
+   b. A new string key on cmux-next's host-loss banner pattern
+      (`TerminalLinkWatch.forwardHostLoss` / `session.hostLoss`), en + ja, in
+      cmux-next's catalog.
+   c. GPUI shows the banner from that field (shared client code; only Windows
+      sets it).
+2. After the split moves the remaining B rows: `windows/standby.rs`
+   (`CreateProcessW` with `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` = the two
+   bootstrap pipes, `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP |
+   CREATE_BREAKAWAY_FROM_JOB`, child started suspended and assigned to the
+   named job before resume; `ERROR_ACCESS_DENIED` on breakaway -> in-process
+   fallback + the state field), Lease/PrivateFs seams on Windows (records,
+   `MoveFileExW` no-replace, owner checks), the few-line hooks in `mux.rs`
+   (`use_host_runtime`, `adopt_terminal_hosts`) and `surface.rs`.
+3. Green the red test on hosted test (windows), then the GPUI gpuitest restart
+   scenario (`scripts/windows/daemon-terminal-test.ps1 -Scenarios restart`).
+4. CORE request via the coordinator with the exact files; push to
+   feat-cmux-next only through `gate-run.sh` with a receipt in /tmp/gates/
+   (SAFE_PUSH_GATED_HEAD + SAFE_PUSH_GATE_RECEIPT; lane-rules.md "Gate
+   receipts").
+
+Windows VM leftovers for these tests: `C:\build-wb\wd-dist` (release dist with
+the tree's cmux-tui.exe), `wd-dist-nobin`, `wd-tui` (test script).
