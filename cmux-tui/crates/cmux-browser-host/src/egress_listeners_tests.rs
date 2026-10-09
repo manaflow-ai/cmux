@@ -21,7 +21,10 @@ fn v4() -> SocketAddr {
 /// address covers the target count.
 #[test]
 fn a_hidden_listener_beside_a_visible_one_is_refused() {
-    let listeners = [listener(IpAddr::V6(Ipv6Addr::LOCALHOST), ME), listener(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)];
+    let listeners = [
+        listener(IpAddr::V6(Ipv6Addr::LOCALHOST), ME),
+        listener(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    ];
     assert!(verdict(v4(), &listeners, ME, true, holder("node")).is_some());
     // The same pair seen from [::1]:P reaches the dev server: allowed.
     let v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, 5173));
@@ -107,4 +110,24 @@ fn the_live_table_finds_a_listener_and_its_holder() {
         Holders::Found(paths) => assert!(!paths.is_empty(), "no holder found"),
         Holders::Unreadable => panic!("holders unreadable"),
     }
+}
+
+/// Timing proof (run with --ignored --nocapture): one full check of a real
+/// loopback listener (table, holders, executable) on this Mac.
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore]
+fn timing_of_one_check() {
+    let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = socket.local_addr().unwrap();
+    let check = crate::egress_services::system_connected_check();
+    let mut times: Vec<u128> = (0..20)
+        .map(|_| {
+            let start = std::time::Instant::now();
+            assert!(check(addr).is_none(), "this test's own listener is allowed");
+            start.elapsed().as_micros()
+        })
+        .collect();
+    times.sort_unstable();
+    println!("egress check: p50 {} us, p90 {} us, max {} us", times[10], times[18], times[19]);
 }
