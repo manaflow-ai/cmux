@@ -65,4 +65,24 @@ env -u CMUX_NEXT_TUI_BIN -u CMUX_TUI_CLIENT_LOCAL -u CMUX_NEXT_AGENT_SCREEN_DETE
   bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1 || { cat "$TMP/out" >&2; fail "keep-bundled run failed"; }
 grep -q 'keeping bundled' "$TMP/out" || { cat "$TMP/out" >&2; fail "setup: the keep-bundled path did not run"; }
 [[ ! -e "$bin/cmux-agent-screen-detection" ]] || fail "the keep-bundled exit kept a stale bin/cmux-agent-screen-detection"
+
+# Publication stages the detector per macOS target with
+# scripts/ci/stage-agent-detector.sh (cmux-tui-build-package.yml, macos-cross.sh
+# hosts). The detector is optional: a target without one publishes none and
+# prints a GitHub warning annotation, never an error.
+stage="$ROOT/scripts/ci/stage-agent-detector.sh"
+mkdir -p "$TMP/release-empty" "$TMP/release-built" "$TMP/dist"
+printf 'built detector\n' > "$TMP/release-built/cmux-agent-screen-detection"
+printf 'stale\n' > "$TMP/dist/cmux-tui-agent-screen-detection-aarch64-apple-darwin"
+out=$(bash "$stage" "$TMP/release-empty" aarch64-apple-darwin "$TMP/dist/cmux-tui-agent-screen-detection-aarch64-apple-darwin" 2>&1) \
+  || fail "stage-agent-detector.sh failed for a missing detector: $out"
+[[ "$out" == "::warning title=agent screen detector missing::aarch64-apple-darwin" ]] \
+  || fail "a missing detector did not print exactly the warning annotation: '$out'"
+[[ ! -e "$TMP/dist/cmux-tui-agent-screen-detection-aarch64-apple-darwin" ]] || fail "a missing detector left a stale staged copy"
+out=$(bash "$stage" "$TMP/release-built" x86_64-apple-darwin "$TMP/dist/cmux-tui-agent-screen-detection-x86_64-apple-darwin" 2>&1) \
+  || fail "stage-agent-detector.sh failed for a built detector: $out"
+[[ -z "$out" ]] || fail "a built detector printed: '$out'"
+cmp -s "$TMP/release-built/cmux-agent-screen-detection" "$TMP/dist/cmux-tui-agent-screen-detection-x86_64-apple-darwin" \
+  || fail "a built detector was not staged"
+[[ -x "$TMP/dist/cmux-tui-agent-screen-detection-x86_64-apple-darwin" ]] || fail "the staged detector is not executable"
 echo "bundle-cmux-tui-screen-detection: ok"
