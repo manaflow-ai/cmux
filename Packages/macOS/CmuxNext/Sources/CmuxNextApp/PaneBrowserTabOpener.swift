@@ -45,7 +45,7 @@ struct PaneBrowserTabOpener {
             return true
         }
         let requested = requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         if browserTabs.isAvailable() {
             var choice: BrowserEngineChoice
             switch browserTabs.resolve(requested: requested, inherited: inherited) {

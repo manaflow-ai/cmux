@@ -21,7 +21,7 @@ struct ListNavigationKeyTests {
     }
 
     @Test func listKeysMoveTheSelectionWhereAListHasFocus() throws {
-        let router = M.services().keyRouter!
+        let router = M.services().keyRouter
         let surfaces: [(String, FocusState, KeyRouter.Facts)] = [
             ("new tab agent dropdown (agent page combobox)", M.focused(.agent, tab: "local-agent:1"), Self.list),
             ("React page menu", M.focused(.page, tab: "local-page:settings:1"), Self.list),
@@ -40,7 +40,7 @@ struct ListNavigationKeyTests {
     }
 
     @Test func terminalsAndPlainFieldsKeepTheirControlKeys() throws {
-        let router = M.services().keyRouter!
+        let router = M.services().keyRouter
         for focus in [M.terminal, M.focused(.agent, tab: "local-agent:1"), M.focused(.terminal, tab: "t1", target: .textField)] {
             for (event, action) in try Self.keys() {
                 if case .run(let candidate) = router.decide(event, focus: focus, keyWindow: .content, facts: KeyRouter.Facts()) {

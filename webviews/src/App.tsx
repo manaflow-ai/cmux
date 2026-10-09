@@ -19,13 +19,7 @@ import { copyGitApplyCommand, copyText, resolveDiffNavigationURL } from "./actio
 import { resolveDiffViewerAppearance } from "./appearance";
 import { BranchBasePicker, branchPickerStateKey, type BranchPickerPayload } from "./BranchBasePicker";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
-import {
-  applyCommentAnnotations,
-  sidebarCommentEntries,
-  withCommentAnnotations,
-  type CommentAnnotation,
-  type SidebarCommentEntry,
-} from "./comments/annotations";
+import { sidebarCommentEntries, type CommentAnnotation, type SidebarCommentEntry } from "./comments/annotations";
 import {
   deleteComment as bridgeDeleteComment,
   diffCommentsBridgeAvailable,
@@ -36,20 +30,13 @@ import { CommentsSidebarSection } from "./comments/CommentsSection";
 import { commentSubmissionText } from "./comments/format";
 import { resolveCommentLabels, type DiffCommentLabels } from "./comments/labels";
 import { SavedComment } from "./comments/SavedComment";
-import type { CommentDraft, DiffCommentRecord, DiffCommentSide } from "./comments/types";
+import type { DiffCommentRecord, DiffCommentSide } from "./comments/types";
 import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
-import { deferredDiffReason, type DeferredDiffReason } from "./deferred-diffs";
-import { resolveDiffFileLanguage, resolveDiffPreloadLanguages } from "./diff-language";
-import {
-  fileName,
-  fileStats,
-  type DiffItem,
-  type FileTreeSource,
-  type StreamMetrics,
-  streamPatch,
-} from "./diff-stream";
+import { type DeferredDiffReason } from "./deferred-diffs";
+import { resolveDiffPreloadLanguages } from "./diff-language";
+import { fileName, fileStats, type DiffItem, type FileTreeSource, streamPatch } from "./diff-stream";
 import { DiffHeaderMetadata } from "./diff-metadata";
-import { collapsedFileKey, withCollapsedFile } from "./collapsed-files";
+import { withCollapsedFile } from "./collapsed-files";
 import { treeFileActivation, treeFileRowPath } from "./file-activation";
 import { computedTranslateX, createFilesPanelMotion, type FilesPanelMotion } from "./files-panel-motion";
 import { DEFERRED_PATCH_KEY, hydrateDeferredFileDiff } from "./deferred-parse";
@@ -87,30 +74,17 @@ import {
   type SourceTarget,
 } from "./toolbar-model";
 import {
-  type ViewedChange,
-  type ViewedFileEntry,
   type ViewedFileState,
   type ViewedScope,
-  type ViewedSession,
-  applyLoadedViewed,
-  beginViewedLoad,
   loadViewedFiles,
   persistViewedChange,
-  recordViewedChange,
   toggleViewedItem,
   viewedScopeFor,
   viewedScopeKey,
-  viewedScopeKeyRepoRoot,
   viewedStateOfItem,
 } from "./viewed-files";
 import { buildHunkAnchors, nextHunkIndex } from "./viewer-hunks";
-import {
-  loadViewerPrefs,
-  readLocalViewerPrefs,
-  sanitizeViewerPrefs,
-  saveViewerPrefs,
-  type ViewerPrefs,
-} from "./viewer-prefs";
+import { loadViewerPrefs, saveViewerPrefs } from "./viewer-prefs";
 import { useDiffWrites } from "./diff-writes";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
@@ -122,428 +96,44 @@ import { useFindKeyboard } from "./find/useFindKeyboard";
 import type { DiffSource, DiffTransportConfig, SessionOpened } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 import { diffLanguages } from "./diff-languages/registry";
+import { resolveDiffItemLanguage } from "./diff-viewer/item-languages";
+import {
+  adjacentItemId,
+  keepStuckHeaderInView,
+  presentedItem,
+  scrollTargetForItem,
+  visibleItemId,
+} from "./diff-viewer/item-navigation";
+import {
+  type ActiveDiffSession,
+  type AdoptedDiffSession,
+  type SelectSessionSource,
+  closeDiffSession,
+  diffSessionRequest,
+  diffSourceRepoRoot,
+  isStatusOnlyPayload,
+  pendingSessionID,
+  repoSelectionWithActiveSource,
+  sourceSelectionWithActiveRepo,
+  validDiffSource,
+} from "./diff-viewer/session";
+import {
+  type AppAction,
+  type AppState,
+  type DiffViewerLayout,
+  initialAppState,
+  itemCollapsedFileKey,
+  reducer,
+} from "./diff-viewer/state";
 
 type ConfigProps = {
   config: DiffViewerConfig;
   initialStatus: DiffViewerStatus;
 };
 
-/** A session the host opened for the viewer (branchChange answers `sessionOpened`). */
-type AdoptedDiffSession = { session: SessionOpened; capabilityToken: string };
-
-/** Switches the viewer to `source`: opens a session for it, or adopts `opened` when the host
- * already opened one. */
-type SelectSessionSource = (source: DiffSource, opened?: AdoptedDiffSession) => void;
-
-type ActiveDiffSession = {
-  capabilityToken: string;
-  sessionId: string;
-};
-
 const registeredCustomThemeNames = new Set<string>();
-const pendingSessionID = "00000000-0000-0000-0000-000000000000";
-
-type AppState = {
-  activeItemId: string;
-  activeTreePath: string;
-  /** Files collapsed from their header caret, as `collapsedFileKey`s (persisted). */
-  collapsedFiles: string[];
-  comments: DiffCommentRecord[];
-  copyFeedback: string;
-  draft: CommentDraft | null;
-  /** Path, status, and hide-viewed filter; hides diff sections and tree rows. */
-  fileFilter: DiffFileFilter;
-  fileSearchOpen: boolean;
-  fileSearchRequest: number;
-  filesWidth: number;
-  filesVisible: boolean;
-  findOpen: boolean;
-  findQuery: string;
-  findRequest: number;
-  /** Paths the sidecar marked generated (`.gitattributes`) for this session. */
-  generatedPaths: string[];
-  items: DiffItem[];
-  languages: string[];
-  metrics: StreamMetrics | null;
-  options: DiffViewerOptions;
-  optionsOpen: boolean;
-  /** Bumped by a soft refresh so the render effect re-streams in place. */
-  renderGeneration: number;
-  status: DiffViewerStatus;
-  treeSource: FileTreeSource | null;
-  /** Persisted "Viewed" entries for `viewedScopeKey`, keyed by file path. */
-  viewedByPath: Map<string, ViewedFileEntry>;
-  /** Toggles made in this scope; they win over a later stored-marks reply. */
-  viewedLocalEdits: Map<string, ViewedFileEntry | null>;
-  viewedScopeKey: string;
-};
-
-type AppAction =
-  | { type: "append-items"; items: DiffItem[] }
-  | { type: "relanguage-items" }
-  | { type: "apply-persisted-options"; prefs: ViewerPrefs; allowLayout: boolean }
-  | { type: "apply-viewed"; items: DiffItem[]; change: ViewedChange }
-  | { type: "begin-viewed-load"; scopeKey: string }
-  | { type: "expand-item"; itemId: string }
-  | { type: "hydrate-item"; itemId: string; fileDiff: any }
-  | { type: "set-item-collapsed"; itemId: string; collapsed: boolean; collapsedFiles: string[] }
-  | { type: "replace-viewed"; scopeKey: string; entries: ViewedFileEntry[] }
-  | { type: "set-file-filter"; filter: Partial<DiffFileFilter> }
-  | { type: "set-generated-paths"; paths: string[] }
-  | { type: "refresh"; status: DiffViewerStatus }
-  | { type: "reset-diff"; status: DiffViewerStatus }
-  | { type: "remove-comment"; id: string }
-  | { type: "rename-item"; oldId: string; newId: string }
-  | { type: "set-active-item"; itemId: string; treePath?: string }
-  | { type: "replace-comments"; comments: DiffCommentRecord[] }
-  | { type: "set-copy-feedback"; message: string }
-  | { type: "set-draft"; draft: CommentDraft | null }
-  | { type: "set-file-search-open"; open: boolean }
-  | { type: "request-file-search" }
-  | { type: "set-find-open"; open: boolean }
-  | { type: "set-find-query"; query: string }
-  | { type: "request-find" }
-  | { type: "set-files-width"; width: number }
-  | { type: "set-files-visible"; visible: boolean }
-  | { type: "set-metrics"; metrics: StreamMetrics }
-  | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
-  | { type: "set-options-open"; open: boolean }
-  | { type: "set-status"; status: DiffViewerStatus }
-  | { type: "set-tree-source"; source: FileTreeSource }
-  | { type: "upsert-comment"; comment: DiffCommentRecord };
-
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
-type DiffViewerLayout = DiffViewerOptions["layout"];
-
-function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
-  const payload = config.payload ?? {};
-  // Display toggles persisted by previous sessions are baked into the payload
-  // by the CLI so first paint matches; the viewerPrefs bridge re-syncs them
-  // live after boot. Layout is owned by payload.layout/layoutSource.
-  const {
-    layout: _seededLayout,
-    collapsedFiles: seededCollapsedFiles,
-    ...seededOptions
-  } = sanitizeViewerPrefs(payload.viewerOptions);
-  return {
-    activeItemId: "",
-    activeTreePath: "",
-    collapsedFiles: seededCollapsedFiles ?? readLocalViewerPrefs().collapsedFiles ?? [],
-    comments: [],
-    copyFeedback: "",
-    draft: null,
-    fileFilter: defaultDiffFileFilter(),
-    fileSearchOpen: false,
-    fileSearchRequest: 0,
-    filesWidth: 252,
-    filesVisible: true,
-    findOpen: false,
-    findQuery: "",
-    findRequest: 0,
-    generatedPaths: [],
-    items: [],
-    languages: ["text"],
-    metrics: null,
-    options: {
-      collapsed: false,
-      diffIndicators: "bars",
-      expandUnchanged: false,
-      lineNumbers: true,
-      showBackgrounds: true,
-      wordDiffs: false,
-      wordWrap: false,
-      ...seededOptions,
-      layout: initialDiffViewerLayout(payload),
-    } as DiffViewerOptions,
-    optionsOpen: false,
-    renderGeneration: 0,
-    status: initialStatus,
-    treeSource: null,
-    viewedByPath: new Map(),
-    viewedLocalEdits: new Map(),
-    viewedScopeKey: "",
-  };
-}
-
-/**
- * Generated and large files start collapsed (GitHub "Load diff" behavior),
- * and a file whose stored viewed fingerprint still matches starts collapsed
- * too, as does a file the user collapsed from its header caret.
- * `collapsed` is otherwise the session-wide collapse-all toggle.
- */
-function prepareAppendedItem(item: DiffItem, state: AppState, generatedPaths: ReadonlySet<string>): DiffItem {
-  const diff = item.fileDiff ?? {};
-  const stats = fileStats(diff);
-  const reason = deferredDiffReason({
-    path: fileName(diff, ""),
-    changedLines: stats.added + stats.deleted,
-    patchBytes: typeof diff.cmuxPatchByteLength === "number" ? diff.cmuxPatchByteLength : 0,
-    generatedPaths,
-  });
-  if (reason != null) {
-    diff.cmuxDeferredReason = reason;
-  }
-  const viewed = viewedStateOfItem(item, state.viewedByPath) === "viewed";
-  const userCollapsed = isUserCollapsed(item, state);
-  return state.options.collapsed || reason != null || viewed || userCollapsed ? { ...item, collapsed: true } : item;
-}
-
-function itemCollapsedFileKey(item: DiffItem, scopeKey: string): string {
-  return collapsedFileKey(viewedScopeKeyRepoRoot(scopeKey), fileName(item.fileDiff ?? {}, ""));
-}
-
-function isUserCollapsed(item: DiffItem, state: Pick<AppState, "collapsedFiles" | "viewedScopeKey">): boolean {
-  return (
-    state.collapsedFiles.length > 0 && state.collapsedFiles.includes(itemCollapsedFileKey(item, state.viewedScopeKey))
-  );
-}
-
-function viewedSessionOf(state: AppState): ViewedSession {
-  return { scopeKey: state.viewedScopeKey, viewedByPath: state.viewedByPath, localEdits: state.viewedLocalEdits };
-}
-
-function reducer(state: AppState, action: AppAction): AppState {
-  switch (action.type) {
-    case "apply-viewed": {
-      const session = recordViewedChange(viewedSessionOf(state), action.change);
-      return {
-        ...state,
-        items: action.items,
-        viewedByPath: session.viewedByPath,
-        viewedLocalEdits: session.localEdits,
-      };
-    }
-    case "begin-viewed-load": {
-      const session = beginViewedLoad(action.scopeKey);
-      const scoped = { ...state, viewedScopeKey: session.scopeKey };
-      return {
-        ...scoped,
-        // The repository is known now, so caret-collapsed files already
-        // streamed for it collapse.
-        items: state.items.map((item) =>
-          !item.collapsed && isUserCollapsed(item, scoped)
-            ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 }
-            : item,
-        ),
-        viewedByPath: session.viewedByPath,
-        viewedLocalEdits: session.localEdits,
-      };
-    }
-    case "set-item-collapsed":
-      return {
-        ...state,
-        collapsedFiles: action.collapsedFiles,
-        items: state.items.map((item) =>
-          item.id === action.itemId && Boolean(item.collapsed) !== action.collapsed
-            ? { ...item, collapsed: action.collapsed, version: (item.version ?? 0) + 1 }
-            : item,
-        ),
-      };
-    case "hydrate-item":
-      return {
-        ...state,
-        items: state.items.map((item) =>
-          item.id === action.itemId
-            ? withCommentAnnotations(
-                { ...item, fileDiff: action.fileDiff, version: (item.version ?? 0) + 1 },
-                state.comments,
-                state.draft,
-              )
-            : item,
-        ),
-      };
-    case "expand-item":
-      return {
-        ...state,
-        items: state.items.map((item) =>
-          item.id === action.itemId ? { ...item, collapsed: false, version: (item.version ?? 0) + 1 } : item,
-        ),
-      };
-    case "replace-viewed": {
-      const session = applyLoadedViewed(viewedSessionOf(state), action.scopeKey, action.entries);
-      if (session == null) {
-        return state;
-      }
-      const { viewedByPath } = session;
-      // Files already streamed collapse once their stored mark turns out to
-      // still match, the same way a late-arriving batch would.
-      const items = state.items.map((item) => {
-        const viewed = viewedStateOfItem(item, viewedByPath) === "viewed";
-        return viewed && !item.collapsed ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 } : item;
-      });
-      return { ...state, items, viewedByPath };
-    }
-    case "set-file-filter":
-      return { ...state, fileFilter: { ...state.fileFilter, ...action.filter } };
-    case "set-generated-paths":
-      return { ...state, generatedPaths: action.paths };
-    case "apply-persisted-options": {
-      const { layout, collapsedFiles, ...prefs } = action.prefs;
-      const withCollapsed = { ...state, collapsedFiles: collapsedFiles ?? state.collapsedFiles };
-      return {
-        ...withCollapsed,
-        // Files streamed before the stored preferences arrived collapse now.
-        items: state.items.map((item) =>
-          !item.collapsed && isUserCollapsed(item, withCollapsed)
-            ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 }
-            : item,
-        ),
-        options: {
-          ...state.options,
-          ...prefs,
-          ...(action.allowLayout && layout != null ? { layout } : {}),
-        },
-      };
-    }
-    case "refresh":
-      return {
-        ...state,
-        activeItemId: "",
-        activeTreePath: "",
-        draft: null,
-        generatedPaths: [],
-        items: [],
-        languages: ["text"],
-        metrics: null,
-        renderGeneration: state.renderGeneration + 1,
-        status: action.status,
-        treeSource: null,
-      };
-    case "append-items": {
-      const generatedPaths = new Set(state.generatedPaths);
-      const nextItems = action.items.map((item) => {
-        resolveDiffItemLanguage(item);
-        const annotated = withCommentAnnotations(item, state.comments, state.draft);
-        return prepareAppendedItem(annotated, state, generatedPaths);
-      });
-      const languages = mergeLanguages(state.languages, nextItems.flatMap(diffItemPreloadLanguages));
-      return {
-        ...state,
-        activeItemId: state.activeItemId || nextItems[0]?.id || "",
-        items: [...state.items, ...nextItems],
-        languages,
-        status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
-      };
-    }
-    case "relanguage-items": {
-      const items = relanguagedItems(state.items);
-      return items.every((item, index) => item === state.items[index])
-        ? state
-        : { ...state, items, languages: mergeLanguages(state.languages, items.flatMap(diffItemPreloadLanguages)) };
-    }
-    case "reset-diff":
-      return {
-        ...state,
-        activeItemId: "",
-        activeTreePath: "",
-        draft: null,
-        generatedPaths: [],
-        items: [],
-        languages: ["text"],
-        metrics: null,
-        status: action.status,
-        treeSource: null,
-      };
-    case "remove-comment": {
-      const comments = state.comments.filter((comment) => comment.id !== action.id);
-      return {
-        ...state,
-        comments,
-        items: applyCommentAnnotations(state.items, comments, state.draft),
-      };
-    }
-    case "rename-item":
-      return {
-        ...state,
-        activeItemId: state.activeItemId === action.oldId ? action.newId : state.activeItemId,
-        draft: state.draft?.itemId === action.oldId ? { ...state.draft, itemId: action.newId } : state.draft,
-        items: state.items.map((item) =>
-          item.id === action.oldId || item.id === action.newId
-            ? { ...item, id: action.newId, version: (item.version ?? 0) + 1 }
-            : item,
-        ),
-      };
-    case "set-active-item":
-      return {
-        ...state,
-        activeItemId: action.itemId,
-        activeTreePath: action.treePath ?? state.activeTreePath,
-      };
-    case "replace-comments":
-      return {
-        ...state,
-        comments: action.comments,
-        draft: null,
-        items: applyCommentAnnotations(state.items, action.comments, null),
-      };
-    case "set-copy-feedback":
-      return { ...state, copyFeedback: action.message };
-    case "set-draft":
-      return {
-        ...state,
-        draft: action.draft,
-        items: applyCommentAnnotations(state.items, state.comments, action.draft),
-      };
-    case "set-file-search-open":
-      return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
-    case "request-file-search":
-      return { ...state, fileSearchOpen: true, fileSearchRequest: state.fileSearchRequest + 1, filesVisible: true };
-    case "set-find-open":
-      // The query is kept when closing so reopening recovers the last search.
-      return { ...state, findOpen: action.open };
-    case "set-find-query":
-      return { ...state, findQuery: action.query };
-    case "request-find":
-      return { ...state, findOpen: true, findRequest: state.findRequest + 1 };
-    case "set-files-width":
-      return { ...state, filesWidth: action.width };
-    case "set-files-visible":
-      return { ...state, filesVisible: action.visible };
-    case "set-metrics":
-      return { ...state, metrics: action.metrics };
-    case "set-option":
-      if (action.key === "collapsed") {
-        return {
-          ...state,
-          options: { ...state.options, collapsed: Boolean(action.value) },
-          items: state.items.map((item) => ({
-            ...item,
-            collapsed: Boolean(action.value),
-            version: (item.version ?? 0) + 1,
-          })),
-        };
-      }
-      return { ...state, options: { ...state.options, [action.key]: action.value } };
-    case "set-options-open":
-      return { ...state, optionsOpen: action.open };
-    case "set-status":
-      return { ...state, status: action.status };
-    case "set-tree-source": {
-      const source = action.source;
-      const nextPath = state.activeItemId
-        ? (source.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath)
-        : state.activeTreePath;
-      return {
-        ...state,
-        activeTreePath: nextPath,
-        treeSource: source,
-      };
-    }
-    case "upsert-comment": {
-      const exists = state.comments.some((comment) => comment.id === action.comment.id);
-      const comments = exists
-        ? state.comments.map((comment) => (comment.id === action.comment.id ? action.comment : comment))
-        : [...state.comments, action.comment];
-      return {
-        ...state,
-        comments,
-        items: applyCommentAnnotations(state.items, comments, state.draft),
-      };
-    }
-  }
-}
-
 export function App({ config, initialStatus }: ConfigProps) {
   const payload = config.payload ?? {};
   const label = useMemo(
@@ -1282,21 +872,6 @@ function useDiffComments({
 function localCommentRecord(input: Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt">): DiffCommentRecord {
   const now = new Date().toISOString();
   return { ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
-}
-
-function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout {
-  const payloadLayout = parseDiffViewerLayout(payload.layout);
-  if (payload.layoutSource === "explicit" && payloadLayout) {
-    return payloadLayout;
-  }
-  // The CLI bakes the globally persisted layout into the payload at generation
-  // time; local storage only matters for pages opened outside cmux. The
-  // viewerPrefs bridge re-syncs the live value right after boot.
-  return readLocalViewerPrefs().layout ?? payloadLayout ?? "unified";
-}
-
-function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
-  return value === "split" || value === "unified" ? value : null;
 }
 
 function useViewerPrefsBootstrap(payload: any, dispatch: React.Dispatch<AppAction>) {
@@ -2762,141 +2337,6 @@ function useRenderDiff(
   ]);
 }
 
-function closeDiffSession(transport: DiffTransport, session: ActiveDiffSession): Promise<void> {
-  return transport.request({ method: "sessionClose", params: session }).then(
-    () => {},
-    () => {},
-  );
-}
-
-function diffSessionRequest(
-  payload: any,
-  transport: DiffTransport | null,
-  overrideSource?: DiffSource | null,
-): {
-  source: DiffSource;
-  capabilityToken: string;
-} | null {
-  if (!transport || typeof payload?.capabilityToken !== "string") {
-    return null;
-  }
-  const source = overrideSource ?? payload.sessionSource;
-  if (!validDiffSource(source)) {
-    return null;
-  }
-  return { source, capabilityToken: payload.capabilityToken };
-}
-
-function validDiffSource(value: unknown): value is DiffSource {
-  if (!value || typeof value !== "object" || typeof (value as { kind?: unknown }).kind !== "string") {
-    return false;
-  }
-  const source = value as { kind: string; repoRoot?: unknown; path?: unknown; baseRef?: unknown };
-  if (source.kind === "patch") {
-    return typeof source.path === "string";
-  }
-  if (source.kind === "unstaged" || source.kind === "staged") {
-    return typeof source.repoRoot === "string";
-  }
-  return (
-    source.kind === "branch" &&
-    typeof source.repoRoot === "string" &&
-    (source.baseRef == null || typeof source.baseRef === "string")
-  );
-}
-
-function diffSourceRepoRoot(source: DiffSource | null): string | null {
-  return source && "repoRoot" in source ? source.repoRoot : null;
-}
-
-function sourceSelectionWithActiveRepo(source: DiffSource, active: DiffSource | null): DiffSource {
-  if (source.kind === "patch") {
-    return source;
-  }
-  const activeRepo = diffSourceRepoRoot(active);
-  if (!activeRepo) {
-    return source;
-  }
-  if (source.kind === "branch") {
-    return source.repoRoot === activeRepo
-      ? { ...source, repoRoot: activeRepo }
-      : { kind: "branch", repoRoot: activeRepo };
-  }
-  return { ...source, repoRoot: activeRepo };
-}
-
-function repoSelectionWithActiveSource(source: DiffSource, active: DiffSource | null): DiffSource {
-  const repoRoot = diffSourceRepoRoot(source);
-  if (!repoRoot || !active || active.kind === "patch") {
-    return source;
-  }
-  if (active.kind === "branch") {
-    return active.repoRoot === repoRoot ? { ...active, repoRoot } : { kind: "branch", repoRoot };
-  }
-  return { ...active, repoRoot };
-}
-
-/// Sets `fileDiff.lang` to the detected language. The language the parser chose and the
-/// worker cache key are kept beside it, so a later language change (the host pushed new user
-/// languages) detects from the same input and never reads a cached render of the old language.
-function resolveDiffItemLanguage(item: DiffItem): void {
-  const diff = item.fileDiff;
-  if (diff == null) {
-    return;
-  }
-  if (!("cmuxParsedLanguage" in diff)) {
-    diff.cmuxParsedLanguage = diff.lang;
-    diff.cmuxBaseCacheKey = diff.cacheKey;
-  }
-  const lang = resolveDiffFileLanguage(fileName(diff, ""), diff.cmuxParsedLanguage, diff);
-  diff.lang = lang;
-  if (typeof diff.cmuxBaseCacheKey === "string") {
-    diff.cacheKey = `${diff.cmuxBaseCacheKey}:${lang}`;
-  }
-}
-
-/// The items whose language changed under the current language registry, as new objects.
-function relanguagedItems(items: DiffItem[]): DiffItem[] {
-  return items.map((item) => {
-    const diff = item.fileDiff;
-    if (diff == null) {
-      return item;
-    }
-    const next = { ...item, fileDiff: { ...diff } };
-    resolveDiffItemLanguage(next);
-    return next.fileDiff.lang === diff.lang ? item : { ...next, version: (item.version ?? 0) + 1 };
-  });
-}
-
-function diffItemPreloadLanguages(item: DiffItem): string[] {
-  const diff = item.fileDiff;
-  if (diff == null) {
-    return [];
-  }
-  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff);
-}
-
-function mergeLanguages(current: string[], next: string[]): string[] {
-  const languages = new Set(current);
-  for (const language of next) {
-    if (language.trim().length > 0) {
-      languages.add(language);
-    }
-  }
-  return Array.from(languages);
-}
-
-function isStatusOnlyPayload(
-  payload: any,
-  transport: DiffTransport | null = null,
-  sessionSource: DiffSource | null = null,
-): boolean {
-  if (payload?.pendingReplacement === true) {
-    return diffSessionRequest(payload, transport, sessionSource) == null;
-  }
-  return typeof payload?.statusMessage === "string" && payload.statusMessage.length > 0;
-}
-
 function usePendingReplacement(
   payload: any,
   label: DiffViewerLabelResolver,
@@ -3178,97 +2618,6 @@ function useDiffTransport(config: DiffTransportConfig | undefined): DiffTranspor
     return () => transport?.close();
   }, []);
   return transportRef.current;
-}
-
-/**
- * Applies `update` and, when it collapses `collapsingItemId` while that file's
- * header is stuck at the top of the viewer (the viewer is scrolled into the
- * file's body), scrolls so the collapsed header stays the top row. Without
- * this the viewer keeps its line anchor into content that no longer exists
- * and lands a few pixels into the previous file. `update` is flushed first
- * so the code view lays out the collapsed item before the scroll resolves.
- */
-export function keepStuckHeaderInView(
-  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
-  collapsingItemId: string | null,
-  update: () => void,
-): void {
-  const instance = collapsingItemId == null ? null : codeViewRef.current?.getInstance();
-  const top = instance == null ? undefined : instance.getTopForItem(collapsingItemId!);
-  const stuck = instance != null && typeof top === "number" && top < instance.getScrollTop();
-  if (!stuck) {
-    update();
-    return;
-  }
-  flushSync(update);
-  codeViewRef.current?.scrollTo({ type: "item", id: collapsingItemId!, align: "start", behavior: "instant" });
-}
-
-const plainTextItems = new WeakMap<DiffItem, DiffItem>();
-
-/**
- * A collapsed file shows only its header, but @pierre/diffs still sends a
- * mounted collapsed file to the highlight workers (FileDiff.render runs the
- * hunks renderer with an empty range, which queues the whole file). On a
- * large diff that put five collapsed 20,000-line files ahead of the visible
- * file in the worker queue. Presenting a collapsed file as plain text
- * (`lang: "text"`, Pierre's own no-highlight path, with its own cache key)
- * keeps it out of the queue; expanding the file changes the item (a new
- * version), which presents the real language and highlights it then.
- * Cached per item object, so CodeView sees a stable item while it is
- * unchanged.
- */
-export function presentedItem(item: DiffItem): DiffItem {
-  const diff = item.fileDiff;
-  if (!item.collapsed || diff == null || diff.lang === "text") {
-    return item;
-  }
-  let presented = plainTextItems.get(item);
-  if (presented == null) {
-    presented = { ...item, fileDiff: { ...diff, lang: "text", cacheKey: `${diff.cacheKey ?? item.id}:collapsed` } };
-    plainTextItems.set(item, presented);
-  }
-  return presented;
-}
-
-function scrollTargetForItem(itemId: string, items: DiffItem[]): string {
-  if (items.some((item) => item.id === itemId)) {
-    return itemId;
-  }
-  return items[0]?.id ?? "";
-}
-
-export function adjacentItemId(activeItemId: string, items: DiffItem[], direction: -1 | 1): string {
-  if (items.length === 0) {
-    return "";
-  }
-  const currentIndex = items.findIndex((item) => item.id === activeItemId);
-  if (currentIndex < 0) {
-    return direction > 0 ? items[0].id : items[items.length - 1].id;
-  }
-  const targetIndex = currentIndex + direction;
-  return targetIndex >= 0 && targetIndex < items.length ? items[targetIndex].id : "";
-}
-
-export function visibleItemId(
-  items: DiffItem[],
-  scrollTop: number,
-  getTopForItem: (itemId: string) => number | undefined,
-): string {
-  let low = 0;
-  let high = items.length - 1;
-  let visibleIndex = items.length > 0 ? 0 : -1;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const top = getTopForItem(items[middle].id);
-    if (top != null && top <= scrollTop + 1) {
-      visibleIndex = middle;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
-  }
-  return visibleIndex >= 0 ? items[visibleIndex].id : "";
 }
 
 const FILE_TREE_ITEM_HEIGHT = 29;
