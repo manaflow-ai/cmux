@@ -91,6 +91,7 @@ struct Rp {
   int (*surface_send_mouse)(int, int, double, double, int, int,
                             int) = nullptr;
   int (*surface_close)(int) = nullptr;
+  int (*surface_refresh)(int) = nullptr;  // API 21
   int (*set_active)(int, int) = nullptr;
 } g_rp;
 
@@ -120,6 +121,7 @@ bool BindRp(const std::string& framework_binary) {
   BIND(surface_capture_start, "cmux_rp_surface_capture_start");
   BIND(surface_send_mouse, "cmux_rp_surface_send_mouse");
   BIND(surface_close, "cmux_rp_surface_close");
+  BIND(surface_refresh, "cmux_rp_surface_refresh");
   BIND(set_active, "cmux_rp_set_active");
 #undef BIND
   return g_rp.api_version && g_rp.api_version() >= 19 && g_rp.is_active &&
@@ -935,6 +937,10 @@ int rb_shim_surface_send_mouse(int surface_id,
 
 int rb_shim_surface_close(int surface_id) {
   return g_rp.surface_close ? g_rp.surface_close(surface_id) : 0;
+}
+
+int rb_shim_surface_refresh(int surface_id) {
+  return g_rp.surface_refresh ? g_rp.surface_refresh(surface_id) : 0;
 }
 
 int rb_shim_popup_menu_result(int64_t token, const int* indices, int count) {
