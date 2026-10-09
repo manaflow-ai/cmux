@@ -29,6 +29,7 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 29db27d7f766: attach lifecycle -> server/attach_lifecycle.rs (388), tree/pane JSON views -> server/tree_json.rs (382), connection surface scheduler -> server/connection_scheduler.rs (443), worker and surface-operation admission -> server/worker_admission.rs (172). server.rs 6005 -> 4751. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 - 2026-10-09 d9afdb93d999: subscribe arms (2) + subscribed_event_json, subscription_overflow_json -> server/cmd_subscribe.rs (308 lines). server.rs 4751 -> 4478. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 - 2026-10-09 1a903c25edad: resource connection routing -> server/resource_connection.rs (446 lines). server.rs 4478 -> 4094. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
+- 2026-10-09 a1806a818923: client disconnect and detach -> server/disconnect.rs (271 lines). server.rs 4094 -> 3870. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 
 ## Map: cmux-tui-core/src/server.rs (lane refactor-server-rs, base 2dba648cdbde, 27,370 lines)
 
