@@ -16,7 +16,6 @@
    "cmux-remote": 60,
    "cmux-terminal-client": 1,
    "cmux-tui": 87,
-   "cmux-tui-cdp": 3,
    "cmux-tui-core": 293,
    "cmux-wg": 15
   },
@@ -33,7 +32,6 @@
    "cmux-remote": 30,
    "cmux-terminal-client": 30,
    "cmux-tui": 435,
-   "cmux-tui-cdp": 29,
    "cmux-tui-core": 1643
   }
  },
@@ -60,9 +58,6 @@
   "iuo": {
    "CmuxNextApp": 27,
    "CmuxNextSidebar": 5
-  },
-  "precondition": {
-   "CmuxNextSidebar": 1
   },
   "render_font": {
    "CmuxHomeRender": 4,
