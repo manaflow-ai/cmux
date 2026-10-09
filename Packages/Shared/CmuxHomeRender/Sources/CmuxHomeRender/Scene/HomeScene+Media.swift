@@ -9,11 +9,12 @@ extension HomeScene {
         media.onImage = { [weak self] hash in self?.mediaArrived(hash) }
         media.onReload = { [weak self] in self?.refreshVisibleRows() }
         video.onChange = { [weak self] key in
-            guard let self, let row = self.visible[key], let i = self.visibleIndex[ObjectIdentifier(row)], i < self.model.count
+            guard let self, let row = self.visible[key], let i = self.visibleIndex[ObjectIdentifier(row)], i < self.model.count,
+                  let spec = self.model.rows[checked: i]?.spec
             else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            self.decorateMedia(row, self.model.rows[i].spec)
+            self.decorateMedia(row, spec)
             CATransaction.commit()
         }
     }
@@ -23,7 +24,7 @@ extension HomeScene {
     func decorateMedia(_ row: RowLayer, _ spec: RowSpec) {
         decorateProgress(row, spec)
         guard let p = spec.partRow, let part = p.media else { return }
-        let maxPixel = Int((max(p.size.width, p.size.height) * bitmaps.scale).rounded(.up))
+        let maxPixel = CrashGuard.int((max(p.size.width, p.size.height) * bitmaps.scale).rounded(.up))
         if let image = media.image(for: part, maxPixel: maxPixel) { row.showMedia(image) }
         guard part.isVideo else {
             row.showPlayBadge(false)
