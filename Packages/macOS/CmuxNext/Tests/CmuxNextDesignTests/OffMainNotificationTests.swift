@@ -104,7 +104,15 @@ struct OffMainNotificationTests {
 
     /// A Reduce Transparency change posted off main repaints the window
     /// surface on main.
-    @Test func aDisplayOptionsChangeOffMainRepaintsTheSurfaceOnMain() async {
+    ///
+    /// `NSWorkspace.shared.notificationCenter` also feeds AppKit's own
+    /// observers synchronously on the posting thread. On Xcode 26.6 that
+    /// path can lay out an unrelated window and read `SidebarView.isFlipped`
+    /// off-main, trapping before the queued cmux observer runs. Keep this
+    /// process-global integration post disabled until the notification
+    /// source is injectable, as with the key-window tests above.
+    @Test(.disabled("NSWorkspace.shared.notificationCenter can make AppKit lay out a window off main and trap in SidebarView.isFlipped on Xcode 26.6; use an injected center for this coverage"))
+    func aDisplayOptionsChangeOffMainRepaintsTheSurfaceOnMain() async {
         let window = Self.window()
         let log = MainThreadLog()
         let surface = WindowSurfaceView(content: NSView(), reduceTransparency: {
