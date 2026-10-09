@@ -129,6 +129,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// ``maximumLogBytes`` UTF-8 bytes) to save where the user picks, under
     /// `suggestedName` (a plain file name ending in `.jsonl`).
     case saveLog(text: String, suggestedName: String)
+    /// `pane.showContextUsage` with `{show}`: the composer's Hide or Show Context Usage, which the
+    /// host writes to cmux.json (`agentPane.showContextUsage`).
+    case showContextUsage(Bool)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).

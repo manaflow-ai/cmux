@@ -91,6 +91,8 @@
 .acpmux-context-part-name{color:var(--agent-text)}
 .acpmux-context-part-tokens{color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-context-part-detail{grid-column:1/-1;color:var(--agent-muted);font-size:11px;line-height:15px}
+/* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
+.acpmux-context-usage-menu{display:contents}
 .acpmux-context-compact{width:100%;height:28px;margin-top:12px;border:0;border-radius:8px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit}
 .acpmux-context-compact:hover:not(:disabled){background:var(--acpmux-menu-press)}
 .acpmux-context-compact:disabled{opacity:.5}

@@ -42,8 +42,8 @@ import Testing
         #expect(view.page == nil)
     }
 
-    /// A new page subscriber gets the theme, shortcuts, preview state and the edited-files card's
-    /// settings, as the old host pushed them after each load.
+    /// A new page subscriber gets the theme, shortcuts, preview state, the edited-files card's
+    /// settings and the composer's, as the old host pushed them after each load.
     @Test func aSubscribedPageGetsTheCurrentState() async throws {
         let (view, _) = try pageView()
         defer { view.close() }
@@ -55,9 +55,10 @@ import Testing
         // A theme change (the view joining a scope) may push the theme again; that is harmless.
         let kinds = received().compactMap { $0["kind"]?.stringValue }
         #expect(kinds.first == "theme")
-        #expect(Set(kinds) == ["theme", "shortcuts", "preview", "editedFiles"])
+        #expect(Set(kinds) == ["theme", "shortcuts", "preview", "editedFiles", "composer"])
         #expect(received().first { $0["kind"] == "preview" }?["value"] == .bool(true))
         #expect(received().first { $0["kind"] == "editedFiles" }?["value"] == ["show": "collapsed", "maxRows": 5, "scope": "turn"])
+        #expect(received().first { $0["kind"] == "composer" }?["value"] == ["showContextUsage": true])
     }
 
     /// Commands, focus and links reach the page as events; no script runs.

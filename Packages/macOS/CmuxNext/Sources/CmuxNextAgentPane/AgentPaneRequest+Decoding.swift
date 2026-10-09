@@ -49,6 +49,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.showContextUsage":
+            if let show = params?["show"] as? Bool {
+                self = .showContextUsage(show)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.painted":
             self = .painted
         case "pane.renderRate":

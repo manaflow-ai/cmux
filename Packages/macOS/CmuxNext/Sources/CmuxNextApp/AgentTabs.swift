@@ -349,6 +349,7 @@ final class AgentTabStore {
         view.customization = customization.current
         view.shortcuts = shortcuts
         pageSettings.apply(to: view)
+        model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
         customization.start()
         return view
     }
