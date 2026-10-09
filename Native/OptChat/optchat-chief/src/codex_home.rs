@@ -27,6 +27,11 @@ pub const CODEX_PATH_ENV: &str = "CODEX_PATH";
 /// else `paths.codex_bin` when installed. None: codex-acp runs the PATH
 /// codex, which may be upstream codex (it ignores the key, so the view is
 /// never read back from the cache).
+/// Where the app bundles the codex fork next to this binary (no copy yet).
+pub fn chief_codex_in(_paths: &Paths, _exe_dir: &Path) -> Option<PathBuf> {
+    None
+}
+
 pub fn chief_codex(paths: &Paths) -> Option<PathBuf> {
     crate::cli::env("OPTCHAT_CODEX_PATH")
         .map(PathBuf::from)
