@@ -13,7 +13,7 @@ final class AgentPageRetirer {
     func retire(_ view: AgentPaneView) {
         // A closed New Tab page drops the chat a chip pick started behind it; the page stays alive
         // until the teardown below, long enough to send the discard.
-        view.discardUnsentChat()
+        view.topBar.discardUnsentChat()
         BenchSpans.measure("agentPane.detach") { view.removeFromSuperview() }
         retiring.append(view)
         timer.schedule(after: Self.delay) { @MainActor [weak self] in self?.flush() }

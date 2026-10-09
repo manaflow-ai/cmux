@@ -72,11 +72,11 @@ import Testing
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: SilentHost(), newTab: AgentPaneNewTab(kind: .agent))))
         var scripts: [String] = []
         view.evaluateScript = { scripts.append($0) }
-        view.discardUnsentChat()
+        view.topBar.discardUnsentChat()
         #expect(scripts == ["window.dispatchEvent(new Event('acpmux-newtab-close'))"])
         _ = await view.model.respond(to: .persistSession("s1"))
         scripts.removeAll()
-        view.discardUnsentChat()
+        view.topBar.discardUnsentChat()
         #expect(scripts.isEmpty)
     }
 
