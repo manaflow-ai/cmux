@@ -21,6 +21,7 @@
 
 mod approvals;
 mod children;
+mod engine_control;
 pub mod images;
 mod inbox;
 mod mux_ack;
@@ -141,6 +142,29 @@ pub enum Input {
     Described {
         image: Box<images::TurnImage>,
         description: Result<String, String>,
+    },
+    /// chief.engine.get / chief.engine.set: the engine this brain's turns
+    /// take (engine.json), answered as one JSON value (`engine_control`).
+    Engine {
+        request: EngineRequest,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop: stops the running turn as a newer message does;
+    /// answers `{"stopped": bool}`.
+    Stop {
+        reply: Sender<serde_json::Value>,
+    },
+}
+
+/// What chief.engine.get / chief.engine.set ask the brain.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EngineRequest {
+    Show,
+    /// An absent field stays; `default` clears one.
+    Set {
+        harness: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
     },
 }
 
@@ -327,6 +351,8 @@ pub struct Brain {
     /// A human message arrived while an acpmux turn ran: that turn is
     /// being stopped, and its end posts nothing.
     stop_wanted: bool,
+    /// The owner stopped the running turn (chief.stop): its end says so.
+    owner_stopped: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
     after_turn: Option<TurnHook>,
@@ -430,6 +456,7 @@ impl Brain {
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
+            owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -605,6 +632,12 @@ impl Brain {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
             }
             Input::Described { image, description } => self.described(&image, description),
+            Input::Engine { request, reply } => {
+                let _ = reply.send(self.engine_control(request));
+            }
+            Input::Stop { reply } => {
+                let _ = reply.send(self.owner_stop());
+            }
         }
     }
 
