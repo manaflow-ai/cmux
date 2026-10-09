@@ -21,7 +21,13 @@ enum TerminalHandlers {
     /// Runs a Ghostty binding action on the targeted or focused terminal.
     static func perform(_ binding: String, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let entry = ctx.terminal(invocation) else { return }
-        if !entry.session.surfaceView.performBindingAction(binding) { ctx.refuse(RefusalStrings.ghosttyRejected(String(describing: binding))) }
+        if !entry.session.surfaceView.performBindingAction(binding) {
+            ctx.refuse(RefusalStrings.ghosttyRejected(String(describing: binding)))
+        } else if binding == "increase_font_size:1" || binding == "decrease_font_size:1" || binding == "reset_font_size" {
+            // Ghostty owns the exact font level. The transient readout confirms the focused
+            // surface changed without duplicating that state in cmux settings.
+            SurfaceZoomIndicator.show(percent: 100, in: ctx.services.windows.active?.window)
+        }
     }
 
     static func selection(of entry: TerminalEntry) -> String? {

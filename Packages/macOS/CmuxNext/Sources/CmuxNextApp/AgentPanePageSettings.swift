@@ -8,8 +8,10 @@ import Observation
 final class AgentPanePageSettings {
     private(set) var previewFeatures = false
     private(set) var editedFiles = AgentPaneEditedFilesSetting.fallback
+    private(set) var zoom = AgentPaneZoomSetting.fallback
     private var previewObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
+    private var zoomObservation: Task<Void, Never>?
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
@@ -29,11 +31,19 @@ final class AgentPanePageSettings {
                 push()
             }
         }
+        zoomObservation = Task { [weak self] in
+            for await value in Observations({ settings.snapshot.agentPaneZoom }) {
+                guard let self else { return }
+                zoom = value
+                push()
+            }
+        }
     }
 
     /// Gives `view` the current values (the view pushes only a change).
     func apply(to view: AgentPaneView) {
         view.previewFeatures = previewFeatures
         view.editedFiles = editedFiles
+        view.zoom = zoom
     }
 }

@@ -40,6 +40,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private var uiScaleObservation: Task<Void, Never>?
+    /// A surface-owned multiplier layered on top of the app-wide `uiScale`.
+    /// Agent chat uses this for its persisted per-surface zoom.
+    public var additionalZoom: Double = 1 {
+        didSet { if additionalZoom != oldValue { applyUIScale() } }
+    }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
@@ -240,7 +245,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Keeps first-party pages proportional to native chrome as the live
     /// interface scale changes.
     private func applyUIScale() {
-        webView.pageZoom = Double(DesignSettings.shared.uiScale)
+        webView.pageZoom = Double(DesignSettings.shared.uiScale) * additionalZoom
     }
 
     /// Marks a claimed pooled host as used by real input.

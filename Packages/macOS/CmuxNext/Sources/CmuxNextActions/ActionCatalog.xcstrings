@@ -71135,5 +71135,17 @@
       }
     }
   },
+  "action.agentPaneZoomIn": {
+    "extractionState": "manual",
+    "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Agent Chat: Zoom In" } } }
+  },
+  "action.agentPaneZoomOut": {
+    "extractionState": "manual",
+    "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Agent Chat: Zoom Out" } } }
+  },
+  "action.agentPaneZoomReset": {
+    "extractionState": "manual",
+    "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Agent Chat: Actual Size" } } }
+  },
   "version": "1.0"
 }

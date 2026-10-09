@@ -64,6 +64,13 @@ public final class AgentPaneView: NSView {
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
     private var uiScaleObservation: Task<Void, Never>?
+    /// The agent pane's own display zoom. App-wide `uiScale` remains separate.
+    public var zoom: Double = 1 {
+        didSet {
+            guard zoom != oldValue else { return }
+            applyZoom()
+        }
+    }
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
@@ -149,6 +156,7 @@ public final class AgentPaneView: NSView {
                 AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
             )
         }
+        applyZoom()
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
@@ -224,12 +232,21 @@ public final class AgentPaneView: NSView {
 
     private func observeUIScale() {
         guard page == nil else { return }
-        webView.pageZoom = Double(DesignSettings.shared.uiScale)
+        applyZoom()
         uiScaleObservation = Task { [weak self] in
             for await _ in Observations({ DesignSettings.shared.uiScale }) {
                 guard let self else { return }
-                self.webView.pageZoom = Double(DesignSettings.shared.uiScale)
+                self.applyZoom()
             }
+        }
+    }
+
+    private func applyZoom() {
+        let scale = Double(DesignSettings.shared.uiScale) * zoom
+        if let page {
+            page.additionalZoom = zoom
+        } else {
+            webView.pageZoom = scale
         }
     }
 

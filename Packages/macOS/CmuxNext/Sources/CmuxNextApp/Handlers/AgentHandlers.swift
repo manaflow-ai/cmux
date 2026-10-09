@@ -3,7 +3,9 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextOnboarding
+import CmuxNextSettings
 import Observation
 
 /// Agent actions. Forks read the agent session the daemon reports for the
@@ -21,6 +23,9 @@ enum AgentHandlers {
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("agentPaneZoomIn", run: { _ in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context) })
+        registry.bind("agentPaneZoomOut", run: { _ in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context) })
+        registry.bind("agentPaneZoomReset", run: { _ in try resetAgentPaneZoom(context) })
         let forks: [(ActionID, Placement)] = [
             ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
             ("palette.forkAgentConversationTop", .above), ("palette.forkAgentConversationBottom", .below),
@@ -134,6 +139,38 @@ enum AgentHandlers {
             ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
             ActionFailure(message: MiscHandlerStrings.computerUse)
         )
+    }
+
+    private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
+
+    private static func focusedAgentView(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
+        guard let pane = context.scope(invocation).pane,
+              let key = pane.currentTabKey,
+              let view = context.services.agentTabs.existingView(key) else {
+            context.refuse(MiscHandlerStrings.noAgentChat)
+            return nil
+        }
+        return view
+    }
+
+    private static func setAgentPaneZoom(by delta: Double, context: AppActionContext) throws {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        guard let view = focusedAgentView(context) else { return }
+        let next = min(max(Double(context.design.agentPaneZoom) + delta,
+                           AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
+        context.design.agentPaneZoom = CGFloat(next)
+        view.zoom = next
+        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(next), reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: Int((next * 100).rounded()), in: context.services.windows.active?.window)
+    }
+
+    private static func resetAgentPaneZoom(_ context: AppActionContext) throws {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        guard let view = focusedAgentView(context) else { return }
+        context.design.agentPaneZoom = CGFloat(AgentPaneZoomSetting.fallback)
+        view.zoom = AgentPaneZoomSetting.fallback
+        context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
     }
 
     /// The pane a new agent chat opens in (New Agent Chat, Add Harness…): the invocation's pane,
