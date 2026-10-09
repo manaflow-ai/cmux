@@ -1725,3 +1725,31 @@ fn a_compactor_slots_settings_file_is_private() {
     let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600, "{mode:o}");
 }
+
+/// The API takes at most 4 marks per request, and Claude Code marks its two
+/// system blocks plus the last two messages of every request after a
+/// session's first (a size-loop follow-up): a node that carries our mark
+/// runs Claude Code without its own; a node too short for one keeps them.
+#[test]
+fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path());
+    let settings = |k: usize| -> Value {
+        let cwd = agents.inner.lock().unwrap().specs[k].cwd.clone();
+        serde_json::from_slice(&std::fs::read(cwd.join(".claude").join("settings.json")).unwrap())
+            .unwrap()
+    };
+    let marked = CompactRequest {
+        context: chat_of(150),
+        ..request(0)
+    };
+    run_node(&compactor, &marked).unwrap();
+    assert_eq!(markers(&agents.inner.lock().unwrap().prompts[0]).len(), 1);
+    assert_eq!(settings(0)["env"]["DISABLE_PROMPT_CACHING"], "1");
+    run_node(&compactor, &request(1)).unwrap();
+    assert!(markers(&agents.inner.lock().unwrap().prompts[1]).is_empty());
+    let s = settings(1);
+    assert!(s["env"].get("DISABLE_PROMPT_CACHING").is_none(), "{s}");
+}

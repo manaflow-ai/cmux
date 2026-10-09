@@ -275,27 +275,14 @@ impl Spawner {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
-        // A Claude session on a preset with a system prompt takes the cached
-        // layout: our one mark ends the shared view, with the turns' TTL, and
-        // Claude Code is told the same TTL (the API refuses a 1h mark after a
-        // 5m one).
-        let mark = ttl
-            .filter(|_| admitted.family == crate::acpmux::Family::Claude)
-            .filter(|_| {
-                s.preset
-                    .as_deref()
-                    .is_some_and(|p| self.agents.system_prompt(p))
-            })
-            // Only in our own subagent directory: Claude Code takes the TTL
-            // from its project settings there (acpmux takes no TTL variable
-            // in a session's env), and a user's directory is not ours to write.
-            .filter(|_| s.cwd == self.settings.cwd)
-            .and_then(|ttl| crate::prompt::Mark::last_whole(view, ttl));
-        if let Some(m) = mark
-            && let Err(e) = crate::session_dir::set_prompt_cache_ttl(&s.cwd, m.ttl)
-        {
-            (self.log)(&format!("the subagent directory's promptCacheTtl: {e}"));
-        }
+        // No mark of ours in a subagent's first message: Claude Code marks
+        // its two system blocks and the last two messages of every later
+        // request in the session (each tool step), and the API takes at
+        // most 4 marks, so ours would fail the subagent's second request
+        // (Claude Code 2.1.287, measured 2026-10-08). Claude Code's own
+        // marks cache the long session step by step.
+        let _ = ttl;
+        let mark: Option<crate::prompt::Mark> = None;
         // The workspace key is chosen first, so the session starts knowing
         // its workspace (CMUX_WORKSPACE_ID; acpmux per-session env).
         let key = self
