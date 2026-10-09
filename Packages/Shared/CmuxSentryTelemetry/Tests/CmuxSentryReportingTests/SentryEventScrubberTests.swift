@@ -1,3 +1,4 @@
+import Foundation
 import CmuxSentryScrubbing
 import Sentry
 import Testing
@@ -175,6 +176,60 @@ import Testing
         let scrubbed = scrubber.scrub(breadcrumb)
         #expect(scrubbed.message == "ran in /Users/<redacted>/proj with token=<redacted-secret>")
         #expect(scrubbed.data?["url"] as? String == "https://x.com/?password=<redacted-secret>")
+    }
+
+    /// Sentry's scope hands every captured event the scope's own breadcrumb
+    /// objects (`applyToEvent` takes a subarray, it does not copy). Scrubbing an
+    /// event must never write those shared objects: two captures on different
+    /// threads would both set `data` on the same crumb and over-release it
+    /// (CMUXTERM-MACOS-3YAE, 3CW2, 3ZK8).
+    @Test func scrubbingAnEventLeavesSharedBreadcrumbsUntouched() throws {
+        let shared = Breadcrumb(level: .warning, category: "socket")
+        let timestamp = Date(timeIntervalSince1970: 1_760_000_000)
+        shared.timestamp = timestamp
+        shared.type = "debug"
+        shared.origin = "cmux"
+        shared.message = "cwd /Users/dev/proj"
+        shared.data = ["path": "/Users/dev/proj/file.txt", "count": 3]
+
+        let event = Event()
+        event.breadcrumbs = [shared]
+        let scrubbed = scrubber.scrub(event)
+
+        #expect(shared.message == "cwd /Users/dev/proj")
+        #expect(shared.data?["path"] as? String == "/Users/dev/proj/file.txt")
+
+        let sent = try #require(scrubbed.breadcrumbs?.first)
+        #expect(sent !== shared)
+        #expect(sent.message == "cwd /Users/<redacted>/proj")
+        #expect(sent.data?["path"] as? String == "/Users/<redacted>/proj/file.txt")
+        #expect(sent.data?["count"] as? Int == 3)
+        #expect(sent.level == .warning)
+        #expect(sent.category == "socket")
+        #expect(sent.timestamp == timestamp)
+        #expect(sent.type == "debug")
+        #expect(sent.origin == "cmux")
+    }
+
+    /// Concurrent captures share the scope's breadcrumbs. Scrubbing them from
+    /// many threads at once must not crash or corrupt the shared crumbs.
+    @Test func concurrentEventScrubsShareBreadcrumbsSafely() {
+        let shared = (0..<20).map { index -> Breadcrumb in
+            let crumb = Breadcrumb(level: .info, category: "socket")
+            crumb.message = "crumb \(index) in /Users/dev/proj"
+            crumb.data = ["path": "/Users/dev/proj/\(index)", "token": "abcdef0123456789abcdef"]
+            return crumb
+        }
+        let scrubber = self.scrubber
+        DispatchQueue.concurrentPerform(iterations: 300) { _ in
+            let event = Event()
+            event.breadcrumbs = shared
+            _ = scrubber.scrub(event)
+        }
+        for (index, crumb) in shared.enumerated() {
+            #expect(crumb.message == "crumb \(index) in /Users/dev/proj")
+            #expect(crumb.data?["path"] as? String == "/Users/dev/proj/\(index)")
+        }
     }
 
     @Test func preservesEventWithNothingSensitive() {
