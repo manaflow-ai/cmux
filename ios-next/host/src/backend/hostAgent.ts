@@ -70,7 +70,8 @@ export class HostAgent {
         const peer = new WebRtcPeer({
           role: "answerer",
           iceServers,
-          relayOnly: this.opts.relayOnly,
+          // The phone can force TURN for this session ("policy":"relay").
+          relayOnly: this.opts.relayOnly || f.policy === "relay",
           name: `host-${sessionId}`,
           log: (m) => log(`[${sessionId}] ${m}`),
           onSignal: (sig) => {
@@ -85,7 +86,7 @@ export class HostAgent {
         peer.link.on("state", (state) => {
           if (state === "open") {
             const pair = peer.selectedPair();
-            log(`[${sessionId}] link open ${pair ? `${pair.local}/${pair.transport} -> ${pair.remote} (${pair.remoteAddress})` : ""}`);
+            log(`[${sessionId}] link open${peer.relayOnly ? " [relay only]" : ""} ${pair ? `${pair.local}/${pair.transport} -> ${pair.remote} (${pair.remoteAddress})` : ""}`);
             this.opts.core.attach(peer.link);
           } else if (state === "closed") {
             if (this.peers.get(sessionId)?.peer === peer) this.dropPeer(sessionId, true);

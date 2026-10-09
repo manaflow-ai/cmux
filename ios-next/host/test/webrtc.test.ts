@@ -2,18 +2,19 @@ import { randomBytes } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { HostClient } from "../src/client.ts";
 import type { Lane } from "../src/transport/link.ts";
-import { parseIceUrl, toNdcIceServers, WebRtcPeer, shutdownWebRtc } from "../src/transport/webrtc.ts";
+import { candidateType, parseIceUrl, toNdcIceServers, WebRtcPeer, shutdownWebRtc } from "../src/transport/webrtc.ts";
 import { connectedCore } from "./helpers.ts";
 
 afterAll(() => shutdownWebRtc());
 
 /** Two in-process peers with direct signaling (no backend). */
-function pair() {
+function pair(opts: { offererRelayOnly?: boolean; answererRelayOnly?: boolean } = {}) {
   let offerer!: WebRtcPeer;
   let answerer!: WebRtcPeer;
   answerer = new WebRtcPeer({
     role: "answerer",
     iceServers: [],
+    relayOnly: opts.answererRelayOnly,
     onSignal: (s) => {
       if (s.type === "description") offerer.setRemoteDescription(s.sdp, s.sdpType);
       else offerer.addRemoteCandidate(s.candidate, s.sdpMid);
@@ -22,6 +23,7 @@ function pair() {
   offerer = new WebRtcPeer({
     role: "offerer",
     iceServers: [],
+    relayOnly: opts.offererRelayOnly,
     onSignal: (s) => {
       if (s.type === "description") answerer.setRemoteDescription(s.sdp, s.sdpType);
       else answerer.addRemoteCandidate(s.candidate, s.sdpMid);
@@ -44,6 +46,29 @@ describe("ICE server conversion", () => {
       { hostname: "t.example.com", port: 3478, username: "u:1", password: "p", relayType: "TurnUdp" },
       { hostname: "t.example.com", port: 5349, username: "u:1", password: "p", relayType: "TurnTls" },
     ]);
+  });
+});
+
+describe("relay-only policy", () => {
+  it("parses candidate types", () => {
+    expect(candidateType("candidate:1 1 UDP 2122317823 192.168.1.2 51234 typ host")).toBe("host");
+    expect(candidateType("a=candidate:2 1 UDP 1686052607 1.2.3.4 5000 typ srflx raddr 0.0.0.0 rport 0")).toBe("srflx");
+    expect(candidateType("candidate:3 1 UDP 16777215 104.30.144.61 3478 typ relay raddr 1.2.3.4 rport 5000")).toBe("relay");
+  });
+
+  it("drops non-relay remote candidates and never opens a direct link when one side is relay-only", async () => {
+    // No TURN servers: a correct relay-only side has nothing to connect with.
+    const { offerer, answerer } = pair({ offererRelayOnly: true });
+    let opened = false;
+    offerer.link.on("state", (s) => s === "open" && (opened = true));
+    answerer.link.on("state", (s) => s === "open" && (opened = true));
+    await new Promise((r) => setTimeout(r, 3000));
+    expect(offerer.droppedRemoteCandidates).toBeGreaterThan(0);
+    expect(opened).toBe(false);
+    expect(offerer.policyViolation()).toMatch(/relay-only/);
+    expect(answerer.policyViolation()).toBeNull();
+    offerer.close();
+    answerer.close();
   });
 });
 

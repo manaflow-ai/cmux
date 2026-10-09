@@ -85,6 +85,36 @@ describe("HostAgent over signaling", () => {
     expect(agent.peerCount).toBe(0);
 
     peer.close();
+
+    // An offer with policy "relay" makes the host relay-only for that session:
+    // it must not advertise host/srflx candidates.
+    const relayFrames: any[] = [];
+    signaling.on("frame", (f: any) => f.sessionId === "s_relay" && relayFrames.push(f));
+    const relayPeer = new WebRtcPeer({
+      role: "offerer",
+      iceServers: [],
+      onSignal: (s) => {
+        if (s.type === "description") signaling.send({ type: "offer", to: "h_1", sessionId: "s_relay", sdp: s.sdp, policy: "relay" });
+        else signaling.send({ type: "candidate", to: "h_1", sessionId: "s_relay", candidate: s.candidate, sdpMid: s.sdpMid, sdpMLineIndex: 0 });
+      },
+    });
+    const answer = await new Promise<any>((resolve) => {
+      const t = setInterval(() => {
+        const a = relayFrames.find((f) => f.type === "answer");
+        if (a) {
+          clearInterval(t);
+          resolve(a);
+        }
+      }, 20);
+    });
+    await new Promise((r) => setTimeout(r, 1500));
+    const advertised = [
+      ...relayFrames.filter((f) => f.type === "candidate").map((f) => f.candidate as string),
+      ...String(answer.sdp).split(/\r?\n/).filter((l) => l.startsWith("a=candidate")),
+    ];
+    expect(advertised.filter((c) => !/typ relay/.test(c))).toEqual([]);
+    expect(agent.peerCount).toBe(1);
+    relayPeer.close();
     signaling.stop();
     agent.stop();
     core.shutdown();

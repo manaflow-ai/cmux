@@ -57,7 +57,7 @@ async function main(): Promise<void> {
     relayOnly,
     name: "probe",
     onSignal: (sig) => {
-      if (sig.type === "description") signaling.send({ type: "offer", to: hostId, sessionId, sdp: sig.sdp });
+      if (sig.type === "description") signaling.send({ type: "offer", to: hostId, sessionId, sdp: sig.sdp, ...(relayOnly ? { policy: "relay" as const } : {}) });
       else signaling.send({ type: "candidate", to: hostId, sessionId, candidate: sig.candidate, sdpMid: sig.sdpMid, sdpMLineIndex: sig.sdpMLineIndex });
     },
   });

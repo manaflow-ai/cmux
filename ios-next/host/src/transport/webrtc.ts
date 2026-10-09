@@ -127,7 +127,13 @@ export class WebRtcLink extends ChunkLink {
       this.channels.set(lane, ch);
       dc.onOpen(() => {
         this.openCount += 1;
-        if (this.openCount === LANES.length) this.setState("open");
+        if (this.openCount !== LANES.length) return;
+        const violation = this.peer.policyViolation();
+        if (violation) {
+          this.close(violation);
+          return;
+        }
+        this.setState("open");
       });
       dc.onClosed(() => this.close(`channel ${lane} closed`));
       dc.onError((err) => this.close(`channel ${lane} error: ${err}`));
@@ -237,8 +243,31 @@ export class WebRtcPeer {
     this.pendingCandidates = [];
   }
 
+  /** Remote candidates dropped because of the relay-only policy. */
+  droppedRemoteCandidates = 0;
+
+  get relayOnly(): boolean {
+    return Boolean(this.opts.relayOnly);
+  }
+
+  /**
+   * With relay-only, libjuice can still form a direct path from peer-reflexive
+   * candidates learned during checks. Refuse to open such a link.
+   */
+  policyViolation(): string | null {
+    if (!this.opts.relayOnly) return null;
+    const pair = this.selectedPair();
+    if (!pair) return "relay-only: no selected candidate pair";
+    if (pair.local !== "relay") return `relay-only: selected pair ${pair.local}->${pair.remote} is not relayed`;
+    return null;
+  }
+
   addRemoteCandidate(candidate: string, mid?: string | null): void {
     if (this.closed || !candidate) return;
+    if (this.opts.relayOnly && candidateType(candidate) !== "relay") {
+      this.droppedRemoteCandidates += 1;
+      return;
+    }
     const m = mid ?? "0";
     if (!this.haveRemote) {
       this.pendingCandidates.push({ candidate, mid: m });
@@ -286,6 +315,12 @@ export class WebRtcPeer {
     } catch {}
     this.link.transportClosed("closed");
   }
+}
+
+/** The `typ` of an ICE candidate line ("host", "srflx", "prflx", "relay"). */
+export function candidateType(candidate: string): string | null {
+  const m = /\btyp\s+(\S+)/.exec(candidate);
+  return m ? m[1]!.toLowerCase() : null;
 }
 
 /** Releases libdatachannel threads so the process can exit. */

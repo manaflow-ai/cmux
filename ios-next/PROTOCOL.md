@@ -177,7 +177,7 @@ Each socket is a peer: `{peerId, role:"phone"|"host", hostId?}`. JSON frames:
 {"type":"welcome","peerId":"p_..","hosts":[{"hostId","online"}]}
 {"type":"presence","hostId":"h_..","online":true}
 // peer -> server -> peer (server stamps "from")
-{"type":"offer","to":"h_..","sessionId":"s_..","sdp":"..."}       // phone -> host (to = hostId)
+{"type":"offer","to":"h_..","sessionId":"s_..","sdp":"...","policy"?:"relay"} // phone -> host (to = hostId)
 {"type":"answer","to":"p_..","sessionId":"s_..","sdp":"..."}      // host -> phone (to = peerId)
 {"type":"candidate","to":"..","sessionId":"s_..","candidate":"..","sdpMid":"0","sdpMLineIndex":0}
 {"type":"bye","to":"..","sessionId":"s_.."}
@@ -185,6 +185,13 @@ Each socket is a peer: `{peerId, role:"phone"|"host", hostId?}`. JSON frames:
 ```
 
 The phone is always the offerer. The host answers. ICE is trickled.
+
+`policy:"relay"` on an offer (optional, default `"all"`) asks the host to use
+`iceTransportPolicy: relay` for that session too, so a phone-side "relay only"
+toggle forces TURN on both ends. A relay-only side also drops non-`relay`
+remote candidates and refuses to open the link unless its selected local
+candidate is `relay` (libjuice can otherwise form a direct path from
+peer-reflexive candidates).
 
 ## 6. Database (PlanetScale MySQL, via `@planetscale/database`)
 
