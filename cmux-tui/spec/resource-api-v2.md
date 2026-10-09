@@ -117,8 +117,9 @@ or `error`; `app` is the record's own app, else that of its nearest ancestor
 record that has one (OSC 7501 app inheritance); `title` and `msg` are
 untrusted display text without control or invisible formatting characters,
 at most 256 and 1024 characters; a record that starts waiting on the user
-(`blocked`) or fails (`error`) posts one rate-limited `terminal` notification
-on its terminal; a primary
+(`blocked`), fails (`error`) or finishes (`done`, level `info`; clients show
+it only for a terminal the user cannot see) posts one rate-limited `terminal`
+notification on its terminal; a primary
 prompt start removes `working`, `blocked` and `idle` records, an exited
 terminal shows only `done` and `error`, at most 256 records; absent when
 there are none; `cmux terminal <selector> status` prints it). Other state resources travel as `state_upsert` and
