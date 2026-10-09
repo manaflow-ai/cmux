@@ -202,11 +202,23 @@ def collection_names(lines):
     as an array, or with an inferred or other type (`let rows = text.split(...)`), is
     in the second set, so its subscripts keep counting."""
     dicts, others = set(), set()
+    signature_depth = 0  # > 0 while a func/init parameter list continues on later lines
     for line in lines:
         code = swift_code(line)
         found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
-        if FUNC_OR_INIT.search(code):
-            found += [(m.group(1), code[m.end():].strip()) for m in PARAMETER_TYPE.finditer(code)]
+        head = FUNC_OR_INIT.search(code)
+        if head or signature_depth > 0:
+            params = code[head.end() - 1:] if head else "(" + code
+            found += [(m.group(1), params[m.end():].strip()) for m in PARAMETER_TYPE.finditer(params)]
+            depth = signature_depth if not head else 0
+            for ch in (code[head.end() - 1:] if head else code):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth <= 0:
+                        break
+            signature_depth = max(depth, 0)
         for name, text in found:
             (dicts if bracket_kind(text) == "dict" else others).add(name)
     return dicts, others
