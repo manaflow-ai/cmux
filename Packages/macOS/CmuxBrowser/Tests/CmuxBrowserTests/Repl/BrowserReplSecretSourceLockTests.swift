@@ -280,7 +280,7 @@ struct BrowserReplFailedSecretLoadTests {
         \(attempt)
         attempt("./not-json.json"); attempt("./weak.json"); attempt("./bad-shape.json");
         """)
-        #expect(!output.contains("loaded"), "a load that should fail succeeded: \(output)")
+        #expect(!output.split(separator: "\n").contains("loaded"), "a load that should fail succeeded: \(output)")
         for name in files.keys {
             #expect(!BrowserReplSecretSources.shared.contains(path: work.appendingPathComponent(name).path), "\(name): a failed secrets.load kept its app-wide protection: \(output)")
         }
@@ -297,7 +297,7 @@ struct BrowserReplFailedSecretLoadTests {
         let other = try makeSession(cwd: work.path)
         defer { other.close() }
         let loaded = await run(loader, "\(attempt)\nattempt(\"./weak.json\", { allowWeak: true });")
-        #expect(loaded.contains("loaded"), "the weak load with allowWeak failed: \(loaded)")
+        #expect(loaded.split(separator: "\n").contains("loaded"), "the weak load with allowWeak failed: \(loaded)")
         let refused = await run(other, "\(attempt)\nattempt(\"./weak.json\");")
         #expect(refused.contains("refused"), "the weak load without allowWeak succeeded: \(refused)")
         #expect(BrowserReplSecretSources.shared.contains(path: path), "another session's failed load dropped the protection of a file that was loaded")
