@@ -396,6 +396,27 @@ export function ModelPicker(props: ModelPickerProps) {
     if (index >= 0) setActiveHarness(index);
     setActive(0);
   };
+  // The rail is a real keyboard stop, not just a pointer shortcut. Keep its focus order stable
+  // with Starred first, then the installed harnesses, and skip entries that cannot be picked.
+  const focusRail = (railIndex: number) => {
+    const count = harnesses.length + 1;
+    if (count <= 0) return;
+    const index = ((railIndex % count) + count) % count;
+    if (index === 0) showTab(STARRED, -1);
+    else {
+      const entry = harnesses[index - 1];
+      if (entry) showTab(entry.id, index - 1);
+    }
+    menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-rail")[index]?.focus();
+  };
+  const nextRail = (from: number, step: 1 | -1) => {
+    const count = harnesses.length + 1;
+    for (let offset = 1; offset <= count; offset += 1) {
+      const index = (((from + step * offset) % count) + count) % count;
+      if (index === 0 || harnesses[index - 1]?.pickable) return index;
+    }
+    return from;
+  };
   const move = (step: number) =>
     setActive((index) => (visible.length ? (index + step + visible.length) % visible.length : 0));
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -411,7 +432,7 @@ export function ModelPicker(props: ModelPickerProps) {
       move(-1);
     } else if (event.key === "ArrowLeft" && !query) {
       event.preventDefault();
-      menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")[activeHarness]?.focus();
+      focusRail(starredView ? 0 : activeHarness + 1);
     } else if (event.key === "Enter") {
       event.preventDefault();
       const model = visible[active];
@@ -498,12 +519,21 @@ export function ModelPicker(props: ModelPickerProps) {
           >
             <PickerOption
               type="button"
-              className={railTab}
+              className={`acpmux-mp-rail ${railTab}`}
               aria-label={starredText}
               title={starredText}
               aria-selected={starredView}
               selected={starredView}
               active={starredView}
+              keyboard={(event) => {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  focusRail(nextRail(0, event.key === "ArrowDown" ? 1 : -1));
+                } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                  event.preventDefault();
+                  search.current?.focus();
+                }
+              }}
               onPointerEnter={() => showTab(STARRED, -1)}
               onClick={() => showTab(STARRED, -1, true)}
             >
@@ -523,18 +553,14 @@ export function ModelPicker(props: ModelPickerProps) {
                 aria-selected={entry.ids.includes(selectedHarness ?? "")}
                 aria-disabled={blockedProfile(entry) || undefined}
                 disabled={!entry.pickable}
-                className={`acpmux-mp-harness ${railTab}`}
+                className={`acpmux-mp-rail acpmux-mp-harness ${railTab}`}
                 title={[entry.name, folderNote(entry)].filter(Boolean).join(" · ")}
                 selected={entry.ids.includes(selectedHarness ?? "")}
                 keyboard={(event) => {
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                     event.preventDefault();
                     const step = event.key === "ArrowDown" ? 1 : -1;
-                    const next = (index + step + harnesses.length) % harnesses.length;
-                    showTab(harnesses[next]?.id, next);
-                    event.currentTarget.parentElement
-                      ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
-                      [next]?.focus();
+                    focusRail(nextRail(index + 1, step));
                   } else if (event.key === "Enter" && enableProfile(entry)) {
                     event.preventDefault();
                   } else if (event.key === "ArrowRight" || event.key === "Enter") {

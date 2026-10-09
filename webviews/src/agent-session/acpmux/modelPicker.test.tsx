@@ -154,6 +154,45 @@ describe("T3 model picker", () => {
     expect(calls).toEqual(["model claude-opus-4-1"]);
   });
 
+  test("the model rail is keyboard navigable, including Starred, and returns to search", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    const rails = () => [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-rail")];
+    const harnessRails = () => [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")];
+
+    // ArrowLeft moves from the search field to the selected harness. ArrowUp then reaches Starred.
+    await key(input, "ArrowLeft");
+    expect(doc.activeElement).toBe(harnessRails()[0]);
+    await key(harnessRails()[0]!, "ArrowUp");
+    expect(doc.activeElement).toBe(rails()[0]);
+    expect(rails()[0]!.getAttribute("aria-selected")).toBe("true");
+
+    // Starred is a real rail stop. ArrowDown returns to the selected harness, then to Codex.
+    await key(rails()[0]!, "ArrowDown");
+    expect(doc.activeElement).toBe(harnessRails()[0]);
+    await key(harnessRails()[0]!, "ArrowDown");
+    expect(doc.activeElement).toBe(harnessRails()[1]);
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "o3",
+      "GPT-6-Astra",
+    ]);
+
+    await key(harnessRails()[1]!, "ArrowRight");
+    expect(doc.activeElement).toBe(input);
+  });
+
+  test("selecting a model with Enter restores focus to the model trigger", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    await key(input, "ArrowUp");
+    await key(input, "Enter");
+    expect(calls).toEqual(["model claude-opus-4-1"]);
+    expect(menu()).toBeNull();
+    expect(doc.activeElement).toBe(modelButton());
+  });
+
   test("a different harness shows its models, then starts that harness on a model pick", async () => {
     await render();
     await act(async () => modelButton().click());
