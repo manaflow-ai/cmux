@@ -32,11 +32,14 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     index_subscript   in the background, render and decoder modules (INDEX_MODULES): a
                       subscript with a computed index (`rows[i]`, `bytes[n - 1]`, a range), not
                       followed by `?`/`??` and not an optional binding; an out-of-range index
-                      traps. Use a checked accessor. Dictionary lookups with a variable key
-                      also count (no types here); convert them to `.first(where:)`/`?? default`
-                      or keep and lower the count elsewhere
+                      traps. Use a checked accessor (`rows[checked: i]` does not count).
+                      A dictionary subscript cannot trap: a subscript on a name the module
+                      declares as a dictionary (`var m: [K: V]`, `= [K: V]()`, `Dictionary<`)
+                      and never as an array, or with a `default:` argument, does not count
     int_conversion    in INDEX_MODULES: `Int(x)`, `UInt8(x)`, ... that trap when the value does
-                      not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`
+                      not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`.
+                      `UInt8(ascii:)` and a pure integer literal (`UInt8(0)`, checked by the
+                      compiler) do not count
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
@@ -103,7 +106,14 @@ INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMU
 INDEX_SUBSCRIPT = re.compile(r"(?<![\w.])(?:[a-z_]\w*|self)(?:\.\w+)*(?:\(\))?\[([^\[\]]+)\]")
 OPTIONAL_BINDING = re.compile(r"\b(?:if|guard|while)\s+(?:let|var)\b|,\s*let\s+\w+\s*=")
 INT_CONVERSION = re.compile(
-    r"(?<![\w.])U?Int(?:8|16|32|64)?\((?!\s*(?:truncatingIfNeeded|clamping|exactly|bitPattern|littleEndian|bigEndian)\s*:)(?!\s*\))")
+    r"(?<![\w.])U?Int(?:8|16|32|64)?\((?!\s*(?:truncatingIfNeeded|clamping|exactly|bitPattern|littleEndian|bigEndian|ascii)\s*:)"
+    r"(?!\s*\))(?!\s*(?:0x[0-9A-Fa-f_]+|0b[01_]+|0o[0-7_]+|\d[\d_]*)\s*\))")
+# Declarations that name a dictionary or an array (for index_subscript; no types here).
+DECLARED_TYPE = re.compile(r"\b(?:var|let)\s+(\w+)\s*(?::\s*(\S.*)|=\s*(\S.*))")
+# Parameters (`func f(m: [K: V])`, `init(_ m: [K: V])`): only on func/init lines, so call
+# labels (`reduce(into: [:])`) are not read as declarations.
+PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(\[.*|(?:Dictionary|Array)\s*<.*)")
+FUNC_OR_INIT = re.compile(r"\b(?:func\s+\w+|init\??)\s*(?:<[^>]*>)?\s*\(")
 
 
 def int_conversion_hits(code):
@@ -128,13 +138,58 @@ def int_conversion_hits(code):
     return hits
 
 
-def index_hits(code):
-    """Computed subscripts in CODE that can trap (see index_subscript)."""
+def bracket_kind(text):
+    """"dict" or "array" for a type or literal that starts with "[" (a top-level ":"
+    makes a dictionary, `[:]` included) or with Dictionary/Array; else None."""
+    if text.startswith("Dictionary"):
+        return "dict"
+    if text.startswith("Array"):
+        return "array"
+    if not text.startswith("["):
+        return None
+    depth = 0
+    for ch in text:
+        if ch in "[(<":
+            depth += 1
+        elif ch in "])>":
+            depth -= 1
+            if depth == 0:
+                return "array"
+        elif ch == "?" and depth == 1:
+            return None  # a ternary in an array literal, or an optional element type
+        elif ch == ":" and depth == 1:
+            return "dict"
+    return None
+
+
+def collection_names(lines):
+    """({dictionary names}, {names declared any other way}) in LINES: a name declared
+    as an array, or with an inferred or other type (`let rows = text.split(...)`), is
+    in the second set, so its subscripts keep counting."""
+    dicts, others = set(), set()
+    for line in lines:
+        code = swift_code(line)
+        found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
+        if FUNC_OR_INIT.search(code):
+            found += [(m.group(1), m.group(2).strip()) for m in PARAMETER_TYPE.finditer(code)]
+        for name, text in found:
+            (dicts if bracket_kind(text) == "dict" else others).add(name)
+    return dicts, others
+
+
+def index_hits(code, dictionaries=frozenset()):
+    """Computed subscripts in CODE that can trap (see index_subscript). DICTIONARIES:
+    names the module declares only as dictionaries."""
     hits = 0
     binding = OPTIONAL_BINDING.search(code)
     for match in INDEX_SUBSCRIPT.finditer(code):
         inner = match.group(1).strip()
         if not inner or inner[0] in "\"'" or re.fullmatch(r"\d+", inner):
+            continue
+        if re.match(r"checked\s*:", inner) or re.search(r",\s*default\s*:", inner):
+            continue  # a checked accessor, or a dictionary subscript with a default
+        base = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")]).split(".")[-1]
+        if base in dictionaries:
             continue
         if re.fullmatch(r"[A-Z][\w.<>?, ]*(?:\s*:\s*[A-Z][\w.<>?, \[\]]*)?", inner):
             continue  # a type: [String], [Key: Value]
@@ -301,7 +356,7 @@ def objc_selector_hits(lines, index, code):
     return 0
 
 
-def swift_line_hits(lines, index, module=None):
+def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     """{kind: hits} for one Swift line (comment lines and crash-allow are the caller's)."""
     line = lines[index]
     code = swift_code(line)
@@ -320,7 +375,7 @@ def swift_line_hits(lines, index, module=None):
     if objc_selector_hits(lines, index, code):
         hits["objc_selector"] = 1
     if module in INDEX_MODULES:
-        found = index_hits(code)
+        found = index_hits(code, dictionaries)
         if found:
             hits["index_subscript"] = found
         found = int_conversion_hits(code)
@@ -333,10 +388,27 @@ def swift_line_hits(lines, index, module=None):
     return hits
 
 
+def module_dictionaries(repo):
+    """{index module: names it declares as dictionaries and never as arrays}."""
+    declared = {}
+    for root in swift_source_roots(repo):
+        sources = os.path.join(repo, root)
+        for path in tracked_files(repo, sources):
+            module = os.path.relpath(path, sources).split(os.sep)[0]
+            if module not in INDEX_MODULES or not path.endswith(".swift") or not os.path.isfile(path):
+                continue
+            dicts, arrays = collection_names(open(path, encoding="utf-8", errors="replace").read().split("\n"))
+            entry = declared.setdefault(module, (set(), set()))
+            entry[0].update(dicts)
+            entry[1].update(arrays)
+    return {module: frozenset(d - a) for module, (d, a) in declared.items()}
+
+
 def scan_swift(repo, counts, banned_files=None):
     """Ratchet counts per module into COUNTS; hits of banned classes per file (crash-allow
     ignored) into BANNED_FILES {(kind, repo-relative path): hits}."""
     banned = banned_kinds("swift")
+    dictionaries = module_dictionaries(repo)
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources):
@@ -349,7 +421,7 @@ def scan_swift(repo, counts, banned_files=None):
                 if line.lstrip().startswith("//"):
                     continue
                 is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index, rel).items():
+                for kind, hits in swift_line_hits(lines, index, rel, dictionaries.get(rel, frozenset())).items():
                     if kind in banned:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))
