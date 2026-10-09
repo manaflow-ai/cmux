@@ -27,7 +27,8 @@ import Testing
     /// Item move the selection of the focused list, which the palette
     /// replaces while it is open; the page menu's copy, save and Look Up
     /// rows act on the right-clicked element; Archive Chief and Open
-    /// Conversation act on a row of the Home page's list).
+    /// Conversation act on a row of the Home page's list; Start Agent from
+    /// Any App is the system-wide key of Start Agent, whose row it is).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -38,7 +39,7 @@ import Testing
             == (["agent.openSessionWorkspace", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
                 "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.openConversation", "list.next", "list.previous",
-                "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium"]
+                "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
                "paletteKey.submitAlternate", "paletteKey.openActions", "paletteKey.closeActions", "paletteKey.toggleActions",
                "paletteKey.escape", "paletteKey.enterRow", "paletteKey.leaveLevel", "paletteKey.back",

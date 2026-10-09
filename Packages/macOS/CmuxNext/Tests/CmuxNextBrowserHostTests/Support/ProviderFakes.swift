@@ -141,6 +141,18 @@ final class FakeDriver: DriverCallHandler {
     }
 }
 
+final class FakeOpener: ProviderTabOpening {
+    var engines: [ProviderEngine] = []
+    var open: (ProviderEngine, String?) throws(DriverError) -> String = { _, _ throws(DriverError) in
+        throw DriverError(.unsupported, "tabs.open: no opener in this test")
+    }
+
+    func openProviderTab(engine: ProviderEngine, url: String?) async throws(DriverError) -> String {
+        engines.append(engine)
+        return try open(engine, url)
+    }
+}
+
 final class FakeRelay: ProviderDevToolsRelay {
     var holdsPrepare = false
     var prepareResult = true
@@ -208,6 +220,7 @@ struct ProviderHarness {
     let marking = FakeMarking()
     let driver = FakeDriver()
     let relay = FakeRelay()
+    let opener = FakeOpener()
     let provider: BrowserHostProvider
 
     init(tabs initial: [ProviderTab] = []) {
@@ -216,7 +229,7 @@ struct ProviderHarness {
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app", installID: "inst_1"),
             credentials: credentials, tabs: tabs, access: access, driver: driver, relay: relay, marking: marking,
-            clock: clock, backoff: Backoff(initial: .seconds(1), maximum: .seconds(1), jitter: 0),
+            opener: opener, clock: clock, backoff: Backoff(initial: .seconds(1), maximum: .seconds(1), jitter: 0),
             prepareDeadline: .seconds(8),
             dial: { try await dialer.dial($0) })
     }

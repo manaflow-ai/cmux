@@ -195,12 +195,28 @@ impl ProviderEngine {
                         return Err(DriverError::invalid("tabs.open: incognito must be a boolean"));
                     }
                 }
+                // A Chromium tab opens blank; the session then navigates it
+                // through the tab's CDP relay to the commit, as a headless
+                // tab does, so the reply means the document committed and
+                // the navigation passes the same checks as any other.
+                let navigate = if self.engine == "cef" {
+                    open.remove("url").filter(|url| url.as_str().is_some_and(|url| !url.is_empty()))
+                } else {
+                    None
+                };
                 open.insert("engine".into(), Value::String(self.engine.clone()));
                 announce();
                 let opened = self.provider.open_tab(self.subscription, &Value::Object(open))?;
                 if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
                     self.created_tabs().insert(target.to_owned());
                     self.provider.opened(self.subscription, target);
+                    if let Some(url) = navigate {
+                        let mut go = json!({"targetId": target, "url": url, "waitUntil": "commit"});
+                        if let Some(timeout) = params.get("timeoutMs") {
+                            go["timeoutMs"] = timeout.clone();
+                        }
+                        self.call_with("tab.navigate", &go, &mut || {}, false)?;
+                    }
                 }
                 return Ok(Reply::Value(opened));
             }
@@ -277,6 +293,24 @@ impl ProviderEngine {
             return Err(DriverError::closed("the session was closed"));
         }
         announce();
+        if method == "tabs.close" {
+            // A tab the session opened is the session's, not the person's:
+            // the agent's close closes it as the session's end would (a
+            // store close kept out of Reopen Closed), on either engine.
+            if self.created_tabs().remove(target_id) {
+                let mut close = json!({"targetId": target_id, "reason": SESSION_END_REASON,
+                    "timeoutMs": SESSION_END_CLOSE_MS});
+                if let Some(timeout) = params.get("timeoutMs") {
+                    close["timeoutMs"] = timeout.clone();
+                }
+                return self.provider.call("tabs.close", &close).map(Reply::Value);
+            }
+            // Any other tab is the person's layout: a Chromium session
+            // closes nothing (the app's WebKit driver only lets the tab go).
+            if engine == "cef" {
+                return Ok(Reply::Value(Value::Null));
+            }
+        }
         // Only the session's end names a close reason (it keeps those tabs
         // out of Reopen Closed); the agent's own close never does.
         let mut params = std::borrow::Cow::Borrowed(params);

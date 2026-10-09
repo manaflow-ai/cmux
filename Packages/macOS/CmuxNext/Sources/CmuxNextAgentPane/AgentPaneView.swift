@@ -184,6 +184,7 @@ public final class AgentPaneView: NSView {
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
+            webView.uiDelegate = PageOpenPanel.shared
             addSubview(webView)
             source.load(into: webView)
         }

@@ -9,7 +9,7 @@
     "extractionState": "manual",
     "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The display size for agent chat. Cmd-0 resets it." } } }
   },
-    "settings.sidebar.showProjects": {
+  "settings.sidebar.showProjects": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -140,7 +140,7 @@
         }
       }
     },
-    "settings.app.warnBeforeClosingTab": {
+  "settings.app.warnBeforeClosingTab": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -271,7 +271,7 @@
         }
       }
     },
-    "settings.app.warnBeforeClosingAgentSession": {
+  "settings.app.warnBeforeClosingAgentSession": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -402,7 +402,7 @@
         }
       }
     },
-    "settings.browser.omnibar.calculator": {
+  "settings.browser.omnibar.calculator": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -533,7 +533,7 @@
         }
       }
     },
-    "settings.browser.omnibar.calculator.help": {
+  "settings.browser.omnibar.calculator.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -664,7 +664,7 @@
         }
       }
     },
-    "settings.browser.searchEngine": {
+  "settings.browser.searchEngine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -795,7 +795,7 @@
         }
       }
     },
-    "settings.browser.searchEngine.help": {
+  "settings.browser.searchEngine.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -926,7 +926,7 @@
         }
       }
     },
-    "settings.choice.searchEngine.custom": {
+  "settings.choice.searchEngine.custom": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1057,7 +1057,7 @@
         }
       }
     },
-    "settings.browser.customSearch": {
+  "settings.browser.customSearch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1188,7 +1188,7 @@
         }
       }
     },
-    "settings.browser.customSearch.help": {
+  "settings.browser.customSearch.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1319,7 +1319,7 @@
         }
       }
     },
-    "settings.browser.customSuggest": {
+  "settings.browser.customSuggest": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1450,7 +1450,7 @@
         }
       }
     },
-    "settings.browser.customSuggest.help": {
+  "settings.browser.customSuggest.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1581,7 +1581,7 @@
         }
       }
     },
-    "settings.browser.omnibar.remoteSuggestions": {
+  "settings.browser.omnibar.remoteSuggestions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1712,7 +1712,7 @@
         }
       }
     },
-    "settings.browser.omnibar.remoteSuggestions.help": {
+  "settings.browser.omnibar.remoteSuggestions.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1843,7 +1843,7 @@
         }
       }
     },
-    "settings.browser.omnibar.inlineAutocomplete": {
+  "settings.browser.omnibar.inlineAutocomplete": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1974,7 +1974,7 @@
         }
       }
     },
-    "settings.browser.omnibar.inlineAutocomplete.help": {
+  "settings.browser.omnibar.inlineAutocomplete.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2105,7 +2105,7 @@
         }
       }
     },
-    "settings.browser.omnibar.maxRows": {
+  "settings.browser.omnibar.maxRows": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2236,7 +2236,7 @@
         }
       }
     },
-    "settings.shortcuts.hintsGroup": {
+  "settings.shortcuts.hintsGroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2367,7 +2367,7 @@
         }
       }
     },
-    "settings.shortcuts.showModifierHoldHints": {
+  "settings.shortcuts.showModifierHoldHints": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2498,7 +2498,7 @@
         }
       }
     },
-    "settings.shortcuts.showModifierHoldHints.help": {
+  "settings.shortcuts.showModifierHoldHints.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2629,7 +2629,7 @@
         }
       }
     },
-    "settings.appearance.density": {
+  "settings.appearance.density": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2760,7 +2760,7 @@
         }
       }
     },
-    "settings.attention.blinkCount": {
+  "settings.attention.blinkCount": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2891,7 +2891,7 @@
         }
       }
     },
-    "settings.attention.color": {
+  "settings.attention.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3022,7 +3022,7 @@
         }
       }
     },
-    "settings.attention.duration": {
+  "settings.attention.duration": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3153,7 +3153,7 @@
         }
       }
     },
-    "settings.attention.persist": {
+  "settings.attention.persist": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3284,7 +3284,7 @@
         }
       }
     },
-    "settings.attention.showOnSidebar": {
+  "settings.attention.showOnSidebar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3415,7 +3415,7 @@
         }
       }
     },
-    "settings.attention.showOnTab": {
+  "settings.attention.showOnTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3546,7 +3546,7 @@
         }
       }
     },
-    "settings.attention.style": {
+  "settings.attention.style": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3677,7 +3677,7 @@
         }
       }
     },
-    "settings.attention.width": {
+  "settings.attention.width": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3808,7 +3808,7 @@
         }
       }
     },
-    "settings.browser.defaultEngine": {
+  "settings.browser.defaultEngine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3939,7 +3939,7 @@
         }
       }
     },
-    "settings.browser.defaultEngine.help": {
+  "settings.browser.defaultEngine.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4070,7 +4070,7 @@
         }
       }
     },
-    "settings.browser.hibernatePinnedTabs": {
+  "settings.browser.hibernatePinnedTabs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4201,7 +4201,7 @@
         }
       }
     },
-    "settings.browser.hibernation": {
+  "settings.browser.hibernation": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4332,7 +4332,7 @@
         }
       }
     },
-    "settings.browser.hibernation.help": {
+  "settings.browser.hibernation.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4463,7 +4463,7 @@
         }
       }
     },
-    "settings.browser.hibernationExclusions": {
+  "settings.browser.hibernationExclusions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4594,7 +4594,7 @@
         }
       }
     },
-    "settings.browser.hibernationExclusions.help": {
+  "settings.browser.hibernationExclusions.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4725,7 +4725,7 @@
         }
       }
     },
-    "settings.browser.newTabPage": {
+  "settings.browser.newTabPage": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4856,7 +4856,7 @@
         }
       }
     },
-    "settings.browser.newTabPage.help": {
+  "settings.browser.newTabPage.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4987,7 +4987,7 @@
         }
       }
     },
-    "settings.browser.remoteLocalhost": {
+  "settings.browser.remoteLocalhost": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5118,7 +5118,7 @@
         }
       }
     },
-    "settings.choice.aggressive": {
+  "settings.choice.aggressive": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5249,7 +5249,7 @@
         }
       }
     },
-    "settings.choice.always": {
+  "settings.choice.always": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5380,7 +5380,7 @@
         }
       }
     },
-    "settings.choice.blink": {
+  "settings.choice.blink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5511,7 +5511,7 @@
         }
       }
     },
-    "settings.choice.click": {
+  "settings.choice.click": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5642,7 +5642,7 @@
         }
       }
     },
-    "settings.choice.comfortable": {
+  "settings.choice.comfortable": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5773,7 +5773,7 @@
         }
       }
     },
-    "settings.choice.compact": {
+  "settings.choice.compact": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5904,7 +5904,7 @@
         }
       }
     },
-    "settings.choice.explicit": {
+  "settings.choice.explicit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6035,7 +6035,7 @@
         }
       }
     },
-    "settings.choice.fast": {
+  "settings.choice.fast": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6166,7 +6166,7 @@
         }
       }
     },
-    "settings.choice.focus": {
+  "settings.choice.focus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6297,7 +6297,7 @@
         }
       }
     },
-    "settings.choice.glow": {
+  "settings.choice.glow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6428,7 +6428,7 @@
         }
       }
     },
-    "settings.choice.keystroke": {
+  "settings.choice.keystroke": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6559,7 +6559,7 @@
         }
       }
     },
-    "settings.choice.minimal": {
+  "settings.choice.minimal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6690,7 +6690,7 @@
         }
       }
     },
-    "settings.choice.moderate": {
+  "settings.choice.moderate": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6821,7 +6821,7 @@
         }
       }
     },
-    "settings.choice.never": {
+  "settings.choice.never": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6952,7 +6952,7 @@
         }
       }
     },
-    "settings.choice.neverDismiss": {
+  "settings.choice.neverDismiss": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7083,7 +7083,7 @@
         }
       }
     },
-    "settings.choice.none": {
+  "settings.choice.none": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7214,7 +7214,7 @@
         }
       }
     },
-    "settings.choice.normal": {
+  "settings.choice.normal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7345,7 +7345,7 @@
         }
       }
     },
-    "settings.choice.off": {
+  "settings.choice.off": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7476,7 +7476,7 @@
         }
       }
     },
-    "settings.choice.onOverflow": {
+  "settings.choice.onOverflow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7607,7 +7607,7 @@
         }
       }
     },
-    "settings.choice.pulse": {
+  "settings.choice.pulse": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7738,7 +7738,7 @@
         }
       }
     },
-    "settings.choice.ring": {
+  "settings.choice.ring": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7869,7 +7869,7 @@
         }
       }
     },
-    "settings.choice.standard": {
+  "settings.choice.standard": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8000,7 +8000,7 @@
         }
       }
     },
-    "settings.choice.steady": {
+  "settings.choice.steady": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8131,7 +8131,7 @@
         }
       }
     },
-    "settings.choice.subtle": {
+  "settings.choice.subtle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8262,7 +8262,7 @@
         }
       }
     },
-    "settings.choice.timeout": {
+  "settings.choice.timeout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8393,7 +8393,7 @@
         }
       }
     },
-    "settings.choice.unlessFocused": {
+  "settings.choice.unlessFocused": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8524,7 +8524,7 @@
         }
       }
     },
-    "settings.choice.whenInactive": {
+  "settings.choice.whenInactive": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8655,7 +8655,7 @@
         }
       }
     },
-    "settings.default.density": {
+  "settings.default.density": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8786,7 +8786,7 @@
         }
       }
     },
-    "settings.default.onePixel": {
+  "settings.default.onePixel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8917,7 +8917,7 @@
         }
       }
     },
-    "settings.default.sameAsAbove": {
+  "settings.default.sameAsAbove": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9048,7 +9048,7 @@
         }
       }
     },
-    "settings.default.theme": {
+  "settings.default.theme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9179,7 +9179,7 @@
         }
       }
     },
-    "settings.focusRing.color": {
+  "settings.focusRing.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9310,7 +9310,7 @@
         }
       }
     },
-    "settings.focusRing.enabled": {
+  "settings.focusRing.enabled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9441,7 +9441,7 @@
         }
       }
     },
-    "settings.focusRing.showWhenSinglePane": {
+  "settings.focusRing.showWhenSinglePane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9572,7 +9572,7 @@
         }
       }
     },
-    "settings.focusRing.style": {
+  "settings.focusRing.style": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9703,7 +9703,7 @@
         }
       }
     },
-    "settings.focusRing.width": {
+  "settings.focusRing.width": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9834,7 +9834,7 @@
         }
       }
     },
-    "settings.group.attention": {
+  "settings.group.attention": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9965,7 +9965,7 @@
         }
       }
     },
-    "settings.group.banners": {
+  "settings.group.banners": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10096,7 +10096,7 @@
         }
       }
     },
-    "settings.group.columns": {
+  "settings.group.columns": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10227,7 +10227,7 @@
         }
       }
     },
-    "settings.group.densityMotion": {
+  "settings.group.densityMotion": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10358,7 +10358,7 @@
         }
       }
     },
-    "settings.group.dismissal": {
+  "settings.group.dismissal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10489,7 +10489,7 @@
         }
       }
     },
-    "settings.group.engine": {
+  "settings.group.engine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10620,7 +10620,7 @@
         }
       }
     },
-    "settings.group.focusRing": {
+  "settings.group.focusRing": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10751,7 +10751,7 @@
         }
       }
     },
-    "settings.group.memory": {
+  "settings.group.memory": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10882,7 +10882,7 @@
         }
       }
     },
-    "settings.group.panes": {
+  "settings.group.panes": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11013,7 +11013,7 @@
         }
       }
     },
-    "settings.group.remote": {
+  "settings.group.remote": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11144,7 +11144,7 @@
         }
       }
     },
-    "settings.group.window": {
+  "settings.group.window": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11275,7 +11275,7 @@
         }
       }
     },
-    "settings.layout.centerFocusedColumn": {
+  "settings.layout.centerFocusedColumn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11406,7 +11406,7 @@
         }
       }
     },
-    "settings.layout.defaultColumnWidth": {
+  "settings.layout.defaultColumnWidth": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11537,7 +11537,7 @@
         }
       }
     },
-    "settings.layout.defaultColumnWidth.help": {
+  "settings.layout.defaultColumnWidth.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11668,7 +11668,7 @@
         }
       }
     },
-    "settings.layout.paneBorder": {
+  "settings.layout.paneBorder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11799,7 +11799,7 @@
         }
       }
     },
-    "settings.layout.paneBorderColor": {
+  "settings.layout.paneBorderColor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11930,7 +11930,7 @@
         }
       }
     },
-    "settings.layout.paneBorderWidth": {
+  "settings.layout.paneBorderWidth": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12061,7 +12061,7 @@
         }
       }
     },
-    "settings.layout.paneCornerRadius": {
+  "settings.layout.paneCornerRadius": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12192,7 +12192,7 @@
         }
       }
     },
-    "settings.layout.panePadding": {
+  "settings.layout.panePadding": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12323,7 +12323,7 @@
         }
       }
     },
-    "settings.notifications.desktop": {
+  "settings.notifications.desktop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12454,7 +12454,7 @@
         }
       }
     },
-    "settings.notifications.dismissal": {
+  "settings.notifications.dismissal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12585,7 +12585,7 @@
         }
       }
     },
-    "settings.notifications.dockBadge": {
+  "settings.notifications.dockBadge": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12716,7 +12716,7 @@
         }
       }
     },
-    "settings.notifications.quietHours": {
+  "settings.notifications.quietHours": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12847,7 +12847,7 @@
         }
       }
     },
-    "settings.notifications.quietHours.help": {
+  "settings.notifications.quietHours.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12978,7 +12978,7 @@
         }
       }
     },
-    "settings.notifications.sound": {
+  "settings.notifications.sound": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13109,7 +13109,7 @@
         }
       }
     },
-    "settings.notifications.source.agent": {
+  "settings.notifications.source.agent": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13240,7 +13240,7 @@
         }
       }
     },
-    "settings.notifications.source.cli": {
+  "settings.notifications.source.cli": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13371,7 +13371,7 @@
         }
       }
     },
-    "settings.notifications.source.terminal": {
+  "settings.notifications.source.terminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13502,7 +13502,7 @@
         }
       }
     },
-    "settings.notifications.suppressWhileTyping": {
+  "settings.notifications.suppressWhileTyping": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13633,7 +13633,7 @@
         }
       }
     },
-    "settings.notifications.suppressWhileTyping.help": {
+  "settings.notifications.suppressWhileTyping.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13764,7 +13764,7 @@
         }
       }
     },
-    "settings.notifications.timeoutSeconds": {
+  "settings.notifications.timeoutSeconds": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13895,7 +13895,7 @@
         }
       }
     },
-    "settings.notifications.timeoutSeconds.help": {
+  "settings.notifications.timeoutSeconds.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14026,7 +14026,7 @@
         }
       }
     },
-    "settings.section.advanced": {
+  "settings.section.advanced": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14157,7 +14157,7 @@
         }
       }
     },
-    "settings.section.appearance": {
+  "settings.section.appearance": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14288,7 +14288,7 @@
         }
       }
     },
-    "settings.section.browser": {
+  "settings.section.browser": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14419,7 +14419,7 @@
         }
       }
     },
-    "settings.section.general": {
+  "settings.section.general": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14550,7 +14550,7 @@
         }
       }
     },
-    "settings.section.keyboard": {
+  "settings.section.keyboard": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14681,7 +14681,7 @@
         }
       }
     },
-    "settings.section.machines": {
+  "settings.section.machines": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14812,7 +14812,7 @@
         }
       }
     },
-    "settings.section.notifications": {
+  "settings.section.notifications": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14943,7 +14943,7 @@
         }
       }
     },
-    "settings.section.rooms": {
+  "settings.section.rooms": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15074,7 +15074,7 @@
         }
       }
     },
-    "settings.section.terminal": {
+  "settings.section.terminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15205,7 +15205,7 @@
         }
       }
     },
-    "settings.ui.animationSpeed": {
+  "settings.ui.animationSpeed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15336,7 +15336,7 @@
         }
       }
     },
-    "settings.window.titlebar": {
+  "settings.window.titlebar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15467,7 +15467,7 @@
         }
       }
     },
-    "settings.window.titlebar.help": {
+  "settings.window.titlebar.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15598,7 +15598,7 @@
         }
       }
     },
-    "settings.group.quit": {
+  "settings.group.quit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15729,7 +15729,7 @@
         }
       }
     },
-    "settings.app.quitBehavior": {
+  "settings.app.quitBehavior": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15860,7 +15860,7 @@
         }
       }
     },
-    "settings.app.quitBehavior.help": {
+  "settings.app.quitBehavior.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15991,7 +15991,7 @@
         }
       }
     },
-    "settings.choice.quitAsk": {
+  "settings.choice.quitAsk": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16122,7 +16122,7 @@
         }
       }
     },
-    "settings.choice.quitKeep": {
+  "settings.choice.quitKeep": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16253,7 +16253,7 @@
         }
       }
     },
-    "settings.choice.quitEndKeepLayout": {
+  "settings.choice.quitEndKeepLayout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16384,7 +16384,7 @@
         }
       }
     },
-    "settings.choice.quitEndEverything": {
+  "settings.choice.quitEndEverything": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16515,7 +16515,7 @@
         }
       }
     },
-    "settings.section.accounts": {
+  "settings.section.accounts": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16646,7 +16646,7 @@
         }
       }
     },
-    "settings.group.bookmarks": {
+  "settings.group.bookmarks": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16777,7 +16777,7 @@
         }
       }
     },
-    "settings.browser.showBookmarksBar": {
+  "settings.browser.showBookmarksBar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16908,7 +16908,7 @@
         }
       }
     },
-    "settings.browser.showBookmarksBar.help": {
+  "settings.browser.showBookmarksBar.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17039,7 +17039,7 @@
         }
       }
     },
-    "settings.group.history": {
+  "settings.group.history": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17170,7 +17170,7 @@
         }
       }
     },
-    "settings.history.terminalCommands": {
+  "settings.history.terminalCommands": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17301,7 +17301,7 @@
         }
       }
     },
-    "settings.history.terminalCommands.help": {
+  "settings.history.terminalCommands.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17432,7 +17432,7 @@
         }
       }
     },
-    "settings.layout.stripScrollbar": {
+  "settings.layout.stripScrollbar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17563,7 +17563,7 @@
         }
       }
     },
-    "settings.layout.stripScrollbar.help": {
+  "settings.layout.stripScrollbar.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17694,7 +17694,7 @@
         }
       }
     },
-    "settings.choice.stripScrollbarAuto": {
+  "settings.choice.stripScrollbarAuto": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17825,7 +17825,7 @@
         }
       }
     },
-    "settings.layout.splitSizing": {
+  "settings.layout.splitSizing": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17956,7 +17956,7 @@
         }
       }
     },
-    "settings.layout.splitSizing.help": {
+  "settings.layout.splitSizing.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18087,7 +18087,7 @@
         }
       }
     },
-    "settings.choice.splitEven": {
+  "settings.choice.splitEven": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18218,7 +18218,7 @@
         }
       }
     },
-    "settings.choice.splitHalve": {
+  "settings.choice.splitHalve": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18349,7 +18349,7 @@
         }
       }
     },
-    "settings.layout.newColumnWidthMode": {
+  "settings.layout.newColumnWidthMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18480,7 +18480,7 @@
         }
       }
     },
-    "settings.choice.matchCurrent": {
+  "settings.choice.matchCurrent": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18611,7 +18611,7 @@
         }
       }
     },
-    "settings.choice.fitScreen": {
+  "settings.choice.fitScreen": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18742,7 +18742,7 @@
         }
       }
     },
-    "settings.choice.fixedWidth": {
+  "settings.choice.fixedWidth": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18873,7 +18873,7 @@
         }
       }
     },
-    "settings.layout.dockColumnEdge": {
+  "settings.layout.dockColumnEdge": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19004,7 +19004,7 @@
         }
       }
     },
-    "settings.layout.dockColumnMode": {
+  "settings.layout.dockColumnMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19135,7 +19135,7 @@
         }
       }
     },
-    "settings.choice.right": {
+  "settings.choice.right": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19266,7 +19266,7 @@
         }
       }
     },
-    "settings.choice.left": {
+  "settings.choice.left": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19397,7 +19397,7 @@
         }
       }
     },
-    "settings.choice.docked": {
+  "settings.choice.docked": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19528,7 +19528,7 @@
         }
       }
     },
-    "settings.choice.overlay": {
+  "settings.choice.overlay": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19659,7 +19659,7 @@
         }
       }
     },
-    "settings.layout.minimumPaneWidth": {
+  "settings.layout.minimumPaneWidth": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19790,7 +19790,7 @@
         }
       }
     },
-    "settings.layout.minimumPaneHeight": {
+  "settings.layout.minimumPaneHeight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19921,7 +19921,7 @@
         }
       }
     },
-    "settings.layout.fixedColumnWidth": {
+  "settings.layout.fixedColumnWidth": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20052,7 +20052,7 @@
         }
       }
     },
-    "settings.layout.fixedColumnWidth.help": {
+  "settings.layout.fixedColumnWidth.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20183,7 +20183,7 @@
         }
       }
     },
-    "settings.group.tabs": {
+  "settings.group.tabs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20314,7 +20314,7 @@
         }
       }
     },
-    "settings.tabs.newTabKind": {
+  "settings.tabs.newTabKind": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20445,7 +20445,7 @@
         }
       }
     },
-    "settings.tabs.newTabKind.help": {
+  "settings.tabs.newTabKind.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20576,7 +20576,7 @@
         }
       }
     },
-    "settings.choice.newTabSameKind": {
+  "settings.choice.newTabSameKind": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20707,7 +20707,7 @@
         }
       }
     },
-    "settings.choice.newTabTerminal": {
+  "settings.choice.newTabTerminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20838,7 +20838,7 @@
         }
       }
     },
-    "settings.choice.newTabBrowser": {
+  "settings.choice.newTabBrowser": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20969,7 +20969,7 @@
         }
       }
     },
-    "settings.choice.newTabAgent": {
+  "settings.choice.newTabAgent": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21100,7 +21100,7 @@
         }
       }
     },
-    "settings.choice.newTabPage": {
+  "settings.choice.newTabPage": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21231,7 +21231,7 @@
         }
       }
     },
-    "settings.choice.newTabAuto": {
+  "settings.choice.newTabAuto": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21362,7 +21362,7 @@
         }
       }
     },
-    "settings.group.windowBackground": {
+  "settings.group.windowBackground": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21493,7 +21493,7 @@
         }
       }
     },
-    "settings.default.ghosttyConfig": {
+  "settings.default.ghosttyConfig": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21624,7 +21624,7 @@
         }
       }
     },
-    "settings.appearance.backgroundOpacity": {
+  "settings.appearance.backgroundOpacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21755,7 +21755,7 @@
         }
       }
     },
-    "settings.appearance.backgroundOpacity.help": {
+  "settings.appearance.backgroundOpacity.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21886,7 +21886,7 @@
         }
       }
     },
-    "settings.appearance.backgroundBlur": {
+  "settings.appearance.backgroundBlur": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22017,7 +22017,7 @@
         }
       }
     },
-    "settings.appearance.backgroundBlur.help": {
+  "settings.appearance.backgroundBlur.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22148,7 +22148,7 @@
         }
       }
     },
-    "settings.choice.frosted": {
+  "settings.choice.frosted": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22279,7 +22279,7 @@
         }
       }
     },
-    "settings.choice.glass": {
+  "settings.choice.glass": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22410,7 +22410,7 @@
         }
       }
     },
-    "settings.choice.glassClear": {
+  "settings.choice.glassClear": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22541,7 +22541,7 @@
         }
       }
     },
-    "settings.appearance.borders": {
+  "settings.appearance.borders": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22672,7 +22672,7 @@
         }
       }
     },
-    "settings.appearance.borders.help": {
+  "settings.appearance.borders.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22803,7 +22803,7 @@
         }
       }
     },
-    "settings.choice.default": {
+  "settings.choice.default": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22934,7 +22934,7 @@
         }
       }
     },
-    "settings.window.rail": {
+  "settings.window.rail": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23065,7 +23065,7 @@
         }
       }
     },
-    "settings.window.rail.help": {
+  "settings.window.rail.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23196,7 +23196,7 @@
         }
       }
     },
-    "settings.choice.railLeading": {
+  "settings.choice.railLeading": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23327,7 +23327,7 @@
         }
       }
     },
-    "settings.choice.railAfterSidebar": {
+  "settings.choice.railAfterSidebar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23458,7 +23458,7 @@
         }
       }
     },
-    "settings.choice.strong": {
+  "settings.choice.strong": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -23589,7 +23589,7 @@
         }
       }
     },
-    "settings.focusRing.contrast": {
+  "settings.focusRing.contrast": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -23720,7 +23720,7 @@
         }
       }
     },
-    "settings.layout.closeFocus": {
+  "settings.layout.closeFocus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23851,7 +23851,7 @@
         }
       }
     },
-    "settings.layout.closeFocus.help": {
+  "settings.layout.closeFocus.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23982,7 +23982,7 @@
         }
       }
     },
-    "settings.choice.closeFocusPreviousNeighbor": {
+  "settings.choice.closeFocusPreviousNeighbor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24113,7 +24113,7 @@
         }
       }
     },
-    "settings.choice.closeFocusMostRecent": {
+  "settings.choice.closeFocusMostRecent": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24244,7 +24244,7 @@
         }
       }
     },
-    "settings.appearance.focusIndicator": {
+  "settings.appearance.focusIndicator": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -24375,7 +24375,7 @@
         }
       }
     },
-    "settings.appearance.focusIndicator.help": {
+  "settings.appearance.focusIndicator.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -24506,7 +24506,7 @@
         }
       }
     },
-    "settings.choice.border": {
+  "settings.choice.border": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -24637,7 +24637,7 @@
         }
       }
     },
-    "settings.choice.both": {
+  "settings.choice.both": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -24768,7 +24768,7 @@
         }
       }
     },
-    "settings.choice.tabs": {
+  "settings.choice.tabs": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -24899,7 +24899,7 @@
         }
       }
     },
-    "settings.group.statusIndicator": {
+  "settings.group.statusIndicator": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25030,7 +25030,7 @@
         }
       }
     },
-    "settings.statusIndicator.style": {
+  "settings.statusIndicator.style": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25161,7 +25161,7 @@
         }
       }
     },
-    "settings.statusIndicator.style.help": {
+  "settings.statusIndicator.style.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25292,7 +25292,7 @@
         }
       }
     },
-    "settings.choice.thinArc": {
+  "settings.choice.thinArc": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25423,7 +25423,7 @@
         }
       }
     },
-    "settings.choice.macSpinner": {
+  "settings.choice.macSpinner": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25554,7 +25554,7 @@
         }
       }
     },
-    "settings.choice.pulsingDot": {
+  "settings.choice.pulsingDot": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25685,7 +25685,7 @@
         }
       }
     },
-    "settings.statusIndicator.size": {
+  "settings.statusIndicator.size": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25816,7 +25816,7 @@
         }
       }
     },
-    "settings.statusIndicator.thickness": {
+  "settings.statusIndicator.thickness": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25947,7 +25947,7 @@
         }
       }
     },
-    "settings.statusIndicator.color": {
+  "settings.statusIndicator.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26078,7 +26078,7 @@
         }
       }
     },
-    "settings.group.sidebar": {
+  "settings.group.sidebar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26209,7 +26209,7 @@
         }
       }
     },
-    "settings.sidebar.sectionLook": {
+  "settings.sidebar.sectionLook": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26340,7 +26340,7 @@
         }
       }
     },
-    "settings.sidebar.sectionLook.help": {
+  "settings.sidebar.sectionLook.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26471,7 +26471,7 @@
         }
       }
     },
-    "settings.choice.sectionQuiet": {
+  "settings.choice.sectionQuiet": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26602,7 +26602,7 @@
         }
       }
     },
-    "settings.choice.sectionCard": {
+  "settings.choice.sectionCard": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26733,7 +26733,7 @@
         }
       }
     },
-    "settings.choice.sectionTray": {
+  "settings.choice.sectionTray": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26864,7 +26864,7 @@
         }
       }
     },
-    "settings.choice.sectionLines": {
+  "settings.choice.sectionLines": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26995,7 +26995,7 @@
         }
       }
     },
-    "settings.choice.sectionLinesIcons": {
+  "settings.choice.sectionLinesIcons": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27126,7 +27126,7 @@
         }
       }
     },
-    "settings.sidebar.topBandMaxShare": {
+  "settings.sidebar.topBandMaxShare": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27257,7 +27257,7 @@
         }
       }
     },
-    "settings.sidebar.topBandMaxShare.help": {
+  "settings.sidebar.topBandMaxShare.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27388,7 +27388,7 @@
         }
       }
     },
-    "settings.sidebar.bottomBandMaxShare": {
+  "settings.sidebar.bottomBandMaxShare": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27519,7 +27519,7 @@
         }
       }
     },
-    "settings.sidebar.bottomBandMaxShare.help": {
+  "settings.sidebar.bottomBandMaxShare.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27650,7 +27650,7 @@
         }
       }
     },
-    "settings.sidebar.pinnedBandsScroll": {
+  "settings.sidebar.pinnedBandsScroll": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27781,7 +27781,7 @@
         }
       }
     },
-    "settings.sidebar.pinnedBandsScroll.help": {
+  "settings.sidebar.pinnedBandsScroll.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27912,7 +27912,7 @@
         }
       }
     },
-    "settings.statusIndicator.honorStatusStyle": {
+  "settings.statusIndicator.honorStatusStyle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28043,7 +28043,7 @@
         }
       }
     },
-    "settings.statusIndicator.honorStatusStyle.help": {
+  "settings.statusIndicator.honorStatusStyle.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28174,7 +28174,7 @@
         }
       }
     },
-    "settings.status.inferCommandBusy": {
+  "settings.status.inferCommandBusy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28305,7 +28305,7 @@
         }
       }
     },
-    "settings.status.inferCommandBusy.help": {
+  "settings.status.inferCommandBusy.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28436,7 +28436,7 @@
         }
       }
     },
-    "settings.status.inferCommandBusyAfter": {
+  "settings.status.inferCommandBusyAfter": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28567,7 +28567,7 @@
         }
       }
     },
-    "settings.status.runNotifyMinimumSeconds": {
+  "settings.status.runNotifyMinimumSeconds": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28698,7 +28698,7 @@
         }
       }
     },
-    "settings.status.runNotifyMinimumSeconds.help": {
+  "settings.status.runNotifyMinimumSeconds.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28829,7 +28829,7 @@
         }
       }
     },
-    "settings.status.runNotifyWhenVisible": {
+  "settings.status.runNotifyWhenVisible": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28960,7 +28960,7 @@
         }
       }
     },
-    "settings.layout.frameOrientation": {
+  "settings.layout.frameOrientation": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29091,7 +29091,7 @@
         }
       }
     },
-    "settings.choice.columnMajor": {
+  "settings.choice.columnMajor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29222,7 +29222,7 @@
         }
       }
     },
-    "settings.choice.rowMajor": {
+  "settings.choice.rowMajor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29353,7 +29353,7 @@
         }
       }
     },
-    "settings.group.appTheme": {
+  "settings.group.appTheme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29484,7 +29484,7 @@
         }
       }
     },
-    "settings.appearance.theme": {
+  "settings.appearance.theme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29615,7 +29615,7 @@
         }
       }
     },
-    "settings.appearance.theme.help": {
+  "settings.appearance.theme.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29746,7 +29746,7 @@
         }
       }
     },
-    "settings.appearance.interfaceSize": {
+  "settings.appearance.interfaceSize": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29877,7 +29877,7 @@
         }
       }
     },
-    "settings.appearance.interfaceSize.help": {
+  "settings.appearance.interfaceSize.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30008,7 +30008,7 @@
         }
       }
     },
-    "settings.group.terminalFont": {
+  "settings.group.terminalFont": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30139,7 +30139,7 @@
         }
       }
     },
-    "settings.terminal.fontFamily": {
+  "settings.terminal.fontFamily": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30270,7 +30270,7 @@
         }
       }
     },
-    "settings.terminal.fontFamily.help": {
+  "settings.terminal.fontFamily.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30401,7 +30401,7 @@
         }
       }
     },
-    "settings.terminal.fontSize": {
+  "settings.terminal.fontSize": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30532,7 +30532,7 @@
         }
       }
     },
-    "settings.choice.brailleSpinner": {
+  "settings.choice.brailleSpinner": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30663,7 +30663,7 @@
         }
       }
     },
-    "settings.focus.inactiveTabStyle": {
+  "settings.focus.inactiveTabStyle": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -30794,7 +30794,7 @@
         }
       }
     },
-    "settings.focus.inactiveTabStyle.help": {
+  "settings.focus.inactiveTabStyle.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -30925,7 +30925,7 @@
         }
       }
     },
-    "settings.choice.fade": {
+  "settings.choice.fade": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -31056,7 +31056,7 @@
         }
       }
     },
-    "settings.choice.tonal": {
+  "settings.choice.tonal": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -31187,7 +31187,7 @@
         }
       }
     },
-    "settings.choice.quiet": {
+  "settings.choice.quiet": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -31318,7 +31318,7 @@
         }
       }
     },
-    "settings.choice.feedMirror.full": {
+  "settings.choice.feedMirror.full": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31449,7 +31449,7 @@
         }
       }
     },
-    "settings.choice.feedMirror.off": {
+  "settings.choice.feedMirror.off": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31580,7 +31580,7 @@
         }
       }
     },
-    "settings.choice.feedMirror.title": {
+  "settings.choice.feedMirror.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31711,7 +31711,7 @@
         }
       }
     },
-    "settings.feed.mirrorAgents": {
+  "settings.feed.mirrorAgents": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31842,7 +31842,7 @@
         }
       }
     },
-    "settings.feed.mirrorAgents.help": {
+  "settings.feed.mirrorAgents.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31973,7 +31973,7 @@
         }
       }
     },
-    "settings.feed.mirrorTerminal": {
+  "settings.feed.mirrorTerminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32104,7 +32104,7 @@
         }
       }
     },
-    "settings.feed.mirrorTerminal.help": {
+  "settings.feed.mirrorTerminal.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32235,7 +32235,7 @@
         }
       }
     },
-    "settings.group.feedMirror": {
+  "settings.group.feedMirror": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32366,7 +32366,7 @@
         }
       }
     },
-    "settings.choice.nearestEdge": {
+  "settings.choice.nearestEdge": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32497,7 +32497,7 @@
         }
       }
     },
-    "settings.choice.top": {
+  "settings.choice.top": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32628,7 +32628,7 @@
         }
       }
     },
-    "settings.choice.bottom": {
+  "settings.choice.bottom": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32759,7 +32759,7 @@
         }
       }
     },
-    "settings.group.palette": {
+  "settings.group.palette": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32890,7 +32890,7 @@
         }
       }
     },
-    "settings.palette.prefix.help": {
+  "settings.palette.prefix.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33021,7 +33021,7 @@
         }
       }
     },
-    "settings.choice.prefixNone": {
+  "settings.choice.prefixNone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33152,7 +33152,7 @@
         }
       }
     },
-    "settings.palette.prefix.tabs": {
+  "settings.palette.prefix.tabs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33283,7 +33283,7 @@
         }
       }
     },
-    "settings.palette.prefix.workspaces": {
+  "settings.palette.prefix.workspaces": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33414,7 +33414,7 @@
         }
       }
     },
-    "settings.palette.prefix.commands": {
+  "settings.palette.prefix.commands": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33545,7 +33545,7 @@
         }
       }
     },
-    "settings.palette.prefix.settings": {
+  "settings.palette.prefix.settings": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33676,7 +33676,7 @@
         }
       }
     },
-    "settings.palette.prefix.scopes": {
+  "settings.palette.prefix.scopes": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33807,7 +33807,7 @@
         }
       }
     },
-    "settings.group.tasks": {
+  "settings.group.tasks": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -33938,7 +33938,7 @@
         }
       }
     },
-    "settings.tasks.layout": {
+  "settings.tasks.layout": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -34069,7 +34069,7 @@
         }
       }
     },
-    "settings.tasks.layout.help": {
+  "settings.tasks.layout.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -34200,7 +34200,7 @@
         }
       }
     },
-    "settings.choice.tasksList": {
+  "settings.choice.tasksList": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -34331,7 +34331,7 @@
         }
       }
     },
-    "settings.choice.tasksBoard": {
+  "settings.choice.tasksBoard": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -34462,7 +34462,7 @@
         }
       }
     },
-    "settings.choice.tasksInbox": {
+  "settings.choice.tasksInbox": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -34593,7 +34593,7 @@
         }
       }
     },
-    "settings.group.labs": {
+  "settings.group.labs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34724,7 +34724,7 @@
         }
       }
     },
-    "settings.labs.previewFeatures": {
+  "settings.labs.previewFeatures": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34855,7 +34855,7 @@
         }
       }
     },
-    "settings.labs.previewFeatures.help": {
+  "settings.labs.previewFeatures.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34986,7 +34986,7 @@
         }
       }
     },
-    "settings.appearance.backdropArt": {
+  "settings.appearance.backdropArt": {
       "comment": "Optional public-domain backdrop art and its museum attribution.",
       "localizations": {
         "en": {
@@ -35117,7 +35117,7 @@
         }
       }
     },
-    "settings.appearance.backdropArt.help": {
+  "settings.appearance.backdropArt.help": {
       "comment": "Optional public-domain backdrop art and its museum attribution.",
       "localizations": {
         "en": {
@@ -35248,7 +35248,7 @@
         }
       }
     },
-    "settings.choice.wheatField": {
+  "settings.choice.wheatField": {
       "comment": "Optional public-domain backdrop art and its museum attribution.",
       "localizations": {
         "en": {
@@ -35379,7 +35379,7 @@
         }
       }
     },
-    "settings.appearance.background": {
+  "settings.appearance.background": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35510,7 +35510,7 @@
         }
       }
     },
-    "settings.appearance.background.help": {
+  "settings.appearance.background.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35641,7 +35641,7 @@
         }
       }
     },
-    "settings.appearance.experimentalControls": {
+  "settings.appearance.experimentalControls": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35772,7 +35772,7 @@
         }
       }
     },
-    "settings.appearance.experimentalControls.help": {
+  "settings.appearance.experimentalControls.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35903,7 +35903,7 @@
         }
       }
     },
-    "settings.group.appearanceTuning": {
+  "settings.group.appearanceTuning": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36034,7 +36034,7 @@
         }
       }
     },
-    "settings.appearance.glassTransparency": {
+  "settings.appearance.glassTransparency": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36165,7 +36165,7 @@
         }
       }
     },
-    "settings.appearance.glassTransparency.help": {
+  "settings.appearance.glassTransparency.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36296,7 +36296,7 @@
         }
       }
     },
-    "settings.appearance.hue": {
+  "settings.appearance.hue": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36427,7 +36427,7 @@
         }
       }
     },
-    "settings.appearance.hue.help": {
+  "settings.appearance.hue.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36558,7 +36558,7 @@
         }
       }
     },
-    "settings.appearance.saturation": {
+  "settings.appearance.saturation": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36689,7 +36689,7 @@
         }
       }
     },
-    "settings.appearance.saturation.help": {
+  "settings.appearance.saturation.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36820,7 +36820,7 @@
         }
       }
     },
-    "settings.newTerminal.opensWorkspace": {
+  "settings.newTerminal.opensWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -36951,7 +36951,7 @@
         }
       }
     },
-    "settings.newTerminal.opensWorkspace.help": {
+  "settings.newTerminal.opensWorkspace.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -37082,7 +37082,7 @@
         }
       }
     },
-    "settings.group.githubInbox": {
+  "settings.group.githubInbox": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37213,7 +37213,7 @@
           }
         }}
     },
-    "settings.feed.github.enabled": {
+  "settings.feed.github.enabled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37344,7 +37344,7 @@
           }
         }}
     },
-    "settings.feed.github.enabled.help": {
+  "settings.feed.github.enabled.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37475,7 +37475,7 @@
           }
         }}
     },
-    "settings.feed.github.pollInterval": {
+  "settings.feed.github.pollInterval": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37606,7 +37606,7 @@
           }
         }}
     },
-    "settings.feed.github.pollInterval.help": {
+  "settings.feed.github.pollInterval.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37737,7 +37737,7 @@
           }
         }}
     },
-    "settings.choice.minimalBoth": {
+  "settings.choice.minimalBoth": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37868,7 +37868,7 @@
         }
       }
     },
-    "settings.choice.minimalBottom": {
+  "settings.choice.minimalBottom": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37999,7 +37999,7 @@
         }
       }
     },
-    "settings.choice.minimalTop": {
+  "settings.choice.minimalTop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38130,7 +38130,7 @@
         }
       }
     },
-    "settings.sidebar.minimalMode": {
+  "settings.sidebar.minimalMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38261,7 +38261,7 @@
         }
       }
     },
-    "settings.sidebar.minimalMode.help": {
+  "settings.sidebar.minimalMode.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38392,7 +38392,7 @@
         }
       }
     },
-    "settings.sidebar.showWorkspaceTabs": {
+  "settings.sidebar.showWorkspaceTabs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38523,7 +38523,7 @@
         }
       }
     },
-    "settings.sidebar.showWorkspaceTabs.help": {
+  "settings.sidebar.showWorkspaceTabs.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38654,7 +38654,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.sidebar.color": {
+  "settings.appearance.surfaces.sidebar.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38785,7 +38785,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.sidebar.opacity": {
+  "settings.appearance.surfaces.sidebar.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38916,7 +38916,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.tabBar.color": {
+  "settings.appearance.surfaces.tabBar.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39047,7 +39047,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.tabBar.opacity": {
+  "settings.appearance.surfaces.tabBar.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39178,7 +39178,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.terminal.color": {
+  "settings.appearance.surfaces.terminal.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39309,7 +39309,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.terminal.opacity": {
+  "settings.appearance.surfaces.terminal.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39440,7 +39440,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.agentPane.color": {
+  "settings.appearance.surfaces.agentPane.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39571,7 +39571,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.agentPane.opacity": {
+  "settings.appearance.surfaces.agentPane.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39702,7 +39702,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.settings.color": {
+  "settings.appearance.surfaces.settings.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39833,7 +39833,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.settings.opacity": {
+  "settings.appearance.surfaces.settings.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39964,7 +39964,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.newTabPage.color": {
+  "settings.appearance.surfaces.newTabPage.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40095,7 +40095,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.newTabPage.opacity": {
+  "settings.appearance.surfaces.newTabPage.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40226,7 +40226,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.home.color": {
+  "settings.appearance.surfaces.home.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40357,7 +40357,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.home.opacity": {
+  "settings.appearance.surfaces.home.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40488,7 +40488,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.browserChrome.color": {
+  "settings.appearance.surfaces.browserChrome.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40619,7 +40619,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.browserChrome.opacity": {
+  "settings.appearance.surfaces.browserChrome.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40750,7 +40750,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.docks.color": {
+  "settings.appearance.surfaces.docks.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40881,7 +40881,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.docks.opacity": {
+  "settings.appearance.surfaces.docks.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41012,7 +41012,7 @@
         }
       }
     },
-    "settings.group.surfaces": {
+  "settings.group.surfaces": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41143,7 +41143,7 @@
         }
       }
     },
-    "settings.default.sameAsWindow": {
+  "settings.default.sameAsWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41274,7 +41274,7 @@
         }
       }
     },
-    "settings.default.windowOpacity": {
+  "settings.default.windowOpacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41405,7 +41405,7 @@
         }
       }
     },
-    "settings.layout.rows": {
+  "settings.layout.rows": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41536,7 +41536,7 @@
         }
       }
     },
-    "settings.layout.rows.help": {
+  "settings.layout.rows.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41667,7 +41667,7 @@
         }
       }
     },
-    "settings.navigation.historyScope": {
+  "settings.navigation.historyScope": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41798,7 +41798,7 @@
         }
       }
     },
-    "settings.navigation.historyScope.help": {
+  "settings.navigation.historyScope.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41929,7 +41929,7 @@
         }
       }
     },
-    "settings.navigation.historyScope.workspace": {
+  "settings.navigation.historyScope.workspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42060,7 +42060,7 @@
         }
       }
     },
-    "settings.navigation.historyScope.window": {
+  "settings.navigation.historyScope.window": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42191,7 +42191,7 @@
         }
       }
     },
-    "settings.navigation.historyScope.surface": {
+  "settings.navigation.historyScope.surface": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42322,7 +42322,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.internalPage.color": {
+  "settings.appearance.surfaces.internalPage.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42453,7 +42453,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.internalPage.opacity": {
+  "settings.appearance.surfaces.internalPage.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42584,7 +42584,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.splitDivider.color": {
+  "settings.appearance.surfaces.splitDivider.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42715,7 +42715,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.splitDivider.opacity": {
+  "settings.appearance.surfaces.splitDivider.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42846,7 +42846,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.diff.color": {
+  "settings.appearance.surfaces.diff.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42977,7 +42977,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.diff.opacity": {
+  "settings.appearance.surfaces.diff.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43108,7 +43108,7 @@
         }
       }
     },
-    "settings.choice.borders": {
+  "settings.choice.borders": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43239,7 +43239,7 @@
         }
       }
     },
-    "settings.choice.cards": {
+  "settings.choice.cards": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43370,7 +43370,7 @@
         }
       }
     },
-    "settings.choice.dividers": {
+  "settings.choice.dividers": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43501,7 +43501,7 @@
         }
       }
     },
-    "settings.layout.paneSeparation": {
+  "settings.layout.paneSeparation": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43632,7 +43632,7 @@
         }
       }
     },
-    "settings.layout.paneSeparation.help": {
+  "settings.layout.paneSeparation.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43763,7 +43763,7 @@
         }
       }
     },
-    "settings.sidebar.border": {
+  "settings.sidebar.border": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43894,7 +43894,7 @@
         }
       }
     },
-    "settings.sidebar.border.help": {
+  "settings.sidebar.border.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44025,7 +44025,7 @@
         }
       }
     },
-    "settings.sidebar.borderWidth": {
+  "settings.sidebar.borderWidth": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44156,7 +44156,7 @@
         }
       }
     },
-    "settings.choice.on": {
+  "settings.choice.on": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44287,7 +44287,7 @@
         }
       }
     },
-    "settings.value.minutes": {
+  "settings.value.minutes": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44418,7 +44418,7 @@
         }
       }
     },
-    "settings.value.points": {
+  "settings.value.points": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44549,7 +44549,7 @@
         }
       }
     },
-    "settings.value.seconds": {
+  "settings.value.seconds": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44680,7 +44680,7 @@
         }
       }
     },
-    "settings.choice.onHover": {
+  "settings.choice.onHover": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44811,7 +44811,7 @@
         }
       }
     },
-    "settings.window.titlebarButtons": {
+  "settings.window.titlebarButtons": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44942,7 +44942,7 @@
         }
       }
     },
-    "settings.window.titlebarButtons.help": {
+  "settings.window.titlebarButtons.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45073,7 +45073,7 @@
         }
       }
     },
-    "settings.tabs.plusButton": {
+  "settings.tabs.plusButton": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45204,7 +45204,7 @@
         }
       }
     },
-    "settings.tabs.plusButton.help": {
+  "settings.tabs.plusButton.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45335,7 +45335,7 @@
         }
       }
     },
-    "settings.sidebar.side": {
+  "settings.sidebar.side": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45466,7 +45466,7 @@
         }
       }
     },
-    "settings.sidebar.side.help": {
+  "settings.sidebar.side.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45597,7 +45597,7 @@
         }
       }
     },
-    "settings.sidebar.spacesPosition": {
+  "settings.sidebar.spacesPosition": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45728,7 +45728,7 @@
         }
       }
     },
-    "settings.sidebar.spacesPosition.help": {
+  "settings.sidebar.spacesPosition.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45859,7 +45859,7 @@
         }
       }
     },
-    "settings.group.picker": {
+  "settings.group.picker": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45990,7 +45990,7 @@
         }
       }
     },
-    "settings.picker.pinned": {
+  "settings.picker.pinned": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46121,7 +46121,7 @@
         }
       }
     },
-    "settings.picker.pinned.help": {
+  "settings.picker.pinned.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46252,7 +46252,7 @@
         }
       }
     },
-    "settings.tabs.barPosition": {
+  "settings.tabs.barPosition": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46383,7 +46383,7 @@
         }
       }
     },
-    "settings.tabs.barPosition.help": {
+  "settings.tabs.barPosition.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46514,7 +46514,7 @@
         }
       }
     },
-    "settings.group.updates": {
+  "settings.group.updates": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46645,7 +46645,7 @@
         }
       }
     },
-    "settings.updates.checkAutomatically": {
+  "settings.updates.checkAutomatically": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46776,7 +46776,7 @@
         }
       }
     },
-    "settings.updates.checkInterval": {
+  "settings.updates.checkInterval": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46907,7 +46907,7 @@
         }
       }
     },
-    "settings.updates.downloadAutomatically": {
+  "settings.updates.downloadAutomatically": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47038,7 +47038,7 @@
         }
       }
     },
-    "settings.updates.downloadAutomatically.help": {
+  "settings.updates.downloadAutomatically.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47169,7 +47169,7 @@
         }
       }
     },
-    "settings.updates.installOnQuit": {
+  "settings.updates.installOnQuit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47300,7 +47300,7 @@
         }
       }
     },
-    "settings.updates.installOnQuit.help": {
+  "settings.updates.installOnQuit.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47431,7 +47431,7 @@
         }
       }
     },
-    "settings.updates.notify": {
+  "settings.updates.notify": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47562,7 +47562,7 @@
         }
       }
     },
-    "settings.choice.updatesBadge": {
+  "settings.choice.updatesBadge": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47693,7 +47693,7 @@
         }
       }
     },
-    "settings.choice.updatesSilent": {
+  "settings.choice.updatesSilent": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47824,7 +47824,7 @@
         }
       }
     },
-    "settings.updates.keepPreviousVersions": {
+  "settings.updates.keepPreviousVersions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47955,7 +47955,7 @@
         }
       }
     },
-    "settings.updates.keepPreviousVersions.help": {
+  "settings.updates.keepPreviousVersions.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48086,7 +48086,7 @@
         }
       }
     },
-    "settings.updates.meteredNetwork": {
+  "settings.updates.meteredNetwork": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48217,7 +48217,7 @@
         }
       }
     },
-    "settings.updates.meteredNetwork.help": {
+  "settings.updates.meteredNetwork.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48348,7 +48348,7 @@
         }
       }
     },
-    "settings.choice.updatesDeferLowData": {
+  "settings.choice.updatesDeferLowData": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48479,7 +48479,7 @@
         }
       }
     },
-    "settings.choice.updatesDeferExpensive": {
+  "settings.choice.updatesDeferExpensive": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48610,7 +48610,7 @@
         }
       }
     },
-    "settings.choice.updatesDownloadAlways": {
+  "settings.choice.updatesDownloadAlways": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48741,7 +48741,7 @@
         }
       }
     },
-    "settings.group.links": {
+  "settings.group.links": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48872,7 +48872,7 @@
         }
       }
     },
-    "settings.choice.link.backgroundTab": {
+  "settings.choice.link.backgroundTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49003,7 +49003,7 @@
         }
       }
     },
-    "settings.choice.link.foregroundTab": {
+  "settings.choice.link.foregroundTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49134,7 +49134,7 @@
         }
       }
     },
-    "settings.choice.link.newWindow": {
+  "settings.choice.link.newWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49265,7 +49265,7 @@
         }
       }
     },
-    "settings.choice.link.currentTab": {
+  "settings.choice.link.currentTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49396,7 +49396,7 @@
         }
       }
     },
-    "settings.choice.link.download": {
+  "settings.choice.link.download": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49527,7 +49527,7 @@
         }
       }
     },
-    "settings.browser.links.downloadHelp": {
+  "settings.browser.links.downloadHelp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49658,7 +49658,7 @@
         }
       }
     },
-    "settings.browser.links.cmdClick": {
+  "settings.browser.links.cmdClick": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49789,7 +49789,7 @@
         }
       }
     },
-    "settings.browser.links.cmdShiftClick": {
+  "settings.browser.links.cmdShiftClick": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49920,7 +49920,7 @@
         }
       }
     },
-    "settings.browser.links.cmdShiftClick.help": {
+  "settings.browser.links.cmdShiftClick.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50051,7 +50051,7 @@
         }
       }
     },
-    "settings.browser.links.shiftClick": {
+  "settings.browser.links.shiftClick": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50182,7 +50182,7 @@
         }
       }
     },
-    "settings.browser.links.optionClick": {
+  "settings.browser.links.optionClick": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50313,7 +50313,7 @@
         }
       }
     },
-    "settings.browser.links.optionClick.help": {
+  "settings.browser.links.optionClick.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50444,7 +50444,7 @@
         }
       }
     },
-    "settings.browser.links.middleClick": {
+  "settings.browser.links.middleClick": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50575,7 +50575,7 @@
         }
       }
     },
-    "settings.browser.links.middleClick.help": {
+  "settings.browser.links.middleClick.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50706,7 +50706,7 @@
         }
       }
     },
-    "settings.tabs.barOrder": {
+  "settings.tabs.barOrder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50837,7 +50837,7 @@
         }
       }
     },
-    "settings.tabs.barOrder.help": {
+  "settings.tabs.barOrder.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50968,7 +50968,7 @@
         }
       }
     },
-    "settings.choice.tabsAboveToolbar": {
+  "settings.choice.tabsAboveToolbar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51099,7 +51099,7 @@
         }
       }
     },
-    "settings.choice.tabsBelowToolbar": {
+  "settings.choice.tabsBelowToolbar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51230,7 +51230,7 @@
         }
       }
     },
-    "settings.appearance.sidebarWidth": {
+  "settings.appearance.sidebarWidth": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51361,7 +51361,7 @@
         }
       }
     },
-    "settings.appearance.columnGap": {
+  "settings.appearance.columnGap": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51492,7 +51492,7 @@
         }
       }
     },
-    "settings.appearance.titlebarHeight": {
+  "settings.appearance.titlebarHeight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51623,7 +51623,7 @@
         }
       }
     },
-    "settings.group.toolbar": {
+  "settings.group.toolbar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51754,7 +51754,7 @@
         }
       }
     },
-    "settings.group.addressBar": {
+  "settings.group.addressBar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51885,7 +51885,7 @@
         }
       }
     },
-    "settings.browser.toolbar.back": {
+  "settings.browser.toolbar.back": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52016,7 +52016,7 @@
         }
       }
     },
-    "settings.browser.toolbar.forward": {
+  "settings.browser.toolbar.forward": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52147,7 +52147,7 @@
         }
       }
     },
-    "settings.browser.toolbar.reload": {
+  "settings.browser.toolbar.reload": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52278,7 +52278,7 @@
         }
       }
     },
-    "settings.browser.toolbar.home": {
+  "settings.browser.toolbar.home": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52409,7 +52409,7 @@
         }
       }
     },
-    "settings.browser.toolbar.extensions": {
+  "settings.browser.toolbar.extensions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52540,7 +52540,7 @@
         }
       }
     },
-    "settings.browser.toolbar.downloads": {
+  "settings.browser.toolbar.downloads": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52671,7 +52671,7 @@
         }
       }
     },
-    "settings.browser.toolbar.media": {
+  "settings.browser.toolbar.media": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52802,7 +52802,7 @@
         }
       }
     },
-    "settings.browser.toolbar.profile": {
+  "settings.browser.toolbar.profile": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52933,7 +52933,7 @@
         }
       }
     },
-    "settings.browser.toolbar.menu": {
+  "settings.browser.toolbar.menu": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53064,7 +53064,7 @@
         }
       }
     },
-    "settings.browser.omnibox.color": {
+  "settings.browser.omnibox.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53195,7 +53195,7 @@
         }
       }
     },
-    "settings.browser.omnibox.popupColor": {
+  "settings.browser.omnibox.popupColor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53326,7 +53326,7 @@
         }
       }
     },
-    "settings.browser.omnibox.popupHoverColor": {
+  "settings.browser.omnibox.popupHoverColor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53457,7 +53457,7 @@
         }
       }
     },
-    "settings.layout.stripMargin": {
+  "settings.layout.stripMargin": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53588,7 +53588,7 @@
         }
       }
     },
-    "settings.layout.stripMargin.help": {
+  "settings.layout.stripMargin.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53719,7 +53719,7 @@
         }
       }
     },
-    "settings.layout.columnWidthPresets": {
+  "settings.layout.columnWidthPresets": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53850,7 +53850,7 @@
         }
       }
     },
-    "settings.layout.columnWidthPresets.help": {
+  "settings.layout.columnWidthPresets.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53981,7 +53981,7 @@
         }
       }
     },
-    "settings.window.trafficLightClearance": {
+  "settings.window.trafficLightClearance": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54112,7 +54112,7 @@
         }
       }
     },
-    "settings.window.trafficLightClearance.help": {
+  "settings.window.trafficLightClearance.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54243,7 +54243,7 @@
         }
       }
     },
-    "settings.sidebar.workspaceIcons": {
+  "settings.sidebar.workspaceIcons": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54374,7 +54374,7 @@
         }
       }
     },
-    "settings.sidebar.workspaceIcons.help": {
+  "settings.sidebar.workspaceIcons.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54505,7 +54505,7 @@
         }
       }
     },
-    "settings.group.announcements": {
+  "settings.group.announcements": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54636,7 +54636,7 @@
         }
       }
     },
-    "settings.announcements.enabled": {
+  "settings.announcements.enabled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54767,7 +54767,7 @@
         }
       }
     },
-    "settings.announcements.enabled.help": {
+  "settings.announcements.enabled.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54898,7 +54898,7 @@
         }
       }
     },
-    "settings.announcements.fetch": {
+  "settings.announcements.fetch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55029,7 +55029,7 @@
         }
       }
     },
-    "settings.announcements.fetch.help": {
+  "settings.announcements.fetch.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55160,7 +55160,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.markdown.color": {
+  "settings.appearance.surfaces.markdown.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55291,7 +55291,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.markdown.opacity": {
+  "settings.appearance.surfaces.markdown.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55422,7 +55422,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.editor.color": {
+  "settings.appearance.surfaces.editor.color": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55553,7 +55553,7 @@
         }
       }
     },
-    "settings.appearance.surfaces.editor.opacity": {
+  "settings.appearance.surfaces.editor.opacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55684,7 +55684,7 @@
         }
       }
     },
-    "settings.group.diffViewer": {
+  "settings.group.diffViewer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55815,7 +55815,7 @@
         }
       }
     },
-    "settings.diff.wordWrap": {
+  "settings.diff.wordWrap": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55946,7 +55946,7 @@
         }
       }
     },
-    "settings.diff.wordDiffs": {
+  "settings.diff.wordDiffs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56077,7 +56077,7 @@
         }
       }
     },
-    "settings.diff.lineNumbers": {
+  "settings.diff.lineNumbers": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56208,7 +56208,7 @@
         }
       }
     },
-    "settings.diff.showBackgrounds": {
+  "settings.diff.showBackgrounds": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56339,7 +56339,7 @@
         }
       }
     },
-    "settings.diff.expandUnchanged": {
+  "settings.diff.expandUnchanged": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56470,7 +56470,7 @@
         }
       }
     },
-    "settings.diff.layout": {
+  "settings.diff.layout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56601,7 +56601,7 @@
         }
       }
     },
-    "settings.choice.diffSplit": {
+  "settings.choice.diffSplit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56732,7 +56732,7 @@
         }
       }
     },
-    "settings.choice.diffUnified": {
+  "settings.choice.diffUnified": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56863,7 +56863,7 @@
         }
       }
     },
-    "settings.diff.diffIndicators": {
+  "settings.diff.diffIndicators": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56994,7 +56994,7 @@
         }
       }
     },
-    "settings.choice.diffBars": {
+  "settings.choice.diffBars": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57125,7 +57125,7 @@
         }
       }
     },
-    "settings.choice.diffClassic": {
+  "settings.choice.diffClassic": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57256,7 +57256,7 @@
         }
       }
     },
-    "settings.choice.diffNone": {
+  "settings.choice.diffNone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57387,7 +57387,7 @@
         }
       }
     },
-    "settings.appearance.uiScale": {
+  "settings.appearance.uiScale": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57518,7 +57518,7 @@
         }
       }
     },
-    "settings.section.home": {
+  "settings.section.home": {
       "comment": "Settings window section: the Home tab's conversations.",
       "extractionState": "manual",
       "localizations": {
@@ -57650,7 +57650,7 @@
         }
       }
     },
-    "settings.group.attachments": {
+  "settings.group.attachments": {
       "comment": "Settings group in Home: attachments in conversations.",
       "extractionState": "manual",
       "localizations": {
@@ -57782,7 +57782,7 @@
         }
       }
     },
-    "settings.home.keepLocation": {
+  "settings.home.keepLocation": {
       "comment": "Settings toggle (home.attachments.keepLocation): attached photos and videos keep their location metadata.",
       "extractionState": "manual",
       "localizations": {
@@ -57914,7 +57914,7 @@
         }
       }
     },
-    "settings.home.keepLocation.help": {
+  "settings.home.keepLocation.help": {
       "comment": "Help under the Keep Location toggle.",
       "extractionState": "manual",
       "localizations": {
@@ -58046,7 +58046,7 @@
         }
       }
     },
-    "settings.sidebar.scope.allItems": {
+  "settings.sidebar.scope.allItems": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -58177,7 +58177,7 @@
         }
       }
     },
-    "settings.sidebar.scope.workspacesOnly": {
+  "settings.sidebar.scope.workspacesOnly": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -58308,7 +58308,7 @@
         }
       }
     },
-    "settings.sidebar.numbering": {
+  "settings.sidebar.numbering": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -58439,7 +58439,7 @@
         }
       }
     },
-    "settings.sidebar.numbering.help": {
+  "settings.sidebar.numbering.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -58570,7 +58570,7 @@
         }
       }
     },
-    "settings.sidebar.cmd9": {
+  "settings.sidebar.cmd9": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -58701,7 +58701,7 @@
         }
       }
     },
-    "settings.sidebar.cmd9.help": {
+  "settings.sidebar.cmd9.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -58832,7 +58832,7 @@
         }
       }
     },
-    "settings.sidebar.cmd9.last": {
+  "settings.sidebar.cmd9.last": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -58963,7 +58963,7 @@
         }
       }
     },
-    "settings.sidebar.cmd9.ninth": {
+  "settings.sidebar.cmd9.ninth": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -59094,7 +59094,7 @@
         }
       }
     },
-    "settings.sidebar.stepping": {
+  "settings.sidebar.stepping": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -59225,7 +59225,7 @@
         }
       }
     },
-    "settings.sidebar.stepping.help": {
+  "settings.sidebar.stepping.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -59356,7 +59356,7 @@
         }
       }
     },
-    "settings.sidebar.steppingWraps": {
+  "settings.sidebar.steppingWraps": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -59487,7 +59487,7 @@
         }
       }
     },
-    "settings.sidebar.steppingWraps.help": {
+  "settings.sidebar.steppingWraps.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -59618,7 +59618,7 @@
         }
       }
     },
-    "settings.navigation.historySteps": {
+  "settings.navigation.historySteps": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -59749,7 +59749,7 @@
         }
       }
     },
-    "settings.navigation.historySteps.help": {
+  "settings.navigation.historySteps.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -59880,7 +59880,7 @@
         }
       }
     },
-    "settings.navigation.historySteps.workspaces": {
+  "settings.navigation.historySteps.workspaces": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -60011,7 +60011,7 @@
         }
       }
     },
-    "settings.navigation.historySteps.everything": {
+  "settings.navigation.historySteps.everything": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -60142,7 +60142,7 @@
         }
       }
     },
-    "settings.sidebar.showCounts": {
+  "settings.sidebar.showCounts": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -60273,7 +60273,7 @@
         }
       }
     },
-    "settings.source.ghostty": {
+  "settings.source.ghostty": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
@@ -60299,7 +60299,7 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "Ghostty" } }
       }
     },
-    "settings.notifications.mutedWorkspaces": {
+  "settings.notifications.mutedWorkspaces": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "مساحات العمل المكتومة" } },
@@ -60325,7 +60325,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "已靜音的工作區" } }
       }
     },
-    "settings.notifications.mutedWorkspaces.help": {
+  "settings.notifications.mutedWorkspaces.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "معرّفات مساحات العمل التي تكون إشعاراتها صامتة. اكتم مساحة عمل من قائمة صفها في الشريط الجانبي." } },
@@ -60351,7 +60351,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "通知靜音的工作區 ID。可在側邊欄的工作區列選單中靜音。" } }
       }
     },
-    "settings.app.globalHotKey": {
+  "settings.app.globalHotKey": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -60482,7 +60482,7 @@
         }
       }
     },
-    "settings.app.globalHotKey.help": {
+  "settings.app.globalHotKey.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -60613,7 +60613,7 @@
         }
       }
     },
-    "settings.sidebar.showWorkspaceDirectory": {
+  "settings.sidebar.showWorkspaceDirectory": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -60744,7 +60744,7 @@
         }
       }
     },
-    "settings.sidebar.showWorkspaceDirectory.help": {
+  "settings.sidebar.showWorkspaceDirectory.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -60875,7 +60875,7 @@
         }
       }
     },
-    "settings.group.agentChat" : {
+  "settings.group.agentChat" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -61006,7 +61006,7 @@
         }
       }
     },
-    "settings.agentPane.outsideRoots" : {
+  "settings.agentPane.outsideRoots" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -61137,7 +61137,7 @@
         }
       }
     },
-    "settings.agentPane.outsideRoots.help" : {
+  "settings.agentPane.outsideRoots.help" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -61268,7 +61268,7 @@
         }
       }
     },
-    "settings.choice.agentPaneConfirm" : {
+  "settings.choice.agentPaneConfirm" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -61399,7 +61399,7 @@
         }
       }
     },
-    "settings.choice.agentPaneText" : {
+  "settings.choice.agentPaneText" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -61530,7 +61530,7 @@
         }
       }
     },
-    "settings.choice.agentPaneOpen" : {
+  "settings.choice.agentPaneOpen" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -61661,7 +61661,7 @@
         }
       }
     },
-    "settings.agentPane.remoteImages" : {
+  "settings.agentPane.remoteImages" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -61792,7 +61792,7 @@
         }
       }
     },
-    "settings.agentPane.remoteImages.help" : {
+  "settings.agentPane.remoteImages.help" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -61923,7 +61923,7 @@
         }
       }
     },
-    "settings.choice.agentPaneClick" : {
+  "settings.choice.agentPaneClick" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -62054,7 +62054,7 @@
         }
       }
     },
-    "settings.group.workspaceRows": {
+  "settings.group.workspaceRows": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "صفوف مساحات العمل" } },
@@ -62080,7 +62080,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "工作區列" } }
       }
     },
-    "settings.workspaceRow.icon": {
+  "settings.workspaceRow.icon": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "الأيقونة" } },
@@ -62106,7 +62106,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "圖示" } }
       }
     },
-    "settings.workspaceRow.directory": {
+  "settings.workspaceRow.directory": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "المجلد" } },
@@ -62132,7 +62132,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "資料夾" } }
       }
     },
-    "settings.workspaceRow.branch": {
+  "settings.workspaceRow.branch": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "فرع Git" } },
@@ -62158,7 +62158,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "Git 分支" } }
       }
     },
-    "settings.workspaceRow.process": {
+  "settings.workspaceRow.process": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "البرنامج قيد التشغيل" } },
@@ -62184,7 +62184,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "執行中的程式" } }
       }
     },
-    "settings.workspaceRow.agentStatus": {
+  "settings.workspaceRow.agentStatus": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "حالة الوكيل" } },
@@ -62210,7 +62210,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理程式狀態" } }
       }
     },
-    "settings.workspaceRow.tabCount": {
+  "settings.workspaceRow.tabCount": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "عدد علامات التبويب" } },
@@ -62236,7 +62236,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "分頁數" } }
       }
     },
-    "settings.workspaceRow.ports": {
+  "settings.workspaceRow.ports": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "المنافذ" } },
@@ -62262,7 +62262,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "連接埠" } }
       }
     },
-    "settings.workspaceRow.lastActivity": {
+  "settings.workspaceRow.lastActivity": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "آخر نشاط" } },
@@ -62288,7 +62288,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "最近活動" } }
       }
     },
-    "settings.workspaceRow.pullRequest": {
+  "settings.workspaceRow.pullRequest": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "طلب السحب" } },
@@ -62314,7 +62314,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "拉取要求" } }
       }
     },
-    "settings.workspaceRow.progress": {
+  "settings.workspaceRow.progress": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "التقدم" } },
@@ -62340,7 +62340,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "進度" } }
       }
     },
-    "settings.workspaceRow.working": {
+  "settings.workspaceRow.working": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "الوكيل يعمل" } },
@@ -62366,7 +62366,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理程式工作中" } }
       }
     },
-    "settings.workspaceRow.icon.help": {
+  "settings.workspaceRow.icon.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "الأيقونة أو الرمز التعبيري الذي اخترته لمساحة العمل." } },
@@ -62392,7 +62392,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "你為工作區選擇的圖示或表情符號。" } }
       }
     },
-    "settings.workspaceRow.process.help": {
+  "settings.workspaceRow.process.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "عنوان الطرفية الذي تعيّنه الصدفة أو البرنامج." } },
@@ -62418,7 +62418,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "由 shell 或程式設定的終端機標題。" } }
       }
     },
-    "settings.workspaceRow.agentStatus.help": {
+  "settings.workspaceRow.agentStatus.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "سطر الحالة الذي يبلغ عنه الوكلاء والخطافات." } },
@@ -62444,7 +62444,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理程式與掛鉤回報的狀態列。" } }
       }
     },
-    "settings.workspaceRow.ports.help": {
+  "settings.workspaceRow.ports.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "يعيّنه خطاف: cmux workspace status set ports <text>." } },
@@ -62470,7 +62470,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "由掛鉤設定：cmux workspace status set ports <text>。" } }
       }
     },
-    "settings.workspaceRow.pullRequest.help": {
+  "settings.workspaceRow.pullRequest.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "يعيّنه خطاف: cmux workspace status set pr <text>." } },
@@ -62496,7 +62496,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "由掛鉤設定：cmux workspace status set pr <text>。" } }
       }
     },
-    "settings.workspaceRow.progress.help": {
+  "settings.workspaceRow.progress.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "شريط تقدم تحت الصف وعلامة الانشغال للعمل الجاري." } },
@@ -62522,7 +62522,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "列下方的進度列和執行中工作的忙碌標記。" } }
       }
     },
-    "settings.workspaceRow.working.help": {
+  "settings.workspaceRow.working.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "علامة أثناء عمل وكيل في مساحة العمل." } },
@@ -62548,7 +62548,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理程式在工作區中工作時的標記。" } }
       }
     },
-    "settings.workspaceRow.kind.terminal": {
+  "settings.workspaceRow.kind.terminal": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "مساحات عمل الطرفية" } },
@@ -62574,7 +62574,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "終端機工作區" } }
       }
     },
-    "settings.workspaceRow.kind.agent": {
+  "settings.workspaceRow.kind.agent": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "مساحات عمل الوكلاء" } },
@@ -62600,7 +62600,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理程式工作區" } }
       }
     },
-    "settings.workspaceRow.kind.browser": {
+  "settings.workspaceRow.kind.browser": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "مساحات عمل المتصفح" } },
@@ -62626,7 +62626,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "瀏覽器工作區" } }
       }
     },
-    "settings.workspaceRow.kind.mixed": {
+  "settings.workspaceRow.kind.mixed": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "مساحات عمل مختلطة" } },
@@ -62652,7 +62652,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "混合工作區" } }
       }
     },
-    "settings.workspaceRow.secondLineOrder": {
+  "settings.workspaceRow.secondLineOrder": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "ترتيب السطر الثاني" } },
@@ -62678,7 +62678,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "第二行順序" } }
       }
     },
-    "settings.workspaceRow.secondLineOrder.help": {
+  "settings.workspaceRow.secondLineOrder.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "ترتيب العناصر المعروضة تحت اسم مساحة العمل." } },
@@ -62704,7 +62704,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "工作區名稱下方所顯示項目的順序。" } }
       }
     },
-    "settings.workspaceRow.default.sameAsAll": {
+  "settings.workspaceRow.default.sameAsAll": {
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "needs_review", "value": "مثل كل مساحات العمل" } },
@@ -62730,7 +62730,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "與所有工作區相同" } }
       }
     },
-    "settings.agentPane.editedFiles.show": {
+  "settings.agentPane.editedFiles.show": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -62861,7 +62861,7 @@
         }
       }
     },
-    "settings.agentPane.editedFiles.show.help": {
+  "settings.agentPane.editedFiles.show.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -62992,7 +62992,7 @@
         }
       }
     },
-    "settings.agentPane.editedFiles.maxRows": {
+  "settings.agentPane.editedFiles.maxRows": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -63123,7 +63123,7 @@
         }
       }
     },
-    "settings.agentPane.editedFiles.scope": {
+  "settings.agentPane.editedFiles.scope": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -63254,7 +63254,7 @@
         }
       }
     },
-    "settings.choice.editedFilesAlways": {
+  "settings.choice.editedFilesAlways": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -63385,7 +63385,7 @@
         }
       }
     },
-    "settings.choice.editedFilesCollapsed": {
+  "settings.choice.editedFilesCollapsed": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -63516,7 +63516,7 @@
         }
       }
     },
-    "settings.choice.editedFilesNever": {
+  "settings.choice.editedFilesNever": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -63647,7 +63647,7 @@
         }
       }
     },
-    "settings.choice.editedFilesTurn": {
+  "settings.choice.editedFilesTurn": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -63778,7 +63778,7 @@
         }
       }
     },
-    "settings.choice.editedFilesSession": {
+  "settings.choice.editedFilesSession": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -63909,7 +63909,7 @@
         }
       }
     },
-    "settings.updates.showWhatsNew": {
+  "settings.updates.showWhatsNew": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64040,7 +64040,7 @@
         }
       }
     },
-    "settings.updates.showWhatsNew.help": {
+  "settings.updates.showWhatsNew.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64171,7 +64171,7 @@
         }
       }
     },
-    "settings.tabs.cmdWClosesPinnedTabs": {
+  "settings.tabs.cmdWClosesPinnedTabs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64302,7 +64302,7 @@
         }
       }
     },
-    "settings.tabs.cmdWClosesPinnedTabs.help": {
+  "settings.tabs.cmdWClosesPinnedTabs.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64433,7 +64433,7 @@
         }
       }
     },
-    "settings.layout.newPanePlacement": {
+  "settings.layout.newPanePlacement": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64564,7 +64564,7 @@
         }
       }
     },
-    "settings.layout.newPanePlacement.help": {
+  "settings.layout.newPanePlacement.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64695,7 +64695,7 @@
         }
       }
     },
-    "settings.choice.newPaneTab": {
+  "settings.choice.newPaneTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64826,7 +64826,7 @@
         }
       }
     },
-    "settings.choice.newPaneSplit": {
+  "settings.choice.newPaneSplit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64957,7 +64957,7 @@
         }
       }
     },
-    "settings.layout.tileBrowsers": {
+  "settings.layout.tileBrowsers": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65088,7 +65088,7 @@
         }
       }
     },
-    "settings.layout.tileBrowsers.help": {
+  "settings.layout.tileBrowsers.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65219,7 +65219,7 @@
         }
       }
     },
-    "settings.sidebar.showChats": {
+  "settings.sidebar.showChats": {
         "extractionState": "manual",
         "localizations": {
           "ar": { "stringUnit": { "state": "translated", "value": "إظهار كل المحادثات" } },
@@ -65245,7 +65245,7 @@
           "zh-Hant": { "stringUnit": { "state": "translated", "value": "顯示所有聊天" } }
         }
       },
-    "settings.sidebar.showChats.help": {
+  "settings.sidebar.showChats.help": {
         "extractionState": "manual",
         "localizations": {
           "ar": { "stringUnit": { "state": "translated", "value": "يعرض كل محادثات وكلاء البرمجة على هذا الكمبيوتر، الأحدث أولًا، أسفل الشريط الجانبي." } },
@@ -65271,7 +65271,7 @@
           "zh-Hant": { "stringUnit": { "state": "translated", "value": "在側邊欄底部顯示這台電腦上所有程式設計代理的聊天，最新的在前。" } }
         }
       },
-    "settings.group.chats": {
+  "settings.group.chats": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65402,7 +65402,7 @@
         }
       }
     },
-    "settings.chats.enabled": {
+  "settings.chats.enabled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65533,7 +65533,7 @@
         }
       }
     },
-    "settings.chats.enabled.help": {
+  "settings.chats.enabled.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65664,7 +65664,7 @@
         }
       }
     },
-    "settings.chats.discovery": {
+  "settings.chats.discovery": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65795,7 +65795,7 @@
         }
       }
     },
-    "settings.chats.discovery.help": {
+  "settings.chats.discovery.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65926,7 +65926,7 @@
         }
       }
     },
-    "settings.chats.roots": {
+  "settings.chats.roots": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66057,7 +66057,7 @@
         }
       }
     },
-    "settings.chats.roots.help": {
+  "settings.chats.roots.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66188,7 +66188,7 @@
         }
       }
     },
-    "settings.chats.root.relative": {
+  "settings.chats.root.relative": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66319,7 +66319,7 @@
         }
       }
     },
-    "settings.chats.root.system": {
+  "settings.chats.root.system": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66450,7 +66450,7 @@
         }
       }
     },
-    "settings.chats.root.home": {
+  "settings.chats.root.home": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66581,7 +66581,7 @@
         }
       }
     },
-    "settings.chats.root.protected": {
+  "settings.chats.root.protected": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66712,7 +66712,7 @@
         }
       }
     },
-    "settings.chats.root.volume": {
+  "settings.chats.root.volume": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66843,7 +66843,7 @@
         }
       }
     },
-    "settings.chats.root.symlink": {
+  "settings.chats.root.symlink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66974,7 +66974,7 @@
         }
       }
     },
-    "settings.statusIndicator.showAgentWorkingOnTabs": {
+  "settings.statusIndicator.showAgentWorkingOnTabs": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Show Agent Working on Tabs" } },
@@ -67000,7 +67000,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示代理工作中" } }
       }
     },
-    "settings.statusIndicator.showAgentWorkingOnTabs.help": {
+  "settings.statusIndicator.showAgentWorkingOnTabs.help": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Three dots take the tab's icon place while an agent works." } },
@@ -67026,7 +67026,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理工作時，分頁圖示位置顯示三個點。" } }
       }
     },
-    "settings.statusIndicator.showPageLoading": {
+  "settings.statusIndicator.showPageLoading": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Show Page Loading on Tabs" } },
@@ -67052,7 +67052,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示頁面載入" } }
       }
     },
-    "settings.statusIndicator.showPageLoading.help": {
+  "settings.statusIndicator.showPageLoading.help": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "A spinner takes a browser tab's icon place while its page loads." } },
@@ -67078,7 +67078,7 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "頁面載入時，瀏覽器分頁圖示位置顯示旋轉指示器。" } }
       }
     },
-    "settings.appearance.appTheme": {
+  "settings.appearance.appTheme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67209,7 +67209,7 @@
         }
       }
     },
-    "settings.default.followTerminal": {
+  "settings.default.followTerminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67340,7 +67340,7 @@
         }
       }
     },
-    "settings.appearance.appTheme.help": {
+  "settings.appearance.appTheme.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67471,7 +67471,7 @@
         }
       }
     },
-    "settings.computerUse.enabled": {
+  "settings.computerUse.enabled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67602,7 +67602,7 @@
         }
       }
     },
-    "settings.computerUse.enabled.help": {
+  "settings.computerUse.enabled.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67733,7 +67733,7 @@
         }
       }
     },
-    "settings.group.computerUse": {
+  "settings.group.computerUse": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67864,7 +67864,7 @@
         }
       }
     },
-    "settings.sidebar.cards.tips" : {
+  "settings.sidebar.cards.tips" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -67995,7 +67995,7 @@
         }
       }
     },
-    "settings.sidebar.cards.tips.help" : {
+  "settings.sidebar.cards.tips.help" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -68126,7 +68126,7 @@
         }
       }
     },
-    "settings.sidebar.spacesVisibility": {
+  "settings.sidebar.spacesVisibility": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68257,7 +68257,7 @@
         }
       }
     },
-    "settings.sidebar.spacesVisibility.help": {
+  "settings.sidebar.spacesVisibility.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68388,7 +68388,7 @@
         }
       }
     },
-    "settings.workspaces.newPlacement": {
+  "settings.workspaces.newPlacement": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68519,7 +68519,7 @@
         }
       }
     },
-    "settings.workspaces.newPlacement.help": {
+  "settings.workspaces.newPlacement.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68650,7 +68650,7 @@
         }
       }
     },
-    "settings.choice.afterCurrentWorkspace": {
+  "settings.choice.afterCurrentWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68781,7 +68781,7 @@
         }
       }
     },
-    "settings.sidebar.groupByComputer": {
+  "settings.sidebar.groupByComputer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68912,7 +68912,7 @@
         }
       }
     },
-    "settings.sidebar.groupByComputer.help": {
+  "settings.sidebar.groupByComputer.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -69043,7 +69043,7 @@
         }
       }
     },
-    "settings.sidebar.allChatsRows": {
+  "settings.sidebar.allChatsRows": {
         "extractionState": "manual",
         "localizations": {
           "ar": { "stringUnit": { "state": "translated", "value": "صفوف كل المحادثات" } },
@@ -69069,7 +69069,7 @@
           "zh-Hant": { "stringUnit": { "state": "translated", "value": "所有聊天的列數" } }
         }
       },
-    "settings.sidebar.allChatsRows.help": {
+  "settings.sidebar.allChatsRows.help": {
         "extractionState": "manual",
         "localizations": {
           "ar": { "stringUnit": { "state": "translated", "value": "عدد المحادثات التي يعرضها قسم كل المحادثات قبل أن يبدأ التمرير." } },
@@ -69095,7 +69095,7 @@
           "zh-Hant": { "stringUnit": { "state": "translated", "value": "「所有聊天」區段在捲動前顯示的聊天數。" } }
         }
       },
-    "settings.choice.newTabTemplateTerminal": {
+  "settings.choice.newTabTemplateTerminal": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -69226,7 +69226,7 @@
         }
       }
     },
-    "settings.choice.newTabTemplateClassic": {
+  "settings.choice.newTabTemplateClassic": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -69357,7 +69357,7 @@
         }
       }
     },
-    "settings.choice.newTabTemplateConsole": {
+  "settings.choice.newTabTemplateConsole": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -69488,7 +69488,7 @@
         }
       }
     },
-    "settings.choice.newTabTemplateThreads": {
+  "settings.choice.newTabTemplateThreads": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -69619,7 +69619,7 @@
         }
       }
     },
-    "settings.choice.newTabTemplateComposer": {
+  "settings.choice.newTabTemplateComposer": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -69750,7 +69750,7 @@
         }
       }
     },
-    "settings.choice.newTabTemplateDefault": {
+  "settings.choice.newTabTemplateDefault": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -69881,7 +69881,7 @@
         }
       }
     },
-    "settings.tabs.newTabTemplate.help": {
+  "settings.tabs.newTabTemplate.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -70012,7 +70012,7 @@
         }
       }
     },
-    "settings.tabs.newTabTemplate": {
+  "settings.tabs.newTabTemplate": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -70143,7 +70143,7 @@
         }
       }
     },
-    "settings.category.theme": {
+  "settings.category.theme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70274,7 +70274,7 @@
         }
       }
     },
-    "settings.category.agents": {
+  "settings.category.agents": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70405,7 +70405,7 @@
         }
       }
     },
-    "settings.category.privacy": {
+  "settings.category.privacy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70536,7 +70536,7 @@
         }
       }
     },
-    "settings.category.experimental": {
+  "settings.category.experimental": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70667,7 +70667,7 @@
         }
       }
     },
-    "settings.pageGroup.localData": {
+  "settings.pageGroup.localData": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70798,7 +70798,7 @@
         }
       }
     },
-    "settings.pageGroup.network": {
+  "settings.pageGroup.network": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70929,7 +70929,7 @@
         }
       }
     },
-    "settings.pageGroup.sidebarKeys": {
+  "settings.pageGroup.sidebarKeys": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -71060,7 +71060,7 @@
         }
       }
     },
-    "settings.pageGroup.terminalBehavior": {
+  "settings.pageGroup.terminalBehavior": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -71190,9 +71190,269 @@
           }
         }
       }
+    },
+  "settings.app.startAgentGlobalHotKey.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「エージェントを開始」（⌃⌥⌘Space）を、ほかのアプリが前面にあるときにも使えます。キーは「キーボードショートカット」で変更できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل «بدء وكيل» (⌃⌥⌘Space) أثناء وجود تطبيق آخر في المقدمة. غيّر مفتاحه في اختصارات لوحة المفاتيح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni agenta (⌃⌥⌘Space) radi dok je druga aplikacija u prvom planu. Prečicu promijenite u Prečicama tastature."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent (⌃⌥⌘Space) virker, mens en anden app er forrest. Skift tasten under Tastaturgenveje."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Agent starten“ (⌃⌥⌘Space) funktioniert, während eine andere App im Vordergrund ist. Die Taste änderst du unter Tastaturkurzbefehle."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente (⌃⌥⌘Space) funciona mientras otra app está en primer plano. Cambia su atajo en Atajos de teclado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer un agent (⌃⌥⌘Space) fonctionne lorsqu’une autre app est au premier plan. Modifiez son raccourci dans Raccourcis clavier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia agente (⌃⌥⌘Space) funziona mentre un’altra app è in primo piano. Cambia il tasto in Scorciatoie da tastiera."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមភ្នាក់ងារ (⌃⌥⌘Space) ដំណើរការ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។ ប្តូរគ្រាប់ចុចរបស់វានៅក្នុងផ្លូវកាត់ក្តារចុច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 앱이 앞에 있어도 에이전트 시작(⌃⌥⌘Space)이 작동합니다. 키는 키보드 단축키에서 바꿀 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent (⌃⌥⌘Space) virker mens en annen app er foran. Endre tasten under Tastatursnarveier."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom agenta (⌃⌥⌘Space) działa, gdy na pierwszym planie jest inna aplikacja. Klawisz zmienisz w Skrótach klawiszowych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente (⌃⌥⌘Space) funciona enquanto outro app está em primeiro plano. Altere a tecla em Atalhos de teclado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Запустить агента» (⌃⌥⌘Space) работает, когда впереди другое приложение. Клавишу можно изменить в разделе «Сочетания клавиш»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเอเจนต์ (⌃⌥⌘Space) ใช้งานได้ขณะที่แอปอื่นอยู่ด้านหน้า เปลี่ยนปุ่มได้ในปุ่มลัดแป้นพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan Başlat (⌃⌥⌘Space), başka bir uygulama öndeyken de çalışır. Tuşunu Klavye Kısayolları'ndan değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Запустити агента» (⌃⌥⌘Space) працює, коли попереду інша програма. Клавішу можна змінити в розділі «Сполучення клавіш»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu tác tử (⌃⌥⌘Space) hoạt động khi một ứng dụng khác ở phía trước. Đổi phím trong Phím tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他应用在前台时也可使用“启动智能体”（⌃⌥⌘Space）。可在“键盘快捷键”中更改按键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他 App 在前景時也可使用「啟動代理」（⌃⌥⌘Space）。可在「鍵盤快速鍵」中更改按鍵。"
+          }
+        }
+      }
+    },
+  "settings.app.startAgentGlobalHotKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Agent from Any App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでもエージェントを開始"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بدء وكيل من أي تطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni agenta iz bilo koje aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra enhver app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent aus jeder App starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente desde cualquier app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer un agent depuis n’importe quelle app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia agente da qualsiasi app"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមភ្នាក់ងារពីកម្មវិធីណាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 앱에서 에이전트 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra hvilken som helst app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom agenta z dowolnej aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente de qualquer app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента из любого приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเอเจนต์จากแอปใดก็ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Herhangi Bir Uygulamadan Ajan Başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента з будь-якої програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu tác tử từ mọi ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从任意应用启动智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從任何 App 啟動代理"
+          }
+        }
+      }
     }
   },
-
-
   "version": "1.0"
 }

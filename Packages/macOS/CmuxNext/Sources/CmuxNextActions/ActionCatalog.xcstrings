@@ -13,7 +13,7 @@
     "extractionState": "manual",
     "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Agent Chat: Actual Size" } } }
   },
-    "action.about": {
+  "action.about": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -144,7 +144,7 @@
         }
       }
     },
-    "action.agentActivity.open": {
+  "action.agentActivity.open": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -275,7 +275,7 @@
         }
       }
     },
-    "action.agentPane.continueIn": {
+  "action.agentPane.continueIn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -406,7 +406,7 @@
         }
       }
     },
-    "action.agentPane.createCheckpoint": {
+  "action.agentPane.createCheckpoint": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -537,7 +537,7 @@
         }
       }
     },
-    "action.agentPane.permission.allowChat": {
+  "action.agentPane.permission.allowChat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -668,7 +668,7 @@
         }
       }
     },
-    "action.agentPane.permission.allowOnce": {
+  "action.agentPane.permission.allowOnce": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -799,7 +799,7 @@
         }
       }
     },
-    "action.agentPane.permission.deny": {
+  "action.agentPane.permission.deny": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -930,7 +930,7 @@
         }
       }
     },
-    "action.agentPane.permission.expand": {
+  "action.agentPane.permission.expand": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1061,7 +1061,7 @@
         }
       }
     },
-    "action.agentPane.permission.refresh": {
+  "action.agentPane.permission.refresh": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1192,7 +1192,7 @@
         }
       }
     },
-    "action.agentPane.permission.retry": {
+  "action.agentPane.permission.retry": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1323,7 +1323,7 @@
         }
       }
     },
-    "action.agentPane.permission.revoke": {
+  "action.agentPane.permission.revoke": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1454,7 +1454,7 @@
         }
       }
     },
-    "action.agentPane.searchChats": {
+  "action.agentPane.searchChats": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1585,7 +1585,7 @@
         }
       }
     },
-    "action.appearance.animationSpeed.fast": {
+  "action.appearance.animationSpeed.fast": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1716,7 +1716,7 @@
         }
       }
     },
-    "action.appearance.animationSpeed.normal": {
+  "action.appearance.animationSpeed.normal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1847,7 +1847,7 @@
         }
       }
     },
-    "action.appearance.animationSpeed.off": {
+  "action.appearance.animationSpeed.off": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1978,7 +1978,7 @@
         }
       }
     },
-    "action.appearance.customize": {
+  "action.appearance.customize": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2109,7 +2109,7 @@
         }
       }
     },
-    "action.appearance.density.comfortable": {
+  "action.appearance.density.comfortable": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2240,7 +2240,7 @@
         }
       }
     },
-    "action.appearance.density.compact": {
+  "action.appearance.density.compact": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2371,7 +2371,7 @@
         }
       }
     },
-    "action.appearance.interfaceSize.decrease": {
+  "action.appearance.interfaceSize.decrease": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2502,7 +2502,7 @@
         }
       }
     },
-    "action.appearance.interfaceSize.increase": {
+  "action.appearance.interfaceSize.increase": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2633,7 +2633,7 @@
         }
       }
     },
-    "action.appearance.interfaceSize.reset": {
+  "action.appearance.interfaceSize.reset": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2764,7 +2764,7 @@
         }
       }
     },
-    "action.appearance.paneBorder.toggle": {
+  "action.appearance.paneBorder.toggle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2895,7 +2895,7 @@
         }
       }
     },
-    "action.appearance.paneBorderColor.reset": {
+  "action.appearance.paneBorderColor.reset": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3026,7 +3026,7 @@
         }
       }
     },
-    "action.appearance.paneBorderWidth.toggle": {
+  "action.appearance.paneBorderWidth.toggle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3157,7 +3157,7 @@
         }
       }
     },
-    "action.appearance.paneCorners.toggle": {
+  "action.appearance.paneCorners.toggle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3288,7 +3288,7 @@
         }
       }
     },
-    "action.appearance.panePadding.toggle": {
+  "action.appearance.panePadding.toggle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3419,7 +3419,7 @@
         }
       }
     },
-    "action.appearance.titlebar.minimal": {
+  "action.appearance.titlebar.minimal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3550,7 +3550,7 @@
         }
       }
     },
-    "action.appearance.titlebar.standard": {
+  "action.appearance.titlebar.standard": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3681,7 +3681,7 @@
         }
       }
     },
-    "action.attachTextBoxFile": {
+  "action.attachTextBoxFile": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3812,7 +3812,7 @@
         }
       }
     },
-    "action.browser.defaultEngine.chromium": {
+  "action.browser.defaultEngine.chromium": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3943,7 +3943,7 @@
         }
       }
     },
-    "action.browser.defaultEngine.webkit": {
+  "action.browser.defaultEngine.webkit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4074,7 +4074,7 @@
         }
       }
     },
-    "action.browser.openInChromium": {
+  "action.browser.openInChromium": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4205,7 +4205,7 @@
         }
       }
     },
-    "action.browser.openInWebKit": {
+  "action.browser.openInWebKit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4336,7 +4336,7 @@
         }
       }
     },
-    "action.browser.prompt.allow": {
+  "action.browser.prompt.allow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4467,7 +4467,7 @@
         }
       }
     },
-    "action.browser.prompt.block": {
+  "action.browser.prompt.block": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4598,7 +4598,7 @@
         }
       }
     },
-    "action.browserBack": {
+  "action.browserBack": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4729,7 +4729,7 @@
         }
       }
     },
-    "action.browserForward": {
+  "action.browserForward": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4860,7 +4860,7 @@
         }
       }
     },
-    "action.browserHardReload": {
+  "action.browserHardReload": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4991,7 +4991,7 @@
         }
       }
     },
-    "action.browserLinkHints": {
+  "action.browserLinkHints": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5122,7 +5122,7 @@
         }
       }
     },
-    "action.browserLinkHintsNewSplit": {
+  "action.browserLinkHintsNewSplit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5253,7 +5253,7 @@
         }
       }
     },
-    "action.browserReload": {
+  "action.browserReload": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5384,7 +5384,7 @@
         }
       }
     },
-    "action.browserScreenshotPage": {
+  "action.browserScreenshotPage": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5515,7 +5515,7 @@
         }
       }
     },
-    "action.browserScreenshotSection": {
+  "action.browserScreenshotSection": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5646,7 +5646,7 @@
         }
       }
     },
-    "action.browserTheme": {
+  "action.browserTheme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5777,7 +5777,7 @@
         }
       }
     },
-    "action.browserZoomIn": {
+  "action.browserZoomIn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5908,7 +5908,7 @@
         }
       }
     },
-    "action.browserZoomOut": {
+  "action.browserZoomOut": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6039,7 +6039,7 @@
         }
       }
     },
-    "action.browserZoomReset": {
+  "action.browserZoomReset": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6170,7 +6170,7 @@
         }
       }
     },
-    "action.canvasAlignBottom": {
+  "action.canvasAlignBottom": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6301,7 +6301,7 @@
         }
       }
     },
-    "action.canvasAlignLeft": {
+  "action.canvasAlignLeft": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6432,7 +6432,7 @@
         }
       }
     },
-    "action.canvasAlignRight": {
+  "action.canvasAlignRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6563,7 +6563,7 @@
         }
       }
     },
-    "action.canvasAlignTop": {
+  "action.canvasAlignTop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6694,7 +6694,7 @@
         }
       }
     },
-    "action.canvasDistributeHorizontally": {
+  "action.canvasDistributeHorizontally": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6825,7 +6825,7 @@
         }
       }
     },
-    "action.canvasDistributeVertically": {
+  "action.canvasDistributeVertically": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6956,7 +6956,7 @@
         }
       }
     },
-    "action.canvasEqualizeHeights": {
+  "action.canvasEqualizeHeights": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7087,7 +7087,7 @@
         }
       }
     },
-    "action.canvasEqualizeWidths": {
+  "action.canvasEqualizeWidths": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7218,7 +7218,7 @@
         }
       }
     },
-    "action.canvasOverview": {
+  "action.canvasOverview": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7349,7 +7349,7 @@
         }
       }
     },
-    "action.canvasRevealFocusedPane": {
+  "action.canvasRevealFocusedPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7480,7 +7480,7 @@
         }
       }
     },
-    "action.canvasTidy": {
+  "action.canvasTidy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7611,7 +7611,7 @@
         }
       }
     },
-    "action.canvasZoomIn": {
+  "action.canvasZoomIn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7742,7 +7742,7 @@
         }
       }
     },
-    "action.canvasZoomOut": {
+  "action.canvasZoomOut": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7873,7 +7873,7 @@
         }
       }
     },
-    "action.canvasZoomReset": {
+  "action.canvasZoomReset": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8004,7 +8004,7 @@
         }
       }
     },
-    "action.checklistAttachImages": {
+  "action.checklistAttachImages": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8135,7 +8135,7 @@
         }
       }
     },
-    "action.checklistCompleteItem": {
+  "action.checklistCompleteItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8266,7 +8266,7 @@
         }
       }
     },
-    "action.checklistEditItem": {
+  "action.checklistEditItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8397,7 +8397,7 @@
         }
       }
     },
-    "action.checklistMarkInProgress": {
+  "action.checklistMarkInProgress": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8528,7 +8528,7 @@
         }
       }
     },
-    "action.checklistOpenAsPane": {
+  "action.checklistOpenAsPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8659,7 +8659,7 @@
         }
       }
     },
-    "action.checklistRemoveItem": {
+  "action.checklistRemoveItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8790,7 +8790,7 @@
         }
       }
     },
-    "action.clearAllNotifications": {
+  "action.clearAllNotifications": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8921,7 +8921,7 @@
         }
       }
     },
-    "action.clearScreenKeepScrollback": {
+  "action.clearScreenKeepScrollback": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9052,7 +9052,7 @@
         }
       }
     },
-    "action.clearWorkspaceNotifications": {
+  "action.clearWorkspaceNotifications": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9183,7 +9183,7 @@
         }
       }
     },
-    "action.closeOtherTabsInPane": {
+  "action.closeOtherTabsInPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9314,7 +9314,7 @@
         }
       }
     },
-    "action.closeTab": {
+  "action.closeTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9445,7 +9445,7 @@
         }
       }
     },
-    "action.closeTabsToLeft": {
+  "action.closeTabsToLeft": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9576,7 +9576,7 @@
         }
       }
     },
-    "action.closeTabsToRight": {
+  "action.closeTabsToRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9707,7 +9707,7 @@
         }
       }
     },
-    "action.closeWindow": {
+  "action.closeWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9838,7 +9838,7 @@
         }
       }
     },
-    "action.closeWorkspace": {
+  "action.closeWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9969,7 +9969,7 @@
         }
       }
     },
-    "action.cloudCopyLink": {
+  "action.cloudCopyLink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10100,7 +10100,7 @@
         }
       }
     },
-    "action.cloudCopyMachineID": {
+  "action.cloudCopyMachineID": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10231,7 +10231,7 @@
         }
       }
     },
-    "action.cloudCopyPort": {
+  "action.cloudCopyPort": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10362,7 +10362,7 @@
         }
       }
     },
-    "action.cloudDiagnostics": {
+  "action.cloudDiagnostics": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10493,7 +10493,7 @@
         }
       }
     },
-    "action.cloudExec": {
+  "action.cloudExec": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10624,7 +10624,7 @@
         }
       }
     },
-    "action.cloudFileMkdir": {
+  "action.cloudFileMkdir": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10755,7 +10755,7 @@
         }
       }
     },
-    "action.cloudFileRead": {
+  "action.cloudFileRead": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -10886,7 +10886,7 @@
         }
       }
     },
-    "action.cloudFileRemove": {
+  "action.cloudFileRemove": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11017,7 +11017,7 @@
         }
       }
     },
-    "action.cloudFileStat": {
+  "action.cloudFileStat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11148,7 +11148,7 @@
         }
       }
     },
-    "action.cloudFileWrite": {
+  "action.cloudFileWrite": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11279,7 +11279,7 @@
         }
       }
     },
-    "action.cloudFilesList": {
+  "action.cloudFilesList": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11410,7 +11410,7 @@
         }
       }
     },
-    "action.cloudKillMachine": {
+  "action.cloudKillMachine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11541,7 +11541,7 @@
         }
       }
     },
-    "action.cloudNewTerminal": {
+  "action.cloudNewTerminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11672,7 +11672,7 @@
         }
       }
     },
-    "action.cloudOpenMachine": {
+  "action.cloudOpenMachine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11803,7 +11803,7 @@
         }
       }
     },
-    "action.cloudPrepareSCP": {
+  "action.cloudPrepareSCP": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -11934,7 +11934,7 @@
         }
       }
     },
-    "action.cloudRenameMachine": {
+  "action.cloudRenameMachine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12065,7 +12065,7 @@
         }
       }
     },
-    "action.cloudResizeMachine": {
+  "action.cloudResizeMachine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12196,7 +12196,7 @@
         }
       }
     },
-    "action.cloudSSH": {
+  "action.cloudSSH": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12327,7 +12327,7 @@
         }
       }
     },
-    "action.commandPalette": {
+  "action.commandPalette": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12458,7 +12458,7 @@
         }
       }
     },
-    "action.commandPaletteNext": {
+  "action.commandPaletteNext": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12589,7 +12589,7 @@
         }
       }
     },
-    "action.commandPalettePrevious": {
+  "action.commandPalettePrevious": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12720,7 +12720,7 @@
         }
       }
     },
-    "action.computerUseFocus": {
+  "action.computerUseFocus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12851,7 +12851,7 @@
         }
       }
     },
-    "action.computerUseFocusCallingTerminal": {
+  "action.computerUseFocusCallingTerminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -12982,7 +12982,7 @@
         }
       }
     },
-    "action.computerUseStop": {
+  "action.computerUseStop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13113,7 +13113,7 @@
         }
       }
     },
-    "action.copyWorkspaceSSHError": {
+  "action.copyWorkspaceSSHError": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13244,7 +13244,7 @@
         }
       }
     },
-    "action.cycleTextBoxSubmitAction": {
+  "action.cycleTextBoxSubmitAction": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13375,7 +13375,7 @@
         }
       }
     },
-    "action.cycleWorkspaceStatus": {
+  "action.cycleWorkspaceStatus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13506,7 +13506,7 @@
         }
       }
     },
-    "action.decreaseWorkspaceTerminalFontSize": {
+  "action.decreaseWorkspaceTerminalFontSize": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13637,7 +13637,7 @@
         }
       }
     },
-    "action.diffViewerGoToBottom": {
+  "action.diffViewerGoToBottom": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13768,7 +13768,7 @@
         }
       }
     },
-    "action.diffViewerGoToTop": {
+  "action.diffViewerGoToTop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13899,7 +13899,7 @@
         }
       }
     },
-    "action.diffViewerHalfPageDown": {
+  "action.diffViewerHalfPageDown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14030,7 +14030,7 @@
         }
       }
     },
-    "action.diffViewerHalfPageUp": {
+  "action.diffViewerHalfPageUp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14161,7 +14161,7 @@
         }
       }
     },
-    "action.diffViewerNextFile": {
+  "action.diffViewerNextFile": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14292,7 +14292,7 @@
         }
       }
     },
-    "action.diffViewerNextHunk": {
+  "action.diffViewerNextHunk": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14423,7 +14423,7 @@
         }
       }
     },
-    "action.diffViewerNextLine": {
+  "action.diffViewerNextLine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14554,7 +14554,7 @@
         }
       }
     },
-    "action.diffViewerPreviousFile": {
+  "action.diffViewerPreviousFile": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14685,7 +14685,7 @@
         }
       }
     },
-    "action.diffViewerPreviousHunk": {
+  "action.diffViewerPreviousHunk": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14816,7 +14816,7 @@
         }
       }
     },
-    "action.diffViewerPreviousLine": {
+  "action.diffViewerPreviousLine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14947,7 +14947,7 @@
         }
       }
     },
-    "action.diffViewerSearch": {
+  "action.diffViewerSearch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15078,7 +15078,7 @@
         }
       }
     },
-    "action.disconnectRemoteTab": {
+  "action.disconnectRemoteTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15209,7 +15209,7 @@
         }
       }
     },
-    "action.disconnectWorkspace": {
+  "action.disconnectWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15340,7 +15340,7 @@
         }
       }
     },
-    "action.duplicateTab": {
+  "action.duplicateTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15471,7 +15471,7 @@
         }
       }
     },
-    "action.editWorkspaceDescription": {
+  "action.editWorkspaceDescription": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15602,7 +15602,7 @@
         }
       }
     },
-    "action.equalizeSplits": {
+  "action.equalizeSplits": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15733,7 +15733,7 @@
         }
       }
     },
-    "action.feed.show": {
+  "action.feed.show": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -15864,7 +15864,7 @@
         }
       }
     },
-    "action.file.open": {
+  "action.file.open": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -15995,7 +15995,7 @@
         }
       }
     },
-    "action.fileExplorerCopyPath": {
+  "action.fileExplorerCopyPath": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16126,7 +16126,7 @@
         }
       }
     },
-    "action.fileExplorerCopyRelativePath": {
+  "action.fileExplorerCopyRelativePath": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16257,7 +16257,7 @@
         }
       }
     },
-    "action.fileExplorerOpenInCmux": {
+  "action.fileExplorerOpenInCmux": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16388,7 +16388,7 @@
         }
       }
     },
-    "action.fileExplorerOpenSelection": {
+  "action.fileExplorerOpenSelection": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16519,7 +16519,7 @@
         }
       }
     },
-    "action.fileExplorerOpenSelectionFinderAlias": {
+  "action.fileExplorerOpenSelectionFinderAlias": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16650,7 +16650,7 @@
         }
       }
     },
-    "action.fileExplorerOpenWith": {
+  "action.fileExplorerOpenWith": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16781,7 +16781,7 @@
         }
       }
     },
-    "action.fileExplorerReveal": {
+  "action.fileExplorerReveal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -16912,7 +16912,7 @@
         }
       }
     },
-    "action.filePreviewOpenExternally": {
+  "action.filePreviewOpenExternally": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17043,7 +17043,7 @@
         }
       }
     },
-    "action.filePreviewOpenWith": {
+  "action.filePreviewOpenWith": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17174,7 +17174,7 @@
         }
       }
     },
-    "action.filePreviewRevealInFinder": {
+  "action.filePreviewRevealInFinder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17305,7 +17305,7 @@
         }
       }
     },
-    "action.find": {
+  "action.find": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17436,7 +17436,7 @@
         }
       }
     },
-    "action.findInDirectory": {
+  "action.findInDirectory": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17567,7 +17567,7 @@
         }
       }
     },
-    "action.findNext": {
+  "action.findNext": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17698,7 +17698,7 @@
         }
       }
     },
-    "action.findPrevious": {
+  "action.findPrevious": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17829,7 +17829,7 @@
         }
       }
     },
-    "action.focusBrowserAddressBar": {
+  "action.focusBrowserAddressBar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -17960,7 +17960,7 @@
         }
       }
     },
-    "action.focusDown": {
+  "action.focusDown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18091,7 +18091,7 @@
         }
       }
     },
-    "action.focusHistoryBack": {
+  "action.focusHistoryBack": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18222,7 +18222,7 @@
         }
       }
     },
-    "action.focusHistoryForward": {
+  "action.focusHistoryForward": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18353,7 +18353,7 @@
         }
       }
     },
-    "action.focusHistoryLast": {
+  "action.focusHistoryLast": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18484,7 +18484,7 @@
         }
       }
     },
-    "action.focusLeft": {
+  "action.focusLeft": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18615,7 +18615,7 @@
         }
       }
     },
-    "action.focusLocation": {
+  "action.focusLocation": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18746,7 +18746,7 @@
         }
       }
     },
-    "action.focusNextPane": {
+  "action.focusNextPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -18877,7 +18877,7 @@
         }
       }
     },
-    "action.focusPreviousPane": {
+  "action.focusPreviousPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19008,7 +19008,7 @@
         }
       }
     },
-    "action.focusRight": {
+  "action.focusRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19139,7 +19139,7 @@
         }
       }
     },
-    "action.focusRightSidebar": {
+  "action.focusRightSidebar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19270,7 +19270,7 @@
         }
       }
     },
-    "action.focusRing.singlePane.toggle": {
+  "action.focusRing.singlePane.toggle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19401,7 +19401,7 @@
         }
       }
     },
-    "action.focusRing.style.glow": {
+  "action.focusRing.style.glow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19532,7 +19532,7 @@
         }
       }
     },
-    "action.focusRing.style.ring": {
+  "action.focusRing.style.ring": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19663,7 +19663,7 @@
         }
       }
     },
-    "action.focusRing.toggle": {
+  "action.focusRing.toggle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19794,7 +19794,7 @@
         }
       }
     },
-    "action.focusTextBoxInput": {
+  "action.focusTextBoxInput": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -19925,7 +19925,7 @@
         }
       }
     },
-    "action.focusUp": {
+  "action.focusUp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20056,7 +20056,7 @@
         }
       }
     },
-    "action.globalSearch": {
+  "action.globalSearch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20187,7 +20187,7 @@
         }
       }
     },
-    "action.goToWorkspace": {
+  "action.goToWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20318,7 +20318,7 @@
         }
       }
     },
-    "action.groupSelectedWorkspaces": {
+  "action.groupSelectedWorkspaces": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20449,7 +20449,7 @@
         }
       }
     },
-    "action.help.documentation": {
+  "action.help.documentation": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20580,7 +20580,7 @@
         }
       }
     },
-    "action.help.featureFlags": {
+  "action.help.featureFlags": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20711,7 +20711,7 @@
         }
       }
     },
-    "action.hideFind": {
+  "action.hideFind": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20842,7 +20842,7 @@
         }
       }
     },
-    "action.home.show": {
+  "action.home.show": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20973,7 +20973,7 @@
         }
       }
     },
-    "action.importFromBrowser2": {
+  "action.importFromBrowser2": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21104,7 +21104,7 @@
         }
       }
     },
-    "action.increaseWorkspaceTerminalFontSize": {
+  "action.increaseWorkspaceTerminalFontSize": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21235,7 +21235,7 @@
         }
       }
     },
-    "action.inspectBrowserElement": {
+  "action.inspectBrowserElement": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21366,7 +21366,7 @@
         }
       }
     },
-    "action.jumpToUnread": {
+  "action.jumpToUnread": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21497,7 +21497,7 @@
         }
       }
     },
-    "action.keepMacAwake": {
+  "action.keepMacAwake": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21628,7 +21628,7 @@
         }
       }
     },
-    "action.keybindings.open": {
+  "action.keybindings.open": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21759,7 +21759,7 @@
         }
       }
     },
-    "action.layout.centerFocusedColumn.always": {
+  "action.layout.centerFocusedColumn.always": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -21890,7 +21890,7 @@
         }
       }
     },
-    "action.layout.centerFocusedColumn.never": {
+  "action.layout.centerFocusedColumn.never": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22021,7 +22021,7 @@
         }
       }
     },
-    "action.layout.centerFocusedColumn.onOverflow": {
+  "action.layout.centerFocusedColumn.onOverflow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22152,7 +22152,7 @@
         }
       }
     },
-    "action.link.open": {
+  "action.link.open": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22283,7 +22283,7 @@
         }
       }
     },
-    "action.manageLayouts": {
+  "action.manageLayouts": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22414,7 +22414,7 @@
         }
       }
     },
-    "action.markAllNotificationsRead": {
+  "action.markAllNotificationsRead": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22545,7 +22545,7 @@
         }
       }
     },
-    "action.markOldestUnreadAndJumpNext": {
+  "action.markOldestUnreadAndJumpNext": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22676,7 +22676,7 @@
         }
       }
     },
-    "action.markWorkspaceDone": {
+  "action.markWorkspaceDone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22807,7 +22807,7 @@
         }
       }
     },
-    "action.markdownZoomIn": {
+  "action.markdownZoomIn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -22938,7 +22938,7 @@
         }
       }
     },
-    "action.markdownZoomOut": {
+  "action.markdownZoomOut": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23069,7 +23069,7 @@
         }
       }
     },
-    "action.markdownZoomReset": {
+  "action.markdownZoomReset": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23200,7 +23200,7 @@
         }
       }
     },
-    "action.minimizeWindow": {
+  "action.minimizeWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23331,7 +23331,7 @@
         }
       }
     },
-    "action.moveSurfaceLeft": {
+  "action.moveSurfaceLeft": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23462,7 +23462,7 @@
         }
       }
     },
-    "action.moveSurfaceRight": {
+  "action.moveSurfaceRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23593,7 +23593,7 @@
         }
       }
     },
-    "action.moveSurfaceToNextPane": {
+  "action.moveSurfaceToNextPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23724,7 +23724,7 @@
         }
       }
     },
-    "action.moveSurfaceToPaneDown": {
+  "action.moveSurfaceToPaneDown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23855,7 +23855,7 @@
         }
       }
     },
-    "action.moveSurfaceToPaneLeft": {
+  "action.moveSurfaceToPaneLeft": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23986,7 +23986,7 @@
         }
       }
     },
-    "action.moveSurfaceToPaneRight": {
+  "action.moveSurfaceToPaneRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24117,7 +24117,7 @@
         }
       }
     },
-    "action.moveSurfaceToPaneUp": {
+  "action.moveSurfaceToPaneUp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24248,7 +24248,7 @@
         }
       }
     },
-    "action.moveSurfaceToPreviousPane": {
+  "action.moveSurfaceToPreviousPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24379,7 +24379,7 @@
         }
       }
     },
-    "action.moveWorkspaceDown": {
+  "action.moveWorkspaceDown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24510,7 +24510,7 @@
         }
       }
     },
-    "action.moveWorkspaceToGroup": {
+  "action.moveWorkspaceToGroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24641,7 +24641,7 @@
         }
       }
     },
-    "action.moveWorkspaceToNewWindow": {
+  "action.moveWorkspaceToNewWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24772,7 +24772,7 @@
         }
       }
     },
-    "action.moveWorkspaceToWindow": {
+  "action.moveWorkspaceToWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24903,7 +24903,7 @@
         }
       }
     },
-    "action.moveWorkspaceUp": {
+  "action.moveWorkspaceUp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25034,7 +25034,7 @@
         }
       }
     },
-    "action.newBrowserWorkspace": {
+  "action.newBrowserWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25165,7 +25165,7 @@
         }
       }
     },
-    "action.newCloudMachine": {
+  "action.newCloudMachine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25296,7 +25296,7 @@
         }
       }
     },
-    "action.newCloudWorkspace": {
+  "action.newCloudWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25427,7 +25427,7 @@
         }
       }
     },
-    "action.newColumn": {
+  "action.newColumn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25558,7 +25558,7 @@
         }
       }
     },
-    "action.newIncognitoWindow": {
+  "action.newIncognitoWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25689,7 +25689,7 @@
         }
       }
     },
-    "action.newPaneAutoLayout": {
+  "action.newPaneAutoLayout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25820,7 +25820,7 @@
         }
       }
     },
-    "action.newRow": {
+  "action.newRow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25951,7 +25951,7 @@
         }
       }
     },
-    "action.newSurface": {
+  "action.newSurface": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26082,7 +26082,7 @@
         }
       }
     },
-    "action.newTab": {
+  "action.newTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26213,7 +26213,7 @@
         }
       }
     },
-    "action.newTab.page": {
+  "action.newTab.page": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26344,7 +26344,7 @@
         }
       }
     },
-    "action.newTab.sameKind": {
+  "action.newTab.sameKind": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26475,7 +26475,7 @@
         }
       }
     },
-    "action.newWindow": {
+  "action.newWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26606,7 +26606,7 @@
         }
       }
     },
-    "action.newWorkspaceGroup": {
+  "action.newWorkspaceGroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26737,7 +26737,7 @@
         }
       }
     },
-    "action.nextSidebarTab": {
+  "action.nextSidebarTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26868,7 +26868,7 @@
         }
       }
     },
-    "action.nextSidebarTabInGroup": {
+  "action.nextSidebarTabInGroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -26999,7 +26999,7 @@
         }
       }
     },
-    "action.nextSurface": {
+  "action.nextSurface": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27130,7 +27130,7 @@
         }
       }
     },
-    "action.nextWorkspaceGroup": {
+  "action.nextWorkspaceGroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27261,7 +27261,7 @@
         }
       }
     },
-    "action.notificationCopy": {
+  "action.notificationCopy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27392,7 +27392,7 @@
         }
       }
     },
-    "action.notificationDismiss": {
+  "action.notificationDismiss": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27523,7 +27523,7 @@
         }
       }
     },
-    "action.notificationOpen": {
+  "action.notificationOpen": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27654,7 +27654,7 @@
         }
       }
     },
-    "action.notificationToggleRead": {
+  "action.notificationToggleRead": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27785,7 +27785,7 @@
         }
       }
     },
-    "action.notifications.dismissal.click": {
+  "action.notifications.dismissal.click": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -27916,7 +27916,7 @@
         }
       }
     },
-    "action.notifications.dismissal.explicit": {
+  "action.notifications.dismissal.explicit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28047,7 +28047,7 @@
         }
       }
     },
-    "action.notifications.dismissal.focus": {
+  "action.notifications.dismissal.focus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28178,7 +28178,7 @@
         }
       }
     },
-    "action.notifications.dismissal.keystroke": {
+  "action.notifications.dismissal.keystroke": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28309,7 +28309,7 @@
         }
       }
     },
-    "action.notifications.dismissal.never": {
+  "action.notifications.dismissal.never": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28440,7 +28440,7 @@
         }
       }
     },
-    "action.notifications.dismissal.timeout": {
+  "action.notifications.dismissal.timeout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28571,7 +28571,7 @@
         }
       }
     },
-    "action.notifications.toggleBanners": {
+  "action.notifications.toggleBanners": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28702,7 +28702,7 @@
         }
       }
     },
-    "action.notifications.toggleWorkspaceMute": {
+  "action.notifications.toggleWorkspaceMute": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28833,7 +28833,7 @@
         }
       }
     },
-    "action.openBrowser": {
+  "action.openBrowser": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -28964,7 +28964,7 @@
         }
       }
     },
-    "action.openBrowser.chromium": {
+  "action.openBrowser.chromium": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29095,7 +29095,7 @@
         }
       }
     },
-    "action.openBrowser.webkit": {
+  "action.openBrowser.webkit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29226,7 +29226,7 @@
         }
       }
     },
-    "action.openDebugSettings": {
+  "action.openDebugSettings": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29357,7 +29357,7 @@
         }
       }
     },
-    "action.openDiffViewer": {
+  "action.openDiffViewer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29488,7 +29488,7 @@
         }
       }
     },
-    "action.openFolder": {
+  "action.openFolder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29619,7 +29619,7 @@
         }
       }
     },
-    "action.openLinkInDefaultBrowser": {
+  "action.openLinkInDefaultBrowser": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29750,7 +29750,7 @@
         }
       }
     },
-    "action.openSettings": {
+  "action.openSettings": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -29881,7 +29881,7 @@
         }
       }
     },
-    "action.openTeamPicker": {
+  "action.openTeamPicker": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30012,7 +30012,7 @@
         }
       }
     },
-    "action.palette.addWorkspaceChecklistItem": {
+  "action.palette.addWorkspaceChecklistItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30143,7 +30143,7 @@
         }
       }
     },
-    "action.palette.applyUpdateIfAvailable": {
+  "action.palette.applyUpdateIfAvailable": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30274,7 +30274,7 @@
         }
       }
     },
-    "action.palette.attemptUpdate": {
+  "action.palette.attemptUpdate": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30405,7 +30405,7 @@
         }
       }
     },
-    "action.palette.auth.signIn": {
+  "action.palette.auth.signIn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30536,7 +30536,7 @@
         }
       }
     },
-    "action.palette.auth.signOut": {
+  "action.palette.auth.signOut": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30667,7 +30667,7 @@
         }
       }
     },
-    "action.palette.browserClearHistory": {
+  "action.palette.browserClearHistory": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30798,7 +30798,7 @@
         }
       }
     },
-    "action.palette.browserOpenDefault": {
+  "action.palette.browserOpenDefault": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -30929,7 +30929,7 @@
         }
       }
     },
-    "action.palette.browserToggleOmnibar": {
+  "action.palette.browserToggleOmnibar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31060,7 +31060,7 @@
         }
       }
     },
-    "action.palette.checkForUpdates": {
+  "action.palette.checkForUpdates": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31191,7 +31191,7 @@
         }
       }
     },
-    "action.palette.clearTabName": {
+  "action.palette.clearTabName": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31322,7 +31322,7 @@
         }
       }
     },
-    "action.palette.clearWorkspaceDescription": {
+  "action.palette.clearWorkspaceDescription": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31453,7 +31453,7 @@
         }
       }
     },
-    "action.palette.clearWorkspaceName": {
+  "action.palette.clearWorkspaceName": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31584,7 +31584,7 @@
         }
       }
     },
-    "action.palette.closeOtherWorkspaces": {
+  "action.palette.closeOtherWorkspaces": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31715,7 +31715,7 @@
         }
       }
     },
-    "action.palette.closeWorkspacesAbove": {
+  "action.palette.closeWorkspacesAbove": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31846,7 +31846,7 @@
         }
       }
     },
-    "action.palette.closeWorkspacesBelow": {
+  "action.palette.closeWorkspacesBelow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -31977,7 +31977,7 @@
         }
       }
     },
-    "action.palette.cloud.fork": {
+  "action.palette.cloud.fork": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32108,7 +32108,7 @@
         }
       }
     },
-    "action.palette.cloud.handoff": {
+  "action.palette.cloud.handoff": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32239,7 +32239,7 @@
         }
       }
     },
-    "action.palette.cloud.ports": {
+  "action.palette.cloud.ports": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32370,7 +32370,7 @@
         }
       }
     },
-    "action.palette.cloud.promoteTemplate": {
+  "action.palette.cloud.promoteTemplate": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32501,7 +32501,7 @@
         }
       }
     },
-    "action.palette.cloud.restore": {
+  "action.palette.cloud.restore": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32632,7 +32632,7 @@
         }
       }
     },
-    "action.palette.cloud.snapshot": {
+  "action.palette.cloud.snapshot": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32763,7 +32763,7 @@
         }
       }
     },
-    "action.palette.cloud.status": {
+  "action.palette.cloud.status": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -32894,7 +32894,7 @@
         }
       }
     },
-    "action.palette.cloud.tools": {
+  "action.palette.cloud.tools": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33025,7 +33025,7 @@
         }
       }
     },
-    "action.palette.computerUse.accessibility": {
+  "action.palette.computerUse.accessibility": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33156,7 +33156,7 @@
         }
       }
     },
-    "action.palette.computerUse.screenRecording": {
+  "action.palette.computerUse.screenRecording": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33287,7 +33287,7 @@
         }
       }
     },
-    "action.palette.computerUse.setup": {
+  "action.palette.computerUse.setup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33418,7 +33418,7 @@
         }
       }
     },
-    "action.palette.copyIdentifiers": {
+  "action.palette.copyIdentifiers": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33549,7 +33549,7 @@
         }
       }
     },
-    "action.palette.copyPaneID": {
+  "action.palette.copyPaneID": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33680,7 +33680,7 @@
         }
       }
     },
-    "action.palette.copyPaneLink": {
+  "action.palette.copyPaneLink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33811,7 +33811,7 @@
         }
       }
     },
-    "action.palette.copySurfaceID": {
+  "action.palette.copySurfaceID": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -33942,7 +33942,7 @@
         }
       }
     },
-    "action.palette.copySurfaceLink": {
+  "action.palette.copySurfaceLink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34073,7 +34073,7 @@
         }
       }
     },
-    "action.palette.copyWorkspaceID": {
+  "action.palette.copyWorkspaceID": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34204,7 +34204,7 @@
         }
       }
     },
-    "action.palette.copyWorkspaceIDAndRef": {
+  "action.palette.copyWorkspaceIDAndRef": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34335,7 +34335,7 @@
         }
       }
     },
-    "action.palette.copyWorkspaceLink": {
+  "action.palette.copyWorkspaceLink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34466,7 +34466,7 @@
         }
       }
     },
-    "action.palette.disableBrowser": {
+  "action.palette.disableBrowser": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34597,7 +34597,7 @@
         }
       }
     },
-    "action.palette.disableMinimalMode": {
+  "action.palette.disableMinimalMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34728,7 +34728,7 @@
         }
       }
     },
-    "action.palette.enableBrowser": {
+  "action.palette.enableBrowser": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34859,7 +34859,7 @@
         }
       }
     },
-    "action.palette.enableMinimalMode": {
+  "action.palette.enableMinimalMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -34990,7 +34990,7 @@
         }
       }
     },
-    "action.palette.findWork": {
+  "action.palette.findWork": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35121,7 +35121,7 @@
         }
       }
     },
-    "action.palette.forkAgentConversationBottom": {
+  "action.palette.forkAgentConversationBottom": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35252,7 +35252,7 @@
         }
       }
     },
-    "action.palette.forkAgentConversationLeft": {
+  "action.palette.forkAgentConversationLeft": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35383,7 +35383,7 @@
         }
       }
     },
-    "action.palette.forkAgentConversationNewTab": {
+  "action.palette.forkAgentConversationNewTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35514,7 +35514,7 @@
         }
       }
     },
-    "action.palette.forkAgentConversationNewWorkspace": {
+  "action.palette.forkAgentConversationNewWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35645,7 +35645,7 @@
         }
       }
     },
-    "action.palette.forkAgentConversationRight": {
+  "action.palette.forkAgentConversationRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35776,7 +35776,7 @@
         }
       }
     },
-    "action.palette.forkAgentConversationTop": {
+  "action.palette.forkAgentConversationTop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -35907,7 +35907,7 @@
         }
       }
     },
-    "action.palette.goToTab": {
+  "action.palette.goToTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36038,7 +36038,7 @@
         }
       }
     },
-    "action.palette.installCLI": {
+  "action.palette.installCLI": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36169,7 +36169,7 @@
         }
       }
     },
-    "action.palette.launchClaudeTeams": {
+  "action.palette.launchClaudeTeams": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36300,7 +36300,7 @@
         }
       }
     },
-    "action.palette.launchCodexTeams": {
+  "action.palette.launchCodexTeams": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36431,7 +36431,7 @@
         }
       }
     },
-    "action.palette.layout.open": {
+  "action.palette.layout.open": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36562,7 +36562,7 @@
         }
       }
     },
-    "action.palette.makeDefaultBrowser": {
+  "action.palette.makeDefaultBrowser": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36693,7 +36693,7 @@
         }
       }
     },
-    "action.palette.makeDefaultTerminal": {
+  "action.palette.makeDefaultTerminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36824,7 +36824,7 @@
         }
       }
     },
-    "action.palette.markWorkspaceRead": {
+  "action.palette.markWorkspaceRead": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -36955,7 +36955,7 @@
         }
       }
     },
-    "action.palette.markWorkspaceUnread": {
+  "action.palette.markWorkspaceUnread": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37086,7 +37086,7 @@
         }
       }
     },
-    "action.palette.mobileConnect": {
+  "action.palette.mobileConnect": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37217,7 +37217,7 @@
         }
       }
     },
-    "action.palette.moveTabToNewWorkspace": {
+  "action.palette.moveTabToNewWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37348,7 +37348,7 @@
         }
       }
     },
-    "action.palette.moveWorkspaceToTop": {
+  "action.palette.moveWorkspaceToTop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37479,7 +37479,7 @@
         }
       }
     },
-    "action.palette.newAgentChat": {
+  "action.palette.newAgentChat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37610,7 +37610,7 @@
         }
       }
     },
-    "action.palette.newSimulatorPane": {
+  "action.palette.newSimulatorPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37741,7 +37741,7 @@
         }
       }
     },
-    "action.palette.onboarding": {
+  "action.palette.onboarding": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37872,7 +37872,7 @@
         }
       }
     },
-    "action.palette.onboardingGallery": {
+  "action.palette.onboardingGallery": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38003,7 +38003,7 @@
         }
       }
     },
-    "action.palette.open": {
+  "action.palette.open": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38134,7 +38134,7 @@
         }
       }
     },
-    "action.palette.openCloudPane": {
+  "action.palette.openCloudPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38265,7 +38265,7 @@
         }
       }
     },
-    "action.palette.openCmuxSettingsFile": {
+  "action.palette.openCmuxSettingsFile": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38396,7 +38396,7 @@
         }
       }
     },
-    "action.palette.openDirectoryDiffViewer": {
+  "action.palette.openDirectoryDiffViewer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38527,7 +38527,7 @@
         }
       }
     },
-    "action.palette.openFilesPane": {
+  "action.palette.openFilesPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38658,7 +38658,7 @@
         }
       }
     },
-    "action.palette.openFindPane": {
+  "action.palette.openFindPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38789,7 +38789,7 @@
         }
       }
     },
-    "action.palette.openFolderInVSCodeInline": {
+  "action.palette.openFolderInVSCodeInline": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -38920,7 +38920,7 @@
         }
       }
     },
-    "action.palette.openGhosttySettings": {
+  "action.palette.openGhosttySettings": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39051,7 +39051,7 @@
         }
       }
     },
-    "action.palette.openTaskManager": {
+  "action.palette.openTaskManager": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39182,7 +39182,7 @@
         }
       }
     },
-    "action.palette.openTerminalChatView": {
+  "action.palette.openTerminalChatView": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39313,7 +39313,7 @@
         }
       }
     },
-    "action.palette.openVaultPane": {
+  "action.palette.openVaultPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39444,7 +39444,7 @@
         }
       }
     },
-    "action.palette.openWorkspacePullRequests": {
+  "action.palette.openWorkspacePullRequests": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39575,7 +39575,7 @@
         }
       }
     },
-    "action.palette.openWorkspaceTodoPane": {
+  "action.palette.openWorkspaceTodoPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39706,7 +39706,7 @@
         }
       }
     },
-    "action.palette.pro.upgrade": {
+  "action.palette.pro.upgrade": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39837,138 +39837,138 @@
         }
       }
     },
-    "action.palette.quickAgentChat": {
+  "action.palette.quickAgentChat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quick Agent Chat…"
+            "value": "Start Agent…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クイックエージェントチャット…"
+            "value": "エージェントを開始…"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "محادثة سريعة مع الوكيل…"
+            "state": "needs_review",
+            "value": "بدء وكيل…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brzi razgovor s agentom…"
+            "value": "Pokreni agenta…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hurtig agentchat…"
+            "value": "Start agent…"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Schneller Agent-Chat…"
+            "state": "needs_review",
+            "value": "Agent starten…"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chat rápido con agente…"
+            "state": "needs_review",
+            "value": "Iniciar agente…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chat rapide avec l’agent…"
+            "state": "needs_review",
+            "value": "Démarrer un agent…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chat rapida con agente…"
+            "value": "Avvia agente…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការជជែកភ្នាក់ងាររហ័ស…"
+            "value": "ចាប់ផ្តើមភ្នាក់ងារ…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "빠른 에이전트 채팅…"
+            "state": "needs_review",
+            "value": "에이전트 시작…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rask agentchat…"
+            "value": "Start agent…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Szybki czat z agentem…"
+            "value": "Uruchom agenta…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chat rápido com agente…"
+            "value": "Iniciar agente…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Быстрый чат с агентом…"
+            "value": "Запустить агента…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แชทเอเจนต์ด่วน…"
+            "value": "เริ่มเอเจนต์…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hızlı Ajan Sohbeti…"
+            "value": "Ajan Başlat…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Швидкий чат з агентом…"
+            "value": "Запустити агента…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trò chuyện agent nhanh…"
+            "value": "Bắt đầu tác tử…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "快速代理聊天…"
+            "state": "needs_review",
+            "value": "启动智能体…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "快速代理程式聊天…"
+            "state": "needs_review",
+            "value": "啟動代理…"
           }
         }
       }
     },
-    "action.palette.resetWorkspaceColor": {
+  "action.palette.resetWorkspaceColor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40099,7 +40099,7 @@
         }
       }
     },
-    "action.palette.restartSocketListener": {
+  "action.palette.restartSocketListener": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40230,7 +40230,7 @@
         }
       }
     },
-    "action.palette.searchShortcuts": {
+  "action.palette.searchShortcuts": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40361,7 +40361,7 @@
         }
       }
     },
-    "action.palette.shortcutKeymap": {
+  "action.palette.shortcutKeymap": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40492,7 +40492,7 @@
         }
       }
     },
-    "action.palette.sleepyMode": {
+  "action.palette.sleepyMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40623,7 +40623,7 @@
         }
       }
     },
-    "action.palette.swapWithSession": {
+  "action.palette.swapWithSession": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40754,7 +40754,7 @@
         }
       }
     },
-    "action.palette.switchAppChannel": {
+  "action.palette.switchAppChannel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40885,7 +40885,7 @@
         }
       }
     },
-    "action.palette.terminalOpenDirectory": {
+  "action.palette.terminalOpenDirectory": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41016,7 +41016,7 @@
         }
       }
     },
-    "action.palette.terminalToggleTextBoxInput": {
+  "action.palette.terminalToggleTextBoxInput": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41147,7 +41147,7 @@
         }
       }
     },
-    "action.palette.toggleDictation": {
+  "action.palette.toggleDictation": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41278,7 +41278,7 @@
         }
       }
     },
-    "action.palette.toggleFullWidthTab": {
+  "action.palette.toggleFullWidthTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41409,7 +41409,7 @@
         }
       }
     },
-    "action.palette.toggleMatchTerminalBackground": {
+  "action.palette.toggleMatchTerminalBackground": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41540,7 +41540,7 @@
         }
       }
     },
-    "action.palette.toggleSetting": {
+  "action.palette.toggleSetting": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41671,7 +41671,7 @@
         }
       }
     },
-    "action.palette.toggleTabPin": {
+  "action.palette.toggleTabPin": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41802,7 +41802,7 @@
         }
       }
     },
-    "action.palette.toggleTabUnread": {
+  "action.palette.toggleTabUnread": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -41933,7 +41933,7 @@
         }
       }
     },
-    "action.palette.toggleWorkspacePin": {
+  "action.palette.toggleWorkspacePin": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42064,7 +42064,7 @@
         }
       }
     },
-    "action.palette.uninstallCLI": {
+  "action.palette.uninstallCLI": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42195,7 +42195,7 @@
         }
       }
     },
-    "action.palette.vscodeServeWebRestart": {
+  "action.palette.vscodeServeWebRestart": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42326,7 +42326,7 @@
         }
       }
     },
-    "action.palette.vscodeServeWebStop": {
+  "action.palette.vscodeServeWebStop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42457,7 +42457,7 @@
         }
       }
     },
-    "action.palette.workspaceColor": {
+  "action.palette.workspaceColor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42588,7 +42588,7 @@
         }
       }
     },
-    "action.palette.workspaceCustomColor": {
+  "action.palette.workspaceCustomColor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42719,7 +42719,7 @@
         }
       }
     },
-    "action.palette.workspaceStatus": {
+  "action.palette.workspaceStatus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -42850,7 +42850,7 @@
         }
       }
     },
-    "action.password.importCSV": {
+  "action.password.importCSV": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -42981,7 +42981,7 @@
         }
       }
     },
-    "action.pasteLastScreenshot": {
+  "action.pasteLastScreenshot": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43112,7 +43112,7 @@
         }
       }
     },
-    "action.prevSidebarTab": {
+  "action.prevSidebarTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43243,7 +43243,7 @@
         }
       }
     },
-    "action.prevSidebarTabInGroup": {
+  "action.prevSidebarTabInGroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43374,7 +43374,7 @@
         }
       }
     },
-    "action.prevSurface": {
+  "action.prevSurface": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43505,7 +43505,7 @@
         }
       }
     },
-    "action.prevWorkspaceGroup": {
+  "action.prevWorkspaceGroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43636,7 +43636,7 @@
         }
       }
     },
-    "action.quit": {
+  "action.quit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43767,7 +43767,7 @@
         }
       }
     },
-    "action.quitEndEverything": {
+  "action.quitEndEverything": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -43898,7 +43898,7 @@
         }
       }
     },
-    "action.quitEndSessionsKeepLayout": {
+  "action.quitEndSessionsKeepLayout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44029,7 +44029,7 @@
         }
       }
     },
-    "action.quitKeepSessions": {
+  "action.quitKeepSessions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44160,7 +44160,7 @@
         }
       }
     },
-    "action.recentlyClosed": {
+  "action.recentlyClosed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44291,7 +44291,7 @@
         }
       }
     },
-    "action.recentlyFocused": {
+  "action.recentlyFocused": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44422,7 +44422,7 @@
         }
       }
     },
-    "action.reconnectPane": {
+  "action.reconnectPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44553,7 +44553,7 @@
         }
       }
     },
-    "action.reconnectWorkspace": {
+  "action.reconnectWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44684,7 +44684,7 @@
         }
       }
     },
-    "action.reloadConfiguration": {
+  "action.reloadConfiguration": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44815,7 +44815,7 @@
         }
       }
     },
-    "action.reloadTab": {
+  "action.reloadTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -44946,7 +44946,7 @@
         }
       }
     },
-    "action.removeWorkspaceFromGroup": {
+  "action.removeWorkspaceFromGroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45077,7 +45077,7 @@
         }
       }
     },
-    "action.renameTab": {
+  "action.renameTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45208,7 +45208,7 @@
         }
       }
     },
-    "action.renameWorkspace": {
+  "action.renameWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45339,7 +45339,7 @@
         }
       }
     },
-    "action.reopenClosedBrowserPanel": {
+  "action.reopenClosedBrowserPanel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45470,7 +45470,7 @@
         }
       }
     },
-    "action.reopenClosedWorkspace": {
+  "action.reopenClosedWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45601,7 +45601,7 @@
         }
       }
     },
-    "action.reopenPreviousSession": {
+  "action.reopenPreviousSession": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45732,7 +45732,7 @@
         }
       }
     },
-    "action.resetTerminal": {
+  "action.resetTerminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45863,7 +45863,7 @@
         }
       }
     },
-    "action.resetWorkspaceTerminalFontSize": {
+  "action.resetWorkspaceTerminalFontSize": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45994,7 +45994,7 @@
         }
       }
     },
-    "action.resizePaneDown": {
+  "action.resizePaneDown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46125,7 +46125,7 @@
         }
       }
     },
-    "action.resizePaneLeft": {
+  "action.resizePaneLeft": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46256,7 +46256,7 @@
         }
       }
     },
-    "action.resizePaneRight": {
+  "action.resizePaneRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46387,7 +46387,7 @@
         }
       }
     },
-    "action.resizePaneUp": {
+  "action.resizePaneUp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46518,7 +46518,7 @@
         }
       }
     },
-    "action.resumeCommandClear": {
+  "action.resumeCommandClear": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46649,7 +46649,7 @@
         }
       }
     },
-    "action.resumeCommandEdit": {
+  "action.resumeCommandEdit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46780,7 +46780,7 @@
         }
       }
     },
-    "action.resumeCommandSet": {
+  "action.resumeCommandSet": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -46911,7 +46911,7 @@
         }
       }
     },
-    "action.revealWorkspaceInFinder": {
+  "action.revealWorkspaceInFinder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47042,7 +47042,7 @@
         }
       }
     },
-    "action.saveFilePreview": {
+  "action.saveFilePreview": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47173,7 +47173,7 @@
         }
       }
     },
-    "action.saveLayoutTemplate": {
+  "action.saveLayoutTemplate": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47304,7 +47304,7 @@
         }
       }
     },
-    "action.selectSurfaceByNumber": {
+  "action.selectSurfaceByNumber": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47435,7 +47435,7 @@
         }
       }
     },
-    "action.selectWorkspaceByNumber": {
+  "action.selectWorkspaceByNumber": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47566,7 +47566,7 @@
         }
       }
     },
-    "action.sendCtrlFToTerminal": {
+  "action.sendCtrlFToTerminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47697,7 +47697,7 @@
         }
       }
     },
-    "action.sendFeedback": {
+  "action.sendFeedback": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47828,7 +47828,7 @@
         }
       }
     },
-    "action.showBrowserJavaScriptConsole": {
+  "action.showBrowserJavaScriptConsole": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -47959,7 +47959,7 @@
         }
       }
     },
-    "action.showHideAllWindows": {
+  "action.showHideAllWindows": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48090,7 +48090,7 @@
         }
       }
     },
-    "action.showMainWindow": {
+  "action.showMainWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48221,7 +48221,7 @@
         }
       }
     },
-    "action.showNotifications": {
+  "action.showNotifications": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48352,7 +48352,7 @@
         }
       }
     },
-    "action.simulatorHome": {
+  "action.simulatorHome": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48483,7 +48483,7 @@
         }
       }
     },
-    "action.simulatorRotateLeft": {
+  "action.simulatorRotateLeft": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48614,7 +48614,7 @@
         }
       }
     },
-    "action.simulatorRotateRight": {
+  "action.simulatorRotateRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48745,7 +48745,7 @@
         }
       }
     },
-    "action.simulatorToggleAppearance": {
+  "action.simulatorToggleAppearance": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -48876,7 +48876,7 @@
         }
       }
     },
-    "action.simulatorToggleSoftwareKeyboard": {
+  "action.simulatorToggleSoftwareKeyboard": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49007,7 +49007,7 @@
         }
       }
     },
-    "action.splitBrowserDown": {
+  "action.splitBrowserDown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49138,7 +49138,7 @@
         }
       }
     },
-    "action.splitBrowserRight": {
+  "action.splitBrowserRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49269,7 +49269,7 @@
         }
       }
     },
-    "action.splitDown": {
+  "action.splitDown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49400,7 +49400,7 @@
         }
       }
     },
-    "action.splitRight": {
+  "action.splitRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49531,7 +49531,7 @@
         }
       }
     },
-    "action.switchRightSidebarToDock": {
+  "action.switchRightSidebarToDock": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49662,7 +49662,7 @@
         }
       }
     },
-    "action.switchRightSidebarToFeed": {
+  "action.switchRightSidebarToFeed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49793,7 +49793,7 @@
         }
       }
     },
-    "action.switchRightSidebarToFiles": {
+  "action.switchRightSidebarToFiles": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -49924,7 +49924,7 @@
         }
       }
     },
-    "action.switchRightSidebarToFind": {
+  "action.switchRightSidebarToFind": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50055,7 +50055,7 @@
         }
       }
     },
-    "action.switchRightSidebarToMachines": {
+  "action.switchRightSidebarToMachines": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50186,7 +50186,7 @@
         }
       }
     },
-    "action.switchRightSidebarToSessions": {
+  "action.switchRightSidebarToSessions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50317,7 +50317,7 @@
         }
       }
     },
-    "action.tab.focus": {
+  "action.tab.focus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50448,7 +50448,7 @@
         }
       }
     },
-    "action.tab.search": {
+  "action.tab.search": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50579,7 +50579,7 @@
         }
       }
     },
-    "action.tab.showResources": {
+  "action.tab.showResources": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50710,7 +50710,7 @@
         }
       }
     },
-    "action.tabGroup.addTab": {
+  "action.tabGroup.addTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50841,7 +50841,7 @@
         }
       }
     },
-    "action.tabGroup.close": {
+  "action.tabGroup.close": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -50972,7 +50972,7 @@
         }
       }
     },
-    "action.tabGroup.collapse": {
+  "action.tabGroup.collapse": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51103,7 +51103,7 @@
         }
       }
     },
-    "action.tabGroup.color.blue": {
+  "action.tabGroup.color.blue": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51234,7 +51234,7 @@
         }
       }
     },
-    "action.tabGroup.color.cyan": {
+  "action.tabGroup.color.cyan": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51365,7 +51365,7 @@
         }
       }
     },
-    "action.tabGroup.color.green": {
+  "action.tabGroup.color.green": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51496,7 +51496,7 @@
         }
       }
     },
-    "action.tabGroup.color.grey": {
+  "action.tabGroup.color.grey": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51627,7 +51627,7 @@
         }
       }
     },
-    "action.tabGroup.color.orange": {
+  "action.tabGroup.color.orange": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51758,7 +51758,7 @@
         }
       }
     },
-    "action.tabGroup.color.pink": {
+  "action.tabGroup.color.pink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -51889,7 +51889,7 @@
         }
       }
     },
-    "action.tabGroup.color.purple": {
+  "action.tabGroup.color.purple": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52020,7 +52020,7 @@
         }
       }
     },
-    "action.tabGroup.color.red": {
+  "action.tabGroup.color.red": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52151,7 +52151,7 @@
         }
       }
     },
-    "action.tabGroup.color.yellow": {
+  "action.tabGroup.color.yellow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52282,7 +52282,7 @@
         }
       }
     },
-    "action.tabGroup.create": {
+  "action.tabGroup.create": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52413,7 +52413,7 @@
         }
       }
     },
-    "action.tabGroup.deleteSaved": {
+  "action.tabGroup.deleteSaved": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52544,7 +52544,7 @@
         }
       }
     },
-    "action.tabGroup.expand": {
+  "action.tabGroup.expand": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52675,7 +52675,7 @@
         }
       }
     },
-    "action.tabGroup.moveToNewColumn": {
+  "action.tabGroup.moveToNewColumn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52806,7 +52806,7 @@
         }
       }
     },
-    "action.tabGroup.moveToNewSplit": {
+  "action.tabGroup.moveToNewSplit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -52937,7 +52937,7 @@
         }
       }
     },
-    "action.tabGroup.moveToNewWindow": {
+  "action.tabGroup.moveToNewWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53068,7 +53068,7 @@
         }
       }
     },
-    "action.tabGroup.moveToNewWorkspace": {
+  "action.tabGroup.moveToNewWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53199,7 +53199,7 @@
         }
       }
     },
-    "action.tabGroup.moveToWorkspace": {
+  "action.tabGroup.moveToWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53330,7 +53330,7 @@
         }
       }
     },
-    "action.tabGroup.newTab": {
+  "action.tabGroup.newTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53461,7 +53461,7 @@
         }
       }
     },
-    "action.tabGroup.removeTab": {
+  "action.tabGroup.removeTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53592,7 +53592,7 @@
         }
       }
     },
-    "action.tabGroup.rename": {
+  "action.tabGroup.rename": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53723,7 +53723,7 @@
         }
       }
     },
-    "action.tabGroup.reopenSaved": {
+  "action.tabGroup.reopenSaved": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53854,7 +53854,7 @@
         }
       }
     },
-    "action.tabGroup.save": {
+  "action.tabGroup.save": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53985,7 +53985,7 @@
         }
       }
     },
-    "action.tabGroup.setColor": {
+  "action.tabGroup.setColor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54116,7 +54116,7 @@
         }
       }
     },
-    "action.tabGroup.toggleCollapsed": {
+  "action.tabGroup.toggleCollapsed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54247,7 +54247,7 @@
         }
       }
     },
-    "action.tabGroup.ungroup": {
+  "action.tabGroup.ungroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54378,7 +54378,7 @@
         }
       }
     },
-    "action.tabGroup.unsave": {
+  "action.tabGroup.unsave": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54509,7 +54509,7 @@
         }
       }
     },
-    "action.taskManager.killProcess": {
+  "action.taskManager.killProcess": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54640,7 +54640,7 @@
         }
       }
     },
-    "action.terminal.keep": {
+  "action.terminal.keep": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54771,7 +54771,7 @@
         }
       }
     },
-    "action.terminalCopy": {
+  "action.terminalCopy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -54902,7 +54902,7 @@
         }
       }
     },
-    "action.terminalPaste": {
+  "action.terminalPaste": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55033,7 +55033,7 @@
         }
       }
     },
-    "action.toggleBrowserDesignMode": {
+  "action.toggleBrowserDesignMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55164,7 +55164,7 @@
         }
       }
     },
-    "action.toggleBrowserDeveloperTools": {
+  "action.toggleBrowserDeveloperTools": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55295,7 +55295,7 @@
         }
       }
     },
-    "action.toggleBrowserFocusMode": {
+  "action.toggleBrowserFocusMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55426,7 +55426,7 @@
         }
       }
     },
-    "action.toggleCanvasLayout": {
+  "action.toggleCanvasLayout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55557,7 +55557,7 @@
         }
       }
     },
-    "action.toggleChecklistItemComplete": {
+  "action.toggleChecklistItemComplete": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55688,7 +55688,7 @@
         }
       }
     },
-    "action.toggleFileEditorWordWrap": {
+  "action.toggleFileEditorWordWrap": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55819,7 +55819,7 @@
         }
       }
     },
-    "action.toggleFocusedWorkspaceGroupCollapsed": {
+  "action.toggleFocusedWorkspaceGroupCollapsed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -55950,7 +55950,7 @@
         }
       }
     },
-    "action.toggleFullScreen": {
+  "action.toggleFullScreen": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56081,7 +56081,7 @@
         }
       }
     },
-    "action.toggleReactGrab": {
+  "action.toggleReactGrab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56212,7 +56212,7 @@
         }
       }
     },
-    "action.toggleRightSidebar": {
+  "action.toggleRightSidebar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56343,7 +56343,7 @@
         }
       }
     },
-    "action.toggleSidebar": {
+  "action.toggleSidebar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56474,7 +56474,7 @@
         }
       }
     },
-    "action.toggleSplitZoom": {
+  "action.toggleSplitZoom": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56605,7 +56605,7 @@
         }
       }
     },
-    "action.toggleTabAudioMute": {
+  "action.toggleTabAudioMute": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56736,7 +56736,7 @@
         }
       }
     },
-    "action.toggleTerminalCopyMode": {
+  "action.toggleTerminalCopyMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56867,7 +56867,7 @@
         }
       }
     },
-    "action.toggleUnread": {
+  "action.toggleUnread": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -56998,7 +56998,7 @@
         }
       }
     },
-    "action.triggerFlash": {
+  "action.triggerFlash": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57129,7 +57129,7 @@
         }
       }
     },
-    "action.useSelectionForFind": {
+  "action.useSelectionForFind": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57260,7 +57260,7 @@
         }
       }
     },
-    "action.vaultCopyResumeCommand": {
+  "action.vaultCopyResumeCommand": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57391,7 +57391,7 @@
         }
       }
     },
-    "action.vaultFocusSession": {
+  "action.vaultFocusSession": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57522,7 +57522,7 @@
         }
       }
     },
-    "action.vaultOpenPullRequest": {
+  "action.vaultOpenPullRequest": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57653,7 +57653,7 @@
         }
       }
     },
-    "action.vaultOpenSession": {
+  "action.vaultOpenSession": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57784,7 +57784,7 @@
         }
       }
     },
-    "action.vaultResumeInNewWorkspace": {
+  "action.vaultResumeInNewWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57915,7 +57915,7 @@
         }
       }
     },
-    "action.workspace.showResources": {
+  "action.workspace.showResources": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -58046,7 +58046,7 @@
         }
       }
     },
-    "action.workspaceGroup.clearNotifications": {
+  "action.workspaceGroup.clearNotifications": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -58177,7 +58177,7 @@
         }
       }
     },
-    "action.workspaceGroup.closeWorkspaces": {
+  "action.workspaceGroup.closeWorkspaces": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -58308,7 +58308,7 @@
         }
       }
     },
-    "action.workspaceGroup.collapse": {
+  "action.workspaceGroup.collapse": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -58439,7 +58439,7 @@
         }
       }
     },
-    "action.workspaceGroup.color.blue": {
+  "action.workspaceGroup.color.blue": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -58570,7 +58570,7 @@
         }
       }
     },
-    "action.workspaceGroup.color.cyan": {
+  "action.workspaceGroup.color.cyan": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -58701,7 +58701,7 @@
         }
       }
     },
-    "action.workspaceGroup.color.green": {
+  "action.workspaceGroup.color.green": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -58832,7 +58832,7 @@
         }
       }
     },
-    "action.workspaceGroup.color.grey": {
+  "action.workspaceGroup.color.grey": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -58963,7 +58963,7 @@
         }
       }
     },
-    "action.workspaceGroup.color.orange": {
+  "action.workspaceGroup.color.orange": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -59094,7 +59094,7 @@
         }
       }
     },
-    "action.workspaceGroup.color.pink": {
+  "action.workspaceGroup.color.pink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -59225,7 +59225,7 @@
         }
       }
     },
-    "action.workspaceGroup.color.purple": {
+  "action.workspaceGroup.color.purple": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -59356,7 +59356,7 @@
         }
       }
     },
-    "action.workspaceGroup.color.red": {
+  "action.workspaceGroup.color.red": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -59487,7 +59487,7 @@
         }
       }
     },
-    "action.workspaceGroup.color.yellow": {
+  "action.workspaceGroup.color.yellow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -59618,7 +59618,7 @@
         }
       }
     },
-    "action.workspaceGroup.delete": {
+  "action.workspaceGroup.delete": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -59749,7 +59749,7 @@
         }
       }
     },
-    "action.workspaceGroup.editConfig": {
+  "action.workspaceGroup.editConfig": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -59880,7 +59880,7 @@
         }
       }
     },
-    "action.workspaceGroup.expand": {
+  "action.workspaceGroup.expand": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -60011,7 +60011,7 @@
         }
       }
     },
-    "action.workspaceGroup.markRead": {
+  "action.workspaceGroup.markRead": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -60142,7 +60142,7 @@
         }
       }
     },
-    "action.workspaceGroup.markUnread": {
+  "action.workspaceGroup.markUnread": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -60273,7 +60273,7 @@
         }
       }
     },
-    "action.workspaceGroup.moveDown": {
+  "action.workspaceGroup.moveDown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -60404,7 +60404,7 @@
         }
       }
     },
-    "action.workspaceGroup.moveToNewWindow": {
+  "action.workspaceGroup.moveToNewWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -60535,7 +60535,7 @@
         }
       }
     },
-    "action.workspaceGroup.moveToWindow": {
+  "action.workspaceGroup.moveToWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -60666,7 +60666,7 @@
         }
       }
     },
-    "action.workspaceGroup.moveUp": {
+  "action.workspaceGroup.moveUp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -60797,7 +60797,7 @@
         }
       }
     },
-    "action.workspaceGroup.newWorkspace": {
+  "action.workspaceGroup.newWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -60928,7 +60928,7 @@
         }
       }
     },
-    "action.workspaceGroup.rename": {
+  "action.workspaceGroup.rename": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -61059,7 +61059,7 @@
         }
       }
     },
-    "action.workspaceGroup.setColor": {
+  "action.workspaceGroup.setColor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -61190,7 +61190,7 @@
         }
       }
     },
-    "action.workspaceGroup.togglePin": {
+  "action.workspaceGroup.togglePin": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -61321,7 +61321,7 @@
         }
       }
     },
-    "action.workspaceGroup.ungroup": {
+  "action.workspaceGroup.ungroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -61452,7 +61452,7 @@
         }
       }
     },
-    "action.browser.allowAgentWithExtensions": {
+  "action.browser.allowAgentWithExtensions": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -61583,7 +61583,7 @@
         }
       }
     },
-    "action.omnibar.openInBackgroundTab": {
+  "action.omnibar.openInBackgroundTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -61714,7 +61714,7 @@
         }
       }
     },
-    "action.omnibar.openInForegroundTab": {
+  "action.omnibar.openInForegroundTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -61845,7 +61845,7 @@
         }
       }
     },
-    "action.browser.copyURL": {
+  "action.browser.copyURL": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -61976,7 +61976,7 @@
         }
       }
     },
-    "action.browser.findPrevious": {
+  "action.browser.findPrevious": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -62107,7 +62107,7 @@
         }
       }
     },
-    "action.browserStop": {
+  "action.browserStop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -62238,7 +62238,7 @@
         }
       }
     },
-    "action.help.showCrashLogs": {
+  "action.help.showCrashLogs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -62369,7 +62369,7 @@
         }
       }
     },
-    "action.openMarkdownFile": {
+  "action.openMarkdownFile": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -62500,7 +62500,7 @@
         }
       }
     },
-    "action.markdownSave": {
+  "action.markdownSave": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -62631,7 +62631,7 @@
         }
       }
     },
-    "action.list.next": {
+  "action.list.next": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -62762,7 +62762,7 @@
         }
       }
     },
-    "action.list.previous": {
+  "action.list.previous": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -62893,7 +62893,7 @@
         }
       }
     },
-    "action.markdownLink": {
+  "action.markdownLink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -63024,7 +63024,7 @@
         }
       }
     },
-    "action.markdownBack": {
+  "action.markdownBack": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -63155,7 +63155,7 @@
         }
       }
     },
-    "action.markdownForward": {
+  "action.markdownForward": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -63286,7 +63286,7 @@
         }
       }
     },
-    "action.passwords.open": {
+  "action.passwords.open": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -63417,7 +63417,7 @@
         }
       }
     },
-    "action.browser.link.openInNewTab": {
+  "action.browser.link.openInNewTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -63548,7 +63548,7 @@
         }
       }
     },
-    "action.browser.link.openInNewWindow": {
+  "action.browser.link.openInNewWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -63679,7 +63679,7 @@
         }
       }
     },
-    "action.browser.link.openInNewSpace": {
+  "action.browser.link.openInNewSpace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -63810,7 +63810,7 @@
         }
       }
     },
-    "action.browser.link.openInNewWorkspace": {
+  "action.browser.link.openInNewWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -63941,7 +63941,7 @@
         }
       }
     },
-    "action.browser.link.openInSplit": {
+  "action.browser.link.openInSplit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64072,7 +64072,7 @@
         }
       }
     },
-    "action.browser.link.openInIncognitoWindow": {
+  "action.browser.link.openInIncognitoWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64203,7 +64203,7 @@
         }
       }
     },
-    "action.browser.link.saveAs": {
+  "action.browser.link.saveAs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64334,7 +64334,7 @@
         }
       }
     },
-    "action.browser.link.copy": {
+  "action.browser.link.copy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64465,7 +64465,7 @@
         }
       }
     },
-    "action.browser.link.copyText": {
+  "action.browser.link.copyText": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64596,7 +64596,7 @@
         }
       }
     },
-    "action.browser.image.openInNewTab": {
+  "action.browser.image.openInNewTab": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64727,7 +64727,7 @@
         }
       }
     },
-    "action.browser.image.saveAs": {
+  "action.browser.image.saveAs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64858,7 +64858,7 @@
         }
       }
     },
-    "action.browser.image.copy": {
+  "action.browser.image.copy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -64989,7 +64989,7 @@
         }
       }
     },
-    "action.browser.image.copyAddress": {
+  "action.browser.image.copyAddress": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65120,7 +65120,7 @@
         }
       }
     },
-    "action.browser.selection.copy": {
+  "action.browser.selection.copy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65251,7 +65251,7 @@
         }
       }
     },
-    "action.browser.selection.search": {
+  "action.browser.selection.search": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65382,7 +65382,7 @@
         }
       }
     },
-    "action.browser.selection.lookUp": {
+  "action.browser.selection.lookUp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65513,7 +65513,7 @@
         }
       }
     },
-    "action.updates.whatsNew": {
+  "action.updates.whatsNew": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65644,7 +65644,7 @@
         }
       }
     },
-    "action.announcements.show": {
+  "action.announcements.show": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65775,7 +65775,7 @@
         }
       }
     },
-    "action.announcements.hide": {
+  "action.announcements.hide": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -65906,7 +65906,7 @@
         }
       }
     },
-    "action.paletteKey.firstItem": {
+  "action.paletteKey.firstItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66037,7 +66037,7 @@
         }
       }
     },
-    "action.paletteKey.lastItem": {
+  "action.paletteKey.lastItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66168,7 +66168,7 @@
         }
       }
     },
-    "action.paletteKey.pageUp": {
+  "action.paletteKey.pageUp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66299,7 +66299,7 @@
         }
       }
     },
-    "action.paletteKey.pageDown": {
+  "action.paletteKey.pageDown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66430,7 +66430,7 @@
         }
       }
     },
-    "action.paletteKey.submit": {
+  "action.paletteKey.submit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66561,7 +66561,7 @@
         }
       }
     },
-    "action.paletteKey.submitAlternate": {
+  "action.paletteKey.submitAlternate": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66692,7 +66692,7 @@
         }
       }
     },
-    "action.paletteKey.openActions": {
+  "action.paletteKey.openActions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66823,7 +66823,7 @@
         }
       }
     },
-    "action.paletteKey.closeActions": {
+  "action.paletteKey.closeActions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -66954,7 +66954,7 @@
         }
       }
     },
-    "action.paletteKey.toggleActions": {
+  "action.paletteKey.toggleActions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67085,7 +67085,7 @@
         }
       }
     },
-    "action.paletteKey.escape": {
+  "action.paletteKey.escape": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67216,7 +67216,7 @@
         }
       }
     },
-    "action.paletteKey.enterRow": {
+  "action.paletteKey.enterRow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67347,7 +67347,7 @@
         }
       }
     },
-    "action.paletteKey.leaveLevel": {
+  "action.paletteKey.leaveLevel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67478,7 +67478,7 @@
         }
       }
     },
-    "action.paletteKey.back": {
+  "action.paletteKey.back": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67609,7 +67609,7 @@
         }
       }
     },
-    "action.paletteKey.filterDeleteBackward": {
+  "action.paletteKey.filterDeleteBackward": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67740,7 +67740,7 @@
         }
       }
     },
-    "action.paletteKey.closeItem": {
+  "action.paletteKey.closeItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -67871,7 +67871,7 @@
         }
       }
     },
-    "action.browser.download.openBlockedSiteSettings": {
+  "action.browser.download.openBlockedSiteSettings": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68002,7 +68002,7 @@
         }
       }
     },
-    "action.fileEditorAction": {
+  "action.fileEditorAction": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68133,7 +68133,7 @@
         }
       }
     },
-    "action.fileEditorGotoLine": {
+  "action.fileEditorGotoLine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68264,7 +68264,7 @@
         }
       }
     },
-    "action.fileEditorReplace": {
+  "action.fileEditorReplace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68395,7 +68395,7 @@
         }
       }
     },
-    "action.fileEditorZoomIn": {
+  "action.fileEditorZoomIn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68526,7 +68526,7 @@
         }
       }
     },
-    "action.fileEditorZoomOut": {
+  "action.fileEditorZoomOut": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68657,7 +68657,7 @@
         }
       }
     },
-    "action.fileEditorZoomReset": {
+  "action.fileEditorZoomReset": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68788,7 +68788,7 @@
         }
       }
     },
-    "action.closeAllWindows": {
+  "action.closeAllWindows": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -68919,7 +68919,7 @@
         }
       }
     },
-    "action.zoomWindow": {
+  "action.zoomWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -69050,7 +69050,7 @@
         }
       }
     },
-    "action.selectNextWindow": {
+  "action.selectNextWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -69181,7 +69181,7 @@
         }
       }
     },
-    "action.selectPreviousWindow": {
+  "action.selectPreviousWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -69312,7 +69312,7 @@
         }
       }
     },
-    "action.ghostty.showDiagnostics": {
+  "action.ghostty.showDiagnostics": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -69443,7 +69443,7 @@
         }
       }
     },
-    "action.agent.openSessionWorkspace": {
+  "action.agent.openSessionWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -69574,7 +69574,7 @@
         }
       }
     },
-    "action.home.toggleChiefSettings": {
+  "action.home.toggleChiefSettings": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -69705,7 +69705,7 @@
         }
       }
     },
-    "action.pane.focus": {
+  "action.pane.focus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -69836,7 +69836,7 @@
         }
       }
     },
-    "action.screen.focus": {
+  "action.screen.focus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -69967,7 +69967,7 @@
         }
       }
     },
-    "action.appearance.uiScale.increase": {
+  "action.appearance.uiScale.increase": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70098,7 +70098,7 @@
         }
       }
     },
-    "action.appearance.uiScale.decrease": {
+  "action.appearance.uiScale.decrease": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70229,7 +70229,7 @@
         }
       }
     },
-    "action.appearance.uiScale.reset": {
+  "action.appearance.uiScale.reset": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70360,7 +70360,7 @@
         }
       }
     },
-    "action.chief.openMemoryInspector": {
+  "action.chief.openMemoryInspector": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70491,7 +70491,7 @@
         }
       }
     },
-    "action.onboarding.continueSetup": {
+  "action.onboarding.continueSetup": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70622,7 +70622,7 @@
         }
       }
     },
-    "action.palette.addHarness": {
+  "action.palette.addHarness": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70753,7 +70753,7 @@
         }
       }
     },
-    "action.workspaceGroup.setIcon": {
+  "action.workspaceGroup.setIcon": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -70884,7 +70884,7 @@
         }
       }
     },
-    "action.workspaceGroup.clearIcon": {
+  "action.workspaceGroup.clearIcon": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -71015,7 +71015,7 @@
         }
       }
     },
-    "action.app.shareCmux": {
+  "action.app.shareCmux": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -71146,7 +71146,7 @@
         }
       }
     },
-    "action.appearance.changeBackground": {
+  "action.appearance.changeBackground": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -71276,10 +71276,138 @@
           }
         }
       }
+    },
+  "action.palette.startAgentFromAnyApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Agent from Any App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでもエージェントを開始"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بدء وكيل من أي تطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni agenta iz bilo koje aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra enhver app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent aus jeder App starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente desde cualquier app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer un agent depuis n’importe quelle app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia agente da qualsiasi app"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមភ្នាក់ងារពីកម្មវិធីណាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 앱에서 에이전트 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra hvilken som helst app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom agenta z dowolnej aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente de qualquer app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента из любого приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเอเจนต์จากแอปใดก็ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Herhangi Bir Uygulamadan Ajan Başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента з будь-якої програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu tác tử từ mọi ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从任意应用启动智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從任何 App 啟動代理"
+          }
+        }
+      }
     }
   },
-
-
-
   "version": "1.0"
 }
