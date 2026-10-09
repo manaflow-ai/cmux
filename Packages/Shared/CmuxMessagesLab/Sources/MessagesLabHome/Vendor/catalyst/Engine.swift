@@ -212,7 +212,8 @@ enum TextParts {
     static func linkRuns(_ text: String) -> [TextRun] {
         let ns = text as NSString
         return (detector?.matches(in: text, range: NSRange(location: 0, length: ns.length)) ?? []).compactMap { m in
-            guard let url = m.url else { return nil }
+            // Plain text is untrusted too: only links the markdown link policy allows.
+            guard let url = m.url, MarkdownLinkPolicy.allows(url) else { return nil }
             return TextRun(start: m.range.location, length: m.range.length, style: nil, link: url.absoluteString, mention: nil, detected: nil)
         }
     }
@@ -222,7 +223,7 @@ enum TextParts {
         let ns = t as NSString
         guard ns.length > 0, let m = detector?.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)),
               m.range.location == 0, m.range.length == ns.length, let url = m.url,
-              url.scheme == "http" || url.scheme == "https" else { return nil }
+              url.scheme == "http" || url.scheme == "https", MarkdownLinkPolicy.allows(url) else { return nil }
         return url
     }
     static func parts(for text: String) -> [Part] {

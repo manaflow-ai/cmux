@@ -1572,7 +1572,7 @@ extension MessagesWindowView {
     func setLongTextFolded(_ fold: Bool, id: ID, key: String) {
         guard let i0 = model.index[key], let spec0 = model.rows[checked: i0]?.spec, case let .part(p0) = spec0.kind, case let .text(t, _) = p0.part else { return } // cmux
         let width = spec0.width, lh = Fixture.lineHeight, pad = Fixture.bubblePadY
-        let l = LongTextStore.shared.layout(t, width: width)
+        let l = LongTextStore.shared.layout(t, width: width, message: id, markdown: p0.markdownFormat)
         let head = pad + CGFloat(LongTextFold.headLines) * lh
         let oldAnchor = fold ? pad + CGFloat(l.totalLines) * lh : head
         let newAnchor = fold ? pad + CGFloat(LongTextFold.headLines + LongTextFold.tailLines) * lh + LongTextFold.bandHeight : head
@@ -1589,7 +1589,7 @@ extension MessagesWindowView {
         RowCell.testForceOffMain = true
         defer { TiledBody.noMainTiles -= 1; RowCell.testForceOffMain = forced }
         if fold { LongTextFold.collapse(id) } else { LongTextFold.expand(id) }
-        let size = LongTextStore.shared.size(t, width: width, message: id)
+        let size = LongTextStore.shared.size(t, width: width, message: id, markdown: p0.markdownFormat)
         let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
             guard r.spec.key == key, case var .part(p) = r.spec.kind else { return r.spec }
             var s = r.spec
@@ -1711,7 +1711,7 @@ extension MessagesWindowView {
         var inner: (LongTextLayout, LongTextLayout.Anchor, CGFloat)?
         let textTop = Fixture.bubblePadY
         if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil { // cmux
-            let l = LongTextStore.shared.layout(t, width: spec0.width)
+            let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)
             let y = oldOffset + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - oldTop - textTop
             inner = (l, l.anchor(atTextY: y), y)
         }
@@ -1720,7 +1720,7 @@ extension MessagesWindowView {
         let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
             guard case var .part(p) = r.spec.kind, case let .text(t, _) = p.part, p.text == nil,
                   let lin = LongTextStore.shared.lineage(t), lineages.contains(lin) else { return r.spec }
-            let size = LongTextStore.shared.size(t, width: r.spec.width, message: p.ref.messageId)
+            let size = LongTextStore.shared.size(t, width: r.spec.width, message: p.ref.messageId, markdown: p.markdownFormat)
             guard size != p.size else { return r.spec }
             changed = true
             var s = r.spec
@@ -1744,7 +1744,7 @@ extension MessagesWindowView {
         } else if let i = model.index[key0] {
             newOffset += layout.contentTop(i) - (oldTop + rebase)
             if let (old, a, y) = inner, let spec = model.rows[checked: i]?.spec, case let .part(p) = spec.kind, case let .text(t, _) = p.part { // cmux
-                let l = LongTextStore.shared.layout(t, width: spec.width)
+                let l = LongTextStore.shared.layout(t, width: spec.width, message: p.ref.messageId, markdown: p.markdownFormat)
                 newOffset += (l === old ? old.textY(of: a) : l.textY(of: a)) - y
             }
         }
