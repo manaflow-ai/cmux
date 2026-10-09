@@ -47,6 +47,12 @@ extension BrowserHostProvider {
         if let targetID, calledTargets.insert(targetID).inserted {
             marking?.agentWillDrive(targetID: targetID)
         }
+        // A Chromium session's new tab is a Chromium tab: never the WebKit driver's.
+        if method == "tabs.open", case .object(let fields) = params, fields["engine"] == .string(ProviderEngine.cef.rawValue) {
+            let url: String? = if case .string(let value)? = fields["url"], !value.isEmpty { value } else { nil }
+            openChromiumTab(id: id, url: url)
+            return
+        }
         guard let driver else {
             send(.result(id: id, result: nil, error: DriverError(.unsupported, "\(method): this app has no WebKit driver").json))
             return
@@ -61,6 +67,31 @@ extension BrowserHostProvider {
                 frame = .result(id: id, result: nil, error: error.json)
             }
             guard let self, let link, self.connection === link else { return }
+            self.send(frame)
+        }
+    }
+
+    /// `tabs.open` on a Chromium session, through the app's tab opener. The
+    /// host learns the new tab (`tab.announced`) before the reply names it,
+    /// so the session's next call finds it.
+    private func openChromiumTab(id: UInt64, url: String?) {
+        guard let opener else {
+            send(.result(id: id, result: nil, error: DriverError(.unsupported, "tabs.open: this app cannot open Chromium tabs").json))
+            return
+        }
+        let link = connection
+        Task { [weak self] in
+            let frame: ProviderFrame
+            var opened = false
+            do throws(DriverError) {
+                let targetID = try await opener.openProviderTab(engine: .cef, url: url)
+                frame = .result(id: id, result: .object(["targetId": .string(targetID)]), error: nil)
+                opened = true
+            } catch {
+                frame = .result(id: id, result: nil, error: error.json)
+            }
+            guard let self, let link, self.connection === link else { return }
+            if opened { self.observeTabs() }
             self.send(frame)
         }
     }

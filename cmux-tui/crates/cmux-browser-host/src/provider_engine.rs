@@ -195,12 +195,28 @@ impl ProviderEngine {
                         return Err(DriverError::invalid("tabs.open: incognito must be a boolean"));
                     }
                 }
+                // A Chromium tab opens blank; the session then navigates it
+                // through the tab's CDP relay to the commit, as a headless
+                // tab does, so the reply means the document committed and
+                // the navigation passes the same checks as any other.
+                let navigate = if self.engine == "cef" {
+                    open.remove("url").filter(|url| url.as_str().is_some_and(|url| !url.is_empty()))
+                } else {
+                    None
+                };
                 open.insert("engine".into(), Value::String(self.engine.clone()));
                 announce();
                 let opened = self.provider.open_tab(self.subscription, &Value::Object(open))?;
                 if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
                     self.created_tabs().insert(target.to_owned());
                     self.provider.opened(self.subscription, target);
+                    if let Some(url) = navigate {
+                        let mut go = json!({"targetId": target, "url": url, "waitUntil": "commit"});
+                        if let Some(timeout) = params.get("timeoutMs") {
+                            go["timeoutMs"] = timeout.clone();
+                        }
+                        self.call_with("tab.navigate", &go, &mut || {}, false)?;
+                    }
                 }
                 return Ok(Reply::Value(opened));
             }
