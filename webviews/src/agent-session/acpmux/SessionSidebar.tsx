@@ -1,11 +1,4 @@
-import React, {
-  createContext,
-  memo,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import React, { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import {
   filterSessions,
   groupMark,
@@ -104,35 +97,20 @@ export function SessionSidebar({
   // Pull requests turned off while shown falls back to the session list, and stays there.
   const view = picked === "pulls" && !preview ? "sessions" : picked;
   useEffect(() => {
-    if (!preview)
-      setView((current) => (current === "pulls" ? "sessions" : current));
+    if (!preview) setView((current) => (current === "pulls" ? "sessions" : current));
   }, [preview]);
   // Kept here so expanded projects and a search survive a trip to another rail view.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const needsInput = useMemo(
-    () =>
-      sessions.some(
-        (session) =>
-          sessionMark(session, session.sessionId === selectedId) === "input",
-      ),
+    () => sessions.some((session) => sessionMark(session, session.sessionId === selectedId) === "input"),
     [sessions, selectedId],
   );
   return (
     <OpenSessions.Provider value={openIds}>
-      <nav
-        className="acpmux-sidebar"
-        id="acpmux-sidebar"
-        data-list-keyboard
-        aria-label={t("sidebar.label")}
-      >
+      <nav className="acpmux-sidebar" id="acpmux-sidebar" data-list-keyboard aria-label={t("sidebar.label")}>
         <div className="acpmux-rail">
-          <RailButton
-            label={t("picker.newChat")}
-            title={t("picker.newChat")}
-            onClick={onNewChat}
-            icon="home"
-          />
+          <RailButton label={t("picker.newChat")} title={t("picker.newChat")} onClick={onNewChat} icon="home" />
 
           <RailButton
             label={t("sidebar.sessions")}
@@ -174,9 +152,7 @@ export function SessionSidebar({
                 query={query}
                 onQuery={setQuery}
                 expanded={expanded}
-                onExpand={(key) =>
-                  setExpanded((current) => new Set(current).add(key))
-                }
+                onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
                 settledSessions={settledSessions}
                 groupProjects={groupProjects}
                 onContinue={onContinue}
@@ -184,12 +160,7 @@ export function SessionSidebar({
                 onShowMoreSettled={onShowMoreSettled}
               />
             ) : (
-              <FlatView
-                view={view}
-                sessions={sessions}
-                selectedId={selectedId}
-                onSelect={onSelect}
-              />
+              <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
             )}
           </div>
           {account && (
@@ -198,9 +169,7 @@ export function SessionSidebar({
                 {account.name.slice(0, 1).toUpperCase()}
               </span>
               <span className="acpmux-account-name">{account.name}</span>
-              {account.detail && (
-                <span className="acpmux-account-detail">{account.detail}</span>
-              )}
+              {account.detail && <span className="acpmux-account-detail">{account.detail}</span>}
             </div>
           )}
         </div>
@@ -280,10 +249,7 @@ function SessionsView({
     </button>
   );
   const searching = query.trim() !== "";
-  const { pinned, groups } = useMemo(
-    () => sidebarSections(sessions, query),
-    [sessions, query],
-  );
+  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
   const active = useMemo(
     () =>
       sortByRecency(
@@ -294,10 +260,7 @@ function SessionsView({
       ),
     [sessions, query],
   );
-  const settled = useMemo(
-    () => sortByRecency(filterSessions(settledSessions, query)),
-    [settledSessions, query],
-  );
+  const settled = useMemo(() => sortByRecency(filterSessions(settledSessions, query)), [settledSessions, query]);
   if (sessions.length === 0 && settledSessions.length === 0)
     return (
       <>
@@ -310,8 +273,7 @@ function SessionsView({
     if (event.key !== "Escape") return;
     // During IME composition Escape cancels the composition, and closes nothing.
     // WebKit can end the composition before this keydown, which then reports only keyCode 229.
-    const composing =
-      event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+    const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
     if (!composing && !query) return;
     event.stopPropagation();
     if (!composing) onQuery("");
@@ -335,15 +297,10 @@ function SessionsView({
       </search>
       {/* Always present, so a screen reader announces the text when it appears. */}
       <output className="acpmux-sidebar-empty">
-        {pinned.length === 0 && active.length === 0 && settled.length === 0
-          ? t("sidebar.noMatches")
-          : ""}
+        {pinned.length === 0 && active.length === 0 && settled.length === 0 ? t("sidebar.noMatches") : ""}
       </output>
       {pinned.length > 0 && (
-        <section
-          className="acpmux-sidebar-pinned"
-          aria-label={t("sidebar.pinned")}
-        >
+        <section className="acpmux-sidebar-pinned" aria-label={t("sidebar.pinned")}>
           <div className="acpmux-sidebar-section" aria-hidden="true">
             {t("sidebar.pinned")}
           </div>
@@ -362,10 +319,7 @@ function SessionsView({
         </section>
       )}
       {active.length > 0 && !groupProjects && (
-        <section
-          className="acpmux-sidebar-active"
-          aria-label={t("sidebar.active")}
-        >
+        <section className="acpmux-sidebar-active" aria-label={t("sidebar.active")}>
           <div className="acpmux-sidebar-section" aria-hidden="true">
             {t("sidebar.active")}
           </div>
@@ -385,20 +339,13 @@ function SessionsView({
         </section>
       )}
       {groups.length > 0 && groupProjects && (
-        <section
-          className="acpmux-sidebar-projects"
-          aria-label={t("sidebar.projects")}
-        >
+        <section className="acpmux-sidebar-projects" aria-label={t("sidebar.projects")}>
           <div className="acpmux-sidebar-section" aria-hidden="true">
             {t("sidebar.projects")}
           </div>
           {groups.map((group) => {
             // A search shows every match, so it never hides rows behind "Show more".
-            const { rows, hidden } = visibleSessions(
-              group,
-              searching || expanded.has(group.key),
-              selectedId,
-            );
+            const { rows, hidden } = visibleSessions(group, searching || expanded.has(group.key), selectedId);
             const mark = groupMark(group, selectedId);
             return (
               <section className="acpmux-sidebar-group" key={group.key}>
@@ -415,18 +362,11 @@ function SessionsView({
                 >
                   <Icon name="folder" size={ROW_ICON} row />
                   <span>{group.label}</span>
-                  {group.host && (
-                    <small className="acpmux-sidebar-host">{group.host}</small>
-                  )}
+                  {group.host && <small className="acpmux-sidebar-host">{group.host}</small>}
                   {mark && (
-                    <span
-                      className={`acpmux-session-mark acpmux-session-mark-${mark}`}
-                      title={t(MARK_LABELS[mark])}
-                    >
+                    <span className={`acpmux-session-mark acpmux-session-mark-${mark}`} title={t(MARK_LABELS[mark])}>
                       {MARK_GLYPHS[mark]}
-                      <span className="acpmux-hidden-label">
-                        {t(MARK_LABELS[mark])}
-                      </span>
+                      <span className="acpmux-hidden-label">{t(MARK_LABELS[mark])}</span>
                     </span>
                   )}
                 </div>
@@ -458,18 +398,13 @@ function SessionsView({
           })}
         </section>
       )}
-      <section
-        className="acpmux-sidebar-settled"
-        aria-label={t("sidebar.settled")}
-      >
+      <section className="acpmux-sidebar-settled" aria-label={t("sidebar.settled")}>
         <div className="acpmux-sidebar-section" aria-hidden="true">
           {t("sidebar.settled")}
         </div>
         {settled.length === 0 ? (
           <div className="acpmux-sidebar-empty">
-            {settledSessions.length > 0 && query.trim()
-              ? t("sidebar.noMatches")
-              : t("sidebar.noSettled")}
+            {settledSessions.length > 0 && query.trim() ? t("sidebar.noMatches") : t("sidebar.noSettled")}
           </div>
         ) : (
           <ul>
@@ -487,11 +422,7 @@ function SessionsView({
           </ul>
         )}
         {onShowMoreSettled && settled.length > 0 && (
-          <button
-            type="button"
-            className="acpmux-sidebar-more"
-            onClick={onShowMoreSettled}
-          >
+          <button type="button" className="acpmux-sidebar-more" onClick={onShowMoreSettled}>
             {t("sidebar.showMore")}
           </button>
         )}
@@ -519,12 +450,8 @@ function FlatView({
       view === "pulls"
         ? []
         : sessions
-            .filter(
-              (session) => view === "history" || session.status === "closed",
-            )
-            .sort(
-              (left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
-            ),
+            .filter((session) => view === "history" || session.status === "closed")
+            .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0)),
     [sessions, view],
   );
   const now = Date.now();
@@ -532,9 +459,7 @@ function FlatView({
     <section aria-label={t(VIEW_TITLES[view])}>
       <h2 className="acpmux-sidebar-title">{t(VIEW_TITLES[view])}</h2>
       {rows.length === 0 ? (
-        <div className="acpmux-sidebar-empty">
-          {view === "pulls" ? t("sidebar.noPulls") : t("sidebar.nothing")}
-        </div>
+        <div className="acpmux-sidebar-empty">{view === "pulls" ? t("sidebar.noPulls") : t("sidebar.nothing")}</div>
       ) : (
         <ul>
           {rows.map((session) => (
@@ -610,13 +535,7 @@ const SessionRow = memo(function SessionRow({
       aria-current={selected ? "true" : undefined}
       aria-label={
         mark || place || trailing || open
-          ? [
-              title,
-              open && t("sidebar.alreadyOpen"),
-              trailing,
-              placeLabel,
-              mark && t(MARK_LABELS[mark]),
-            ]
+          ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, mark && t(MARK_LABELS[mark])]
               .filter(Boolean)
               .join(", ")
           : undefined
@@ -631,10 +550,7 @@ const SessionRow = memo(function SessionRow({
         </span>
       )}
       {place && (
-        <span
-          className={`acpmux-session-place acpmux-session-place-${place.kind}`}
-          aria-hidden="true"
-        >
+        <span className={`acpmux-session-place acpmux-session-place-${place.kind}`} aria-hidden="true">
           {PLACE_GLYPHS[place.kind]}
         </span>
       )}
@@ -652,13 +568,5 @@ const SessionRow = memo(function SessionRow({
       )}
     </button>
   );
-  return (
-    <li>
-      {menuItems.length > 0 ? (
-        <ContextMenu items={menuItems}>{row}</ContextMenu>
-      ) : (
-        row
-      )}
-    </li>
-  );
+  return <li>{menuItems.length > 0 ? <ContextMenu items={menuItems}>{row}</ContextMenu> : row}</li>;
 });
