@@ -46,6 +46,19 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                 found.append(name)
         self.assertTrue(found, "no workflow runs the release-notary guards for feat-cmux-next pull requests and pushes")
 
+    def test_release_notary_has_ghostty_next_for_the_toolchain_notices(self):
+        # toolchain_notices.py fails on a missing ghostty-next/build.zig.zon by
+        # design; the guard checkout has no submodules.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
+        steps = workflow["jobs"]["workflow-guard-tests"]["steps"]
+        init = [
+            s for s in steps
+            if "release-notary" in str(s.get("if", "")) and "git submodule update --init --depth 1 ghostty-next" in s.get("run", "")
+        ]
+        self.assertTrue(init, "release-notary must initialize ghostty-next before the license compliance test")
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(init[0]["name"]), names.index("Validate app bundle license compliance"))
+
 
 if __name__ == "__main__":
     unittest.main()
