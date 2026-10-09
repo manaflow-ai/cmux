@@ -990,11 +990,17 @@ fn chief_stop_with_a_name_stops_only_that_subagent() {
         answer.recv().unwrap(),
         json!({"stopped": true, "subagents": ["a2"], "note": "Stopped by the user: a2."})
     );
-    assert_eq!(s.h.agents.inner.lock().unwrap().cancels, vec!["s2".to_owned()]);
+    assert_eq!(
+        s.h.agents.inner.lock().unwrap().cancels,
+        vec!["s2".to_owned()]
+    );
     let (reply, answer) = std::sync::mpsc::channel();
     s.h.brain.step(optchat_chief::brain::Input::StopSubagent {
         name: "a9".into(),
         reply,
     });
-    assert_eq!(answer.recv().unwrap(), json!({"stopped": false, "error": "no subagent a9 at work"}));
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": false, "error": "no subagent a9 at work"})
+    );
 }

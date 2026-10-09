@@ -246,6 +246,8 @@ pub enum ControlRequest {
     Engine(crate::brain::EngineRequest),
     /// chief.stop: answers `{"stopped": bool}`.
     Stop,
+    /// chief.stop {name}: stops that one subagent.
+    StopSubagent(String),
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -339,7 +341,10 @@ fn connection(conn: UnixStream, served: &Served) {
                 if tool == "engine" || tool == "stop" {
                     let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
                     let ask = match (tool, field("action").as_deref()) {
-                        ("stop", _) => Some(ControlRequest::Stop),
+                        ("stop", _) => Some(match field("name").filter(|n| !n.trim().is_empty()) {
+                            Some(name) => ControlRequest::StopSubagent(name.trim().to_owned()),
+                            None => ControlRequest::Stop,
+                        }),
                         (_, Some("show") | None) => {
                             Some(ControlRequest::Engine(crate::brain::EngineRequest::Show))
                         }
