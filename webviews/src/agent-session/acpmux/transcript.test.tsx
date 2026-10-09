@@ -475,6 +475,73 @@ function randomConversation(count: number, random: () => number): AcpmuxRow[] {
 }
 
 describe("acpmux measured rows", () => {
+  test("a session switch drops drawn heights even when row ids and versions repeat", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const prototype = dom.window.HTMLElement.prototype;
+    const original = prototype.getBoundingClientRect;
+    let phase: "old" | "new" = "old";
+    prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = this.classList.contains("acpmux-row")
+        ? this.dataset.rowId === "same"
+          ? phase === "old"
+            ? 120
+            : 40
+          : 20
+        : 0;
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        width: 0,
+        height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const first = [
+      { id: "same", version: 1, at: 1, kind: "assistant" as const, text: "same" },
+      { id: "tail", version: 1, at: 2, kind: "assistant" as const, text: "tail" },
+    ];
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: first,
+            sessionId: "old-session",
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const tail = () => dom.window.document.querySelector<HTMLElement>('[data-row-id="tail"]')!;
+      expect(tail().style.transform).toBe("translateY(120px)");
+
+      phase = "new";
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            // acpmux row ids and versions restart per session. Keep them identical here to make
+            // sure the session identity, rather than a row mutation, invalidates the height.
+            rows: first.map((row) => ({ ...row })),
+            sessionId: "new-session",
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      expect(tail().style.transform).toBe("translateY(40px)");
+    } finally {
+      await act(async () => root.unmount());
+      prototype.getBoundingClientRect = original;
+      restore();
+    }
+  });
+
   /// The layout estimates a row's height before it draws, and some shapes always draw taller
   /// than any estimate (fonts, permission cards, expanded tool output). A row the page has drawn
   /// must be placed by its drawn height, so no row runs under the next one.
