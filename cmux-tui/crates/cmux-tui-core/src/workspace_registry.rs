@@ -2375,23 +2375,20 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
-        let relock = || {
-            Ok((acquire_session_guard(&root, session_name)?, SessionLease::acquire(&session_lock)?))
-        };
-        open_guard::open_or_quarantine(&db_path, relock, || {
-            let connection = open_registry_database(&db_path)
-                .with_context(|| format!("open workspace registry {}", db_path.display()))?;
-            platform::restrict_file(&db_path)?;
-            Self::initialize(
-                connection,
-                session_name.to_string(),
-                machine_id,
-                resource_effect_pepper,
-                Some(session_guard),
-                Some(lease),
-                Some(db_path.clone()),
-            )
-        })
+        open_guard::refuse_orphaned_journal(&db_path)?;
+        let connection = open_registry_database(&db_path)
+            .with_context(|| format!("open workspace registry {}", db_path.display()))?;
+        let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
+        platform::restrict_file(&db_path)?;
+        Self::initialize(
+            connection,
+            session_name.to_string(),
+            machine_id,
+            resource_effect_pepper,
+            Some(session_guard),
+            Some(lease),
+            Some(db_path),
+        )
     }
 
     fn initialize(
@@ -2709,9 +2706,9 @@ impl WorkspaceRegistry {
                 )
                 .optional()?;
             if violation.is_some() {
-                return Err(open_guard::integrity_error(
-                    "saved session data could not be loaded; start a new session or restore this session from a backup",
-                ));
+                anyhow::bail!(
+                    "saved session data could not be loaded; start a new session or restore this session from a backup"
+                );
             }
         }
         if needs_sensitive_receipt_cleanup {
@@ -2760,8 +2757,7 @@ impl WorkspaceRegistry {
         let quick_check: String =
             connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if quick_check != "ok" {
-            let message = format!("workspace registry integrity check failed: {quick_check}");
-            return Err(open_guard::integrity_error(message));
+            anyhow::bail!("workspace registry integrity check failed: {quick_check}");
         }
         {
             let tx = connection.unchecked_transaction()?;

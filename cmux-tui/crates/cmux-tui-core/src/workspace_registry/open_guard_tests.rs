@@ -114,3 +114,29 @@ fn a_newer_schema_registry_stays_in_place_for_the_build_that_wrote_it() {
     assert!(recovered_files(&root).is_empty());
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn a_schema_this_sqlite_cannot_parse_stays_in_place() {
+    // A newer build's SQLite may write schema SQL this one rejects as
+    // "malformed database schema" (SQLITE_CORRUPT). That data is not damaged.
+    let root = temp_root("unparsable-schema");
+    let database = session_dir(&root).join(WORKSPACE_REGISTRY_FILE);
+    drop(WorkspaceRegistry::open(&root, "session").unwrap());
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "PRAGMA writable_schema=ON;
+             INSERT INTO sqlite_master(type, name, tbl_name, rootpage, sql)
+             VALUES('table', 'future', 'future', 0, 'CREATE TABLE future(');
+             PRAGMA writable_schema=OFF;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+
+    assert!(error.downcast_ref::<RegistryQuarantined>().is_none(), "{error:#}");
+    assert!(database.exists());
+    assert!(recovered_files(&root).is_empty());
+    fs::remove_dir_all(root).unwrap();
+}

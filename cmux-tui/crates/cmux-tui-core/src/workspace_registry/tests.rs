@@ -6005,7 +6005,7 @@ fn saved_session_integrity_failure_has_actionable_public_copy() {
 
     let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
     assert_eq!(
-        error.downcast::<RegistryQuarantined>().unwrap().reason,
+        error.to_string(),
         "saved session data could not be loaded; start a new session or restore this session from a backup"
     );
     fs::remove_dir_all(root).unwrap();

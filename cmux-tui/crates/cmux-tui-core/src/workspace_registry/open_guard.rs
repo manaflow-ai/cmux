@@ -6,25 +6,30 @@
 //! - The database file is missing while its `-wal` or `-journal` sidecar
 //!   still holds data. Opening the path creates a fresh, empty database in
 //!   place, and SQLite discards the stale sidecar against it.
-//! - The database is corrupt (SQLite reports it, `quick_check` fails, or a
-//!   foreign-key violation remains). The files stay where a later open, or a
-//!   reset, can overwrite them.
+//! - The database is physically unreadable: SQLite reports it corrupt or not
+//!   a database on the first read. The files stayed where a reset or a new
+//!   session overwrites them.
 //!
 //! In both cases the files are moved together into
 //! `<session dir>/registry-recovery/<unix ms>/` and the open fails with
 //! [`RegistryQuarantined`], naming that directory. The next open starts a new
 //! registry beside the preserved files rather than on top of them.
 //!
-//! A newer-schema registry is not moved: the newer build that wrote it can
-//! still open it, so the unsupported-schema preflight keeps refusing it in
-//! place. Lock contention and I/O errors are not moved either; they are not
-//! evidence that the data is bad.
+//! Everything else stays in place, because the data may still be good:
+//!
+//! - a newer-schema registry, which the build that wrote it can open (the
+//!   unsupported-schema preflight keeps refusing it), including a schema this
+//!   SQLite cannot parse ("malformed database schema");
+//! - logical integrity failures after migration (foreign-key violations,
+//!   `quick_check`, invariant checks): a daemon bug there must fail every
+//!   start with the data intact, not quarantine every upgraded machine;
+//! - lock contention and I/O errors.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
-use rusqlite::ErrorCode;
+use rusqlite::{Connection, ErrorCode};
 
 use super::{
     SCHEMA_VERSION, UnsupportedWorkspaceRegistrySchema, meta_value,
@@ -36,24 +41,6 @@ pub(crate) const REGISTRY_RECOVERY_DIR: &str = "registry-recovery";
 /// The sidecars SQLite keeps next to a database, in the order they are moved
 /// after the database itself.
 const SIDECAR_SUFFIXES: [&str; 3] = ["-wal", "-journal", "-shm"];
-
-/// Integrity failures detected by the registry itself (as opposed to SQLite
-/// error codes). Opening reports these instead of plain messages so the open
-/// guard can tell corruption from other failures without matching text.
-#[derive(Debug)]
-pub(crate) struct RegistryIntegrityError(String);
-
-impl std::fmt::Display for RegistryIntegrityError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for RegistryIntegrityError {}
-
-pub(crate) fn integrity_error(message: impl Into<String>) -> anyhow::Error {
-    RegistryIntegrityError(message.into()).into()
-}
 
 /// The registry could not be opened and its files were moved aside.
 #[derive(Debug)]
@@ -99,25 +86,46 @@ pub(crate) fn orphaned_sidecars(db_path: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Whether `error` shows the registry's contents are damaged, as opposed to
-/// a lock, permission or I/O failure that says nothing about the data.
-pub(crate) fn is_corruption(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| {
-        if cause.downcast_ref::<RegistryIntegrityError>().is_some() {
-            return true;
-        }
-        matches!(
-            cause.downcast_ref::<rusqlite::Error>(),
-            Some(rusqlite::Error::SqliteFailure(failure, _))
-                if matches!(failure.code, ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase)
-        )
-    })
+/// Moves an orphaned `-wal` or `-journal` aside before opening the path can
+/// create an empty database over it. The caller holds the session's locks.
+pub(super) fn refuse_orphaned_journal(db_path: &Path) -> anyhow::Result<()> {
+    if orphaned_sidecars(db_path).is_empty() {
+        return Ok(());
+    }
+    let reason = "the database file is missing but its journal still holds data";
+    Err(quarantine(db_path, reason)?.into())
+}
+
+/// Reads the schema once, while the caller still holds the session's locks.
+/// A database SQLite reports corrupt or not a database is closed and moved
+/// aside; anything else, including a schema this SQLite cannot parse, is
+/// left to the normal open path.
+pub(super) fn quarantine_if_unreadable(
+    db_path: &Path,
+    connection: Connection,
+) -> anyhow::Result<Connection> {
+    let probe =
+        connection.query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0));
+    let Err(rusqlite::Error::SqliteFailure(failure, message)) = probe else {
+        return Ok(connection);
+    };
+    let newer_schema =
+        message.as_deref().is_some_and(|text| text.contains("malformed database schema"));
+    if newer_schema || !matches!(failure.code, ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase)
+    {
+        return Ok(connection);
+    }
+    drop(connection);
+    let reason = message.unwrap_or_else(|| failure.to_string());
+    Err(quarantine(db_path, &reason)?.into())
 }
 
 /// Moves the database and every sidecar present into a fresh recovery
 /// directory beside them. The database goes first: an interruption then
 /// leaves only sidecars behind, which the next open moves aside as orphans,
-/// and never a database stripped of the WAL holding its latest commits.
+/// and never a database stripped of the WAL holding its latest commits. When
+/// a rename fails (a reader holding a sidecar open on Windows), the files
+/// already moved go back, so a set is never split across directories.
 ///
 /// The caller must hold the session's writer lease, with no connection open.
 pub(crate) fn quarantine(db_path: &Path, reason: &str) -> anyhow::Result<RegistryQuarantined> {
@@ -132,18 +140,22 @@ pub(crate) fn quarantine(db_path: &Path, reason: &str) -> anyhow::Result<Registr
     let recovery_dir = unique_recovery_dir(&recovery_root)?;
     let mut sources = vec![db_path.to_path_buf()];
     sources.extend(SIDECAR_SUFFIXES.iter().map(|suffix| sidecar_path(db_path, suffix)));
-    for source in sources {
-        if !source.exists() {
-            continue;
+    let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for source in sources.into_iter().filter(|source| source.exists()) {
+        let destination = recovery_dir.join(source.file_name().unwrap_or_default());
+        if let Err(error) = fs::rename(&source, &destination) {
+            for (original, kept) in moved.iter().rev() {
+                let _ = fs::rename(kept, original);
+            }
+            let _ = fs::remove_dir(&recovery_dir);
+            return Err(error).with_context(|| {
+                format!("move {} aside to {}", source.display(), destination.display())
+            });
         }
-        let file_name = source.file_name().with_context(|| {
-            format!("workspace registry file has no name: {}", source.display())
-        })?;
-        let destination = recovery_dir.join(file_name);
-        fs::rename(&source, &destination).with_context(|| {
-            format!("move {} aside to {}", source.display(), destination.display())
-        })?;
+        moved.push((source, destination));
     }
+    let _ = crate::platform::sync_directory(&recovery_dir);
+    let _ = crate::platform::sync_directory(session_dir);
     Ok(RegistryQuarantined { recovery_dir, reason: reason.to_string() })
 }
 
@@ -169,34 +181,6 @@ fn unique_recovery_dir(recovery_root: &Path) -> anyhow::Result<PathBuf> {
         }
     }
     anyhow::bail!("no free registry recovery directory under {}", recovery_root.display())
-}
-
-/// Opens the registry through `open`, keeping its files when that fails.
-///
-/// The caller holds the session's locks. An orphaned journal is moved aside
-/// before `open` can create an empty database over it. When `open` fails on
-/// corruption it has already released the locks with its connection, so
-/// `relock` takes them again before anything moves; when that fails, the
-/// files stay in place and the original error is returned.
-pub(super) fn open_or_quarantine<T, Locks>(
-    db_path: &Path,
-    relock: impl FnOnce() -> anyhow::Result<Locks>,
-    open: impl FnOnce() -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    if !orphaned_sidecars(db_path).is_empty() {
-        let reason = "the database file is missing but its journal still holds data";
-        return Err(quarantine(db_path, reason)?.into());
-    }
-    let error = match open() {
-        Ok(opened) => return Ok(opened),
-        Err(error) if is_corruption(&error) => error,
-        Err(error) => return Err(error),
-    };
-    let Ok(_locks) = relock() else { return Err(error) };
-    match quarantine(db_path, &format!("{error:#}")) {
-        Ok(quarantined) => Err(quarantined.into()),
-        Err(move_error) => Err(error.context(format!("{move_error:#}"))),
-    }
 }
 
 pub(super) fn preflight_unsupported_schema(
