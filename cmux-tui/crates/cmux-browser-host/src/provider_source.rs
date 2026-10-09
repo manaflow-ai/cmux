@@ -228,6 +228,10 @@ impl TabSource for ProviderSource {
             .collect()
     }
 
+    fn all_tab_rows(&self) -> Vec<TabRow> {
+        ["cef", "webkit"].iter().flat_map(|engine| self.tab_rows(engine)).collect()
+    }
+
     fn tab_engine(&self, target_id: &str) -> Option<String> {
         self.0.tab_engine(target_id)
     }

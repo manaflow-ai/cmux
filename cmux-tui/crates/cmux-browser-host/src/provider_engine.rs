@@ -32,6 +32,9 @@ pub struct ProviderEngine {
     /// Tabs the session created (`tabs.open` and their popups) and did not
     /// keep (`tab.keep`): they close when the session ends.
     created: Arc<Mutex<BTreeSet<String>>>,
+    /// Tabs of the person the session drove (a claim, `tabs.use(id)`): its
+    /// own besides the ones it created (`tabs.list` without `all`).
+    driven: Mutex<BTreeSet<String>>,
     /// The session's current tab among those it created: its last
     /// foreground `tabs.open` or `tabs.activate` (`active` in `tabs.list`).
     current: Mutex<Option<String>>,
@@ -130,6 +133,7 @@ impl ProviderEngine {
         Ok(ProviderEngine {
             created,
             current: Mutex::new(None),
+            driven: Mutex::default(),
             provider,
             engine: engine.to_owned(),
             agent_source,
@@ -142,14 +146,27 @@ impl ProviderEngine {
 
     /// `tabs.list`: one shape for every source (driver-protocol.md).
     /// A tab the session created is `active` when it is the session's
-    /// current tab; any other tab when the person sees it.
-    fn tabs_list(&self) -> Value {
+    /// current tab; any other tab when the person sees it. Without `all`, a
+    /// provider session lists its own tabs (created or driven), of either
+    /// engine; `all` lists every tab the app announced (claims).
+    fn tabs_list(&self, params: &Value) -> Value {
         let created = self.created_tabs().clone();
         let current = self.current.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let all = params.get("all").and_then(Value::as_bool) == Some(true);
+        let provider_session = matches!(self.engine.as_str(), "cef" | "webkit");
+        let rows = if provider_session {
+            self.provider.all_tab_rows()
+        } else {
+            self.provider.tab_rows(&self.engine)
+        };
+        let driven = self.driven.lock().unwrap_or_else(PoisonError::into_inner).clone();
         Value::Array(
-            self.provider
-                .tab_rows(&self.engine)
-                .into_iter()
+            rows.into_iter()
+                .filter(|row| {
+                    all || !provider_session
+                        || created.contains(&row.target_id)
+                        || driven.contains(&row.target_id)
+                })
                 .map(|mut row| {
                     if created.contains(&row.target_id) {
                         row.active = current.as_deref() == Some(row.target_id.as_str());
@@ -184,7 +201,7 @@ impl ProviderEngine {
             return Err(DriverError::closed(reason));
         }
         match method {
-            "tabs.list" => return Ok(Reply::Value(self.tabs_list())),
+            "tabs.list" => return Ok(Reply::Value(self.tabs_list(params))),
             // The app owns tabs: it opens them in the session's engine. Only
             // the URL and background pass; profile, workspace and focus are
             // never the agent's to pick (D12).
@@ -270,12 +287,9 @@ impl ProviderEngine {
         let Some(engine) = self.provider.tab_engine(target_id) else {
             return Err(DriverError::not_found(format!("{method}: no tab {target_id}")));
         };
-        if engine != self.engine {
-            return Err(DriverError::not_found(format!(
-                "{method}: tab {target_id} is a {engine} tab; this session runs on {}",
-                self.engine
-            )));
-        }
+        // A claimed tab of the other engine is driven on its own engine (the
+        // source routes by the tab's engine); the session's engine only picks
+        // the engine of the tabs it opens.
         if let Some(error) = self.provider.refusal(method, target_id) {
             return Err(error);
         }
@@ -346,6 +360,7 @@ impl ProviderEngine {
         {
             fields.remove("reason");
         }
+        self.driven.lock().unwrap_or_else(PoisonError::into_inner).insert(target_id.to_owned());
         if matches!(method, "tabs.activate" | "tab.bringToFront") {
             self.set_current(target_id);
         }

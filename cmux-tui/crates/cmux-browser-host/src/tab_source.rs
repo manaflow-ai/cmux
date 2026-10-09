@@ -110,6 +110,11 @@ pub trait TabSource: Send + Sync {
     fn policy_log(&self, _id: u64, _sink: PolicyLogSink) {}
     /// The tabs of one engine, as `tabs.list` rows.
     fn tab_rows(&self, engine: &str) -> Vec<TabRow>;
+    /// Every tab of every engine (`tabs.list {all: true}` on a provider
+    /// session, for claims); a single-engine source lists its own.
+    fn all_tab_rows(&self) -> Vec<TabRow> {
+        self.tab_rows("")
+    }
     /// The engine of a tab, `None` when the tab is unknown.
     fn tab_engine(&self, target_id: &str) -> Option<String>;
     /// A refusal for `method` on the tab (browser pages, extension tabs).
