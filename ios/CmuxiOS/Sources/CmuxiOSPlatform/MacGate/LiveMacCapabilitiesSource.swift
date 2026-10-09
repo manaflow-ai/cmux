@@ -39,7 +39,7 @@ public actor LiveMacCapabilitiesSource: MacCapabilitiesSource {
                             do {
                                 let hello = try await link.helloOK()
                                 let status = try? await link.read("mobile.host.status", params: .object([:]))
-                                let value = MacCapabilitiesProjection.decode(
+                                let value = MacCapabilities.decode(
                                     host: host, fallbackName: name ?? fallbackName(host), hello: hello, status: status)
                                 return (host, value)
                             } catch {
@@ -73,7 +73,7 @@ public actor LiveMacCapabilitiesSource: MacCapabilitiesSource {
 
 /// Pure status decoder kept separate from transport orchestration so the
 /// compatibility rules remain testable without constructing a WebRTC link.
-public enum MacCapabilitiesProjection {
+public extension MacCapabilities {
     public static func decode(host: HostID, fallbackName: String?, hello: HelloOKFrame,
                               status: JSONValue?) -> MacCapabilities {
         let statusName = status?["mac_display_name"]?.stringValue

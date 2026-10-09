@@ -59,14 +59,14 @@ struct ReleaseSurfacesTests {
             "mac_app_version": .string("1.2.3"),
             "capabilities": .array([.string("workspace.close"), .string("task.stream")]),
         ])
-        let projected = MacCapabilitiesProjection.decode(host: HostID("host_1"), fallbackName: "Old Name",
+        let projected = MacCapabilities.decode(host: HostID("host_1"), fallbackName: "Old Name",
                                                          hello: hello, status: status)
         #expect(projected.name == "Studio")
         #expect(projected.appVersion == "1.2.3")
         #expect(projected.protocolVersion == 1)
         #expect(projected.capabilities == ["workspace.close", "task.stream"])
 
-        let fallback = MacCapabilitiesProjection.decode(host: HostID("host_1"), fallbackName: "Old Name",
+        let fallback = MacCapabilities.decode(host: HostID("host_1"), fallbackName: "Old Name",
                                                         hello: hello, status: nil)
         #expect(fallback.name == "Old Name")
         #expect(fallback.appVersion == "0")
