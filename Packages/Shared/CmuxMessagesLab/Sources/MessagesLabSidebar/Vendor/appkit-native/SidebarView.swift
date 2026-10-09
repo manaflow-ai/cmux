@@ -430,11 +430,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
 
     /// Renders a row's time and text from values only (any thread).
-    private func rowJob() -> (ConversationSummary, SidebarBitmapKey, CGImage?) -> (time: CGImage, text: CGImage) {
+    /// cmux: nil when a bitmap cannot be allocated; the row then waits undrawn (no trap).
+    private func rowJob() -> (ConversationSummary, SidebarBitmapKey, CGImage?) -> (time: CGImage, text: CGImage)? {
         let ctx = renderContext, time = timeFormatter, text = textCache
         return { c, k, cachedTime in
-            let t = cachedTime ?? SidebarDraw.rowTime(c, emphasized: k.emphasized, ctx: ctx, time: time)
-            let x = SidebarDraw.rowText(c, emphasized: k.emphasized, ctx: ctx, timeWidth: SidebarDraw.rowTimeWidth(t, scale: ctx.scale), text: text)
+            guard let t = cachedTime ?? SidebarDraw.rowTime(c, emphasized: k.emphasized, ctx: ctx, time: time),
+                  let x = SidebarDraw.rowText(c, emphasized: k.emphasized, ctx: ctx, timeWidth: SidebarDraw.rowTimeWidth(t, scale: ctx.scale), text: text)
+            else { return nil }
             return (t, x)
         }
     }
@@ -517,8 +519,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             // Drawn with the other visible rows of this pass, in parallel (flushBatch).
             l.shownKey = nil
             batch.append((l, k, c))
-        } else if sync {
-            let r = rowJob()(c, k, cache.image(timeKey(k)))
+        } else if sync, let r = rowJob()(c, k, cache.image(timeKey(k))) { // cmux: an unallocated row stays undrawn
             stats.syncRenders += 1
             cache.insert(timeKey(k), r.time); cache.insert(k, r.text)
             show(l, k, time: r.time, text: r.text)
@@ -538,6 +539,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.pending.remove(k)
+                guard let r else { return } // cmux: an unallocated row stays undrawn
                 guard k.generation == self.generation, k.width == self.metrics.width else { return }
                 self.stats.asyncRenders += 1
                 self.cache.insert(self.timeKey(k), r.time)
@@ -618,13 +620,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         return (name, bubble)
     }
     /// Renders one tile part for its key (any thread).
-    static func tilePart(_ k: SidebarBitmapKey, _ c: ConversationSummary, _ ctx: SidebarRenderContext) -> CGImage {
+    static func tilePart(_ k: SidebarBitmapKey, _ c: ConversationSummary, _ ctx: SidebarRenderContext) -> CGImage? { // cmux: nil when unallocated
         k.kind == .tileBubble ? SidebarDraw.tileBubbleImage(c, keyWidth: k.width, ctx: ctx)
             : SidebarDraw.tileNameImage(c, emphasized: k.emphasized, keyWidth: k.width, ctx: ctx)
     }
-    private func tileImage(_ k: SidebarBitmapKey, _ c: ConversationSummary) -> CGImage {
+    private func tileImage(_ k: SidebarBitmapKey, _ c: ConversationSummary) -> CGImage? {
         if let img = cache.image(k) { return img }
-        let img = SidebarController.tilePart(k, c, renderContext)
+        guard let img = SidebarController.tilePart(k, c, renderContext) else { return nil } // cmux
         stats.tiles += 1
         cache.insert(k, img)
         return img
@@ -664,14 +666,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         } else {
             let keys = tileKeys(i)
             let name = tileImage(keys.name, c)
-            let nw = CGFloat(name.width) / s
+            let nw = CGFloat(name?.width ?? 0) / s // cmux: an unallocated name shows nothing
             l.content.isHidden = false
             l.content.contents = name
             l.content.frame = CGRect(x: ((f.width - nw) / 2).rounded(), y: ar.maxY + SidebarMetrics.pinNameGap, width: nw, height: SidebarMetrics.pinNameHeight)
-            if let bk = keys.bubble {
+            if let bk = keys.bubble, let b = tileImage(bk, c) { // cmux: an unallocated bubble is not shown
                 // The newest unread message over the avatar's top (the typing bubble, a layer,
                 // takes its place while someone types).
-                let b = tileImage(bk, c)
                 let bw = CGFloat(b.width) / s, bh = CGFloat(b.height) / s
                 let bottom = ar.minY + ar.height * 0.30
                 l.time.isHidden = false
