@@ -115,13 +115,16 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   failed. The Chief is told to repeat only that. Before 2026-10-06 the answer
   always said "each in its own cmux workspace", and a headless brain without
   an app socket told the user about workspaces that did not exist.
-- When ALL of one spawn's subagents finished a turn, their reports (each one's
-  last reply) reach the chat as ONE `user` message, `[a1] report\n\n[a2] report`.
-  It is queued like a human message: it starts a turn when the Chief is idle,
-  and on acpmux it stops a working turn once no tool runs (the next fresh turn
-  takes it; the native engine delivers it at the next tool boundary). A
-  subagent that runs again later (a `tell`, the user writing in its chat)
-  reports alone.
+- Each subagent's report (its last reply) reaches the chat as its own `user`
+  message, `[a<N>] report`, when it finishes a turn; the Chief never waits for
+  the other subagents of its spawn. It is queued like a human message: it
+  starts a turn when the Chief is idle, and on acpmux it stops a working turn
+  once no tool runs (the next fresh turn takes it; the native engine delivers
+  it at the next tool boundary). Reports queued while the Chief is busy go
+  into one turn. A run the user stopped (stop in its pane, `session/cancel`)
+  reports `[a<N>] (stopped by the user) ...` quietly: the next turn logs it,
+  and it starts no turn. A subagent that runs again later (a `tell`, the user
+  writing in its chat) reports again when it finishes.
 
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
