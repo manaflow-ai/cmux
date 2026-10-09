@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 
 // Sidebar organization intents when the home session serves personal state
@@ -23,23 +24,26 @@ extension SidebarBridge {
             model.apply(intent)
             placePersonal(ids, at: position, in: before)
         case .move(let ids, let group):
+            let id = WorkspaceGroupID(rawValue: group.rawValue), members = placements(ids)
+            // The groups these workspaces leave empty go too (cx-rcby).
+            let life = self.life, ending = life.emptied(by: members, into: id)
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            for workspace in placements(ids) {
-                personal("set-personal-workspace") {
-                    try await $0.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
-                                                        group: .set(id))
+            life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) }, failed: resync) { connection in
+                for workspace in members {
+                    try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
+                                                                      group: .set(id))
                 }
             }
         case .createGroup(let group, let name, let color, let ids, _, let collapsed):
-            model.apply(intent)
             let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = placements(ids), v2 = statePersonal
+            let life = self.life, ending = life.emptied(by: members, into: nil)
+            model.apply(intent)
             // Mixed order: the new group's place where the model formed it,
             // set before members join so it never shows at the end first.
             let place = usesMixedOrder && v2 ? PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
                 : PersonalSidebar.GroupPlacement()
             let move = place.move, top = place.topIndex
-            personal("create-personal-group") { connection in
+            life.commit("create-personal-group", ending: ending, recheck: { life.emptied(by: members, into: nil) }, failed: resync) { connection in
                 // The v2 operation names the group itself.
                 let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
                     name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue, index: move).id)
@@ -50,6 +54,9 @@ extension SidebarBridge {
                                                                 group: .set(created))
                 }
             }
+        case .groupEditorEnded(let group):
+            // A group made with no member goes when its editor closes empty.
+            groupFlow.editorEnded(WorkspaceGroupID(rawValue: group.rawValue))
         case .renameGroup(let group, let name):
             model.apply(intent)
             let v2 = statePersonal
@@ -108,7 +115,10 @@ extension SidebarBridge {
         let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
         guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return resync() }
         let regroup = statePersonal ? plan.regroup : []
-        personal("set-personal-workspace") { connection in
+        // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
+        let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
+        let ending = life.emptied(by: moving, into: group)
+        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: resync) { connection in
             for step in plan.steps {
                 try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                   resource: step.workspace.resource,
@@ -119,6 +129,11 @@ extension SidebarBridge {
             for id in regroup { try await connection.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
         }
     }
+
+    /// The group lifecycle rule (cx-rcby).
+    var life: PersonalGroupLife { PersonalGroupLife(machines: services.machines) }
+    /// New groups and their name editors (SidebarGroupFlow).
+    var groupFlow: SidebarGroupFlow { SidebarGroupFlow(bridge: self) }
 
     /// The home session serves its personal groups as v2 state resources
     /// (`workspace_group.*`, `workspace.place`).
