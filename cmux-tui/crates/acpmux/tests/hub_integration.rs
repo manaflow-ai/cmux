@@ -1468,3 +1468,6 @@ mod quit_spawn;
 
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+
+#[path = "hub_integration/fork_through.rs"]
+mod fork_through;
