@@ -81,9 +81,22 @@ public struct CloudPortShareService: Sendable {
     /// answers: `active` on the server can run ahead of the edge, which shows
     /// a 503 page until its authorization check and route are ready.
     public func share(vmID: String, port: Int, teamID: String?) async throws -> VMPublication {
+        do {
+            return try await shareUntilReady(vmID: vmID, port: port, teamID: teamID)
+        } catch {
+            // A cancelled request can finish with a transport or API error.
+            // Preserve cancellation so callers do not show a stale failure.
+            try Task.checkCancellation()
+            throw error
+        }
+    }
+
+    private func shareUntilReady(vmID: String, port: Int, teamID: String?) async throws -> VMPublication {
+        try Task.checkCancellation()
         var delays = pollDelays.makeIterator()
         var publication = try await existing(vmID: vmID, port: port, teamID: teamID)
         while true {
+            try Task.checkCancellation()
             if publication?.state != "active" {
                 // Creating again resumes a provisioning or unavailable row. A
                 // row still being removed (409) or a busy provisioning lease
@@ -93,10 +106,13 @@ public struct CloudPortShareService: Sendable {
                 } catch VMClientError.httpStatus(let status, _) where status == 409 || status == 503 {
                     publication = nil
                 }
+                try Task.checkCancellation()
             }
             if let current = publication, current.state == "active", await serves(current) {
+                try Task.checkCancellation()
                 return current
             }
+            try Task.checkCancellation()
             guard let delay = delays.next() else { throw CloudPortShareError.stillProvisioning }
             try await sleep(delay)
         }
@@ -117,11 +133,10 @@ public struct CloudPortShareService: Sendable {
         return (200..<400).contains(status) || status == 401
     }
 
-    /// A signed-out HEAD to a protected link. cmux's authorization check
-    /// answers it with 401 without starting a sign-in or reaching the machine.
-    /// HEAD stays safe if a protected publication becomes public while the
-    /// request is in flight: the edge can forward it to the user's app, but
-    /// it cannot carry a request body or trigger a POST mutation.
+    /// A signed-out HEAD to a protected link. The authorization check can
+    /// reject it or redirect to sign-in; redirects are never followed.
+    /// If the publication becomes public during the request, the app receives
+    /// a safe-method readiness check rather than a POST that could mutate data.
     public static let signedOutStatus: Probe = { url in
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5

@@ -30,6 +30,7 @@ public final class CloudPortShareStore {
 
     public private(set) var phases: [Key: Phase] = [:]
     @ObservationIgnored private var resetTasks: [Key: Task<Void, Never>] = [:]
+    @ObservationIgnored private var operationIDs: [Key: UUID] = [:]
     @ObservationIgnored private let sleep: Sleep
 
     /// `sleep` times the auto-dismiss of a finished phase (a brief "copied"
@@ -41,6 +42,16 @@ public final class CloudPortShareStore {
     public func phase(for key: Key) -> Phase? { phases[key] }
 
     public func isCreating(_ key: Key) -> Bool { phases[key] == .creating }
+
+    /// Starts a new operation and returns its identity. A late completion from
+    /// an older operation cannot clear or overwrite a replacement.
+    public func beginCreating(_ key: Key) -> UUID? {
+        guard phases[key] != .creating else { return nil }
+        let id = UUID()
+        operationIDs[key] = id
+        set(.creating, for: key)
+        return id
+    }
 
     /// Shows `phase` on the row; a finished phase clears itself after `holdFor`.
     public func set(_ phase: Phase, for key: Key, holdFor: Duration? = nil) {
@@ -61,5 +72,16 @@ public final class CloudPortShareStore {
         resetTasks[key]?.cancel()
         resetTasks[key] = nil
         phases[key] = nil
+        operationIDs[key] = nil
+    }
+
+    public func set(_ phase: Phase, for key: Key, operationID: UUID, holdFor: Duration? = nil) {
+        guard operationIDs[key] == operationID else { return }
+        set(phase, for: key, holdFor: holdFor)
+    }
+
+    public func clear(_ key: Key, operationID: UUID) {
+        guard operationIDs[key] == operationID else { return }
+        clear(key)
     }
 }

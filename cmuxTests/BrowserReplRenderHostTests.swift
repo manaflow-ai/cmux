@@ -28,23 +28,6 @@ struct BrowserReplRenderHostTests {
         )
     }
 
-    private func makeWindow() throws -> (NSWindow, NSView) {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        window.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        let contentView = try #require(window.contentView)
-        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
-        contentView.addSubview(anchor)
-        return (window, anchor)
-    }
-
     private func visibleRenderWindows() -> [NSWindow] {
         NSApp.windows.filter {
             $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible
@@ -53,18 +36,10 @@ struct BrowserReplRenderHostTests {
     }
 
     @Test func hiddenDrivenTabRendersOffEveryScreenAndReturnsToItsPane() throws {
-        let (window, anchor) = try makeWindow()
+        let (window, anchor, panel, paneHost) = try makePane(key: true)
         defer { window.orderOut(nil) }
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "about:blank")!,
-            isRemoteWorkspace: false
-        )
         let webView = panel.webView
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
-        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
-        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
-        let paneHost = try #require(webView.cmuxBrowserViewportAttachmentSuperview)
 
         // A background tab: no pane shows it, so a driving session moves it
         // into the render window.

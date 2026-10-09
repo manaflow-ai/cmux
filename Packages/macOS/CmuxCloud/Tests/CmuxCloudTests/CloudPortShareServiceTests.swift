@@ -187,6 +187,18 @@ struct CloudPortShareStoreTests {
         #expect(store.phase(for: key) == .creating)
     }
 
+    @Test("a cancelled operation cannot clear its replacement")
+    func cancelledOperationDoesNotClearReplacement() throws {
+        let store = CloudPortShareStore()
+        let first = #require(store.beginCreating(key))
+        store.clear(key, operationID: first)
+        let replacement = #require(store.beginCreating(key))
+        store.clear(key, operationID: first)
+        #expect(store.phase(for: key) == .creating)
+        store.clear(key, operationID: replacement)
+        #expect(store.phase(for: key) == nil)
+    }
+
     private func waitUntil(_ condition: @MainActor () -> Bool) async {
         for _ in 0..<100 where !condition() { await Task.yield() }
     }

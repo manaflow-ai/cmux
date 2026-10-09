@@ -699,8 +699,7 @@ struct CloudTreeNodeActions {
             guard let port = resource.forwardedPort else { return }
             let store = CloudPortShareStore.shared
             let key = CloudPortShareStore.Key(machineID: resource.machine.rawValue, port: port)
-            guard !store.isCreating(key) else { return }
-            store.set(.creating, for: key)
+            guard let operationID = store.beginCreating(key) else { return }
             // Making a link can take a while; if something else lands on the
             // clipboard meanwhile, don't replace it. The row says the link is
             // ready instead, and the next click copies it straight away.
@@ -711,6 +710,7 @@ struct CloudTreeNodeActions {
                 String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}"),
                 { catalog in
                     do {
+                        try Task.checkCancellation()
                         guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
                               let client = VMClient.shared else {
                             throw CloudPortShareFailure.unavailable
@@ -723,15 +723,19 @@ struct CloudTreeNodeActions {
                         try Task.checkCancellation()
                         if NSPasteboard.general.changeCount == clipboardAtClick {
                             Self.copyToPasteboard(publication.url)
-                            store.set(.copied(publication.accessMode), for: key, holdFor: .seconds(2))
+                            store.set(.copied(publication.accessMode), for: key, operationID: operationID, holdFor: .seconds(2))
                         } else {
-                            store.set(.ready, for: key, holdFor: .seconds(10))
+                            store.set(.ready, for: key, operationID: operationID, holdFor: .seconds(10))
                         }
                     } catch is CancellationError {
-                        store.clear(key)
+                        store.clear(key, operationID: operationID)
                         throw CancellationError()
                     } catch {
-                        store.set(.failed, for: key, holdFor: .seconds(4))
+                        if Task.isCancelled {
+                            store.clear(key, operationID: operationID)
+                            throw CancellationError()
+                        }
+                        store.set(.failed, for: key, operationID: operationID, holdFor: .seconds(4))
                         throw error
                     }
                 },
@@ -752,7 +756,7 @@ struct CloudTreeNodeActions {
             if !started {
                 // No lifecycle owner admitted the work (for example while
                 // Cloud is being torn down), so do not leave a spinner behind.
-                store.clear(key)
+                store.clear(key, operationID: operationID)
             }
         }
         return actions
