@@ -21,6 +21,7 @@ const setup = (extraHistory: Array<Record<string, unknown>> = []) => {
   const receipts = mkdtempSync(join(tmpdir(), "rails-promote-receipts-"))
   const smokes: Array<[string, string]> = []
   const resolved: Record<string, string> = { "cmuxnp-dev-vmimg-hostrun5": PASSED, "cmuxnp-dev-vmimg-hostrun6": "sh-0000000000000000000000000000hr06", "cmuxnp-stg-vmimg-hostrun8": "sh-000000000000000000000000000stg08", "cmuxnp-prod-vmimg-hostrun8": "sh-00000000000000000000000000prod08", "cmuxnp-dev-vmimg-teamvm4": "sh-0000000000000000000000000000tv04", "cmuxnp-dev-vmimg-teamvm3": "sh-teamvm3" }
+  const compat = { problems: ["cmux-old compat: not run in this test"] as Array<string> }
   let outcome: SmokeOutcome = { passed: true, created: [{ id: "vm-a", name: "cmuxnp-dev-vmimg-promote-smoke-1" }, { id: "vm-b", name: "cmuxnp-dev-vmimg-promote-smoke-2" }], live: [], detail: "fake smoke" }
   const logs: Array<string> = []
   const errors: Array<string> = []
@@ -33,6 +34,7 @@ const setup = (extraHistory: Array<Record<string, unknown>> = []) => {
         return outcome
       },
       resolve: async (name) => resolved[name],
+      compat: async () => compat.problems,
       log: (l) => logs.push(l),
       error: (l) => errors.push(l),
       by: "test",
@@ -47,6 +49,7 @@ const setup = (extraHistory: Array<Record<string, unknown>> = []) => {
     run,
     setOutcome: (o: SmokeOutcome) => (outcome = o),
     resolved,
+    compat,
     wrangler: () => readFileSync(join(root, WRANGLER), "utf8"),
     channel: (c: string) => JSON.parse(readFileSync(join(root, "images/cmux-vm/channels", `${c}.json`), "utf8")),
   }
@@ -138,10 +141,8 @@ describe("promote and roll back", () => {
     expect(readVar(t.wrangler(), "staging", "CLOUD_FREESTYLE_SNAPSHOT")).toBe("cmuxnp-stg-vmimg-hostrun8")
     expect(t.channel("staging").previous).toBeNull()
     expect(await t.run("--channel", "production", "--snapshot", stg.snapshot_id)).toBe(1) // no cmux-old compat receipts yet
-    expect(t.errors.join("\n")).toContain("no passing cmux-old client smoke")
-    const { writeReceipt } = await import("../receipts.ts")
-    for (const action of ["compat-static", "compat-smoke"] as const)
-      writeReceipt(t.receipts, { action, tree: "images", target: "production", result: "pass", at: "2026-10-08T11:00:00.000Z", setHash: `image:CLOUD_FREESTYLE_SNAPSHOT:${stg.snapshot_id}`, release: "v0.65.0", by: "test" })
+    expect(t.errors.join("\n")).toContain("cmux-old compat: not run")
+    t.compat.problems = []
     expect(await t.run("--channel", "production", "--snapshot", stg.snapshot_id)).toBe(0)
     expect(readVar(t.wrangler(), "production", "CLOUD_FREESTYLE_SNAPSHOT")).toBe("cmuxnp-prod-vmimg-hostrun8")
     expect(readVar(t.wrangler(), "development", "CLOUD_FREESTYLE_SNAPSHOT")).toBe("cmuxnp-dev-vmimg-hostrun5") // other envs untouched
@@ -173,9 +174,7 @@ describe("promote and roll back", () => {
     const entry = t.channel("dev").history.find((h: { snapshot_id: string }) => h.snapshot_id === stg.snapshot_id)
     expect(entry.promotion_smokes).toEqual([expect.objectContaining({ channel: "staging", snapshot_id: "sh-000000000000000000000000000stg08", result: "PASSED" })])
     t.resolved["cmuxnp-prod-vmimg-hostrun8"] = "sh-someoneelse"
-    const { writeReceipt } = await import("../receipts.ts")
-    for (const action of ["compat-static", "compat-smoke"] as const)
-      writeReceipt(t.receipts, { action, tree: "images", target: "production", result: "pass", at: "2026-10-08T11:00:00.000Z", setHash: `image:CLOUD_FREESTYLE_SNAPSHOT:${stg.snapshot_id}`, release: "v0.65.0", by: "test" })
+    t.compat.problems = []
     expect(await t.run("--channel", "production", "--snapshot", stg.snapshot_id)).toBe(1)
     expect(t.errors.at(-1)).toContain("resolves to sh-someoneelse")
   })
@@ -185,5 +184,13 @@ describe("promote and roll back", () => {
     const outcome = readSmokeOutcome(empty, 0, "t")
     expect(outcome.passed).toBe(false)
     expect(outcome.detail).toContain("no ledger")
+  })
+
+  it("re-review: a rollback to a previous without an id needs a name that still resolves", async () => {
+    const t = setup([teamvm])
+    expect(await t.run("--channel", "dev", "--var", "TEAM_VM_SNAPSHOT", "--snapshot", teamvm.snapshot_id)).toBe(0)
+    delete t.resolved["cmuxnp-dev-vmimg-teamvm3"]
+    expect(await t.run("--channel", "dev", "--var", "TEAM_VM_SNAPSHOT", "--rollback")).toBe(1)
+    expect(t.errors.at(-1)).toContain("cmuxnp-dev-vmimg-teamvm3 resolves to nothing")
   })
 })

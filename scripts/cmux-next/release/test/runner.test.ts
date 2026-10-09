@@ -92,3 +92,12 @@ describe("lock and statement timeouts (P1-4)", () => {
     await sql.end()
   })
 })
+
+describe("timeout settings (re-review P3)", () => {
+  it("accepts a positive duration and refuses zero, quotes and garbage", async () => {
+    const { timeoutSetting } = await import("../runner.ts")
+    expect(timeoutSetting("3s", "x")).toBe("3s")
+    expect(timeoutSetting("250ms", "x")).toBe("250ms")
+    for (const bad of ["0", "0s", "3s'; DROP", "", "forever"]) expect(() => timeoutSetting(bad, "x")).toThrow()
+  })
+})

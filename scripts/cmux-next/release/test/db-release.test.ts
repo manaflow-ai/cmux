@@ -32,6 +32,8 @@ interface World {
   readonly staging: string
   readonly production: string
   clock: number
+  /** What the in-process cmux-old compat gate answers (tests set it). */
+  compatProblems: Array<string>
   run(...argv: Array<string>): Promise<number>
   /** A superuser connection, for setup and checks the tool never makes. */
   admin(db: string): Promise<Sql>
@@ -66,7 +68,8 @@ const world = async (): Promise<World> => {
     staging,
     production,
     clock: Date.parse("2026-10-08T12:00:00Z"),
-    deps: { provider, connect: connectUrl, env, root, now: () => new Date(w.clock), log: (l) => logs.push(l), error: (l) => errors.push(l), allowScratchUrls: true },
+    compatProblems: [],
+    deps: { provider, connect: connectUrl, env, root, now: () => new Date(w.clock), log: (l) => logs.push(l), error: (l) => errors.push(l), allowScratchUrls: true, compat: async () => w.compatProblems, ownerPgRole: provider.owner },
     run: (...argv) => main(argv, w.deps),
     admin: (db) => connectUrl(dbUrl(db)),
     owner: (db) => connectUrl(provider.ownerUrl(db)),
@@ -93,9 +96,15 @@ const addExtra = (w: World) => {
   addMigration(w.root, "cmux-vm", "0009_extra.sql", "CREATE TABLE IF NOT EXISTS cmux_vm.extra (id text PRIMARY KEY);\n")
   addRequirement(w.root, '{ table: "cmux_vm.extra", migration: "0009" }')
 }
-const compatReceipts = (w: World) => {
-  const key = changeKey(w.root, { kind: "migrations", tree: vm })
-  for (const action of ["compat-static", "compat-smoke"] as const) writeReceipt(w.receipts, { action, tree: "cmux-vm", target: "production", result: "pass", at: new Date(w.clock).toISOString(), setHash: key, release: "v0.65.0", by: "test" })
+/** A git checkout whose origin is a local bare repo with feat-cmux-next at HEAD (tests accept any origin URL). */
+const landed = (w: World) => {
+  gitInit(w.root)
+  const bare = mkdtempSync(join(tmpdir(), "rails-origin-"))
+  execFileSync("git", ["init", "-q", "--bare", bare])
+  git(w.root, "remote", "add", "origin", bare)
+  git(w.root, "push", "-q", "origin", "HEAD:refs/heads/feat-cmux-next")
+  ;(w.deps as { landedRemote?: RegExp }).landedRemote = /./
+  return bare
 }
 const git = (root: string, ...a: Array<string>) => execFileSync("git", ["-C", root, "-c", "user.email=t@t", "-c", "user.name=t", ...a], { encoding: "utf8" })
 
@@ -189,8 +198,9 @@ describe("apply rehearses in the same run, under the same lock", () => {
 })
 
 describe("who may apply", () => {
-  it("P2-8 refuses when the owner role cannot be looked up", async () => {
+  it("P2-8 refuses when the owner role cannot be looked up (a tree whose owner is a PlanetScale role)", async () => {
     const w = await world()
+    ;(w.deps as { ownerPgRole?: string | null }).ownerPgRole = null
     ;(w.provider as { roleUser: FakeProvider["roleUser"] }).roleUser = async () => {
       throw new Error("pscale: not authenticated")
     }
@@ -201,9 +211,9 @@ describe("who may apply", () => {
 
   it("refuses credentials that are not the target's owner role", async () => {
     const w = await world()
-    ;(w.provider as { roleUser: FakeProvider["roleUser"] }).roleUser = async () => "cmux_vm_owner_role"
+    ;(w.deps as { ownerPgRole?: string | null }).ownerPgRole = "cmux_vm_owner_role"
     expect(await w.run("apply", ...S)).toBe(1)
-    expect(w.errors.at(-1)).toContain("not the owner cmux-vm-owner (cmux_vm_owner_role)")
+    expect(w.errors.at(-1)).toContain("not the owner cmux_vm_owner_role")
   })
 
   it("P0 refuses an owner with power in schema public; staging alone has a loud, recorded allowance", async () => {
@@ -219,39 +229,88 @@ describe("who may apply", () => {
     expect(await w.run("apply", ...S, "--allow-broad-owner-on-staging")).toBe(0)
     expect(w.logs.join("\n")).toContain("WARNING: the owner role can write outside cmux_vm")
     expect(readReceipts(w.receipts).filter((r) => r.action === "apply").at(-1)?.warnings?.join()).toContain("--allow-broad-owner-on-staging")
-    gitInit(w.root)
-    compatReceipts(w)
+    landed(w)
     expect(await w.run("apply", ...P, "--allow-broad-owner-on-staging")).toBe(1)
     expect(w.errors.join()).toContain("never on production")
   })
 })
 
 describe("production", () => {
-  it("refuses without --confirm-production, outside a clean landed checkout, without compat receipts, and while staging lacks the files", async () => {
+  it("refuses without --confirm-production, outside a clean checkout landed on manaflow-ai/cmux feat-cmux-next, without cmux-old compat, and while staging lacks the files", async () => {
     const w = await world()
     expect(await w.run("apply", ...P.filter((a) => a !== "--confirm-production"))).toBe(1)
     expect(w.errors.at(-1)).toContain("--confirm-production")
     expect(await w.run("apply", ...P)).toBe(1)
     expect(w.errors.at(-1)).toContain("not a git checkout")
     gitInit(w.root)
+    expect(await w.run("apply", ...P)).toBe(1)
+    expect(w.errors.at(-1)).toContain("is not manaflow-ai/cmux")
+    landed(w)
     addExtra(w)
     expect(await w.run("apply", ...P)).toBe(1)
     expect(w.errors.at(-1)).toContain("uncommitted migration changes")
     git(w.root, "add", ".")
     git(w.root, "commit", "-qm", "0009 not landed")
     expect(await w.run("apply", ...P)).toBe(1)
-    expect(w.errors.at(-1)).toContain("is not on landed")
-    git(w.root, "branch", "-f", "landed", "HEAD")
+    expect(w.errors.at(-1)).toContain("is not on origin/feat-cmux-next")
+    git(w.root, "push", "-q", "origin", "HEAD:refs/heads/feat-cmux-next")
+    writeFileSync(join(w.root, "scripts/cmux-next/release/role-contract.json"), readFileSync(join(w.root, "scripts/cmux-next/release/role-contract.json"), "utf8").replace('"grantees": []', '"grantees": ["anyone"]'))
+    expect(await w.run("apply", ...P)).toBe(1)
+    expect(w.errors.at(-1)).toContain("uncommitted migration changes")
+    git(w.root, "checkout", "-q", "--", "scripts/cmux-next/release/role-contract.json")
     expect(await w.run("apply", ...P, "--root", w.root)).toBe(1)
     expect(w.errors.at(-1)).toContain("--root")
+    w.compatProblems = ["cmux-old replay: GET /api/vm answered 404"]
     expect(await w.run("apply", ...P)).toBe(1)
-    expect(w.errors.at(-1)).toContain("no passing cmux-old static compat receipt")
-    compatReceipts(w)
+    expect(w.errors.at(-1)).toContain("GET /api/vm answered 404")
+    w.compatProblems = []
     expect(await w.run("apply", ...P)).toBe(1)
     expect(w.errors.at(-1)).toContain("staging does not have")
     expect(await w.run("apply", ...S)).toBe(0)
     expect(await w.run("apply", ...P)).toBe(0)
     expect((await rows(w, w.production)).length).toBe(9)
+  })
+
+  it("a production rehearsal that cannot act as the owner role fails", async () => {
+    const w = await world()
+    landed(w)
+    const stranger = `${w.provider.owner}_x`.slice(0, 60)
+    await (await adminSql()).query(`CREATE ROLE "${stranger}" LOGIN PASSWORD 'pw'`)
+    roles.push(stranger)
+    ;(w.provider as { copyUrl: FakeProvider["copyUrl"] }).copyUrl = async () => undefined
+    ;(w.provider as { connectRole: FakeProvider["connectRole"] }).connectRole = async () => undefined
+    ;(w.provider as { connectDefault: FakeProvider["connectDefault"] }).connectDefault = async (database, branch) => {
+      const u = new URL(dbUrl(w.provider.dbOf(database, branch)))
+      u.username = stranger
+      u.password = "pw"
+      return { url: u.toString(), release: async () => {} }
+    }
+    expect(await w.run("apply", ...S)).toBe(0) // staging: a warning
+    expect(w.logs.join("\n")).toContain("could not act as cmux-vm-owner")
+    expect(await w.run("apply", ...P)).toBe(1)
+    expect(w.errors.join("\n")).toContain("could not act as cmux-vm-owner")
+  })
+})
+
+describe("re-review: broader owner checks and session-mode connections", () => {
+  const grantAndRefuse = async (setup: (owner: string) => string, expected: string) => {
+    const w = await world()
+    const s = await w.admin(w.staging)
+    for (const q of setup(w.provider.owner).split(";").filter((x) => x.trim())) await s.query(q)
+    await s.end()
+    expect(await w.run("apply", ...S)).toBe(1)
+    expect(w.errors.at(-1)).toContain(expected)
+  }
+  it("refuses an owner that can read a public table", () => grantAndRefuse((o) => `CREATE TABLE public.users (id text); GRANT SELECT ON public.users TO "${o}"`, "can read public.users"))
+  it("refuses an owner that can use a public sequence", () => grantAndRefuse((o) => `CREATE SEQUENCE public.users_id_seq; GRANT USAGE ON SEQUENCE public.users_id_seq TO "${o}"`, "can use or update sequence public.users_id_seq"))
+  it("refuses an owner that owns a function outside cmux_vm", () => grantAndRefuse((o) => `CREATE FUNCTION public.f() RETURNS int LANGUAGE sql AS 'select 1'; ALTER FUNCTION public.f() OWNER TO "${o}"`, "owns objects outside cmux_vm"))
+  it("refuses a pooler (port 6432) for apply: session locks and SET would not hold", async () => {
+    const w = await world()
+    const u = new URL(w.provider.ownerUrl(w.staging))
+    u.port = "6432"
+    w.setEnv("POOLED_URL", u.toString())
+    expect(await w.run("apply", "--tree", "cmux-vm", "--target", "staging", "--url-env", "POOLED_URL")).toBe(1)
+    expect(w.errors.at(-1)).toContain("pooler")
   })
 })
 

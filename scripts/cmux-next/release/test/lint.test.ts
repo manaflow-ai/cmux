@@ -315,3 +315,35 @@ describe("review of 5c20b91a5a4f: bypasses (one fixture each)", () => {
     expect((await lintTree(vm, optionsFor(root))).errors).toEqual([])
   })
 })
+
+describe("re-review of 1217bf4b5eba: nested functions and the rest (one fixture each)", () => {
+  const header = "-- contract: deliberate non-expand change for this fixture\n"
+  const refusedAlways = async (sql: string) => {
+    expect((await errorsOf(sql)).length).toBeGreaterThan(0)
+    expect((await errorsOf(header + sql)).length).toBeGreaterThan(0)
+  }
+  const nested: Array<[string, string]> = [
+    ["setval inside an INSERT", "INSERT INTO cmux_vm.t (x) SELECT setval('public.users_id_seq', 1)::text;"],
+    ["set_config inside an INSERT", "INSERT INTO cmux_vm.t (x) SELECT set_config('statement_timeout', '0', true);"],
+    ["set_config of the role", "INSERT INTO cmux_vm.t (x) VALUES (set_config('role', 'postgres', true));"],
+    ["query_to_xml reading public", "INSERT INTO cmux_vm.t (x) SELECT query_to_xml('select * from public.users', true, true, '')::text;"],
+    ["pg_terminate_backend in a WHERE", "DELETE FROM cmux_vm.audit_log WHERE pg_terminate_backend(1);"],
+    ["nextval of a public sequence as a DEFAULT", "CREATE TABLE cmux_vm.n (id bigint DEFAULT nextval('public.s'));"],
+    ["a string cast to regclass", "INSERT INTO cmux_vm.t (x) SELECT 'public.users'::regclass::text;"],
+    ["a function in a CHECK", "ALTER TABLE cmux_vm.resources ADD CONSTRAINT c CHECK (pg_sleep(1) IS NULL) NOT VALID;"],
+  ]
+  for (const [what, sql] of nested) it(`P1 refuses ${what}, with or without a header`, () => refusedAlways(sql))
+
+  it("P1 allows the allowlisted functions", async () => {
+    expect(await errorsOf("CREATE TABLE cmux_vm.f (id uuid DEFAULT gen_random_uuid(), name text CHECK (length(lower(name)) > 0), at timestamptz DEFAULT now());")).toEqual([])
+  })
+  it("P3 COMMENT ON an object outside cmux_vm is refused", async () => {
+    await refusedAlways("COMMENT ON TABLE public.users IS 'x';")
+    await refusedAlways("COMMENT ON TABLE users IS 'x';")
+    expect(await errorsOf("COMMENT ON TABLE cmux_vm.resources IS 'x';")).toEqual([])
+  })
+  it("P3 a constant-true WHERE (1 = 1) counts as no WHERE", async () => {
+    expect((await errorsOf("DELETE FROM cmux_vm.audit_log WHERE 1 = 1;")).length).toBeGreaterThan(0)
+    expect((await errorsOf("UPDATE cmux_vm.resources SET labels = '{}' WHERE 'a' = 'a';")).length).toBeGreaterThan(0)
+  })
+})
