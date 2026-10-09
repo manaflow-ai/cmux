@@ -228,6 +228,7 @@ impl OptChat {
                 failing: BTreeMap::new(),
                 stuck: Default::default(),
                 recovered: false,
+                tries: BTreeMap::new(),
                 closed: false,
                 fatal: None,
                 reports: Vec::new(),

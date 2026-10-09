@@ -73,7 +73,7 @@ final class FeedService {
             if forced == nil { source.checkAlive() }
         }
         func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> any NSObjectProtocol {
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } }
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } } // main-proof: observer on queue: .main
         }
         observers = [
             on(app, NSApplication.didBecomeActiveNotification, true),
