@@ -256,7 +256,9 @@ jobs:
               [ -n "$path" ] || continue
               n=$(basename "$path"); num=$((10#${n:0:4}))
               if [ "$num" -le "$before_max" ]; then echo "::error file=$path,title=Migration number not above the previous head::$path must be numbered above $before_max."; errors=1; fi
-              if [ "$REF_NAME" = feat-cmux-next ] && grep -qE '^--[[:space:]]*phase:[[:space:]]*contract' "$path"; then echo "::error file=$path,title=Contract migration on feat-cmux-next::contract migrations go in a PR into main only."; errors=1; fi
+              # A contract migration needs a written `-- contract: <reason>` line; the release rails lint below then
+              # allows only the named contract operations (scripts/cmux-next/release/lint-rules.ts).
+              if [ "$REF_NAME" = feat-cmux-next ] && grep -qE '^--[[:space:]]*phase:[[:space:]]*contract' "$path" && ! grep -qE '^--[[:space:]]*contract:[[:space:]]*[^[:space:]]' "$path"; then echo "::error file=$path,title=Contract migration on feat-cmux-next::a contract migration needs a '-- contract: <reason>' line, and the release rails lint must accept it."; errors=1; fi
             done < <(git diff --name-only --diff-filter=A "$BEFORE" HEAD -- "$dir")
           fi
           (cd backend && bun install --frozen-lockfile >/dev/null)
