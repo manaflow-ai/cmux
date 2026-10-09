@@ -330,20 +330,36 @@ describe("harness switch: failure", () => {
     expect(draw().switching?.phase).toBe("starting");
   });
 
-  test("a trust refusal hands the prompt back without leaving a generic failed switch card", async () => {
+  // cx-nn3e P0b (nxdog82): a trust refusal dropped the switch (its harness and folder) and handed
+  // the prompt back; after Trust nothing was sent, and automation's next send started the default
+  // harness in the private folder. Now the switch waits for the trust answer with its prompt, shows
+  // no failed card, and after Trust (`resumeAfterTrust`) starts the same harness in the same folder
+  // and sends the prompt exactly once.
+  test("a trust refusal keeps the switch and its prompt; after Trust the same harness starts there and sends it once", async () => {
     const { store, port, draw, restored } = setup();
-    const done = store.switchTo("claude", "/work");
+    void store.switchTo("codex", "/work");
     const turn = store.send("who are you");
     const refusal = Object.assign(new Error("trust.pending: answer the trust question first (/work)"), {
       reason: "trust.pending",
       cwd: "/work",
     });
     port.creates[0]!.reply.reject(refusal);
+    await settle();
+    expect(restored).toEqual([]);
+    expect(draw().switching?.phase).not.toBe("failed");
+    expect(store.view().intent?.harness).toBe("codex");
+    expect(store.view().intent?.queued.map((prompt) => prompt.text)).toEqual(["who are you"]);
 
-    expect(await done).toBeUndefined();
-    await expect(turn!).rejects.toMatchObject({ reason: "trust.pending", cwd: "/work", handedBack: true });
-    expect(restored).toEqual(["who are you"]);
-    expect(draw().switching).toBeUndefined();
+    store.resumeAfterTrust();
+    expect(port.creates.map((create) => create.harness)).toEqual(["codex", "codex"]);
+    expect(port.cwds).toEqual(["/work", "/work"]);
+    port.creates[1]!.reply.resolve("codex-9");
+    await settle();
+    expect(port.sent.map((sent) => sent.text)).toEqual(["who are you"]);
+    expect(await turn).toBe("sent");
+    // A second resume does nothing: the switch is done.
+    store.resumeAfterTrust();
+    expect(port.creates.length).toBe(2);
   });
 
   // Data loss: a queued prompt's attachments must come back with its text, exactly as they were.
