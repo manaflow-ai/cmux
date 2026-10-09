@@ -12,6 +12,7 @@ public nonisolated enum SidebarSectionsSetting {
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
+    public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let showChatsPath = ["sidebar", "showChats"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
 
@@ -46,6 +47,17 @@ public nonisolated enum SidebarSectionsSetting {
                           help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
                           keywords: ["sidebar", "workspace", "tabs"])
+    }
+
+    /// Projects, which its header's menu hides (Leo 2026-10-06). Chats has
+    /// Show Chats (`showChatsDescriptor`).
+    static func sectionDescriptors(group: SettingText) -> [SettingDescriptor] {
+        [
+            SettingDescriptor(showProjectsPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showProjects", "Show Projects"),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showProjects),
+                              keywords: ["sidebar", "projects", "workspaces", "section", "hide", "show"]),
+        ]
     }
 
     static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -112,6 +124,7 @@ public nonisolated enum SidebarSectionsSetting {
         }
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
+        result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
         if let value = root.value(at: showChatsPath) {
             if let flag = value.boolValue {
                 result.showChats = flag
@@ -120,6 +133,15 @@ public nonisolated enum SidebarSectionsSetting {
             }
         }
         return result
+    }
+
+    private static func flag(_ root: JSONValue, _ path: [String], fallback: Bool, _ diagnostics: inout [SettingsDiagnostic]) -> Bool {
+        guard let value = root.value(at: path) else { return fallback }
+        guard let flag = value.boolValue else {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
+            return fallback
+        }
+        return flag
     }
 
     private static func share(_ root: JSONValue, _ path: [String], _ name: String, fallback: Double,
