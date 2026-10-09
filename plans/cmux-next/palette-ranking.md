@@ -37,26 +37,28 @@ Usage history (`FrecencyStore`: +1 per use, half-life 3 days, 500 keys) is recor
 
 ## 5. Design
 
-One scorer, match class first:
+One scorer, match class first (`matchTier` in ranker.ts; 1000 points per unit, so nothing else crosses a class):
 
 | tier | match |
 | --- | --- |
-| 6 | the whole title is the query |
-| 5.5 | a scope row whose keyword is the whole query ("settings" enters the settings scope) |
-| 5 | the title starts with the query; or the one-word query is the action id |
-| 4 | every token starts a title word |
-| 3 | acronym: the query is the start of the title's word initials ("sr", "nac", camelCase humps count) |
-| 2 | every token is a title substring, or starts a keyword; or the query starts the action id (4+ letters) |
-| 1.5 | typo: every token matches strictly or is one edit (insert, delete, substitute, adjacent swap) from a title word or its start; 3-letter tokens allow only a swap |
-| 1 | fuzzy: every token matches in order from a word start of the title, or starts a subtitle or accessory word |
+| 12 | the whole title is the query |
+| 11 | a scope row whose keyword is the whole query ("settings" enters the settings scope) |
+| 10 | the title starts with the query in whole words ("split" for Split Right); or the query is the whole action id |
+| 9 | every token is a whole title word ("chat" for New Agent Chat) |
+| 8 | the title starts with the query, the last word cut ("brows") |
+| 7 | every token starts a title word |
+| 6 | acronym: the query starts the title's word initials ("sr", "nac"; camelCase humps count) |
+| 4 | every token is a title substring or starts a keyword word; or an id-shaped query (a dot or a capital) starts the action id |
+| 3 | typo: every token matches strictly or is one edit (insert, delete, substitute, adjacent swap) from a title word or its start; 3-letter tokens allow only a swap. Looked for only when the strict pass finds fewer than 3 rows at tier 4 or better |
+| 2 | fuzzy: every token matches in order from a title word start, or is a keyword, subtitle or accessory substring |
 
-Rows that match only scattered letters with no word-start anchor do not match. The action id is no longer a keyword (it matched ordinary words: `newTab` is the id of New Workspace, 200 ids start with `palette.`); it is a separate field that only a one-word query of 4 or more letters that starts it can match.
+Letters scattered without a word-start anchor no longer match. The action id is no longer a keyword (it matched ordinary words: `newTab` is the id of New Workspace, 80 ids start with `palette.`); it is a separate field that only the whole id or an id-shaped start matches. Setting rows (`PaletteItem.isDemoted`) drop 2 units, so a setting that starts with the query ranks with a command that has the query as a whole word (ten settings are titled "Color").
 
-Score = tier x 1000 + quality (the existing contiguity and word-start score, a phrase bonus, a whole-initials bonus, minus a length penalty; clamped to 0..900) + `rankBias` + the frecency boost (at most 60, logarithmic) + the learned pick boost (section 5.2). A disabled row drops below every enabled row (-10000). Ties: the shorter title, then the provider order.
+Score = tier x 1000 + quality (the existing contiguity and word-start score, a phrase bonus, a whole-initials bonus, minus a length penalty; 0..880; whole-title rows get the maximum so the provider order breaks their ties) + `rankBias` + the frecency boost (at most 60) + 40 for a row with a shortcut (a core command beats its unbound siblings: Split Right over Split Up) + the learned pick boost (5.2, next step). A disabled row drops below every enabled row. Equal scores keep the provider order (the catalog lists a family's common command first).
 
 ### 5.1 Sections while typing
 
-The 13 catalog categories collapse into one Commands section while typing. Sections are ordered by their best row; each non-command section shows at most 5 rows in the root (its scope, for example `@` tabs, shows all). The first row is always the global best row.
+While typing, the root (`PalettePageSpec.mergesSectionsWhenTyping`) shows one untitled list, best first; rows keep their icon, subtitle and accessory, so the kind stays visible. Before, a section ordered by its best row put all its weak rows above the next section's best row (the 211 setting rows buried New Browser Tab for "browser"). The empty query keeps the category sections. Other pages keep their sections.
 
 ### 5.2 Usage and learned picks
 
@@ -72,10 +74,15 @@ The 13 catalog categories collapse into one Commands section while typing. Secti
 
 ## 6. Landings
 
-| step | what | eval before | eval after |
-| --- | --- | --- | --- |
-| 1 | eval set, fixture and live runner | | |
-| 2 | tiered scorer, no id field, typo tier, Commands section while typing, caps | | |
-| 3 | learned picks per query prefix, Recent any kind, Suggested | | |
-| 4 | usage store in the daemon (CORE token) | | |
-| 5 | pins, hidden, aliases in cmux.json (settings token) | | |
+Eval: `bun scripts/palette-eval.ts` in webviews (fixture), and the same cases against a live tagged build (`--live`). The "before" row is the ranker at the fork point on the original dump.
+
+| step | what | top-1 | top-3 | MRR |
+| --- | --- | --- | --- | --- |
+| before | ranker at origin/feat-cmux-next a00a8aebc2ac, original dump | 59.1% | 69.1% | 0.650 |
+| 1 | eval set, fixture, live runner, `debug.palette.entries` (red commit with the step-2 floors: 60.0% / 69.1% / 0.651 on the reshaped fixture) | | | |
+| 2 | match tiers, id field, typo tier, setting demotion, shortcut tie-break, one list while typing | 65.5% | 80.0% | 0.753 |
+| 3 | learned picks per query prefix, Recent of any row kind, Suggested (catalog field, FREEZE token) | | | |
+| 4 | usage store in the daemon (CORE token) | | | |
+| 5 | pins, hidden, aliases in cmux.json (settings token) | | | |
+
+Remaining misses after step 2 are mostly usage (Lawrence's "col", "screen": the catalog's color and width variants share the first word) and intent words ("browser" wants New Browser Tab, "notifications" wants Show Notifications); step 3 targets them. Swift palette benchmark (2000 rows, JavaScriptCore): 7.8 ms per query at fdac71e8.
