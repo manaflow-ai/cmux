@@ -50,6 +50,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
     /// Opens onboarding's existing project and agent-history import flow.
     @ObservationIgnored public var onImportAndSync: (() -> Void)?
+    /// Opens a device chat (`chats.open`) through the app's shared Open Chat path.
+    @ObservationIgnored public var onOpenChat: ((String) -> Void)?
     /// The chat's own menu for a right-click on empty space (Change Background, zoom, Find...),
     /// detached items the App renders from its action placements.
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
@@ -307,6 +309,10 @@ public final class AgentPaneModel {
         case .importAndSync:
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()
+            return AgentPaneReply.success()
+        case .openChat(let key):
+            guard let onOpenChat else { return Self.unsupported("chats.open") }
+            onOpenChat(key)
             return AgentPaneReply.success()
         case .paneAction, .tabState: return respondToHeader(request)
         case .appAction(let id):

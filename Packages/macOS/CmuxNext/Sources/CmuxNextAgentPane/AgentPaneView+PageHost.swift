@@ -46,6 +46,7 @@ extension AgentPaneView {
         if let theme = AgentPageEvent.theme(themeTokens, surface: surfaceKind) { events.append(theme) }
         events.append(.shortcuts(shortcuts))
         events.append(.preview(previewFeatures))
+        events.append(.deviceChats(deviceChats))
         events.append(.editedFiles(editedFiles))
         if !customization.isEmpty { events += AgentPageEvent.customization(customization) }
         return events

@@ -41,6 +41,10 @@ public final class AgentPaneView: NSView {
     public var previewFeatures = false {
         didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
     }
+    /// The newest device chats (acpmux chat index, via the app's Chats feed) for the New Tab page's cards.
+    public var deviceChats: [AgentPaneDeviceChat] = [] {
+        didSet { if deviceChats != oldValue { applyDeviceChats() } }
+    }
     /// `agentPane.editedFiles.*`: pushed like ``previewFeatures``.
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
