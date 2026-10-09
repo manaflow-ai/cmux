@@ -3370,6 +3370,7 @@
 		B804A0280000000000000028 /* SidebarSelectionCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0280000000000000028 /* SidebarSelectionCoalescer.swift */; };
 		B804C0020000000000000002 /* SidebarSelectionCoalescerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804D0020000000000000002 /* SidebarSelectionCoalescerTests.swift */; };
 		E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */; };
+		B8DE2DF68EBAC8B061BE60C8 /* SidebarSlideGlide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C05AC6F464520A0505047A3 /* SidebarSlideGlide.swift */; };
 		C12791000000000000000007 /* SidebarSnapshotOwnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12791000000000000000008 /* SidebarSnapshotOwnerTests.swift */; };
 		F57072635F25EBCA741E125D /* SidebarState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */; };
 		D7344F010000000000000001 /* SidebarTabDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7344F010000000000000002 /* SidebarTabDragPayload.swift */; };
@@ -7842,6 +7843,7 @@
 		B804B0280000000000000028 /* SidebarSelectionCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/SidebarSelectionCoalescer.swift; sourceTree = "<group>"; };
 		B804D0020000000000000002 /* SidebarSelectionCoalescerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSelectionCoalescerTests.swift; sourceTree = "<group>"; };
 		9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSelectionState.swift; sourceTree = "<group>"; };
+		3C05AC6F464520A0505047A3 /* SidebarSlideGlide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarSlideGlide.swift; sourceTree = "<group>"; };
 		C12791000000000000000008 /* SidebarSnapshotOwnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSnapshotOwnerTests.swift; sourceTree = "<group>"; };
 		D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarState.swift; sourceTree = "<group>"; };
 		D7344F010000000000000002 /* SidebarTabDragPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTabDragPayload.swift; sourceTree = "<group>"; };
@@ -10270,6 +10272,7 @@
 				2790AEE13376A9F6117A90FF /* SidebarToggleSlideMachine.swift */,
 				3FAC0DA415898D27426B2292 /* SidebarDockedPaneHost.swift */,
 				325684B58553FAF634D156AD /* SidebarToggleSlideProbe.swift */,
+				3C05AC6F464520A0505047A3 /* SidebarSlideGlide.swift */,
 				599E6D613B9CD389A75BCU01 /* SidebarCustomizationSettings.swift */,
 				1102C452474E10C5962941D3 /* SidebarPeekPanelHost.swift */,
 				A46624E7B573873D41B28E5C /* VerticalTabsSidebar+PresentationToggle.swift */,
@@ -16274,6 +16277,7 @@
 				5A1180B9BE6B4395A220318A /* SidebarSearchFieldView.swift in Sources */,
 				B804A0280000000000000028 /* SidebarSelectionCoalescer.swift in Sources */,
 				E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,
+				B8DE2DF68EBAC8B061BE60C8 /* SidebarSlideGlide.swift in Sources */,
 				F57072635F25EBCA741E125D /* SidebarState.swift in Sources */,
 				D7344F010000000000000001 /* SidebarTabDragPayload.swift in Sources */,
 				F7216006000000000000001 /* SidebarTabItemContextMenuState.swift in Sources */,

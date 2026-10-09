@@ -275,3 +275,75 @@ struct SidebarToggleSlideMachineTests {
         #expect(landing < 0.25)
     }
 }
+
+/// Chrome that rests at a different x in the docked and hidden layouts
+/// glides between them in step with the slide: at content offset 0 it sits
+/// at its hidden rest, at the full sidebar width at its docked rest, so
+/// neither the keypress commit nor the landing commit moves it.
+@Suite
+struct SidebarSlideGlideTests {
+    /// Where the glided chrome is on screen under the hidden layout.
+    private func onScreen(hidden: CGFloat, factor: Double, offset: Double) -> Double {
+        Double(hidden) + offset + offset * factor
+    }
+
+    @Test
+    func titleGlidesFromItsHiddenRestToItsDockedRest() {
+        for (width, titlebarInset) in [(240.0, 82.0), (320, 82), (180, 300)] {
+            let leading = ContentView.titlebarTitleLeadings(
+                isFullScreen: false,
+                sidebarWidth: width,
+                minimumSidebarWidth: 180,
+                titlebarLeadingInset: titlebarInset,
+                reservedControlsWidth: 120
+            )
+            let factor = SidebarSlideGlide.factor(hiddenLeading: leading.hidden, dockedLeading: leading.docked, sidebarWidth: width)
+            #expect(onScreen(hidden: leading.hidden, factor: factor, offset: 0) == Double(leading.hidden))
+            #expect(abs(onScreen(hidden: leading.hidden, factor: factor, offset: width) - Double(leading.docked)) < 1e-9)
+        }
+    }
+
+    @Test
+    func titleThatRestsInPlaceHoldsStillWhileTheContentSlides() {
+        // A minimum-width sidebar leaves the title where the titlebar
+        // buttons put it in both layouts: it cancels the slide exactly.
+        let leading = ContentView.titlebarTitleLeadings(
+            isFullScreen: false,
+            sidebarWidth: 180,
+            minimumSidebarWidth: 180,
+            titlebarLeadingInset: 300,
+            reservedControlsWidth: 0
+        )
+        #expect(leading.hidden == leading.docked)
+        #expect(SidebarSlideGlide.factor(hiddenLeading: leading.hidden, dockedLeading: leading.docked, sidebarWidth: 180) == -1)
+    }
+
+    @Test
+    func fullscreenHiddenTitleClearsTheAlwaysVisibleControls() {
+        let leading = ContentView.titlebarTitleLeadings(
+            isFullScreen: true,
+            sidebarWidth: 240,
+            minimumSidebarWidth: 180,
+            titlebarLeadingInset: 82,
+            reservedControlsWidth: 120
+        )
+        #expect(leading.hidden == 8 + 120 + 8)
+        #expect(leading.docked == 252)
+    }
+
+    @Test
+    func minimalModeTabsGlideFromPastTheTrafficLightsToTheSidebarEdge() {
+        let width = 240.0, inset = 80.0, paneLeading = 6.0
+        let factor = SidebarSlideGlide.factor(hiddenLeading: inset, dockedLeading: width, sidebarWidth: width)
+        #expect(factor == -inset / width)
+        // Hidden layout: the tabs rest `inset` past the pane; landed, at the
+        // docked pane's leading edge, a sidebar width further on.
+        #expect(onScreen(hidden: paneLeading + inset, factor: factor, offset: 0) == paneLeading + inset)
+        #expect(abs(onScreen(hidden: paneLeading + inset, factor: factor, offset: width) - (paneLeading + width)) < 1e-9)
+    }
+
+    @Test
+    func noSidebarWidthMeansNoGlide() {
+        #expect(SidebarSlideGlide.factor(hiddenLeading: 10, dockedLeading: 200, sidebarWidth: 0) == 0)
+    }
+}

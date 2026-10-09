@@ -238,7 +238,9 @@ extension ContentView {
                             && !(rightSidebarVisible && fileExplorerState.mode == .dock)
                     },
                     trailingStillWidth: { rightSidebarWidth },
-                    isPeekPresenting: { sidebarPeek.presentsPanel }
+                    isPeekPresenting: { sidebarPeek.presentsPanel },
+                    dockedLayoutWillCommit: { docked in syncTrafficLightInset(docked: docked) },
+                    tabBarInsetDelta: { tabBarLeadingInset(docked: false) - tabBarLeadingInset(docked: true) }
                 )
                 sidebarPeek.setPolicy(SidebarCustomizationSettings.peekPolicy())
             }

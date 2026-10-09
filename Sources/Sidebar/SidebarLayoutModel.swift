@@ -24,6 +24,9 @@ final class SidebarLayoutModel: ObservableObject {
     /// The docked pane's host, so the toggle animator can start row
     /// animations at a show's first frame without a SwiftUI pass.
     weak var dockedPane: SidebarDockedPaneHost.ContainerView?
+    /// The titlebar title's host, which the toggle's slide glides between
+    /// its hidden and docked resting x.
+    weak var titlebarTitle: SidebarSlideGlideHost.ContainerView?
 
     /// How far the window ground reaches past the leading edge, so a toggle
     /// slide (which translates the content root by up to the sidebar width)

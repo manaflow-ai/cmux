@@ -2198,42 +2198,39 @@ struct ContentView: View {
                 .allowsHitTesting(false)
 
             SidebarWidthReader(layout: sidebarLayout) { width in
-                HStack(spacing: 8) {
-                    if isFullScreen && !sidebarState.isVisible {
-                        // Reserve the controls' width so the title flows to their right.
-                        // The visible controls are rendered once in the band overlay (see
-                        // `workspaceTitlebarBand`) so their position never depends on
-                        // sidebar visibility.
-                        Color.clear
-                            .frame(width: fullscreenControlsWidth, height: titlebarContentHeight)
-                            .allowsHitTesting(false)
-                    }
-
-                    // Draggable folder icon + focused command name
-                    if let directory = focusedDirectory {
-                        DetachedFolderDragIcon(directory: directory)
-                            .frame(width: 16, height: 16)
-                            .padding(.leading, -6)
-                    }
-
-                    Text(titlebarText)
-                        .cmuxFont(size: 13, weight: .bold)
-                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                        .lineLimit(1)
-                        .allowsHitTesting(false)
-
-                    Spacer()
-
-                }
-                .frame(height: titlebarContentHeight)
-                .padding(.top, 2)
-                .padding(.leading, Self.customTitlebarLeadingPadding(
+                // Docked and hidden layouts rest the title at different x (the
+                // hidden one reserves the fullscreen controls' width, which are
+                // drawn once in the band overlay); its own layer lets the
+                // toggle's slide glide it between them.
+                let leading = Self.titlebarTitleLeadings(
                     isFullScreen: isFullScreen,
-                    isSidebarVisible: sidebarState.isVisible,
                     sidebarWidth: width,
                     minimumSidebarWidth: minimumSidebarWidth,
-                    titlebarLeadingInset: titlebarLeadingInset
-                ))
+                    titlebarLeadingInset: titlebarLeadingInset,
+                    reservedControlsWidth: fullscreenControlsWidth
+                )
+                SidebarSlideGlideHost(
+                    hiddenLeading: leading.hidden,
+                    dockedLeading: leading.docked,
+                    layout: sidebarLayout,
+                    content: AnyView(HStack(spacing: 8) {
+                        // Draggable folder icon + focused command name
+                        if let directory = focusedDirectory {
+                            DetachedFolderDragIcon(directory: directory)
+                                .frame(width: 16, height: 16)
+                        }
+                        Text(titlebarText)
+                            .cmuxFont(size: 13, weight: .bold)
+                            .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                            .lineLimit(1)
+                            .allowsHitTesting(false)
+                        Spacer(minLength: 0)
+                    }.cmuxFontMagnificationEnvironment())
+                )
+                .padding(.leading, focusedDirectory == nil ? 0 : -6)
+                .frame(height: titlebarContentHeight)
+                .padding(.top, 2)
+                .padding(.leading, sidebarState.isVisible && sidebarLayout.docksSidebar ? leading.docked : leading.hidden)
                 .padding(.trailing, 8)
             }
         }
@@ -2247,7 +2244,7 @@ struct ContentView: View {
                     orientation: .horizontal,
                     backgroundColor: appearance.resolvedChromeBackgroundColor
                 )
-                    .padding(.leading, sidebarState.isVisible ? width : 0)
+                    .padding(.leading, sidebarState.isVisible && sidebarLayout.docksSidebar ? width : 0)
             }
         }
     }
@@ -2299,12 +2296,16 @@ struct ContentView: View {
             }
     }
 
-    private func syncTrafficLightInset(isMinimalMode: Bool? = nil) {
-        let resolvedIsMinimalMode = isMinimalMode ?? currentIsMinimalMode
-        let inset: CGFloat = (resolvedIsMinimalMode && !sidebarState.isVisible && !isFullScreen)
-            ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset)
-            : 0
-        tabManager.syncWorkspaceTabBarLeadingInset(inset)
+    /// Minimal mode's tab bar makes room for the traffic lights while the
+    /// docked layout gives the sidebar no width.
+    func tabBarLeadingInset(docked: Bool, isMinimalMode: Bool? = nil) -> CGFloat {
+        (isMinimalMode ?? currentIsMinimalMode) && !docked && !isFullScreen
+            ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset) : 0
+    }
+
+    func syncTrafficLightInset(isMinimalMode: Bool? = nil, docked: Bool? = nil) {
+        let docked = docked ?? (sidebarState.isVisible && sidebarLayout.docksSidebar)
+        tabManager.syncWorkspaceTabBarLeadingInset(tabBarLeadingInset(docked: docked, isMinimalMode: isMinimalMode))
     }
 
     private func handleWorkspacePresentationModeChange(isMinimalMode: Bool) {
