@@ -28,23 +28,38 @@ struct Daemon {
     socket: PathBuf,
     state: PathBuf,
     dir: PathBuf,
+    /// A Job Object without `JOB_OBJECT_LIMIT_BREAKAWAY_OK` that the daemon
+    /// runs in (`new_in_job_without_breakaway`); it kills what is left in it
+    /// when the test drops it.
+    job: Option<NoBreakawayJob>,
 }
 
 impl Daemon {
     fn new(name: &str) -> Self {
+        Self::with_job(name, None)
+    }
+
+    /// A daemon started in a job that forbids breakaway, as under a parent
+    /// that keeps its children in a job (some CI runners, IDE terminals).
+    fn new_in_job_without_breakaway(name: &str) -> Self {
+        Self::with_job(name, Some(NoBreakawayJob::new()))
+    }
+
+    fn with_job(name: &str, job: Option<NoBreakawayJob>) -> Self {
         let stamp =
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
         // Short: AF_UNIX paths are limited on Windows too.
         let dir = std::env::temp_dir().join(format!("cwth-{name}-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut daemon =
-            Self { child: None, socket: dir.join("mux.sock"), state: dir.join("state"), dir };
+            Self { child: None, socket: dir.join("mux.sock"), state: dir.join("state"), dir, job };
         daemon.start();
         daemon
     }
 
     fn start(&mut self) {
-        let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
             .args(["--headless", "--socket"])
             .arg(&self.socket)
             .arg("--state")
@@ -52,9 +67,18 @@ impl Daemon {
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::null());
+        let child = match &self.job {
+            None => command.spawn().unwrap(),
+            Some(job) => {
+                // Suspended until it is in the job, so every process it
+                // starts is in the job too.
+                use std::os::windows::process::CommandExt;
+                let child = command.creation_flags(CREATE_SUSPENDED).spawn().unwrap();
+                job.assign_and_resume(&child);
+                child
+            }
+        };
         self.child = Some(child);
         let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
         while transport::connect(&self.socket).is_err() {
@@ -111,6 +135,86 @@ impl Drop for Daemon {
             }
         }
         let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+const CREATE_SUSPENDED: u32 = 0x0000_0004;
+
+/// An unnamed Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and
+/// without `JOB_OBJECT_LIMIT_BREAKAWAY_OK`: a process in it cannot start a
+/// child with `CREATE_BREAKAWAY_FROM_JOB` (`ERROR_ACCESS_DENIED`).
+struct NoBreakawayJob(windows_sys::Win32::Foundation::HANDLE);
+
+impl NoBreakawayJob {
+    fn new() -> Self {
+        use windows_sys::Win32::System::JobObjects::{
+            CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+        // SAFETY: plain Win32 calls on a handle this function owns.
+        unsafe {
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            assert!(!job.is_null(), "CreateJobObjectW: {}", std::io::Error::last_os_error());
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let set = SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                (&raw const limits).cast(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+            assert_ne!(set, 0, "SetInformationJobObject: {}", std::io::Error::last_os_error());
+            Self(job)
+        }
+    }
+
+    /// Put a suspended `child` in the job, then resume its threads.
+    fn assign_and_resume(&self, child: &Child) {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+        };
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+        use windows_sys::Win32::System::Threading::{
+            OpenThread, ResumeThread, THREAD_SUSPEND_RESUME,
+        };
+        // SAFETY: plain Win32 calls; every handle opened here is closed here.
+        unsafe {
+            let assigned = AssignProcessToJobObject(self.0, child.as_raw_handle().cast());
+            assert_ne!(
+                assigned,
+                0,
+                "AssignProcessToJobObject: {}",
+                std::io::Error::last_os_error()
+            );
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+            assert_ne!(snapshot, INVALID_HANDLE_VALUE, "CreateToolhelp32Snapshot");
+            let mut entry: THREADENTRY32 = std::mem::zeroed();
+            entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+            let mut resumed = 0;
+            let mut more = Thread32First(snapshot, &mut entry) != 0;
+            while more {
+                if entry.th32OwnerProcessID == child.id() {
+                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                    assert!(!thread.is_null(), "OpenThread: {}", std::io::Error::last_os_error());
+                    assert_ne!(ResumeThread(thread), u32::MAX, "ResumeThread");
+                    CloseHandle(thread);
+                    resumed += 1;
+                }
+                more = Thread32Next(snapshot, &mut entry) != 0;
+            }
+            CloseHandle(snapshot);
+            assert!(resumed > 0, "no thread of the suspended daemon {} to resume", child.id());
+        }
+    }
+}
+
+impl Drop for NoBreakawayJob {
+    fn drop(&mut self) {
+        // SAFETY: the handle is owned and closed once.
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0) };
     }
 }
 
@@ -207,4 +311,63 @@ fn a_terminal_survives_a_fenced_daemon_restart_on_windows() {
         wait_for_screen(&daemon.socket, adopted, &after).contains(&after),
         "input after the restart did not reach the same shell"
     );
+}
+
+fn tab_of(path: &Path, surface: u64) -> serde_json::Value {
+    let tree = request(path, serde_json::json!({"cmd": "list-workspaces"}));
+    tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .find(|tab| tab["surface"] == surface)
+        .cloned()
+        .unwrap_or_else(|| panic!("no tab for surface {surface}: {tree}"))
+}
+
+/// A daemon in a job that forbids breakaway cannot give a terminal a host
+/// that outlives the daemon's job. The terminal still runs (in the daemon's
+/// own ConPTY), and every tree says why it will not survive a restart:
+/// `terminal_host_fallback: "breakaway_denied"`.
+#[test]
+fn a_terminal_without_breakaway_runs_in_process_and_says_so() {
+    let daemon = Daemon::new_in_job_without_breakaway("nobreak");
+    let marker = format!("in-process-{}", std::process::id());
+    let created = request(
+        &daemon.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["cmd.exe", "/q", "/k"],
+            "new_workspace": true,
+            "name": "no-breakaway",
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    request(
+        &daemon.socket,
+        serde_json::json!({"id": 2, "cmd": "send", "surface": surface, "text": format!("echo {marker}\r")}),
+    );
+    assert!(
+        wait_for_screen(&daemon.socket, surface, &marker).contains(&marker),
+        "the in-process terminal does not run"
+    );
+    let tab = tab_of(&daemon.socket, surface);
+    assert_eq!(tab["terminal_state"], "running", "{tab}");
+    assert_eq!(tab["terminal_host_fallback"], "breakaway_denied", "{tab}");
+}
+
+/// A terminal with its own host reports no fallback.
+#[test]
+fn a_hosted_terminal_reports_no_fallback() {
+    let daemon = Daemon::new("hosted");
+    let created = request(
+        &daemon.socket,
+        serde_json::json!({"id": 1, "cmd": "run", "argv": ["cmd.exe", "/q", "/k"], "new_workspace": true}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let tab = tab_of(&daemon.socket, surface);
+    assert!(tab["terminal_host_fallback"].is_null(), "{tab}");
 }

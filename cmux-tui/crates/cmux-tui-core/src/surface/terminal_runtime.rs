@@ -230,6 +230,10 @@ pub struct PtyTerminalRuntime {
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,
+    /// Why this terminal runs in the daemon process although terminal hosts
+    /// are on (cx-ko2e); unset for a hosted terminal and for every terminal
+    /// where hosts are off. Set before the surface is published.
+    pub(super) host_fallback: std::sync::OnceLock<super::TerminalHostFallback>,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     pub(super) dirty: AtomicBool,

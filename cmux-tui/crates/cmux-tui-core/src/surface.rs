@@ -15,6 +15,7 @@ mod directory;
 mod exit_state;
 mod frame_producer;
 mod geometry;
+mod host_state;
 mod input;
 mod metadata;
 mod mouse_input;
@@ -30,6 +31,7 @@ mod stream_progress;
 mod terminal_runtime;
 mod terminal_stream;
 pub use color_overrides::apply_terminal_color_overrides;
+pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
 pub use clear_history::{
@@ -325,26 +327,6 @@ pub(crate) mod snapshot_attach;
 pub enum SurfaceKind {
     Pty,
     Browser,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum TerminalHostConnectionState {
-    Connected = 0,
-    Reconnecting = 1,
-    Exited = 2,
-    Failed = 3,
-}
-
-impl TerminalHostConnectionState {
-    fn from_u8(value: u8) -> Self {
-        match value {
-            1 => Self::Reconnecting,
-            2 => Self::Exited,
-            3 => Self::Failed,
-            _ => Self::Connected,
-        }
-    }
 }
 
 impl SurfaceKind {
@@ -790,6 +772,7 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(true),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", title),
                 directory_reported: AtomicBool::new(pwd.is_some()),
