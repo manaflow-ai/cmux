@@ -139,7 +139,29 @@ pub fn discover_on(input: &DiscoveryInput<'_>, platform: Platform) -> Discovery 
             });
             continue;
         }
+        // A symlinked root is checked where it points before the resolve
+        // walks into it, and the resolved path is checked again.
+        let refused = |reason: String| RefusedRoot {
+            harness: spec.harness,
+            path: spec.path.clone(),
+            source,
+            reason,
+        };
+        if let Ok(target) = fs::read_link(&spec.path) {
+            let target = match spec.path.parent() {
+                Some(parent) if target.is_relative() => parent.join(target),
+                _ => target,
+            };
+            if let Some(reason) = (input.refuse)(&target) {
+                found.refused.push(refused(reason));
+                continue;
+            }
+        }
         let Ok(real_path) = fs::canonicalize(&spec.path) else { continue };
+        if let Some(reason) = (input.refuse)(&real_path) {
+            found.refused.push(refused(reason));
+            continue;
+        }
         if !real_path.is_dir() {
             continue;
         }

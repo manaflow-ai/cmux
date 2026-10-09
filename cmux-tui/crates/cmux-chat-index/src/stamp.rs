@@ -144,7 +144,9 @@ impl FileState {
             Some(prev)
                 if prev.offset <= now.size
                     && Change::between(&prev.stamp, now) != Change::Rewritten
-                    && path.as_os_str().len() < usize::MAX =>
+                    && prev.head.is_some_and(|head| {
+                        HeadPrint::of(path, head.len).is_ok_and(|now| now == head)
+                    }) =>
             {
                 (prev.offset, prev.tally.clone())
             }
