@@ -794,3 +794,50 @@ fn the_task_aims_well_inside_the_limit_and_the_note_names_the_last_line() {
         other => panic!("{other:?}"),
     }
 }
+
+/// Soak at fc34083d7bfa: a 2,020-message import is appended before any node
+/// is built, so no merge can happen at append time, and the compaction view
+/// never merged afterwards: node contexts grew to 350 KB (79k tokens read
+/// per prompt, \$117 for the import). The reference client fits its views
+/// after each node it stores. A compaction context stays within the
+/// compaction view's budget (a quarter of the view's) after an import.
+#[test]
+fn an_import_keeps_every_compaction_context_within_its_budget() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..2_000u64 {
+        store.push(Kind::Echo, format!("imported {k} {}", "x".repeat(900)));
+        memory.append();
+    }
+    let mut largest = 0usize;
+    loop {
+        let work = memory.pump(&store);
+        if work.is_empty() {
+            break;
+        }
+        // As the host does: the free nodes are stored before any call starts.
+        for w in &work {
+            if let Work::Free { node, text } = w {
+                store.nodes.borrow_mut().insert(*node, text.clone());
+            }
+        }
+        for w in work {
+            match w {
+                Work::Free { .. } => {}
+                Work::Model { node } => {
+                    let request = compact_request(&memory, &store, node, String::new()).unwrap();
+                    largest = largest.max(request.context.len());
+                    let text = fake_summary(node);
+                    store.nodes.borrow_mut().insert(node, text.clone());
+                    memory.complete(node, &text).unwrap();
+                }
+            }
+        }
+    }
+    assert!(memory.settled());
+    // A quarter of the view's budget, plus one batch's last merged lines.
+    assert!(
+        largest <= VIEW / 4 + 2 * NODE,
+        "a compaction context of {largest} bytes"
+    );
+}
