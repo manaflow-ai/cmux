@@ -1965,15 +1965,17 @@ function reopenBaseIfProviderDeleted(
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
-            Effect.suspend(() => repo.beginBaseOpen(
-              isPaidVmPlan(input.billingPlanId)
-                ? {
-                  ...input,
-                  resourceReservation: input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({ imageSize: input.imageSize }),
-                  resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms),
-                }
-                : input,
-            )),
+            Effect.suspend(() => repo.beginBaseOpen({
+              ...input,
+              planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
+              planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+              resourceReservation: input.billingPlanId === "go"
+                ? GO_VM_RESERVATION
+                : vmResourceReservationForCreate({ imageSize: input.imageSize }),
+              ...(isPaidVmPlan(input.billingPlanId)
+                ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms) }
+                : {}),
+            })),
           );
         })
         : Effect.succeed(null)

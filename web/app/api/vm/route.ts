@@ -777,10 +777,10 @@ async function resolveCreateMemory(
   const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
   const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
   const locked = lockedMemoryOptionsMbForPlan(planId, process.env);
+  const requestedLockedMemory = requestedMemoryMb !== undefined && locked.memoryOptionsMb.includes(requestedMemoryMb);
   if (
     !deferLockedPlanCheck &&
-    requestedMemoryMb !== undefined &&
-    locked.memoryOptionsMb.includes(requestedMemoryMb)
+    requestedLockedMemory
   ) {
     const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId);
     if (!upgradePlanId) return { ok: false, response: await vmMemoryUnavailableResponse(maxMemoryMb, vmRequestLocale(request)) };
@@ -801,7 +801,7 @@ async function resolveCreateMemory(
     };
   }
   const memoryMb =
-    requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb) || deferLockedPlanCheck
+    requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb) || (deferLockedPlanCheck && requestedLockedMemory)
       ? requestedMemoryMb ?? planMemoryMb
       : planMemoryMb;
   setSpanAttributes(span, {
