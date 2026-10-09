@@ -14,6 +14,7 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 949be41381d8: outbound writer -> server/render_service.rs (505 lines), server/message_writer.rs (381), server/bounded_outbound.rs (711). server.rs 23084 -> 21604. Gate 8 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
 - 2026-10-09 1b52d5bb65e8: client registry -> server/client_registry.rs (978 lines) + server/client_registry_views.rs (604, second impl block). server.rs 21604 -> 20137. Gate 8 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
 - 2026-10-09 f4f28165249f: workspace command arms (19) + provider-authority helpers -> server/cmd_workspaces.rs (381 lines); check-spec-inventory.py follows arms into cmd_* handlers. server.rs 20137 -> 19961. Gate 8 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
+- 2026-10-09 cf5a716a616f: tab and tab-group command arms (33) + resolve_pane_ref, surface_placement -> server/cmd_tabs.rs (551 lines). server.rs 19961 -> 19792. Gate 9 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
 
 ## Map: cmux-tui-core/src/server.rs (lane refactor-server-rs, base 2dba648cdbde, 27,370 lines)
 
