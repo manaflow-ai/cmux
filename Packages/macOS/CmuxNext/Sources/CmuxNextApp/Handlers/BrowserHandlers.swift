@@ -97,7 +97,7 @@ enum BrowserHandlers {
                              context: AppActionContext) throws {
         let handle = pane.pane.handle
         let connection = try context.requireConnection()
-        let browserTabs = context.services.cache.browserTabs!
+        let browserTabs = context.services.cache.browserTabs
         // The default engine (never refused: no engine is requested).
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let intent = pane.workspace?.beginFocusIntent()

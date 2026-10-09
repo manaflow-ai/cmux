@@ -91,6 +91,8 @@ mod apps;
 pub use apps::start_apps_when_ready;
 #[path = "server/image_paste.rs"]
 mod image_paste;
+#[cfg(unix)]
+mod scripts;
 #[path = "server/window_title.rs"]
 mod window_title;
 use window_title::sanitize_window_title;
@@ -128,7 +130,7 @@ mod cloud_conversations;
 mod conversation_attachments;
 mod conversation_resource;
 mod resource_trust;
-use resource_trust::trusted_local_resource_client;
+use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -190,6 +192,7 @@ pub use socket_path::{
 };
 pub(crate) mod activity;
 mod browser_input;
+mod chief_control;
 mod chief_inspect;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
@@ -5175,6 +5178,8 @@ pub(crate) struct ClientRegistry {
     agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
+    /// Script sessions by connection (`script-*`, crate::scripts).
+    pub(crate) scripts: crate::scripts::ScriptsSlot,
     origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     app_trust: app_trust::AppTrust,
@@ -5197,6 +5202,7 @@ impl ClientRegistry {
             agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
@@ -6255,6 +6261,7 @@ impl ClientRegistry {
         #[cfg(unix)]
         self.agent_sessions.disconnect(client);
         self.apps.disconnect(client);
+        self.scripts.disconnect(client);
         // Safety: a removal never grants access; on a poisoned registry the
         // record still goes, so a fail-closed close never panics here.
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -7282,45 +7289,6 @@ const fn journal_class_index(class: JournalClass) -> usize {
     }
 }
 
-const fn handles_resource_connection_operation(operation: ResourceOperation) -> bool {
-    matches!(
-        operation,
-        ResourceOperation::SessionEvents
-            | ResourceOperation::SessionJournalSubscribe
-            | ResourceOperation::SessionJournalProducerList
-            | ResourceOperation::SessionJournalProducerPut
-            | ResourceOperation::SessionJournalAppend
-            | ResourceOperation::SessionJournalHookList
-            | ResourceOperation::SessionJournalHookPut
-            | ResourceOperation::SessionJournalCheckpointCreate
-            | ResourceOperation::SessionJournalCheckpointList
-            | ResourceOperation::SessionJournalRestorePreview
-            | ResourceOperation::SessionJournalSegmentList
-            | ResourceOperation::SessionJournalSegmentSeal
-            | ResourceOperation::SessionShutdown
-            | ResourceOperation::PairingRequestList
-            | ResourceOperation::PairingRequestResolve
-            | ResourceOperation::RequestCancel
-            | ResourceOperation::ClientList
-            | ResourceOperation::ClientGet
-            | ResourceOperation::ClientMetadataUpdate
-            | ResourceOperation::ClientSizingSet
-            | ResourceOperation::ClientSizingRelease
-            | ResourceOperation::ClientCellPixelsSet
-            | ResourceOperation::ClientDetach
-            | ResourceOperation::TerminalRendererGrantCreate
-            | ResourceOperation::TerminalViewerResize
-            | ResourceOperation::TerminalViewerRelease
-            | ResourceOperation::TerminalAttach
-            | ResourceOperation::BrowserViewerResize
-            | ResourceOperation::BrowserViewerRelease
-            | ResourceOperation::BrowserAttach
-            | ResourceOperation::SidebarViewAttach
-            | ResourceOperation::StreamCancel
-            | ResourceOperation::OriginConfirmationIssue
-    ) || conversation_resource::handles(operation)
-}
-
 fn handle_resource_session_shutdown(
     mux: &Arc<Mux>,
     client: u64,
@@ -7403,6 +7371,9 @@ fn handle_resource_connection_message(
     match operation {
         operation if conversation_resource::handles(operation) => {
             conversation_resource::handle(mux, client, request, writer)
+        }
+        operation if chief_control::handles(operation) => {
+            chief_control::handle(mux, client, request, writer)
         }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
@@ -10466,6 +10437,10 @@ fn handle_connection_frame(
     }
     #[cfg(unix)]
     if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = scripts::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     #[cfg(unix)]
@@ -20063,7 +20038,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 41);
+        assert_eq!(connection_operations, 44);
     }
 
     #[test]

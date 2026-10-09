@@ -49,14 +49,34 @@
    "MessagesLabHome": 20
   },
   "force_unwrap": {
-   "CmuxNextApp": 48,
-   "CmuxNextSettings": 6,
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 4,
    "MessagesLabSidebar": 2
   },
+  "index_subscript": {
+   "CMUXMobileCore": 124,
+   "CmuxHomeRender": 100,
+   "CmuxIrohTransport": 126,
+   "CmuxIrxTransport": 67,
+   "CmuxNextControl": 36,
+   "CmuxNextDaemon": 116,
+   "CmuxNextMobile": 13,
+   "CmuxTerminalSizing": 5,
+   "MessagesLabHome": 828,
+   "MessagesLabSidebar": 71
+  },
+  "int_conversion": {
+   "CMUXMobileCore": 123,
+   "CmuxHomeRender": 9,
+   "CmuxIrohTransport": 111,
+   "CmuxIrxTransport": 43,
+   "CmuxNextControl": 45,
+   "CmuxNextDaemon": 21,
+   "CmuxNextMobile": 5,
+   "MessagesLabHome": 84,
+   "MessagesLabSidebar": 18
+  },
   "iuo": {
-   "CmuxNextApp": 27,
    "CmuxNextSidebar": 5
   },
   "render_font": {

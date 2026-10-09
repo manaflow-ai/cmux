@@ -1753,3 +1753,32 @@ fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
     let s = settings(1);
     assert!(s["env"].get("DISABLE_PROMPT_CACHING").is_none(), "{s}");
 }
+
+/// hq-6d dogfood (fb211f1670ad): a node's line was stored only after its
+/// slot's warm session had started (about 2.3 s of Claude Code start), so
+/// every node, and the turn waiting for it, took that much longer. The warm
+/// session now starts after the node returns.
+#[test]
+fn a_node_returns_before_its_slots_warm_session_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    agents.inner.lock().unwrap().slow_session = Some(("warm".into(), Duration::from_secs(3)));
+    let compactor = compactor(&agents, dir.path()).with_warm(2).shared();
+    let started = std::time::Instant::now();
+    assert_eq!(
+        run_node(&*compactor, &request(1)).unwrap(),
+        "user: pasted a deploy log"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the node waited for its slot's warm session: {:?}",
+        started.elapsed()
+    );
+    // The warm session still starts, after the node.
+    let deadline = std::time::Instant::now() + WAIT;
+    while agents.inner.lock().unwrap().specs.len() < 2 {
+        assert!(std::time::Instant::now() < deadline, "no warm session");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
