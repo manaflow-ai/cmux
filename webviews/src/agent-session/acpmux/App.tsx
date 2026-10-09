@@ -520,7 +520,8 @@ function RowFrame({
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   const [copied, setCopied] = useState(false);
-  const rowTabStop = rovingTabStopProps(tabStop, onRowKeyDown);
+  const rowTabStop = rovingTabStopProps(tabStop && !copyable, onRowKeyDown);
+  const copyTabStop = rovingTabStopProps(tabStop && copyable, onRowKeyDown);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -555,7 +556,7 @@ function RowFrame({
         <button
           type="button"
           className="acpmux-row__copy cv-iconbtn"
-          {...rovingTabStopProps(tabStop)}
+          {...copyTabStop}
           aria-label={copied ? t("turn.copied") : t("turn.copy")}
           title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={async () => {
@@ -663,7 +664,7 @@ export function VirtualTranscript({
       if (!current) return current;
       return ids.has(current.anchorId) && ids.has(current.focusId) ? current : undefined;
     });
-  }, [rows, sessionChanged]);
+  }, [rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
@@ -824,7 +825,7 @@ export function VirtualTranscript({
       if (!node) return;
       const mounted = [...node.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
       if (mounted) {
-        mounted.focus();
+        (mounted.querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? mounted).focus();
         pendingFocus.current = undefined;
         return;
       }
@@ -845,7 +846,7 @@ export function VirtualTranscript({
       (row) => row.dataset.rowId === id,
     );
     if (target) {
-      target.focus();
+      (target.querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? target).focus();
       pendingFocus.current = undefined;
     }
   }, [range, effectiveActiveRowId]);

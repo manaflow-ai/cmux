@@ -393,17 +393,18 @@ describe("acpmux transcript accessibility", () => {
         ),
       );
       const row = (id: string) => dom.window.document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+      const focusTarget = (id: string) => row(id).querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? row(id);
       row("selection-1").focus();
       expect(dom.window.document.activeElement).toBe(row("selection-1"));
 
       await key(row("selection-1"), { key: "ArrowDown", shiftKey: true });
-      expect(dom.window.document.activeElement).toBe(row("selection-2"));
+      expect(dom.window.document.activeElement).toBe(focusTarget("selection-2"));
       expect(row("selection-1").getAttribute("data-transcript-selected")).toBe("true");
       expect(row("selection-2").getAttribute("data-transcript-selected")).toBe("true");
       expect(row("selection-3").hasAttribute("data-transcript-selected")).toBe(false);
 
-      await key(row("selection-2"), { key: "ArrowDown", shiftKey: true });
-      expect(dom.window.document.activeElement).toBe(row("selection-3"));
+      await key(focusTarget("selection-2"), { key: "ArrowDown", shiftKey: true });
+      expect(dom.window.document.activeElement).toBe(focusTarget("selection-3"));
       expect([...conversation].map((entry) => row(entry.id).getAttribute("data-transcript-selected"))).toEqual([
         "true",
         "true",
@@ -411,13 +412,15 @@ describe("acpmux transcript accessibility", () => {
         null,
       ]);
       expect(row("selection-4").hasAttribute("data-transcript-selected")).toBe(false);
-      await key(row("selection-3"), { key: "ArrowDown", shiftKey: true });
-      expect(dom.window.document.activeElement).toBe(row("selection-4"));
+      await key(focusTarget("selection-3"), { key: "ArrowDown", shiftKey: true });
+      expect(dom.window.document.activeElement).toBe(focusTarget("selection-4"));
       expect(row("selection-4").getAttribute("data-transcript-selected")).toBe("true");
-      await key(row("selection-4"), { key: "c", ctrlKey: true });
+      expect(row("selection-4").tabIndex).toBe(-1);
+      expect(focusTarget("selection-4").tabIndex).toBe(0);
+      await key(focusTarget("selection-4"), { key: "c", ctrlKey: true });
       expect(copied).toEqual(["first prompt\n\nsecond reply\n\nRun tests\nok\n\n$ bun test\nfailed output\nboom"]);
 
-      await key(row("selection-4"), { key: "Escape" });
+      await key(focusTarget("selection-4"), { key: "Escape" });
       expect(row("selection-1").hasAttribute("data-transcript-selected")).toBe(false);
       expect(row("selection-4").getAttribute("data-transcript-active")).toBe("true");
       expect(row("selection-1").querySelector<HTMLButtonElement>(".acpmux-row__copy")?.tabIndex).toBe(-1);

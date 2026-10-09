@@ -565,7 +565,7 @@ export default agentPaneEntry({
         await ctx.press("Shift+ArrowDown");
         await ctx.waitFor(
           () =>
-            document
+            ctx.document
               .querySelector('[data-row-id="gallery-selection-answer"]')
               ?.getAttribute("data-transcript-selected") === "true",
         );
