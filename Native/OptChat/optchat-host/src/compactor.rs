@@ -464,6 +464,7 @@ pub const PROBE_NODE: NodeId = NodeId::new(63, 0);
 /// compactor cannot build anything instead of every turn waiting silently.
 pub fn probe(model: &dyn CompactModel, system: &str) -> Result<String, ModelError> {
     let request = CompactRequest {
+        imported: false,
         node: PROBE_NODE,
         system: system.to_owned(),
         context: "<chat>\n</chat>".to_owned(),

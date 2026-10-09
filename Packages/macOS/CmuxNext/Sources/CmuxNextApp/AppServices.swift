@@ -266,7 +266,7 @@ final class AppServices {
             CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
-            onboarding.cookiePrompt.attach(entry)
+            onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
         }
         cache.onSuggestionEngineCreated = { [weak self] in

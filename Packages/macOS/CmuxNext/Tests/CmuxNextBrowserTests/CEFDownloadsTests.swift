@@ -136,6 +136,9 @@ import Testing
         h.event(36, id: 1, a: 1, s1: first)
         #expect(h.delivered.map { $0.item.status } == [.finished, .finished])
         #expect(h.names == ["same (1).txt", "same.txt"])
+        // The page's suggested name stays the item's (an agent's
+        // download.suggestedFilename()), whatever file it lands in.
+        #expect(h.delivered.map { $0.item.suggestedFilename } == ["same.txt", "same.txt"])
         #expect(h.read(h.file("same.txt")) == "one")
         #expect(h.read(h.file("same (1).txt")) == "two")
         for name in h.names {

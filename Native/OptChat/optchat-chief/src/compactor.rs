@@ -188,6 +188,44 @@ struct SlotState {
     warming: usize,
     /// Nodes blocked in `acquire`.
     waiting: usize,
+    /// Tickets of the nodes waiting in `acquire`, oldest first: the chat's
+    /// own nodes (foreground) and imported ones (background).
+    queues: [std::collections::VecDeque<u64>; 2],
+    next_ticket: u64,
+    /// Slots given to foreground nodes in a row while a background node
+    /// waited (`BACKGROUND_EVERY`).
+    foreground_run: usize,
+}
+
+/// Session hand-outs in a row the chat's own nodes may take while an
+/// imported node waits; the next goes to the import, so it never starves.
+const BACKGROUND_EVERY: usize = 4;
+
+impl SlotState {
+    /// Whether ticket `t` of queue `q` (0 foreground, 1 background) is the
+    /// one to take the next session: the oldest of its queue; foreground
+    /// first, except every `BACKGROUND_EVERY`-th hand-out while a
+    /// background node waits.
+    fn turn(&self, q: usize, t: u64) -> bool {
+        if self.queues[q].front() != Some(&t) {
+            return false;
+        }
+        let background_due = !self.queues[1].is_empty() && self.foreground_run >= BACKGROUND_EVERY;
+        match q {
+            0 => !background_due,
+            _ => self.queues[0].is_empty() || background_due,
+        }
+    }
+
+    /// Ticket `t` of queue `q` took a session.
+    fn took(&mut self, q: usize) {
+        self.queues[q].pop_front();
+        self.foreground_run = if q == 0 && !self.queues[1].is_empty() {
+            self.foreground_run + 1
+        } else {
+            0
+        };
+    }
 }
 
 /// A started session no node has prompted yet: a Claude Code process
@@ -229,29 +267,48 @@ impl Slots {
     }
 
     /// A warm session with `key`, else a free slot, else a stale warm
-    /// session's slot; waits while none is there.
-    fn acquire(&self, key: Option<u64>) -> Acquired {
+    /// session's slot; waits while none is there. Waiting nodes take
+    /// sessions in order, the chat's own (`foreground`) before imported
+    /// ones, as the reference client's background calls yield to
+    /// foreground work; every `BACKGROUND_EVERY`-th hand-out goes to a
+    /// waiting import, so it never starves.
+    fn acquire(&self, key: Option<u64>, foreground: bool) -> Acquired {
+        let q = usize::from(!foreground);
         let mut st = self.lock();
-        loop {
-            if let Some(key) = key
-                && let Some(k) = st.warm.iter().position(|w| w.key == key)
-            {
-                return Acquired::Warm(st.warm.remove(k));
+        let t = st.next_ticket;
+        st.next_ticket += 1;
+        st.queues[q].push_back(t);
+        st.waiting += 1;
+        let got = loop {
+            if st.turn(q, t) {
+                let got = if let Some(key) = key
+                    && let Some(k) = st.warm.iter().position(|w| w.key == key)
+                {
+                    Some(Acquired::Warm(st.warm.remove(k)))
+                } else if let Some(k) = st.free.iter().position(|f| *f) {
+                    st.free[k] = false;
+                    Some(Acquired::Slot(k))
+                } else {
+                    st.warm
+                        .iter()
+                        .position(|w| Some(w.key) != key)
+                        .map(|k| Acquired::Stale(st.warm.remove(k)))
+                };
+                if let Some(got) = got {
+                    st.took(q);
+                    break got;
+                }
             }
-            if let Some(k) = st.free.iter().position(|f| *f) {
-                st.free[k] = false;
-                return Acquired::Slot(k);
-            }
-            if let Some(k) = st.warm.iter().position(|w| Some(w.key) != key) {
-                return Acquired::Stale(st.warm.remove(k));
-            }
-            st.waiting += 1;
             st = self
                 .freed
                 .wait(st)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            st.waiting -= 1;
-        }
+        };
+        st.waiting -= 1;
+        drop(st);
+        // The next in line may take a session that is still free.
+        self.freed.notify_all();
+        got
     }
 
     /// Whether the caller, which holds a slot it is done with, should start
@@ -637,6 +694,7 @@ impl AcpmuxCompactor {
         system: Option<&str>,
         ttl: CacheTtl,
         ours: bool,
+        foreground: bool,
     ) -> Result<String, ModelError> {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
@@ -644,7 +702,10 @@ impl AcpmuxCompactor {
         self.reap_warm();
         let route = self.harness();
         let key = self.warm_key(system, ttl, ours);
-        let (id, slot, cwd, preset) = match self.slots.acquire((self.warm > 0).then_some(key)) {
+        let (id, slot, cwd, preset) = match self
+            .slots
+            .acquire((self.warm > 0).then_some(key), foreground)
+        {
             Acquired::Warm(w) => (w.id, w.slot, w.cwd, w.preset),
             other => {
                 let slot = match other {
@@ -1000,7 +1061,7 @@ impl AcpmuxCompactor {
             .blocks
             .iter()
             .any(|b| b.get("cache_control").is_some());
-        let session = self.open(node, Some(&layout.system), ttl, ours)?;
+        let session = self.open(node, Some(&layout.system), ttl, ours, !request.imported)?;
         let has_marker = layout
             .blocks
             .iter()
@@ -1020,7 +1081,8 @@ impl AcpmuxCompactor {
                 if let Some(note) = note {
                     layout.blocks.push(text_block(note));
                 }
-                let session = self.open(node, Some(&layout.system), ttl, false)?;
+                let session =
+                    self.open(node, Some(&layout.system), ttl, false, !request.imported)?;
                 self.prompt(node, &session, layout.blocks, started)
             }
             other => other,
@@ -1088,7 +1150,13 @@ impl AcpmuxCompactor {
         if let Some(note) = note {
             blocks.push(text_block(note));
         }
-        let session = self.open(request.node, None, self.cache_ttl.get(), false)?;
+        let session = self.open(
+            request.node,
+            None,
+            self.cache_ttl.get(),
+            false,
+            !request.imported,
+        )?;
         self.prompt(request.node, &session, blocks, started)
     }
 
@@ -1285,7 +1353,8 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
         let n = self.describes.fetch_add(1, Ordering::SeqCst);
         let node = NodeId::new(0, u64::MAX - n);
         let session = self
-            .open(node, None, self.cache_ttl.get(), false)
+            // A user's image: foreground work, ahead of an import.
+            .open(node, None, self.cache_ttl.get(), false, true)
             .map_err(|e| e.message)?;
         let reply = self.prompt(node, &session, blocks, &|| {});
         self.end_node(node);
@@ -1667,6 +1736,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }
+    env.extend(crate::session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
@@ -1802,5 +1872,29 @@ pub fn compact_route(choice: Option<&str>, config: &Config) -> Result<CompactRou
             let _ = config;
             Ok(CompactRoute::Acpmux)
         }
+    }
+}
+
+#[cfg(test)]
+mod slot_order_tests {
+    use super::*;
+
+    /// No starvation: while chat nodes keep coming, a waiting import node
+    /// still takes every `BACKGROUND_EVERY + 1`-th session, and each queue
+    /// keeps its own order.
+    #[test]
+    fn an_import_node_takes_a_session_between_chat_nodes() {
+        let mut st = SlotState::default();
+        st.queues[1].extend([100, 101]);
+        st.queues[0].extend(1..=10);
+        let mut order = Vec::new();
+        while !st.queues[0].is_empty() || !st.queues[1].is_empty() {
+            let q = (0..2)
+                .find(|&q| st.queues[q].front().is_some_and(|&t| st.turn(q, t)))
+                .expect("someone's turn");
+            order.push(*st.queues[q].front().unwrap());
+            st.took(q);
+        }
+        assert_eq!(order, vec![1, 2, 3, 4, 100, 5, 6, 7, 8, 101, 9, 10]);
     }
 }

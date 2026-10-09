@@ -40,6 +40,7 @@ pub mod private_data_log;
 pub mod protocol;
 pub mod provider;
 #[cfg(unix)]
+pub mod provider_downloads;
 pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;
