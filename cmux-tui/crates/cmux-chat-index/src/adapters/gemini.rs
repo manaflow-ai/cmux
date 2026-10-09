@@ -139,3 +139,23 @@ fn project_root(path: &Path) -> Option<String> {
     let root = text.trim();
     (!root.is_empty()).then(|| root.to_owned())
 }
+
+pub(super) fn read_as(
+    _kind: AdapterKind,
+    path: &Path,
+    stamp: FileStamp,
+) -> io::Result<Option<ChatEntry>> {
+    read(path, stamp)
+}
+
+pub(super) fn add_logged_sessions(_kind: AdapterKind, _root: &Path, _entries: &mut Vec<ChatEntry>) {}
+
+pub(super) fn classify(parts: &[&str]) -> super::PathRole {
+    let name = parts.last().copied().unwrap_or_default();
+    super::role(
+        matches!(parts, ["tmp", _, "chats", _])
+            && name.starts_with("session-")
+            && (name.ends_with(".jsonl") || name.ends_with(".json")),
+        false,
+    )
+}

@@ -32,7 +32,7 @@ pub(super) fn read(
             state: FileState { stamp, offset: stamp.size, ..FileState::default() },
         });
     };
-    let (from, mut tally) = FileState::resume_point(prev, &stamp);
+    let (from, mut tally) = FileState::resume_point(prev, &stamp, path);
     let offset = fold_lines(path, from, |line| {
         if contains(line, br#""type":"message""#) {
             tally.messages += 1;
@@ -80,5 +80,10 @@ pub(super) fn read(
             cwd_needed: false,
         },
     });
-    Ok(FileRead { entry, state: FileState { stamp, offset, tally } })
+    Ok(FileRead { entry, state: FileState::folded(path, stamp, offset, tally) })
+}
+
+pub(super) fn classify(parts: &[&str]) -> super::PathRole {
+    let name = parts.last().copied().unwrap_or_default();
+    super::role(parts.len() == 2 && name.ends_with(".jsonl"), false)
 }

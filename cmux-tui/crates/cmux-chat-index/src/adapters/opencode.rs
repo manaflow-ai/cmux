@@ -14,7 +14,7 @@ use crate::entry::{AdapterKind, ChatEntry, Resume, TitleSource};
 use crate::sqlite::{columns, open_read_only};
 use crate::text::title_line;
 
-pub(super) fn read_store(root: &Path) -> io::Result<Vec<ChatEntry>> {
+fn read_store_base(root: &Path) -> io::Result<Vec<ChatEntry>> {
     let mut dbs: Vec<PathBuf> = fs::read_dir(root)?
         .flatten()
         .map(|child| child.path())
@@ -143,4 +143,28 @@ impl FirstUserText {
             conn.query_row(Self::SQL, [session], |row| row.get(0)).optional().ok()?;
         text.flatten().as_deref().and_then(title_line)
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Flavor {
+    OpenCode,
+    Kilo,
+}
+
+pub(super) fn read_store(root: &Path, flavor: Flavor) -> io::Result<Vec<ChatEntry>> {
+    match flavor {
+        Flavor::OpenCode => read_store_base(root),
+        Flavor::Kilo => Ok(Vec::new()),
+    }
+}
+
+pub(super) fn classify(parts: &[&str], flavor: Flavor) -> super::PathRole {
+    let name = parts.last().copied().unwrap_or_default();
+    super::role(
+        false,
+        flavor == Flavor::OpenCode
+            && parts.len() == 1
+            && name.starts_with("opencode")
+            && (name.ends_with(".db") || name.ends_with(".db-wal")),
+    )
 }

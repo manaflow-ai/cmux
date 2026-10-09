@@ -34,7 +34,7 @@ pub(super) fn read(
             state: FileState { stamp, offset: stamp.size, ..FileState::default() },
         });
     }
-    let (from, mut tally) = FileState::resume_point(prev, &stamp);
+    let (from, mut tally) = FileState::resume_point(prev, &stamp, path);
     let offset = fold_lines(path, from, |line| {
         if contains(line, br#""type":"user""#) || contains(line, br#""type":"assistant""#) {
             tally.messages += 1;
@@ -60,7 +60,7 @@ pub(super) fn read(
         archived: false,
         resume: Resume::Adopt,
     };
-    Ok(FileRead { entry: Some(entry), state: FileState { stamp, offset, tally } })
+    Ok(FileRead { entry: Some(entry), state: FileState::folded(path, stamp, offset, tally) })
 }
 
 /// Last custom title > last AI title > last prompt > first typed prompt.
@@ -127,3 +127,10 @@ fn is_typed(record: &Value) -> bool {
         .iter()
         .all(|flag| record.get(*flag) != Some(&Value::Bool(true)))
 }
+
+pub(super) fn classify(parts: &[&str]) -> super::PathRole {
+    let name = parts.last().copied().unwrap_or_default();
+    super::role(parts.len() == 2 && name.ends_with(".jsonl") && !name.starts_with("agent-"), false)
+}
+
+pub(super) fn add_legacy_store(_root: &Path, _entries: &mut Vec<ChatEntry>) {}

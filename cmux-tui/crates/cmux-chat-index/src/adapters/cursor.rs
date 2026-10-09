@@ -61,3 +61,7 @@ pub(super) fn read(path: &Path, stamp: FileStamp) -> io::Result<Option<ChatEntry
         session_id,
     }))
 }
+
+pub(super) fn classify(parts: &[&str]) -> super::PathRole {
+    super::role(matches!(parts, [_, _, "meta.json"]), false)
+}

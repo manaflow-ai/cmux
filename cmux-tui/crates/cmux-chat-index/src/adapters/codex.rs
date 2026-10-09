@@ -84,7 +84,7 @@ pub(super) fn read(
         entry.created_ms =
             started.and_then(Value::as_str).and_then(parse_rfc3339_ms).or(entry.created_ms);
     }
-    let (from, mut tally) = FileState::resume_point(prev, &stamp);
+    let (from, mut tally) = FileState::resume_point(prev, &stamp, path);
     let offset = fold_lines(path, from, |line| {
         if !contains(line, br#""type":"user_message""#) {
             return;
@@ -101,7 +101,7 @@ pub(super) fn read(
     entry.message_count = Some(tally.messages);
     entry.title_source = tally.first_prompt.as_ref().map(|_| TitleSource::Prompt);
     entry.title.clone_from(&tally.first_prompt);
-    let state = FileState { stamp, offset, tally };
+    let state = FileState::folded(path, stamp, offset, tally);
     Ok(FileRead { entry: (!entry.session_id.is_empty()).then_some(entry), state })
 }
 
@@ -257,4 +257,12 @@ fn record_type(record: &Value) -> Option<&str> {
 
 fn string(value: Option<&Value>) -> Option<String> {
     value.and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned)
+}
+
+pub(super) fn classify(parts: &[&str]) -> super::PathRole {
+    let name = parts.last().copied().unwrap_or_default();
+    let session = matches!(parts.first(), Some(&("sessions" | ARCHIVED))) && is_rollout(name);
+    let store = parts.len() == 1
+        && ((name.starts_with("state_") && name.contains(".sqlite")) || name == "session_index.jsonl");
+    super::role(session, store)
 }

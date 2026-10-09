@@ -55,3 +55,8 @@ pub(super) fn read(path: &Path, stamp: FileStamp) -> io::Result<Option<ChatEntry
         session_id,
     }))
 }
+
+pub(super) fn classify(parts: &[&str]) -> super::PathRole {
+    let name = parts.last().copied().unwrap_or_default();
+    super::role(parts.len() == 1 && name.starts_with("T-") && name.ends_with(".json"), false)
+}
