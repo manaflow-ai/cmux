@@ -143,7 +143,7 @@ final class AgentHarnessCenter {
         guard let environment = environment() else { throw AgentHarnessFailure.noDaemon }
         do {
             return try JSONValue.parse(try await environment.harness(method, params: params))
-        } catch AcpmuxStatusClient.Failure.unreachable {
+        } catch let error as AcpmuxRPCError where error.isUnreachable {
             throw AgentHarnessFailure.noDaemon
         }
     }
@@ -162,6 +162,7 @@ final class AgentHarnessCenter {
     }
 
     static func text(_ error: any Error) -> String {
-        (error as? AgentHarnessFailure)?.message ?? (error as? AcpmuxRPCError)?.message ?? error.localizedDescription
+        (error as? AgentHarnessFailure)?.message ?? (error as? AcpmuxRPCError)?.message
+            ?? (error as? ActionFailure)?.message ?? error.localizedDescription
     }
 }

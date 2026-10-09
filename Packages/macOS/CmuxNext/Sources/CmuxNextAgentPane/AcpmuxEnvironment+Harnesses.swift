@@ -24,6 +24,9 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
 
     /// The daemon does not serve the method (an older acpmux): callers fall back to the CLI.
     public var isMethodMissing: Bool { code == -32601 }
+    /// No daemon answered on the socket.
+    public var isUnreachable: Bool { name == Self.unreachable }
+    static let unreachable = "acpmux.unreachable"
     public var errorDescription: String? { message }
 }
 
@@ -50,12 +53,16 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
 }
 
 extension AcpmuxEnvironment {
-    /// One harness operation. Throws ``AcpmuxRPCError`` for a daemon refusal (an older daemon
-    /// answers `isMethodMissing`) and `AcpmuxStatusClient.Failure.unreachable` when no daemon runs.
+    /// One harness operation. Throws ``AcpmuxRPCError``: a daemon refusal (an older daemon
+    /// answers `isMethodMissing`), or `isUnreachable` when no daemon runs.
     public nonisolated func harness(_ method: AcpmuxHarnessMethod, params: [String: any Sendable] = [:]) async throws -> Data {
-        let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: method.rawValue, params: params,
-                                                       deadline: method.deadline, detailed: true)
-        return try JSONSerialization.data(withJSONObject: result)
+        do {
+            let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: method.rawValue, params: params,
+                                                           deadline: method.deadline, detailed: true)
+            return try JSONSerialization.data(withJSONObject: result)
+        } catch AcpmuxStatusClient.Failure.unreachable(let detail) {
+            throw AcpmuxRPCError(name: AcpmuxRPCError.unreachable, message: detail)
+        }
     }
 
     /// Calls `onChange` for each `_acpmux/harnesses_changed` the daemon sends (a profile file
