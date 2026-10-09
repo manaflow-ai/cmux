@@ -891,3 +891,5 @@ grep -Fq "Unreadable result bundle: xcresulttool get test-results tests did not 
   || fail_startup xcresulttool-hang "a timed-out xcresulttool must not leave a partial tests.json"
 
 echo "PASS: app-host xcodebuild wrapper retries only before test execution, aborts a crash loop without retrying, fails a startup hang as a runner fault after one testmanagerd restart, and names unreadable result bundles"
+
+python3 "$ROOT_DIR/tests/test_ci_app_host_socket_evidence.py"
