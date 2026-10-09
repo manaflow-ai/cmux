@@ -115,9 +115,10 @@ public actor BrowserImporter {
     }
 
     static func read(_ kind: ImportDataKind, from profile: BrowserSourceProfile, historyLimit: Int, into batch: inout ImportBatch) throws {
-        #if CMUX_NO_BROWSER_DATA_IMPORT
-        // The cx-f58x notary test build reads no other browser's history,
-        // tabs, extensions or bookmarks.
+        #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_HISTORY_IMPORT
+        // The cx-f58x notary test builds read no other browser's history,
+        // tabs, extensions or bookmarks (CMUX_NO_HISTORY_IMPORT is the
+        // history-only notary bisect build).
         return
         #else
         let path = profile.path
@@ -148,7 +149,7 @@ public actor BrowserImporter {
     /// (engine family, not browser). Sources the reader cannot open throw;
     /// private stores return nothing (their HTML export is the path).
     public static func readBookmarks(_ profile: BrowserSourceProfile) throws -> [ImportedBookmark] {
-        #if CMUX_NO_BROWSER_DATA_IMPORT
+        #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_HISTORY_IMPORT
         return []
         #else
         let files = profile.browser.source?.files
