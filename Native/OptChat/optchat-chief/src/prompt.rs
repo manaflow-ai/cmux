@@ -435,6 +435,19 @@ pub fn turn_blocks(view: &str, texts: &[String]) -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Live proof subp7: a subagent spawned from an empty chat showed
+    /// "<chat></chat>" as the first lines of its pane. An empty view is left
+    /// out; the task stays.
+    #[test]
+    fn a_subagents_first_message_leaves_out_an_empty_view() {
+        let blocks = subagent_blocks("<chat>\n</chat>\n", "count lines");
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0]["text"], "Your task:\n\ncount lines");
+        let full = subagent_blocks("<chat>\n0+1|user: hi\n</chat>\n", "t");
+        assert!(full.len() > 1);
+    }
+
     use super::*;
 
     #[test]
