@@ -2,17 +2,23 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 
 extension AppServices {
-    /// The quick panel's chat is a standalone agent page in its compact
-    /// layout (`surface: "quick"`); handed off, it opens as a tab in the
+    /// Start Agent's chat is a standalone agent page in its compact layout
+    /// (`surface: "quick"`). Its folder picker lists the New Tab page's
+    /// recent projects. Started with Return it goes to the sidebar in a new
+    /// workspace, in the background; with ⌘Return it opens as a tab in the
     /// focused pane of the frontmost main window.
     func makeQuickComposer() -> QuickComposerController {
         QuickComposerController(
             makeChat: { [weak self] in
-                guard let self, self.agentTabs.canHostChat else { return nil }
-                return self.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick))
+                guard let self, self.agentTabs.canHostChat,
+                      let chat = self.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick)) else { return nil }
+                let projects = NewTabPage.handler(self, cwd: nil) { _, _ in }
+                chat.model.onListProjects = { query in await projects.listProjects(query) }
+                return chat
             },
             makeWindow: { QuickComposerPanel() },
-            openInWindow: { [weak self] session in self?.openQuickChat(session: session) ?? false }
+            openInWindow: { [weak self] session in self?.openQuickChat(session: session) ?? false },
+            startInBackground: { [weak self] start in self?.startQuickChatInBackground(start) ?? false }
         )
     }
 
@@ -28,5 +34,19 @@ extension AppServices {
         pane.openAgentTab(session: session)
         WindowActivation.show(window, .focus)
         return true
+    }
+
+    /// A new workspace in the sidebar whose selected tab is the started chat
+    /// (`agent.openSessionWorkspace`'s path): nothing takes focus or
+    /// switches workspaces. False when the daemon is offline.
+    private func startQuickChatInBackground(_ start: AgentPaneQuickStart) -> Bool {
+        do {
+            let work = try AgentSessionWorkspace.open(session: start.sessionId, name: start.name, cwd: start.cwd, services: self)
+            registry.track(work)
+            return true
+        } catch {
+            daemon.logger.error("start agent: background start failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 }

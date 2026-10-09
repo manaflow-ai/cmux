@@ -223,6 +223,26 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
 const postOpenInWindow = (sessionId: string) =>
   void callNative(QUICK_MESSAGES.openInWindow, { sessionId }).catch(() => undefined);
 
+/// The longest workspace name a background start asks for (AgentPaneQuickStart.maximumName).
+const QUICK_NAME_LIMIT = 80;
+
+/// A started chat's workspace name: the prompt's first non-empty line, or none.
+export function quickChatName(text: string): string | undefined {
+  const line = text
+    .split("\n")
+    .map((part) => part.trim())
+    .find((part) => part !== "");
+  return line ? line.slice(0, QUICK_NAME_LIMIT) : undefined;
+}
+
+/// Asks the host to put the Quick Composer's started chat in the sidebar, in the background.
+const postStartInBackground = (sessionId: string, cwd: string | undefined, name: string | undefined) =>
+  void callNative(QUICK_MESSAGES.startInBackground, {
+    sessionId,
+    ...(cwd ? { cwd } : {}),
+    ...(name ? { name } : {}),
+  }).catch(() => undefined);
+
 /// Folder trust lives with acpmux (or the mock daemon), else the native host.
 const trustSource: TrustSource = {
   get: (cwd) => callNative("acp.trust.get", { cwd }),
@@ -1301,15 +1321,26 @@ function AcpmuxPane() {
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   // Escape that no menu, picker or palette took hides the Quick Composer, keeping its draft.
-  // ⌘Return in the Quick Composer opens its chat in a window. With a prompt it waits until the
+  // Start Agent (cx-hkat): Return in the Quick Composer starts its chat in the background (the
+  // host puts it in the sidebar), ⌘Return starts it and opens it in a window. Each waits until the
   // prompt is on its way (closing the page sooner drops it) and the chat has a session; a send
   // that fails, or Escape, cancels the hand-off.
-  const handOff = useRef({ pending: false, landed: false });
+  const handOff = useRef<{ pending: boolean; landed: boolean; background?: { name?: string } }>({
+    pending: false,
+    landed: false,
+  });
+  const quickCwd = useRef<string | undefined>(undefined);
   const flushOpenInWindow = () => {
     const sessionId = sessionIdRef.current;
     if (!handOff.current.pending || !handOff.current.landed || !sessionId) return;
     handOff.current.pending = false;
-    postOpenInWindow(sessionId);
+    const background = handOff.current.background;
+    if (background) postStartInBackground(sessionId, quickCwd.current, background.name);
+    else postOpenInWindow(sessionId);
+  };
+  /// Return's send in the Quick Composer: hand the chat to the sidebar once it lands.
+  const startInBackground = (text: string) => {
+    handOff.current = { pending: true, landed: false, background: { name: quickChatName(text) } };
   };
   const promptLanded = useRef(() => {});
   promptLanded.current = () => {
@@ -1323,6 +1354,8 @@ function AcpmuxPane() {
     if (sent) handOff.current = { pending: true, landed: false };
     else if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
   };
+  // The started chat's folder: the session's, else the one picked before the first send.
+  quickCwd.current = snapshot.summary?.cwd ?? projectDraft;
   useEffect(flushOpenInWindow, [snapshot.sessionId]);
   useEscapeToDismiss(quick, () => {
     cancelOpenInWindow();
@@ -2117,7 +2150,8 @@ function AcpmuxPane() {
   );
   const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
   useEffect(() => {
-    if (!freshChat || newTab || quick) return;
+    // Start Agent's folder picker lists them too (cx-hkat).
+    if (!freshChat || newTab) return;
     let active = true;
     void loadNewTabProjects()
       .then((projects) => {
@@ -2127,7 +2161,7 @@ function AcpmuxPane() {
     return () => {
       active = false;
     };
-  }, [freshChat, newTab, quick, loadNewTabProjects]);
+  }, [freshChat, newTab, loadNewTabProjects]);
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
@@ -2295,6 +2329,8 @@ function AcpmuxPane() {
             // The composer that holds the prompt: a refusal that comes once it is gone (the pane
             // swaps it when the chat's session starts) puts the prompt in the one shown now.
             const holder = composerHandle.current;
+            // Start Agent's Return; ⌘Return (onOpenInWindow, right after this) opens a window instead.
+            if (surfaceRef.current === "quick") startInBackground(text);
             const turn = send();
             turn.then(() => promptLanded.current(), cancelOpenInWindow);
             // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
@@ -2314,7 +2350,9 @@ function AcpmuxPane() {
               () => undefined,
             )
           }
-          projectChoices={freshChat && !quick ? newTabProjects : undefined}
+          projectChoices={freshChat ? newTabProjects : undefined}
+          // Start Agent's pickers head its panel: the folder row comes before the prompt.
+          contextFirst={quick}
           onBrowseProject={
             freshChat && !quick
               ? () => {

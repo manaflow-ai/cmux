@@ -139,6 +139,8 @@ type Props = {
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
+  /// The location row heads the card instead of closing it (Start Agent's panel, cx-hkat).
+  contextFirst?: boolean;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
@@ -175,6 +177,7 @@ export function Composer({
   onShellInterrupt,
   onMode,
   onOpenInWindow,
+  contextFirst = false,
   handle,
   sessionId,
   blocked,
@@ -625,6 +628,37 @@ export function Composer({
     if (original !== text) edit(original, original.length);
     else if (open) setDismissed(text);
   };
+  // The location row: the card's footer (one fill, one edge, a hairline above it), or its header
+  // where `contextFirst` is set (Start Agent).
+  const context = (
+    <ComposerContext
+      projectChoices={projectChoices}
+      onBrowseProject={onBrowseProject}
+      onConnect={onConnect}
+      summary={snapshot.summary}
+      sessions={snapshot.sessions}
+      peers={snapshot.peers}
+      started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
+      onProject={
+        onProject &&
+        ((cwd, peer) => {
+          onProject(cwd, peer);
+          field.current?.focus();
+        })
+      }
+      localName={localName}
+      movedTo={movedTo}
+      busy={snapshot.isWorking}
+      onMove={
+        onMove &&
+        ((cwd) => {
+          const move = onMove(cwd);
+          setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
+          field.current?.focus();
+        })
+      }
+    />
+  );
   return (
     <form
       ref={form}
@@ -676,7 +710,8 @@ export function Composer({
           />,
           form.current.parentElement,
         )}
-      <div className="acpmux-composer-box">
+      <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
+        {contextFirst && context}
         <input
           ref={importInput}
           className="acpmux-import-input"
@@ -843,34 +878,7 @@ export function Composer({
             ) : null}
           </span>
         </div>
-        {/* The location row is the card's footer: one fill, one edge, a hairline above it. */}
-        <ComposerContext
-          projectChoices={projectChoices}
-          onBrowseProject={onBrowseProject}
-          onConnect={onConnect}
-          summary={snapshot.summary}
-          sessions={snapshot.sessions}
-          peers={snapshot.peers}
-          started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
-          onProject={
-            onProject &&
-            ((cwd, peer) => {
-              onProject(cwd, peer);
-              field.current?.focus();
-            })
-          }
-          localName={localName}
-          movedTo={movedTo}
-          busy={snapshot.isWorking}
-          onMove={
-            onMove &&
-            ((cwd) => {
-              const move = onMove(cwd);
-              setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
-              field.current?.focus();
-            })
-          }
-        />
+        {!contextFirst && context}
       </div>
     </form>
   );

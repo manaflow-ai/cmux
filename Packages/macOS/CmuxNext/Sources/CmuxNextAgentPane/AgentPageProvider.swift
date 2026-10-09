@@ -32,7 +32,7 @@ public nonisolated struct AgentPageOps {
             "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
             "newTab.remember", "newTab.inputReady", "newTab.touched", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.browse", "workspace.chooseFolder", "onboarding.importAndSync", "app.action",
-            "quick.dismiss", "quick.openInWindow", "pane.action", "pane.tabState",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "pane.action", "pane.tabState",
             "shell.run", "shell.read", "shell.stop",
             "git.diff", "git.status", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",

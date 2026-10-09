@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "keybindings.page.heldElsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another app holds this key, so it does nothing outside cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このキーはほかのアプリが使用しているため、cmux の外では動作しません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يستخدم تطبيق آخر هذا المفتاح، لذلك لا يعمل خارج cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Druga aplikacija drži ovu prečicu, pa ne radi izvan cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En anden app bruger denne tast, så den gør intet uden for cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine andere App belegt diese Taste, daher wirkt sie außerhalb von cmux nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otra app usa este atajo, así que no hace nada fuera de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une autre app utilise ce raccourci : il ne fait rien hors de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un’altra app usa questo tasto, quindi fuori da cmux non fa nulla."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីផ្សេងកំពុងប្រើគ្រាប់ចុចនេះ ដូច្នេះវាមិនដំណើរការនៅក្រៅ cmux ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 앱이 이 키를 사용 중이어서 cmux 밖에서는 작동하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En annen app bruker denne tasten, så den gjør ingenting utenfor cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inna aplikacja używa tego klawisza, więc poza cmux nic nie robi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Outro app usa esta tecla, então ela não faz nada fora do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эту клавишу занимает другое приложение, поэтому вне cmux она не работает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปอื่นใช้ปุ่มนี้อยู่ จึงใช้งานนอก cmux ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu tuşu başka bir uygulama kullanıyor, bu yüzden cmux dışında çalışmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю клавішу займає інша програма, тому поза cmux вона не працює."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ứng dụng khác đang giữ phím này nên nó không hoạt động ngoài cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一个应用占用了此按键，因此它在 cmux 之外不起作用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一個 App 佔用了此按鍵，因此它在 cmux 之外不起作用。"
+          }
+        }
+      }
+    },
     "keybindings.page.change": {
       "extractionState": "manual",
       "localizations": {
