@@ -97,8 +97,8 @@ extension HomeController {
     /// The reaction target of a message's accessibility element (a part
     /// row from `accessibilityItems()`), for the hosts' accessibility actions.
     public func reactionTarget(for element: HomeAXItem, isOnline: Bool) -> HomeReactionTarget? {
-        guard let key = element.item, element.id.hasPrefix("part:"), let colon = element.id.lastIndex(of: ":"),
-              let partIndex = Int(element.id[element.id.index(after: colon)...]),
+        guard let key = element.item, element.id.hasPrefix("part:"), let colon = element.id.lastIndex(of: ":") else { return nil }
+        guard let partIndex = Int(element.id.suffix(from: element.id.index(after: colon))),
               let item = items.first(where: { $0.key == key }) else { return nil }
         return HomeReactionTarget(item: item, partIndex: partIndex, conversation: conversation, me: me, isOnline: isOnline)
     }
