@@ -85,14 +85,19 @@ import Testing
         var rng = Rng(state: 0x53)
         var decoded = 0
         for _ in 0..<3_000 {
+            // One or two fields per frame, so most frames still decode and reach the replay.
             var copy = object
-            for key in copy.keys.sorted() where rng.below(4) == 0 { copy[key] = extremes[rng.below(extremes.count)] }
-            for spansKey in ["row_spans", "scrollback_spans"] {
-                guard var spans = copy[spansKey] as? [[String: Any]] else { continue }
-                for i in spans.indices {
-                    for key in spans[i].keys.sorted() where rng.below(3) == 0 { spans[i][key] = extremes[rng.below(extremes.count)] }
+            for _ in 0..<(1 + rng.below(2)) {
+                let keys = copy.keys.sorted()
+                let key = keys[rng.below(keys.count)]
+                if var spans = copy[key] as? [[String: Any]], !spans.isEmpty, rng.below(2) == 0 {
+                    let i = rng.below(spans.count)
+                    let spanKeys = spans[i].keys.sorted()
+                    spans[i][spanKeys[rng.below(spanKeys.count)]] = extremes[rng.below(extremes.count)]
+                    copy[key] = spans
+                } else {
+                    copy[key] = extremes[rng.below(extremes.count)]
                 }
-                copy[spansKey] = spans
             }
             guard let data = try? JSONSerialization.data(withJSONObject: copy) else { continue }
             for input in [data, Self.mutate(data, &rng)] {
@@ -103,7 +108,7 @@ import Testing
                 }
             }
         }
-        #expect(decoded > 100, "the mutations must also produce frames that decode")
+        #expect(decoded > 300, "the mutations must also produce frames that decode")
     }
 
     @Test func renderGridSizeLimitsAcceptTheMaximumAndRefuseOnePast() throws {
