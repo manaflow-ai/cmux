@@ -98,6 +98,9 @@
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
+/* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
+.acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
+.acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-hover); outline: none; }
 
 .acpmux-composer-bar {
   min-height: 52px;

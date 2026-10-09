@@ -41,6 +41,7 @@ export function ComposerContext({
   localName,
   movedTo,
   onMove,
+  onBrowseFolder,
   busy = false,
   onConnect,
 }: {
@@ -99,6 +100,14 @@ export function ComposerContext({
   const readOnly = started || onProject === undefined;
   const moves = started && onMove !== undefined && !busy;
   const branch = summary?.branch;
+  // A started chat's Choose folder…: the host's folder panel, then the move (dogfood 09).
+  const browseMove = onBrowseFolder
+    ? () => {
+        void onBrowseFolder().then((cwd) => {
+          if (cwd && cwd !== currentFolder) onMove?.(cwd);
+        });
+      }
+    : undefined;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
@@ -121,6 +130,7 @@ export function ComposerContext({
             disabled={readOnly && !moves}
             icon={<FolderIcon />}
             allowPath
+            onBrowse={moves ? browseMove : undefined}
             onPick={(cwd) => {
               if (moves) {
                 if (cwd !== currentFolder) onMove?.(cwd);
@@ -423,6 +433,7 @@ function LocationPicker({
   disabled,
   icon,
   allowPath = false,
+  onBrowse,
   extras,
   onPick,
 }: {
@@ -435,6 +446,8 @@ function LocationPicker({
   disabled: boolean;
   icon?: React.ReactNode;
   allowPath?: boolean;
+  /// The folder popover's last row, Choose folder…: the host's folder panel.
+  onBrowse?(): void;
   /// Rows after the choices that run something instead of picking (the connect flows).
   extras?: { id: string; label: string; onSelect(): void }[];
   onPick(id: string): void;
@@ -550,6 +563,22 @@ function LocationPicker({
           }}
           inline
         />
+        {onBrowse && (
+          <>
+            <div className="ui-separator" role="separator" />
+            <button
+              type="button"
+              className="acpmux-menu-item acpmux-location-choose"
+              onClick={() => {
+                setOpen(false);
+                setQuery("");
+                onBrowse();
+              }}
+            >
+              {t(CONTEXT_LABELS.chooseFolderMenu)}
+            </button>
+          </>
+        )}
       </Popover>
     </span>
   );
