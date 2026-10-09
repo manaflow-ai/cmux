@@ -91,7 +91,7 @@ extension TabDragSession {
             // Made unplaced, then put at the gap by the sidebar's own path
             // (personal order, or move-workspace-to-group at the slot).
             let slot = gapSlot(drag)
-            Task {
+            Task { [services] in
                 let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
                 drag.landedWorkspaceID = key?.rawValue
                 if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot, select: !drag.filesAway) }
@@ -103,7 +103,7 @@ extension TabDragSession {
             TabMoves.toWorkspace(tab, workspace: workspace, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
-            Task {
+            Task { [services] in
                 let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
                 drag.landedWorkspaceID = key?.rawValue
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
@@ -137,7 +137,7 @@ extension TabDragSession {
             settle(false)
         case .newWorkspace:
             let slot = gapSlot(drag)
-            Task {
+            Task { [services] in
                 let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
                 drag.landedWorkspaceID = key?.rawValue
                 if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot, select: !drag.filesAway) }
@@ -150,7 +150,7 @@ extension TabDragSession {
             TabGroupMoves.move(group, to: pane, index: pane.tabs.count, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
-            Task {
+            Task { [services] in
                 let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
                 drag.landedWorkspaceID = key?.rawValue
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
