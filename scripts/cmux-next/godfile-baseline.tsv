@@ -76,7 +76,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/tests/browser_runtime.rs	1947	24
 rust-file	cmux-tui/crates/cmux-tui-core/tests/pty.rs	2239	46
 rust-file	cmux-tui/crates/cmux-tui-machine-protocol/src/lib.rs	2169	70
 rust-file	cmux-tui/crates/cmux-tui/src/agent_hook_install.rs	3937	139
-rust-file	cmux-tui/crates/cmux-tui/src/app.rs	42019	1279
+rust-file	cmux-tui/crates/cmux-tui/src/app.rs	40528	1222
 rust-file	cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs	1139	54
 rust-file	cmux-tui/crates/cmux-tui/src/browser_input.rs	2025	101
 rust-file	cmux-tui/crates/cmux-tui/src/cli/command.rs	4304	141
