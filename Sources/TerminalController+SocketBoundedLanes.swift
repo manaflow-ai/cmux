@@ -34,6 +34,64 @@ enum SocketCommandTaskPolicy {
 ///
 /// Both are the fix for <https://github.com/manaflow-ai/cmux/issues/13369>.
 extension TerminalController {
+    /// Resolves an agent hook's live target without doing process inspection
+    /// inside the main-actor hop. The final ownership traversal remains on
+    /// MainActor because workspace and Dock registries are UI state.
+    nonisolated func socketAgentResolveDeliveryTargetResponseAsync(
+        _ request: ControlRequest
+    ) async throws -> String {
+        let foundationParams = request.params.mapValues(\.foundationObject)
+        let precomputedEvidence: AgentDeliveryProcessEvidence?
+        if let rawPID = foundationParams["pid"],
+           let pid = Self.strictPositivePID(rawPID) {
+            let resolution: AgentProcessBindingResolution?
+            if let rawResolution = foundationParams["pid_resolution"] {
+                resolution = (rawResolution as? String).flatMap {
+                    AgentProcessBindingResolution(rawValue: $0)
+                }
+            } else {
+                resolution = .corroborated
+            }
+            guard let resolution else {
+                return try await v2MainAsync {
+                    let result = self.v2AgentResolveDeliveryTarget(
+                        params: request.params.mapValues(\.foundationObject)
+                    )
+                    return Self.v2Encoder.response(id: request.id, result)
+                }
+            }
+            precomputedEvidence = agentDeliveryProcessEvidence(
+                pid: pid,
+                resolution: resolution
+            )
+        } else if foundationParams["pid"] != nil {
+            // Keep invalid PID/resolution handling and the default
+            // `corroborated` behavior in the canonical MainActor validator.
+            precomputedEvidence = nil
+        } else {
+            precomputedEvidence = nil
+        }
+
+        return try await v2MainAsync {
+            let result = self.v2AgentResolveDeliveryTarget(
+                params: request.params.mapValues(\.foundationObject),
+                precomputedProcessEvidence: precomputedEvidence
+            )
+            return Self.v2Encoder.response(id: request.id, result)
+        }
+    }
+
+    private nonisolated static func strictPositivePID(_ value: Any) -> pid_t? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue == number.int64Value,
+              number.int64Value > 0,
+              let pid = pid_t(exactly: number.int64Value) else {
+            return nil
+        }
+        return pid
+    }
+
     /// Deadline for one socket command's main-actor hop (queue wait plus
     /// body). Above the hang detector's 8 s stall threshold so a hang sample
     /// is captured first, below the CLI's 15 s response timeout so the client
