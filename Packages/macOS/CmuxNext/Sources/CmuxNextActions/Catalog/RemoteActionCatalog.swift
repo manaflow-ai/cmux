@@ -45,6 +45,16 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 keywords: ["ssh", "remote", "update", "upgrade", "cmux-tui"], category: .remote, symbol: "arrow.down.circle",
                 surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "remote install", destructive: true
             ),
+            // The machine's raw SSH or install error (the sidebar header's
+            // tooltip says it in a sentence), for a bug report or a search.
+            ActionDescriptor(
+                id: "remote.copyError",
+                title: String(localized: "action.remote.copyError", defaultValue: "Copy SSH Error", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "error", "copy", "machine", "permission", "denied"], category: .remote,
+                symbol: "exclamationmark.bubble", surfaces: [.palette, .contextMenu], targets: [.machine],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard),
+                                               contextMenus: [ActionSurfaceCatalog.p(.sshMachine, .inspect, 300, folder: .copy)])
+            ),
             ActionDescriptor(
                 id: "remote.forget",
                 title: String(localized: "action.remote.forget", defaultValue: "Forget Machine…", table: "RemoteActions", bundle: .module),
@@ -53,16 +63,27 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
             ),
             // DEV and NIGHTLY only: a remote browser tab (remote-tab.md r2)
             // from a loopback rb/1 host such as cmux-remote-browser-testhost.
-            // Scripts reach it through `action.run`, the same path.
+            // Scripts reach it through `action.run`, the same path. The host
+            // serves only a viewer with its secret: without `secretFile` the
+            // tab shows the host's refusal (cx-erey).
             ActionDescriptor(
                 id: "remote.openBrowserTab",
                 title: String(localized: "action.remote.openBrowserTab", defaultValue: "Open Remote Browser Tab", table: "RemoteActions", bundle: .module),
                 keywords: ["remote", "browser", "tab", "rb", "stream", "chromium", "host"], category: .remote, symbol: "globe",
                 surfaces: [.palette],
-                arguments: [ActionArgument(
-                    name: "address",
-                    title: String(localized: "argument.remote.hostAddress", defaultValue: "Host Address", table: "RemoteActions", bundle: .module),
-                    kind: .string)],
+                arguments: [
+                    ActionArgument(
+                        name: "address",
+                        title: String(localized: "argument.remote.hostAddress", defaultValue: "Host Address", table: "RemoteActions", bundle: .module),
+                        kind: .string),
+                    // A file that only this user can read, holding the host's
+                    // per-launch secret on its first line. The tab record keeps
+                    // the path, never the secret (RemoteBrowserSecretFile).
+                    ActionArgument(
+                        name: "secretFile",
+                        title: String(localized: "argument.remote.secretFile", defaultValue: "Host Secret File", table: "RemoteActions", bundle: .module),
+                        kind: .string, isRequired: false),
+                ],
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
