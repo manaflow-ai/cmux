@@ -79,14 +79,16 @@
           // Each batch of keys that changes the notes goes through press.input
           // (the account read again right before it).
           // The slide the editor shows: the URL's #slide=id.<object id>.
-          const shownSlide = (page) => {
+          // (A declaration: setNotesOn runs from the draft's commit, and
+          // this sits after the return that makes the draft.)
+          function shownSlide(page) {
             try {
               const m = /(?:^|[#&])slide=id\.([\w-]+)/.exec(new URL(page.url()).hash);
               return m ? m[1] : null;
             } catch (e) {
               return null;
             }
-          };
+          }
           async function setNotesOn(page, press, thumbnail, at, slideId) {
             // The slide is selected and read back inside the first batch,
             // right before its keys; each later batch reads it back first

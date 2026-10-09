@@ -42,11 +42,6 @@
         const shown = await shownSelection(page);
         if (!sameRange(shown, want)) throw new S.SiteError("target_mismatch", `${name}: the editor's selection is ${shown === null ? "unreadable" : JSON.stringify(shown)}, not the confirmed ${want}; nothing was sent by this batch. Make a new draft and show it to the user again`);
       }
-      // Selects `range` and checks the editor selected it, in one input batch.
-      async function selectChecked(page, range, name) {
-        await selectRange(page, range);
-        await expectSelection(page, range, name);
-      }
       // The tab the editor shows: its gid in the editor's URL (null: the
       // sheet's default tab, as the call named none).
       const tabOf = (page) => {
@@ -146,10 +141,12 @@
             };
             // One paste of the rows as TSV at the top-left cell, as a person
             // pastes a range: Sheets reads the paste event's clipboardData.
-            // The selection is made and read back inside the batch, right
-            // before the paste.
+            // The selection is made before the batch's read-backs (the
+            // append position, the account) and read back again inside the
+            // batch, right before the paste.
+            await selectRange(page, start);
             await press.input(async () => {
-              await selectChecked(page, start, name);
+              await expectSelection(page, start, name);
               await page.clipboard.writeText(values.map((row) => row.map((v) => (v === null || v === undefined ? "" : String(v))).join("\t")).join("\n"));
               await page.keyboard.press("ControlOrMeta+v");
             }, reread(0));
@@ -159,15 +156,15 @@
             if (pasted) return { status: "written", range: target, verified: true };
             // An editor that dropped the paste gets typed keys, cell by cell
             // (Tab moves right, Enter starts the next row).
+            await selectRange(page, start);
             for (const [i, row] of values.entries()) {
               row.forEach((v, j) => {
                 rowOps.push([String(v === null || v === undefined ? "" : v), j < row.length - 1]);
               });
               // Each row's keys start at its first cell, read back right
-              // before them (the first row selects it).
+              // before them.
               await press.input(async () => {
-                if (i === 0) await selectChecked(page, start, name);
-                else await expectSelection(page, `${ed.colName(c0)}${r0 + i}`, name);
+                await expectSelection(page, `${ed.colName(c0)}${r0 + i}`, name);
                 for (const [text, tab] of rowOps.splice(0)) {
                   if (text) await page.keyboard.type(text);
                   if (tab) await page.keyboard.press("Tab");
@@ -297,8 +294,9 @@
             sent: ["range"],
             observe: async (page) => ({ tab: tabOf(page) }),
             act: async (page, press) => {
+              await selectRange(page, range);
               await press.input(async () => {
-                await selectChecked(page, range, "googleSheets.clear");
+                await expectSelection(page, range, "googleSheets.clear");
                 await page.keyboard.press("Delete");
               });
               await ed.saved(page);
