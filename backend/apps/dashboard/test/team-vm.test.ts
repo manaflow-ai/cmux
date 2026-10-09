@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { TeamVmCard, type TeamVmCardProps } from "../src/lib/team-vm-card.tsx"
-import { callerRole, initialCardState, reduceCard, taintBadge, teamVmRequest, type CardState, type TeamVmView } from "../src/lib/team-vm.ts"
+import { callerRole, exportRequest, initialCardState, reduceCard, taintBadge, teamVmRequest, type CardState, type TeamVmView } from "../src/lib/team-vm.ts"
 import { teamVmErrorText, teamVmText } from "../src/lib/team-vm-strings.ts"
 
 const NOW = 1_800_000_000_000
@@ -33,6 +33,7 @@ const render = (props: Partial<TeamVmCardProps> = {}) =>
       onCancel: () => {},
       onFilesCopied: () => {},
       onConfirm: () => {},
+      onDownload: () => {},
       ...props
     })
   )
@@ -148,10 +149,58 @@ describe("team VM confirms", () => {
   })
 })
 
+describe("team files download (cx-lyvg)", () => {
+  const v = view({ retired: [retired(), { ...retired("pausing"), vm: "vm_old_2", epoch: 2 }] })
+  it("offers owners and admins Download on each paused retired VM, never on a pausing one or to members", () => {
+    for (const role of ["owner", "admin"] as const) {
+      const html = render({ view: v, role })
+      expect(html).toContain('data-download="vm_old_3"')
+      expect(html).not.toContain('data-download="vm_old_2"')
+      expect(html).toContain(">Download files<")
+    }
+    expect(render({ view: v, role: "member" })).not.toContain("data-download=")
+  })
+  it("exports only a paused retired VM of the list", () => {
+    expect(exportRequest(v, "vm_old_3")).toEqual({ op: "team_vm.retired.export", params: { vm: "vm_old_3" } })
+    expect(exportRequest(v, "vm_old_2")).toBeNull()
+    expect(exportRequest(v, "vm_other")).toBeNull()
+  })
+  it("one download at a time; it shows progress, then the result, and never ticks the files-copied box", () => {
+    const deleting = open(initialCardState, "delete", "vm_old_3")
+    const busy = reduceCard(deleting, { t: "download", vm: "vm_old_3" })
+    expect(reduceCard(busy, { t: "download", vm: "vm_old_3" })).toBe(busy)
+    const busyHtml = render({ view: v, role: "owner", state: busy })
+    expect(busyHtml).toMatch(/<button[^>]*data-download="vm_old_3"[^>]*disabled=""/)
+    expect(busyHtml).toContain("Preparing the download")
+    const done = reduceCard(busy, { t: "download_done", vm: "vm_old_3", error: null, skipped: 2 })
+    expect(done.dialog).toEqual({ kind: "delete", vm: "vm_old_3", filesCopied: false })
+    const html = render({ view: v, role: "owner", state: done })
+    expect(html).toContain("The download started")
+    expect(html).toContain("2 entries")
+    expect(html).not.toContain('checked=""')
+    expect(html).toMatch(/<button[^>]*data-confirm="delete"[^>]*disabled=""/)
+  })
+  it("a failed export shows its code with a localized message on that VM", () => {
+    const failed = reduceCard(reduceCard(initialCardState, { t: "download", vm: "vm_old_3" }), { t: "download_done", vm: "vm_old_3", error: { code: "team_vm.export_too_large", message: "x" }, skipped: 0 })
+    const html = render({ view: v, role: "owner", state: failed })
+    expect(html).toContain('data-download-error="team_vm.export_too_large"')
+    expect(html).toContain(teamVmErrorText("en", "team_vm.export_too_large"))
+    expect(render({ view: v, role: "owner", state: failed, locale: "ja" })).toContain(teamVmErrorText("ja", "team_vm.export_too_large"))
+  })
+  it("the Rebuild and Delete confirms say to download the team files first; Delete has the Download button", () => {
+    const rebuild = render({ view: tainted(), role: "owner", state: open(initialCardState, "rebuild") })
+    expect(rebuild).toContain("Download the team files first")
+    const del = render({ view: v, role: "owner", state: open(initialCardState, "delete", "vm_old_3") })
+    expect(del).toContain("Download the team files first")
+    expect(del).toMatch(/role="alertdialog"[\s\S]*data-download="vm_old_3"/)
+    expect(render({ view: v, role: "owner", state: open(initialCardState, "delete", "vm_old_3"), locale: "ja" })).toContain(teamVmText("ja", "confirm.download_first"))
+  })
+})
+
 describe("team VM strings", () => {
   it("has a distinct Japanese text for every key and every known error", () => {
     expect(teamVmText("ja", "action.rebuild")).not.toBe(teamVmText("en", "action.rebuild"))
-    for (const code of ["team_vm.retired_files_unconfirmed", "team_vm.stale_taint", "team_vm.not_tainted", "team_vm.stale_epoch", "team_vm.retired_full", "team_vm.in_use", "auth.forbidden"]) {
+    for (const code of ["team_vm.retired_files_unconfirmed", "team_vm.stale_taint", "team_vm.not_tainted", "team_vm.stale_epoch", "team_vm.retired_full", "team_vm.in_use", "auth.forbidden", "team_vm.retired_not_fenced", "team_vm.export_too_large", "team_vm.export_no_files", "team_vm.export_timeout", "team_vm.export_ticket_invalid", "team_vm.provider_failed"]) {
       expect(teamVmErrorText("en", code)).not.toBe(teamVmErrorText("en", "some.unknown"))
       expect(teamVmErrorText("ja", code)).not.toBe(teamVmErrorText("en", code))
     }

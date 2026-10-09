@@ -55,9 +55,20 @@ enum SidebarStyle {
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
     /// their name here too.
     static var titleLeading: CGFloat { horizontalInset }
-    /// How far a group member's content moves in: past the header's caret
-    /// and its band (option B, Lawrence 2026-10-07).
-    static var groupMemberIndent: CGFloat { Metrics.smallIconSize + Metrics.space1 }
+    /// How far a group member's content moves in: half a row (16 pt at
+    /// the comfortable 32 pt row, the Chrome tab group sidebar).
+    static var groupMemberIndent: CGFloat { (Metrics.sidebarRowHeight * 0.5).rounded() }
+    /// Where a group header's bar starts: the row's leading edge (full width).
+    static var groupChipLeading: CGFloat { 0 }
+    /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
+    static func groupHeaderBarHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
+    /// The header's name: regular weight, 14 pt on a 26 pt bar, scaled.
+    static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
+        NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .regular)
+    }
+    /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
+    static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
+    static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.

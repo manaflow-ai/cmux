@@ -212,8 +212,9 @@ struct Parts {
     cli_shim: HostPath,
 }
 
+/// A literal (or `/tmp/cmux-<uid>/...`) absolute Unix path.
 fn abs(platform: Platform, literal: &str) -> HostPath {
-    HostPath::new(platform, literal).expect("absolute literal")
+    HostPath::unix_absolute(platform, literal.to_owned())
 }
 
 fn env_path(

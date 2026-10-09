@@ -18,6 +18,7 @@ export const CONTEXT_LABELS = {
   chooseComputer: "composer.chooseComputer",
   chooseFolder: "composer.chooseFolder",
   chooseFolderMenu: "composer.chooseFolderMenu",
+  folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
   connectCloud: "composer.connectCloud",
@@ -534,7 +535,7 @@ function LocationPicker({
           onSubmit={(path) => (path ? pick(path) : setOpen(false))}
           onCancel={() => setOpen(false)}
           label={label}
-          placeholder={value}
+          placeholder={t(CONTEXT_LABELS.folderSearch)}
           inputClassName="acpmux-location-search"
           itemClassName="acpmux-menu-item"
           renderItem={(path) => {

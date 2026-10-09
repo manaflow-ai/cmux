@@ -12,12 +12,8 @@
    "acpmux": 10,
    "chatmux-relay": 83,
    "cmux-app-host": 2,
-   "cmux-app-manifest": 14,
    "cmux-browser-host": 1,
-   "cmux-layout-reducer": 13,
    "cmux-remote": 60,
-   "cmux-server-core": 9,
-   "cmux-tasks-core": 25,
    "cmux-terminal-client": 1,
    "cmux-tui": 87,
    "cmux-tui-cdp": 3,
@@ -27,7 +23,6 @@
   "panic_macro": {
    "acpmux": 2,
    "chatmux-relay": 1,
-   "cmux-app-manifest": 1,
    "cmux-remote": 13,
    "cmux-tui": 33,
    "cmux-tui-core": 36
@@ -56,7 +51,7 @@
    "MessagesLabHome": 20
   },
   "force_unwrap": {
-   "CmuxNextApp": 67,
+   "CmuxNextApp": 48,
    "CmuxNextSettings": 6,
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 4,
