@@ -323,7 +323,7 @@ extension ConversationViewController {
             title: String(localized: "conversation.sendLater.menuItem", defaultValue: "Send Later", bundle: .module),
             symbol: "sendLater",
             color: .clear,
-            customIcon: SendLaterStyle.menuIcon()
+            customIcon: SendLaterStyle.menuIcon(side: 54)
         ) { [weak self] in
             self?.enterSendLater()
         }
