@@ -38,7 +38,7 @@ class LoopbackLink extends ChunkLink {
     const copy = Uint8Array.from(chunk);
     this.inFlight[lane] += copy.byteLength;
     setImmediate(() => {
-      if (!peer || peer.state !== "open") {
+      if (!peer || peer.state === "closed") {
         this.inFlight[lane] -= copy.byteLength;
         return;
       }
@@ -56,7 +56,7 @@ class LoopbackLink extends ChunkLink {
 
   private consume(lane: Lane, chunk: Uint8Array, from: LoopbackLink): void {
     from.inFlight[lane] -= chunk.byteLength;
-    if (this.state === "open") this.receiveChunk(lane, chunk);
+    if (this.state !== "closed") this.receiveChunk(lane, chunk);
   }
 
   protected closeTransport(): void {
@@ -71,6 +71,16 @@ class LoopbackLink extends ChunkLink {
 }
 
 export type { LoopbackLink };
+
+/** a opens now, b only when the returned function is called (lane-open race). */
+export function createStaggeredLoopbackPair(): [LoopbackLink, LoopbackLink, () => void] {
+  const a = new LoopbackLink("a");
+  const b = new LoopbackLink("b");
+  a.peer = b;
+  b.peer = a;
+  a.open();
+  return [a, b, () => b.open()];
+}
 
 /** Returns two connected links (a = phone side, b = host side by convention). */
 export function createLoopbackPair(): [LoopbackLink, LoopbackLink] {

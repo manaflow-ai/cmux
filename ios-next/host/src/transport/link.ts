@@ -40,6 +40,13 @@ export function toBytes(data: Uint8Array | string): Uint8Array {
  */
 export abstract class ChunkLink extends EventEmitter implements Link {
   private _state: LinkState = "connecting";
+  /**
+   * Messages that arrived before this side reached "open". Data channels open
+   * independently: the peer can see all lanes open and send host.hello on
+   * ctl before our last lane's open callback fires. Nobody listens to the
+   * link until "open", so those messages are held and replayed right after it.
+   */
+  private early: [Lane, Uint8Array][] = [];
   private readonly reassemblers: Record<Lane, Reassembler> = {
     ctl: new Reassembler(),
     int: new Reassembler(),
@@ -85,12 +92,22 @@ export abstract class ChunkLink extends EventEmitter implements Link {
       this.close(`codec error: ${(err as Error).message}`);
       return;
     }
-    if (msg) this.emit("message", lane, msg);
+    if (!msg) return;
+    if (this._state === "connecting") {
+      this.early.push([lane, msg]);
+      return;
+    }
+    if (this._state === "open") this.emit("message", lane, msg);
   }
 
   protected setState(state: LinkState): void {
     if (this._state === state || this._state === "closed") return;
     this._state = state;
+    // Listeners attach in the "open" handler (e.g. the RPC server); replay
+    // early messages after it, in arrival order.
     this.emit("state", state);
+    const early = this.early;
+    this.early = [];
+    if (state === "open") for (const [lane, msg] of early) this.emit("message", lane, msg);
   }
 }

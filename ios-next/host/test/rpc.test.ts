@@ -88,3 +88,18 @@ describe("rpc over loopback", () => {
     expect((await client.request("x.big", { s })).echo).toBe(s);
   });
 });
+
+describe("lane-open race", () => {
+  it("delivers host.hello sent before the host side saw its last lane open", async () => {
+    const { createStaggeredLoopbackPair } = await import("../src/transport/loopback.ts");
+    const server = new RpcServer(() => ({ hostId: "h1", hostName: "mac", os: "macOS", version: "0", capabilities: [] }));
+    const [phone, host, openHost] = createStaggeredLoopbackPair();
+    // The host attaches its RPC server only once its link is open (HostAgent).
+    host.on("state", (s) => s === "open" && server.attach(host));
+    const client = new HostClient(phone);
+    const hello = client.hello();
+    await new Promise((r) => setTimeout(r, 30)); // hello is already sitting at the host
+    openHost();
+    await expect(hello).resolves.toMatchObject({ hostId: "h1" });
+  });
+});
