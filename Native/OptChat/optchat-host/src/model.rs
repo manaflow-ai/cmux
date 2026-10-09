@@ -96,3 +96,83 @@ pub trait CompactModel: Send + Sync {
     /// session) closes it here. Called once per `run_node`.
     fn end(&self, _request: &CompactRequest) {}
 }
+
+/// An API error's class, read from a failed call's text (Claude Code's
+/// "API Error: 400 {...}", the Messages API route's "HTTP 400: {...}"): its
+/// status code, its error type, and the head of its message. No request
+/// body is in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ErrorClass {
+    pub status: u16,
+    pub kind: Option<String>,
+    pub detail: Option<String>,
+}
+
+/// Longest message head an `ErrorClass` keeps.
+const DETAIL_BYTES: usize = 120;
+
+impl ErrorClass {
+    /// A request error the same call repeats on every try: a 4xx but 408
+    /// (timeout) and 429 (rate limit), which pass.
+    pub fn permanent(&self) -> bool {
+        (400..500).contains(&self.status) && self.status != 408 && self.status != 429
+    }
+}
+
+impl fmt::Display for ErrorClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.status)?;
+        if let Some(kind) = &self.kind {
+            write!(f, " {kind}")?;
+        }
+        if let Some(detail) = &self.detail {
+            write!(f, ": {detail}")?;
+        }
+        Ok(())
+    }
+}
+
+/// The class of `message`, when it names an HTTP status.
+pub fn error_class(message: &str) -> Option<ErrorClass> {
+    let status = ["API Error: ", "HTTP "].iter().find_map(|lead| {
+        let at = message.find(lead)? + lead.len();
+        let digits = message.get(at..at + 3)?;
+        digits
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| digits.parse().ok())
+            .flatten()
+    })?;
+    // The error object's type (`"type":"invalid_request_error"`) and message.
+    let field = |name: &str| -> Option<String> {
+        let start = message.find("\"error\"")?;
+        let rest = &message[start..];
+        let key = format!("\"{name}\":\"");
+        let at = rest.find(&key)? + key.len();
+        let end = rest[at..].find('"')?;
+        Some(rest[at..at + end].to_owned())
+    };
+    let kind = field("type").filter(|k| k != "error");
+    let detail = field("message").map(|m| optchat_core::cut_at_bytes(&m, DETAIL_BYTES).to_owned());
+    Some(ErrorClass {
+        status,
+        kind,
+        detail,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_request_error_is_permanent_and_a_rate_limit_is_not() {
+        let e = error_class(r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"cache_control.ttl: wrong order"}}"#).unwrap();
+        assert_eq!(e.to_string(), "400 invalid_request_error: cache_control.ttl: wrong order");
+        assert!(e.permanent());
+        assert!(!error_class("HTTP 429: slow down").unwrap().permanent());
+        assert!(!error_class("API Error: 529 overloaded").unwrap().permanent());
+        assert!(!error_class("API Error: 408 timeout").unwrap().permanent());
+        assert_eq!(error_class("the acpmux connection was lost"), None);
+    }
+}

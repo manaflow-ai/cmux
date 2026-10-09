@@ -95,6 +95,26 @@ impl Brain {
                 if let Some(settle) = &settle_status {
                     settle.clear();
                 }
+                if settled {
+                    // A stuck node (a request error on every try) no longer
+                    // holds the turn: one notice says so, retracted once
+                    // every stuck node is built.
+                    let status = chat.status();
+                    if let Some(node) = status.stuck.first() {
+                        let class = status
+                            .failures
+                            .iter()
+                            .find(|f| f.node == *node)
+                            .and_then(|f| optchat_host::error_class(&f.error))
+                            .map_or_else(|| "a request error".to_owned(), |c| c.to_string());
+                        let _ = tx.send(Input::CompactorStatus(Err(format!(
+                            "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
+                            node.name()
+                        ))));
+                    } else if status.recovered {
+                        let _ = tx.send(Input::CompactorStatus(Ok(())));
+                    }
+                }
                 if !settled {
                     let _ = tx.send(Input::SettleFailed);
                     return;
