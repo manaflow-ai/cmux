@@ -86,20 +86,22 @@ extension NewChatPlacement {
             let (tab, pane) = found
             TabMoves.toNewDockColumn(tab, anchor: pane, edge: .left, role: .agentChat, services: services) { moved in
                 guard let controller else { return }
-                controller.pendingDock.removeAll()
-                controller.apply(controller.snapshot())
+                controller.dockFinished(key)
                 guard moved, let content = controller.workspace else { return }
-                focusWhenShown(key, in: content, services: services)
+                focusWhenShown(key, in: content, leaving: controller.layoutPaneID, services: services)
             }
             return nil
         })
     }
 
-    /// Focuses the pane that shows tab `key` once the layout has it.
-    @MainActor private static func focusWhenShown(_ key: String, in content: WorkspaceContentController, services: AppServices) {
+    /// Focuses the pane that shows tab `key` once the layout has it outside
+    /// `source`, the pane it moved from (the store may still list it there).
+    @MainActor private static func focusWhenShown(_ key: String, in content: WorkspaceContentController,
+                                                  leaving source: LayoutPaneID, services: AppServices) {
         func pane() -> LayoutPaneID? {
-            guard let model = services.locateTab(key)?.1 else { return nil }
-            return services.paneController(for: model)?.layoutPaneID
+            guard let model = services.locateTab(key)?.1,
+                  let id = services.paneController(for: model)?.layoutPaneID, id != source else { return nil }
+            return id
         }
         services.registry.track(Task { @MainActor in
             if pane() == nil {
@@ -108,5 +110,22 @@ extension NewChatPlacement {
             if let pane = pane() { PaneHandlers.focus(pane, in: content) }
             return nil
         })
+    }
+}
+
+extension PaneController {
+    /// The tab ids `pendingDock` hides: a provisional id also hides the tab
+    /// the store replaced it with, from the store's first snapshot on.
+    var dockBound: Set<String> {
+        let aliases = services.agentTabs.aliases
+        return pendingDock.union(pendingDock.compactMap { aliases[$0] })
+    }
+
+    /// Chat `key` reached its dock (or the move failed): the strip may list
+    /// it again. Other chats still on their way stay hidden.
+    func dockFinished(_ key: String) {
+        let aliases = services.agentTabs.aliases
+        pendingDock = pendingDock.filter { $0 != key && aliases[$0] != key }
+        apply(snapshot())
     }
 }

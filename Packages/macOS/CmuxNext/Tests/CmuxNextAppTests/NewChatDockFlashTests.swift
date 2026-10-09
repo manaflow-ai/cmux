@@ -35,5 +35,20 @@ import Testing
         #expect(!pane.snapshot().items.contains { $0.id.rawValue == tab.id })
         pane.pendingDock.removeAll()
         #expect(pane.snapshot().items.contains { $0.id.rawValue == tab.id })
+
+        // Cursor review (#18223): the store swaps the provisional tab for the
+        // created one before the creation reply lands; the created tab is
+        // hidden from that first snapshot on.
+        let provisional = "provisional:dock-bound"
+        pane.pendingDock.insert(provisional)
+        services.agentTabs.rekey(provisional, to: tab.id)
+        #expect(!pane.snapshot().items.contains { $0.id.rawValue == tab.id }, "the created chat showed in the strip")
+
+        // Another chat reaching its dock leaves this one hidden.
+        pane.pendingDock.insert("other-chat")
+        pane.dockFinished("other-chat")
+        #expect(!pane.snapshot().items.contains { $0.id.rawValue == tab.id }, "another dock showed this chat")
+        pane.dockFinished(tab.id)
+        #expect(pane.snapshot().items.contains { $0.id.rawValue == tab.id })
     }
 }
