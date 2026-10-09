@@ -303,11 +303,18 @@ fn a_crash_before_the_append_answers_the_message_normally() {
 #[test]
 fn a_crash_after_the_append_never_logs_the_message_twice() {
     let h = crashed_while_logging(true);
-    assert!(h.agents.inner.lock().unwrap().prompts.is_empty());
-    assert_eq!(h.log(), vec![("user".to_string(), "hello".to_string())]);
+    // The cut turn resumes (E23): one turn, the message still logged once.
+    assert_eq!(h.agents.inner.lock().unwrap().prompts.len(), 1);
+    let log = h.log();
+    assert_eq!(
+        log.iter().filter(|(_, t)| t == "hello").count(),
+        1,
+        "{log:?}"
+    );
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1);
-    assert!(sends[0].1.starts_with("(interrupted"), "{sends:?}");
-    // Seq 1 is in the log; seq 2 is the interrupted notice itself (no log).
-    assert_eq!(h.brain.state().logged_seq, 2);
+    assert!(!sends[0].1.starts_with("(interrupted"), "{sends:?}");
+    // Seq 1 is in the log; seq 2 is the resume turn's own reply, which no
+    // turn takes.
+    assert_eq!(h.brain.state().logged_seq, 1);
 }

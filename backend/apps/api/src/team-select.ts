@@ -25,7 +25,7 @@ export type TeamPrincipal = Principal & { readonly user: string; readonly team: 
 
 export type TeamSelection =
   | { readonly ok: true; readonly principal: TeamPrincipal }
-  | { readonly ok: false; readonly code: "auth.forbidden" | "owner.unreachable"; readonly message: string }
+  | { readonly ok: false; readonly code: "auth.forbidden" | "team.not_member" | "owner.unreachable"; readonly message: string }
 
 export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string | null | undefined): Promise<TeamSelection> => {
   if (requested && requested !== p.team) {
@@ -43,6 +43,10 @@ export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string |
     console.error(JSON.stringify({ msg: "team selection unreachable", error: String(e).slice(0, 200) }))
     return { ok: false, code: "owner.unreachable", message: "team membership could not be checked; retry" }
   }
-  if (!role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
+  // Its own code (cx-5xew review): clients tell "not a member" apart from a role or op refusal inside the team.
+  if (!role) return { ok: false, code: "team.not_member", message: "not a member of this team" }
   return { ok: true, principal: { ...p, team } }
 }
+
+/** user.teams.list lives beside the selection it mirrors (user-teams.ts). */
+export { listUserTeams } from "./user-teams.ts"

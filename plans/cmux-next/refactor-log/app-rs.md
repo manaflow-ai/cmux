@@ -20,7 +20,11 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 0b621992dcdc refactor-app-rs: impl App hover/right button, left press, left drag/release, clipboard/toasts -> app/{pointer_hover,left_down,left_drag,clipboard}.rs; app.rs 26886 -> 25890.
 - 2026-10-09 6d56dc9ce9b8 refactor-app-rs: impl App scrollbars + split resize, context menu building, scroll wheel + browser pointer -> app/{scrollbar_resize,menu_build,scroll_browser}.rs; app.rs 25890 -> 24626.
 - 2026-10-09 8ad8c5d30355 refactor-app-rs: tests 1/4: 145 app tests -> app/tests/{host_input,shortcuts_menus,selection_clicks,viewport_history}.rs (child modules of the inline tests module, use super::*; paths super:: -> crate::app::); test count unchanged; app.rs 24626 -> 19149.
-- 2026-10-09 (pending) refactor-app-rs: tests 2/4: 153 app tests -> app/tests/{menus_browser,pty_mouse,graphics_pointer,mux_recovery}.rs; test count unchanged; app.rs 19149 -> 13659.
+- 2026-10-09 8b2c78d388df refactor-app-rs: tests 2/4: 153 app tests -> app/tests/{menus_browser,pty_mouse,graphics_pointer,mux_recovery}.rs; test count unchanged; app.rs 19149 -> 13659.
+- 2026-10-09 20f7d273cad2 refactor-app-rs: tests 3/4: 152 app tests -> app/tests/{surface_attach,remote_pointer,deferred_input,machine_sidebar}.rs; test count unchanged; app.rs 13659 -> 8370.
+- 2026-10-09 068b1c4e7325 refactor-app-rs: tests 4/4: 124 app tests -> app/tests/{provider_switch,provider_workspaces,projection_actions,session_notices}.rs and the tests root (imports + shared helpers) -> app/tests.rs (#[cfg(test)] mod tests;); test count unchanged; app.rs 8370 -> 2625.
+- 2026-10-09 55fbfdd3cbb4 refactor-app-rs: free helpers: host modes, action policy, browser keys, render pacing, rail selection, presentation snapshot, focus history, client view, clear history -> app/{host_modes,action_policy,browser_keys,render_pacing,rail_selection,presentation_snapshot,focus_history,client_view,clear_history}.rs; app.rs 2625 -> 1874.
+- 2026-10-09 (pending) refactor-app-rs: STRUCTURAL (not move-only, tests unchanged): App::handle_inner split. Admission stays in handle_inner; the final match moves to App::dispatch_event (app/dispatch.rs); 18 block arms over 6 lines become App::on_<event> methods (app/dispatch/{app,mux,session}_events.rs), bodies verbatim. handle_inner 1003 -> about 335 lines; app.rs 1874 -> 1211.
 
 ## Target module map for cmux-tui/crates/cmux-tui/src/app.rs (2026-10-09)
 
