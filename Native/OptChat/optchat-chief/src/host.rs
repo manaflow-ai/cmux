@@ -751,6 +751,23 @@ fn start(
                     .map(Option::unwrap_or_default)
                     .map_err(late)
             }
+            ControlRequest::Engine(request) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Engine { request, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Stop => {
+                let (reply, answer) = channel();
+                tx.send(Input::Stop { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
         }
     });
     // Section 9: spawn and tell, served beside zoom and date (acpmux only).
