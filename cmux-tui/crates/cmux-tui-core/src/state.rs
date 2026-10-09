@@ -52,6 +52,9 @@ pub(crate) mod room_delete;
 mod room_delete_amendment_tests;
 #[cfg(test)]
 mod room_delete_tests;
+
+#[cfg(test)]
+mod projects_tests;
 pub(crate) mod router;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
