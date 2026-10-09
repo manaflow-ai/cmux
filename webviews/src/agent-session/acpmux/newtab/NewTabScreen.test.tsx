@@ -1,4 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "../model";
 
@@ -311,4 +312,31 @@ test("New Tab acknowledges the input generation only after the field has focus",
   });
   expect(seen).toEqual(["opening-1"]);
   await act(async () => root.unmount());
+});
+
+// Dogfood 2026-10-08 (01): with chat cards under it the rows box shrank to two rows, and Down
+// to a row below them selected it out of sight ("I select lowest, it doesn't jump").
+test("Down to a row out of sight scrolls it into view", async () => {
+  const proto = dom.window.HTMLElement.prototype as unknown as { scrollIntoView?: (options?: unknown) => void };
+  const original = proto.scrollIntoView;
+  const scrolled: (string | null)[] = [];
+  proto.scrollIntoView = function (this: HTMLElement) {
+    scrolled.push(this.getAttribute("data-type"));
+  };
+  try {
+    const { root, type, key } = await mount();
+    await type("fix the build");
+    await key("ArrowDown");
+    await key("ArrowDown");
+    expect(scrolled.at(-1)).toBe("search");
+    await act(async () => root.unmount());
+  } finally {
+    proto.scrollIntoView = original;
+  }
+});
+
+test("the rows box keeps its height when chat cards and tools fill the screen", () => {
+  const css = readFileSync(new URL("./screen.css", import.meta.url), "utf8");
+  const rows = css.match(/\.nt-rows\{([^}]*)\}/)?.[1] ?? "";
+  expect(rows.split(";")).toContain("flex:none");
 });
