@@ -16200,6 +16200,32 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent toggle-acp-inspector",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.toggleInspector",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show ACP Inspector",
+      "title_key" : "action.agentPane.toggleInspector",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent quick",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -26168,7 +26194,7 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "newRow",
+              "id" : "newColumn",
               "kind" : "action",
               "order" : 0,
               "visible_when" : {
@@ -26181,7 +26207,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "splitLeft",
+              "id" : "newRow",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -26194,7 +26220,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "splitUp",
+              "id" : "splitLeft",
               "kind" : "action",
               "order" : 2,
               "visible_when" : {
@@ -26207,7 +26233,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "newColumn",
+              "id" : "splitUp",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {

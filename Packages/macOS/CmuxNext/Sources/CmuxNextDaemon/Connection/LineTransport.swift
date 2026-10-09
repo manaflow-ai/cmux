@@ -286,7 +286,7 @@ final class LineTransport: Sendable {
 
     private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
         let decoder = JSONDecoder()
-        var buffer = Data()
+        var lines = LineSplitter()
         var chunk = [UInt8](repeating: 0, count: 256 * 1024)
         var closeDetail = "EOF"
         // wakeup-allow: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
@@ -298,22 +298,8 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
-            // Only the new bytes can hold a newline: the buffered rest is one
-            // unfinished line. Rescanning it on every read was quadratic in
-            // the line size (a 10 MiB replay missed the attach deadline).
-            let scanFrom = buffer.count
-            buffer.append(contentsOf: chunk[0..<count])
-            let lineEnds = Self.newlineOffsets(in: buffer, from: scanFrom)
-            var start = 0
-            for end in lineEnds {
-                if end > start {
-                    let base = buffer.startIndex
-                    route(Data(buffer[(base + start)..<(base + end)]), decoder: decoder, onEvent: onEvent)
-                }
-                start = end + 1
-            }
-            if start > 0 { buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + start)) }
-            if buffer.count > Self.maxLineBytes {
+            lines.append(chunk[0..<count]) { route($0, decoder: decoder, onEvent: onEvent) }
+            if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
             }
@@ -331,21 +317,6 @@ final class LineTransport: Sendable {
             }
         }
         onClose(reason)
-    }
-
-    /// Offsets (from `data.startIndex`) of every newline at or after `offset`.
-    static func newlineOffsets(in data: Data, from offset: Int) -> [Int] {
-        data.withUnsafeBytes { raw -> [Int] in
-            guard let base = raw.baseAddress, offset < raw.count else { return [] }
-            var offsets: [Int] = []
-            var position = offset
-            while position < raw.count, let hit = memchr(base + position, 0x0A, raw.count - position) {
-                let found = base.distance(to: UnsafeRawPointer(hit))
-                offsets.append(found)
-                position = found + 1
-            }
-            return offsets
-        }
     }
 
     /// Events routed so far. Read after a command's reply, it bounds every

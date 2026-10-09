@@ -93,39 +93,62 @@ import Testing
     }
 
     /// A hung manifest is stopped at the bound; the helper starts without the flag.
-    @Test func aHangingManifestStartsWithoutTheFlagWithinTheBound() async throws {
-        let helper = try FakeHelper(manifest: "exec /bin/sleep 30")
+    /// The bound runs on a manual clock: the start can end only when the test moves
+    /// that clock past it (the manifest itself never answers), so a busy machine
+    /// cannot fail it (hosted runs 37845131094 and 37852051562 measured 7.5 s and
+    /// 19.3 s of wall time against a 5 s limit).
+    @Test(.timeLimit(.minutes(1))) func aHangingManifestStartsWithoutTheFlagWithinTheBound() async throws {
+        let helper = try FakeHelper(manifest: "exec /bin/sleep 3600")
         defer { helper.remove() }
-        let reader = CuaHelperManifestReader(timeout: .milliseconds(300), clock: ContinuousClock())
-        let started = ContinuousClock.now
-        let (launcher, arguments) = await Self.start(helper, reader: reader)
-        #expect(ContinuousClock.now - started < .seconds(5), "the start waited for the hung manifest")
+        let clock = ManualClock()
+        let reader = CuaHelperManifestReader(timeout: .milliseconds(300), clock: clock)
+        let start = Task { await Self.start(helper, reader: reader) }
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: .milliseconds(300))
+        let (launcher, arguments) = await start.value
         #expect(launcher.launches.count == 1)
         #expect(!arguments.contains("--owner-pid"))
     }
 
     /// A manifest whose child keeps its output open after the kill still
-    /// ends at the bound (the reader drains on its own).
-    @Test func aManifestWhoseChildHoldsTheOutputStillEndsAtTheBound() async throws {
-        let helper = try FakeHelper(manifest: "/bin/sleep 8")
+    /// ends at the bound (the reader drains on its own). The child holds the
+    /// output until the test ends it, so a read that waited for the output's
+    /// end could never return.
+    @Test(.timeLimit(.minutes(1))) func aManifestWhoseChildHoldsTheOutputStillEndsAtTheBound() async throws {
+        // The child writes its pid next to the script, so the test ends exactly that process.
+        let helper = try FakeHelper(manifest: #"/bin/sleep 3600 & echo $! > "$(dirname "$0")/child.pid"; wait"#)
         defer { helper.remove() }
-        let reader = CuaHelperManifestReader(timeout: .milliseconds(300), clock: ContinuousClock())
-        let started = ContinuousClock.now
-        #expect(await reader.capabilities(of: helper.app).isEmpty)
-        #expect(ContinuousClock.now - started < .seconds(4), "the read waited for the grandchild")
+        let childPIDFile = helper.app.appending(path: "Contents/MacOS/child.pid")
+        defer { Self.endChild(listedIn: childPIDFile) }
+        let clock = ManualClock()
+        let reader = CuaHelperManifestReader(timeout: .milliseconds(300), clock: clock)
+        let read = Task { await reader.capabilities(of: helper.app) }
+        // The bound passes only once the child holds the output.
+        while Self.childPID(listedIn: childPIDFile) == nil { try Task.checkCancellation(); await Task.yield() }
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: .milliseconds(300))
+        #expect(await read.value.isEmpty)
     }
 
-    /// A cancelled read returns at once with no capability.
-    @Test func aCancelledReadReturnsNoCapability() async throws {
-        let helper = try FakeHelper(manifest: "exec /bin/sleep 30")
+    /// A cancelled read returns at once with no capability: its bound is on a
+    /// clock that never moves, so only the cancellation can end it.
+    @Test(.timeLimit(.minutes(1))) func aCancelledReadReturnsNoCapability() async throws {
+        let helper = try FakeHelper(manifest: "exec /bin/sleep 3600")
         defer { helper.remove() }
-        let reader = CuaHelperManifestReader(timeout: .seconds(60), clock: ContinuousClock())
-        let started = ContinuousClock.now
+        let reader = CuaHelperManifestReader(timeout: .seconds(60), clock: ManualClock())
         let read = Task { await reader.capabilities(of: helper.app) }
-        while helper.runCount == 0 { await Task.yield() }
+        while helper.runCount == 0 { try Task.checkCancellation(); await Task.yield() }
         read.cancel()
         #expect(await read.value.isEmpty)
-        #expect(ContinuousClock.now - started < .seconds(10))
+    }
+
+    static func childPID(listedIn file: URL) -> pid_t? {
+        (try? String(contentsOf: file, encoding: .utf8)).flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    /// Ends the manifest's child that this test started (its pid is in `file`).
+    static func endChild(listedIn file: URL) {
+        if let pid = childPID(listedIn: file), pid > 1 { kill(pid, SIGKILL) }
     }
 
     /// The manifest runs once per helper binary; a changed binary is read again.

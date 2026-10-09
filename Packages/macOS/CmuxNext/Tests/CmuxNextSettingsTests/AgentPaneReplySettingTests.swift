@@ -9,13 +9,15 @@ import Testing
         CmuxConfigSnapshot.parse(root, validDensities: SettingsSchemaTests.densities, validMetrics: [])
     }
 
-    @Test func unsetAsksFirstAndLoadsWebImagesOnClick() throws {
+    /// Lawrence (2026-10-07, "Remove dialogues."): an outside path opens on the click, with no
+    /// sheet; `confirm` stays an opt-in.
+    @Test func unsetOpensOnTheClickAndLoadsWebImagesOnClick() throws {
         let setting = parse(.object([:])).agentPaneReplies
-        #expect(setting.outsideRoots == .confirm)
+        #expect(setting.outsideRoots == .open)
         #expect(setting.remoteImages == .click)
         let outside = try #require(SettingsSchema.descriptor(for: ["agentPane", "links", "outsideRoots"]))
         let images = try #require(SettingsSchema.descriptor(for: ["agentPane", "images", "remote"]))
-        #expect(outside.defaultValue == .string("confirm"))
+        #expect(outside.defaultValue == .string("open"))
         #expect(images.defaultValue == .string("click"))
     }
 
@@ -32,7 +34,7 @@ import Testing
 
     @Test func badValuesKeepTheirDefaultWithADiagnostic() {
         let snapshot = parse(["agentPane": ["links": ["outsideRoots": "always"], "images": ["remote": "never"]]])
-        #expect(snapshot.agentPaneReplies.outsideRoots == .confirm)
+        #expect(snapshot.agentPaneReplies.outsideRoots == .open)
         #expect(snapshot.agentPaneReplies.remoteImages == .never)
         #expect(snapshot.diagnostics.map(\.path) == ["agentPane.links.outsideRoots"])
         #expect(parse(["agentPane": "open"]).diagnostics.map(\.path) == ["agentPane"])

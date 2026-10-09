@@ -46,7 +46,7 @@ export type AcpmuxHostConfig = {
 };
 
 /** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
-export type AcpmuxAdopt = { harness: string; agentSessionId: string };
+export type AcpmuxAdopt = { harness: string; agentSessionId: string; ifLive?: "fork" | "open" };
 
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. An adopt
  *  sends no cwd: acpmux resumes the chat where its harness recorded it. */
@@ -63,6 +63,15 @@ export function newSessionParams(
     ...(host.cwd ? { cwd: host.cwd } : {}),
     mcpServers: [],
     _meta: { acpmux: { harness, ...(host.peer ? { peer: host.peer } : {}) } },
+  };
+}
+
+/** What an `adopt.live` refusal's details offer: a fork (Claude Code), and the holding process. */
+function liveDetails(details: unknown): { canFork: boolean; command?: string } {
+  const d = details && typeof details === "object" ? (details as Record<string, unknown>) : {};
+  return {
+    canFork: d.canFork === true,
+    ...(typeof d.command === "string" && d.command ? { command: d.command } : {}),
   };
 }
 
@@ -420,6 +429,8 @@ export class AcpmuxDirectClient {
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
+  /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
+  private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
@@ -1373,6 +1384,7 @@ export class AcpmuxDirectClient {
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
+      liveChat: this.liveAdopt && { canFork: this.liveAdopt.canFork, command: this.liveAdopt.command },
     });
   }
 
@@ -1382,6 +1394,10 @@ export class AcpmuxDirectClient {
   /** The session this pane shows, if any. */
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
+  }
+  /** A copy of the selected session's recorded events, oldest first, for the inspector. */
+  sessionEvents(): EventRecord[] {
+    return this.events.slice();
   }
   /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
@@ -1655,17 +1671,33 @@ export class AcpmuxDirectClient {
       result = await this.request("session/new", newSessionParams({ adopt }));
     } catch (error) {
       if (this.socket?.readyState !== WebSocket.OPEN) throw error;
+      if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !adopt.ifLive) {
+        this.liveAdopt = { adopt, ...liveDetails((error as { details?: unknown }).details) };
+        this.emit();
+        return;
+      }
       this.adoptFailed(error instanceof Error && error.message ? `: ${error.message}` : "");
       return;
     }
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
-    if (sessionId && adoptedBy(result, adopt)) {
+    // A fork is a new conversation: its harness session is its own, not the adopted one.
+    if (sessionId && (adopt.ifLive === "fork" || adoptedBy(result, adopt))) {
       this.adopted = sessionId;
       await this.select(sessionId);
       return;
     }
     if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
     this.adoptFailed(": this acpmux can't resume chats");
+  }
+  /// Adopts the chat acpmux refused as live elsewhere anyway: `open` resumes it as it is (two
+  /// processes then write one conversation), `fork` starts a new chat from it. Once; a second
+  /// click while it adopts does nothing.
+  async adoptLive(choice: "fork" | "open"): Promise<void> {
+    const live = this.liveAdopt;
+    if (!live || (choice === "fork" && !live.canFork)) return;
+    this.liveAdopt = undefined;
+    this.emit();
+    await this.adoptChat({ ...live.adopt, ifLive: choice });
   }
   /// A line in the shown transcript (a pick the agent refused).
   notice(text: string): void {

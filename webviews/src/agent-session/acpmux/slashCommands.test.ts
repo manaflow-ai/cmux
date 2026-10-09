@@ -19,8 +19,8 @@ describe("slash commands", () => {
       ],
     };
     expect(commandsFromUpdate(update)).toEqual([
-      { name: "review", description: "Review", hint: "branch" },
-      { name: "init", description: "Init", hint: undefined },
+      { name: "review", description: "Review", hint: "branch", source: "agent" },
+      { name: "init", description: "Init", hint: undefined, source: "agent" },
     ]);
     expect(commandsFromUpdate({ sessionUpdate: "agent_message_chunk" })).toBeUndefined();
   });

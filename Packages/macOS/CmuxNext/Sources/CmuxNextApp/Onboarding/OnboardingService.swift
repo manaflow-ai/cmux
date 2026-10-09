@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -19,6 +18,8 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     private(set) var controller: OnboardingWindowController?
+    /// The cookie import card on browser pages (cx-367y).
+    private(set) lazy var cookiePrompt = CookieImportPromptService(services: services)
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
@@ -27,14 +28,8 @@ final class OnboardingService {
     /// Shows onboarding on the first launch even in a no-activate test launch.
     static let forceKey = "CMUX_NEXT_ONBOARDING"
 
-    /// The cmux-cua socket the computer use step reads: the helper this app
-    /// runs (`ComputerUseHelperDaemon`), else CMUX_NEXT_CUA_SOCKET or
-    /// cmux-cua's default. Tests point it at their own socket.
-    var computerUseConfiguration: AgentActivitySocketSource.Configuration {
-        get { computerUseConfigurationOverride ?? ComputerUseHelperDaemon.shared.configuration ?? .standard(machineName: "") }
-        set { computerUseConfigurationOverride = newValue }
-    }
-    private var computerUseConfigurationOverride: AgentActivitySocketSource.Configuration?
+    /// Computer Use Setup: the helper's grants for the palette action, Settings and this step.
+    private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
     /// Whether an open window can show `step`: it already has that step (or
     /// no step was asked for). Otherwise the window is rebuilt for the step.
@@ -140,11 +135,21 @@ final class OnboardingService {
     }
 
     /// Opens onboarding at `step` (or brings the open one to that step).
-    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil) {
+    /// `importKinds` checks only those kinds on the import step and
+    /// `importTarget` names the cmux browser profile they go into (the cookie
+    /// import card: cookies, into the tab's profile); without kinds the step
+    /// makes one profile per source.
+    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil,
+              importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
         var interrupted: OnboardingModel.Step?
         if let controller {
             if resume == nil, Self.reusesWindow(showing: controller.model.steps, for: step) {
                 if let step { controller.model.go(to: step) }
+                if let importKinds {
+                    controller.model.importer.preset(kinds: importKinds, into: importTarget)
+                } else {
+                    controller.model.importer.resetTarget()
+                }
                 controller.present()
                 return
             }
@@ -157,6 +162,7 @@ final class OnboardingService {
             self.controller = nil
         }
         let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step, resumingFirstRunAt: resume)
+        if let importKinds { model.importer.preset(kinds: importKinds, into: importTarget) }
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self] in
             self?.controller = nil
