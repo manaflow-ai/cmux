@@ -18,16 +18,22 @@ import XCTest
 struct WorkspaceMergeDropTests {
     @MainActor
     private struct Fixture {
-        let app = AppDelegate()
+        let previousApp: AppDelegate?
+        let app: AppDelegate
         let windowId = UUID()
-        let manager = TabManager()
+        let manager: TabManager
 
         init() {
+            // AppDelegate.init claims AppDelegate.shared; later suites rely on the host's.
+            previousApp = AppDelegate.shared
+            app = AppDelegate()
+            manager = TabManager()
             app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
         }
 
         func tearDown() {
             app.unregisterMainWindowContextForTesting(windowId: windowId)
+            AppDelegate.shared = previousApp
         }
     }
 
