@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// Hover as a function of where the pointer is now and where the view is
 /// now (cx-ww20, cx-3wu5). A tracking area reports only pointer moves: when
@@ -214,10 +215,13 @@ private final class KeyWindowObserver: NSObject {
 
     #if DEBUG
     /// A closed window's synthesized pointer must not pass to a new window
-    /// that reuses its address.
-    @objc private func windowWillClose(_ notification: Notification) {
+    /// that reuses its address. A close notice can be posted off the main
+    /// thread (`object: nil` observes every poster's), so the observer is
+    /// nonisolated and the forget runs on main (crash-elimination.md, P1b).
+    @objc nonisolated private func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
-        PointerHover.debugPointers[ObjectIdentifier(window)] = nil
+        let id = ObjectIdentifier(window)
+        MainDelivery().run { PointerHover.debugPointers[id] = nil }
     }
     #endif
 
