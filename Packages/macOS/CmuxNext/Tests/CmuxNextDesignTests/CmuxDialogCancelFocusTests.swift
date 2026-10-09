@@ -157,12 +157,12 @@ import Testing
     /// What AppKit does when the person leaves cmux and clicks its window to
     /// come back: the window, not the dialog's panel, is key again.
     static func comeBack(to window: NSWindow) {
-        // global-notice-allow: these AppKit lifecycle notices must reach the observers under test.
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
         NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
-        // global-notice-allow: these AppKit lifecycle notices must reach the observers under test.
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
         window.makeKey()
-        // global-notice-allow: this synthetic AppKit key notice drives the window lifecycle under test.
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
     }
 
