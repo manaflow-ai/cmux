@@ -81,6 +81,19 @@ class PlanWithoutTheApi(unittest.TestCase):
         self.assertNotEqual(code, 0, log)
         self.assertNotIn("migrations=false", output)
 
+    def test_unfetchable_head_without_migrations_uses_files_api(self):
+        (self.tmp / "bin/gh").write_text("#!/bin/sh\nprintf 'modified\\twebviews/App.tsx\\t\\n'\n")
+        code, output, log = self.run_plan("f" * 40)
+        self.assertEqual(code, 0, log)
+        self.assertIn("migrations=false", output)
+
+    def test_unfetchable_head_with_migrations_fails_closed(self):
+        (self.tmp / "bin/gh").write_text("#!/bin/sh\nprintf 'added\\tbackend/db/migrations/0002_more.sql\\t\\n'\n")
+        code, output, log = self.run_plan("f" * 40)
+        self.assertNotEqual(code, 0, log)
+        self.assertIn("migrations=true", output)
+        self.assertNotIn("migrations=false", output)
+
 
 if __name__ == "__main__":
     unittest.main()

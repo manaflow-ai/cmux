@@ -4,6 +4,59 @@ import Testing
 
 @Suite("Cloud port share service")
 struct CloudPortShareServiceTests {
+    enum CancellationPoint: CaseIterable, Sendable {
+        case beforeStart, list, create, probe, retryDelay
+    }
+
+    @Test("cancellation stops sharing even when a dependency finishes normally", arguments: CancellationPoint.allCases)
+    func cancellationStopsSharing(at point: CancellationPoint) async {
+        let entered = Gate()
+        let release = Gate()
+        let pause: @Sendable () async -> Void = {
+            await entered.open()
+            await release.wait()
+        }
+        let api = FakePublishing(
+            creates: [.row(publication(state: point == .retryDelay ? "provisioning" : "active"))],
+            beforeListReturn: { if point == .list { await pause() } },
+            beforeCreateReturn: { if point == .create { await pause() } }
+        )
+        let service = CloudPortShareService(
+            api: api,
+            pollDelays: [.seconds(1)],
+            sleep: { _ in if point == .retryDelay { await pause() } },
+            probe: { _ in
+                if point == .probe { await pause() }
+                return 401
+            }
+        )
+        let task = Task {
+            if point == .beforeStart { await pause() }
+            return try await service.share(vmID: "brave-otter", port: 8000, teamID: "team-1")
+        }
+        await entered.wait()
+        task.cancel()
+        await release.open()
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+        let expectedCalls: [String] = point == .beforeStart ? [] : point == .list
+            ? ["list team-1"] : ["list team-1", "create brave-otter:8000 team-1"]
+        #expect(await api.calls == expectedCalls)
+    }
+
+    @Test("the signed-out readiness request uses a safe HTTP method")
+    func readinessRequestIsSafe() async throws {
+        try #require(URLProtocol.registerClass(PortShareProbeProtocol.self))
+        defer { URLProtocol.unregisterClass(PortShareProbeProtocol.self) }
+        let url = try #require(URL(string: "https://port-share-probe-test.invalid/"))
+        let status = await CloudPortShareService.signedOutStatus(url)
+        #expect(status == 200)
+        let request = try #require(PortShareProbeProtocol.capturedRequest())
+        #expect(request.httpMethod == "HEAD")
+        #expect(request.httpBody == nil)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+    }
+
     @Test("creates a link with the server default and waits until it serves")
     func createsAndWaits() async throws {
         let api = FakePublishing(creates: [.row(publication(state: "provisioning")), .row(publication(state: "active"))])
@@ -192,20 +245,30 @@ private actor FakePublishing: CloudPortPublishing {
     private(set) var calls: [String] = []
     private let listed: [VMPublication]
     private var creates: [Create]
+    private let beforeListReturn: @Sendable () async -> Void
+    private let beforeCreateReturn: @Sendable () async -> Void
 
-    init(listed: [VMPublication] = [], creates: [Create] = []) {
+    init(
+        listed: [VMPublication] = [], creates: [Create] = [],
+        beforeListReturn: @escaping @Sendable () async -> Void = {},
+        beforeCreateReturn: @escaping @Sendable () async -> Void = {}
+    ) {
         self.listed = listed
         self.creates = creates
+        self.beforeListReturn = beforeListReturn
+        self.beforeCreateReturn = beforeCreateReturn
     }
 
     func listPublications(scopeTeamID: String?) async throws -> [VMPublication] {
         calls.append("list \(scopeTeamID ?? "-")")
+        await beforeListReturn()
         return listed
     }
 
     /// Plays the scripted answers in order, repeating the last one.
     func createDefaultPublication(vmID: String, port: Int, scopeTeamID: String?) async throws -> VMPublication {
         calls.append("create \(vmID):\(port) \(scopeTeamID ?? "-")")
+        await beforeCreateReturn()
         guard let next = creates.first else { throw VMClientError.httpStatus(500, "no scripted create") }
         if creates.count > 1 { creates.removeFirst() }
         switch next {
@@ -217,4 +280,23 @@ private actor FakePublishing: CloudPortPublishing {
     func deletePublication(id: String, scopeTeamID: String?) async throws {
         calls.append("delete \(id) \(scopeTeamID ?? "-")")
     }
+}
+
+/// Intercepts only this test's hostname; other URLSession traffic is unaffected.
+private final class PortShareProbeProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var captured: URLRequest?
+
+    static func capturedRequest() -> URLRequest? { lock.withLock { captured } }
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "port-share-probe-test.invalid"
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.lock.withLock { Self.captured = request }
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }
