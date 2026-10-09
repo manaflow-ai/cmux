@@ -16,7 +16,16 @@ enum ChatOpenPlacement: Sendable, Equatable {
 final class ChatsOpenCoordinator {
     private weak var services: AppServices?
 
-    init(services: AppServices) { self.services = services }
+    init(services: AppServices) {
+        self.services = services
+        // Choose Folder… in a pane whose chat has no folder (cx-nn3e.1): that pane's folder
+        // sheet, then `chat_open` again with the pick.
+        AgentPaneModel.chatFolderChooser = { [weak self] model, chat in
+            guard let self, let view = self.services?.agentTabs.views.values.first(where: { $0.model === model }),
+                  let url = await view.pickFolder() else { return .cancelled }
+            return await self.reopen(chat, in: url.path)
+        }
+    }
 
     func open(_ key: String, placement: ChatOpenPlacement = .currentPane) {
         guard let services, let environment = QuitAgents.environment(services) else { return }

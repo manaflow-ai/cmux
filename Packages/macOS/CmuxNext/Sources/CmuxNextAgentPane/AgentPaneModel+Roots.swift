@@ -64,9 +64,10 @@ extension AgentPaneModel {
     /// Choose Folder… for a chat whose folder is missing (cx-nn3e.1): the sheet only after a real
     /// gesture; a resumable chat comes back as the adopt the page resumes in this pane.
     func chooseChatFolder() async -> [String: Any] {
-        guard let needed = seed?.folderNeeded, let onChooseChatFolder else { return Self.unsupported("chat.folder.choose") }
+        let chooser = onChooseChatFolder ?? Self.chatFolderChooser.map { choose in { [unowned self] chat in await choose(self, chat) } }
+        guard let needed = seed?.folderNeeded, let chooser else { return Self.unsupported("chat.folder.choose") }
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
-        switch await onChooseChatFolder(needed.chat) {
+        switch await chooser(needed.chat) {
         case .adopt(let adopt, let cwd):
             seed?.folderNeeded = nil
             if let cwd { handshakeCwd = cwd }

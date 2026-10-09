@@ -26,3 +26,9 @@ public nonisolated enum AgentPaneChatFolderResult: Sendable, Equatable {
     /// The user cancelled the sheet.
     case cancelled
 }
+
+extension AgentPaneModel {
+    /// The app's Choose Folder… for a chat whose folder is missing, when a pane sets no
+    /// ``onChooseChatFolder``: the pane's folder sheet, then acpmux's `chat_open` with the pick.
+    @MainActor public static var chatFolderChooser: (@MainActor (_ model: AgentPaneModel, _ chat: String) async -> AgentPaneChatFolderResult)?
+}
