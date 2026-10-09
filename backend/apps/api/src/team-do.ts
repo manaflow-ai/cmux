@@ -20,7 +20,7 @@ import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
-import { cleanupRemovedMembers } from "./team-member-cleanup.ts"
+import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export type { SignInRules } from "./team-sign-in-rules.ts"
@@ -489,7 +489,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return this.stackSync.deliver(event).finally(() => this.scheduleAlarm())
   }
 
-  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key) }))
+  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")] }))
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
     return memberOf(state, this.rows, principal.user) !== undefined

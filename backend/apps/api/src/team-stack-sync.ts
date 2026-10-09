@@ -38,6 +38,8 @@ export interface StackSyncDeps {
   readonly state: () => TeamState
   readonly rows: () => (RowReader & RowsWithScan) | undefined
   readonly submitSystem: (op: string, params: unknown, key: string) => { frames: ReadonlyArray<OwnerFrame> }
+  /** A deleted team's member whose row removal is stuck: revoke their certificates and close their sockets now (review P3). */
+  readonly revokeStuck: (user: string) => void
 }
 
 const SEEN_RETENTION_MS = 30 * 24 * 60 * 60_000
@@ -64,7 +66,9 @@ export class StackTeamSync {
 
   /** One delivery, after every earlier one for this team; answers 503 (retry) when it cannot answer within the deadline. */
   deliver(ev: StackEvent, deadlineMs = DELIVERY_DEADLINE_MS): Promise<StackSyncReply> {
-    const run = () => this.process(this.deps(), ev)
+    const expires = Date.now() + deadlineMs
+    // Past its deadline the caller already answered 503 and Svix retries: drop it, so a Stack outage cannot grow the queue.
+    const run = (): Promise<StackSyncReply> => (Date.now() > expires ? Promise.resolve({ ok: false, reason: "expired" }) : this.process(this.deps(), ev))
     const reply = this.queue.then(run, run)
     this.queue = reply.catch(() => undefined)
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -78,9 +82,9 @@ export class StackTeamSync {
     // Personal teams never mirror Stack; a team not mirrored yet may hold a re-check.
     if (deps.state().team?.kind === "personal") return
     ensureTables(deps.sql)
-    const due = deps.sql.exec<{ k: string; stack_team: string; stack_user: string | null; attempts: number }>(`SELECT k, stack_team, stack_user, attempts FROM stack_team_recheck WHERE due_at <= ? ORDER BY due_at LIMIT 20`, now).toArray()
+    const due = deps.sql.exec<{ k: string; type: string; stack_team: string; stack_user: string | null; attempts: number }>(`SELECT k, type, stack_team, stack_user, attempts FROM stack_team_recheck WHERE due_at <= ? ORDER BY due_at LIMIT 20`, now).toArray()
     for (const r of due) {
-      const ev: StackEvent = { svix_id: `recheck:${r.k}:${r.attempts}`, type: "recheck", stack_team: r.stack_team, ...(r.stack_user ? { stack_user: r.stack_user } : {}) }
+      const ev: StackEvent = { svix_id: `recheck:${r.k}:${r.attempts}`, type: r.type, stack_team: r.stack_team, ...(r.stack_user ? { stack_user: r.stack_user } : {}) }
       const run = async () => {
         deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ?`, r.k)
         try {
@@ -128,7 +132,8 @@ export class StackTeamSync {
       this.noProgress.set(user, n)
       if (n >= DRAIN_MAX_ATTEMPTS) {
         this.setAside.add(user)
-        console.error(JSON.stringify({ msg: "deleted team member removal made no progress; set aside", team: deps.team, attempts: n }))
+        console.error(JSON.stringify({ msg: "deleted team member removal made no progress; set aside, certificates revoked and sockets closed", team: deps.team, attempts: n }))
+        deps.revokeStuck(user)
       }
     }
     this.drainFailures = stalled ? this.drainFailures + 1 : 0
@@ -148,6 +153,8 @@ export class StackTeamSync {
       return { ok: false, reason: "stack_lookup" }
     }
     if (outcome.startsWith("reject:")) return { ok: false, reason: outcome }
+    // A team.deleted that Stack does not confirm yet stays unrecorded; its re-check (type team.deleted) finishes it (review P2).
+    if (outcome === "team_delete_pending") return { ok: true, outcome }
     const now = Date.now()
     deps.sql.exec(`INSERT OR REPLACE INTO stack_webhook_events (svix_id, at, outcome) VALUES (?, ?, ?)`, ev.svix_id, now, outcome)
     deps.sql.exec(`DELETE FROM stack_webhook_events WHERE at < ?`, now - SEEN_RETENTION_MS)
@@ -162,6 +169,8 @@ export class StackTeamSync {
       return rej && rej.t === "reject" ? `reject:${rej.code}` : undefined
     }
     const team = await stack.getTeam(ev.stack_team)
+    // Stack still lists a team that a team.deleted named: change nothing now and ask again later, keeping the delete.
+    if (team !== null && ev.type === "team.deleted") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_delete_pending" : "team_delete_unconfirmed"
     if (team === null) {
       // Only Stack's own team.deleted, confirmed by this read, deletes the team.
       if (ev.type === "team.deleted") return commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
@@ -183,7 +192,7 @@ export class StackTeamSync {
 const ensureTables = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS stack_webhook_events (svix_id TEXT PRIMARY KEY, at INTEGER NOT NULL, outcome TEXT NOT NULL)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS stack_webhook_events_at ON stack_webhook_events (at)`)
-  sql.exec(`CREATE TABLE IF NOT EXISTS stack_team_recheck (k TEXT PRIMARY KEY, stack_team TEXT NOT NULL, stack_user TEXT, due_at INTEGER NOT NULL, attempts INTEGER NOT NULL)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS stack_team_recheck (k TEXT PRIMARY KEY, type TEXT NOT NULL, stack_team TEXT NOT NULL, stack_user TEXT, due_at INTEGER NOT NULL, attempts INTEGER NOT NULL)`)
 }
 
 /** Asks Stack again later (attempt+1); false once the schedule is spent (logged). */
@@ -194,7 +203,9 @@ const schedule = (sql: SqlStorage, ev: StackEvent, attempt: number, now: number)
     console.error(JSON.stringify({ msg: "stack team still missing after re-checks; dropped", svix_id: ev.svix_id }))
     return false
   }
-  const k = `${ev.stack_team}|${ev.stack_user ?? ""}`
-  sql.exec(`INSERT OR REPLACE INTO stack_team_recheck (k, stack_team, stack_user, due_at, attempts) VALUES (?, ?, ?, ?, ?)`, k, ev.stack_team, ev.stack_user ?? null, now + RECHECK_DELAYS_MS[next]!, next)
+  // A pending delete and a membership re-check of the same team are separate rows.
+  const type = ev.type === "team.deleted" ? "team.deleted" : "recheck"
+  const k = `${type}|${ev.stack_team}|${ev.stack_user ?? ""}`
+  sql.exec(`INSERT OR REPLACE INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts) VALUES (?, ?, ?, ?, ?, ?)`, k, type, ev.stack_team, ev.stack_user ?? null, now + RECHECK_DELAYS_MS[next]!, next)
   return true
 }
