@@ -2,7 +2,10 @@
 import CNCore
 import CNTransport
 import Foundation
+import os
 @preconcurrency import WebRTC
+
+let webRTCLog = Logger(subsystem: "dev.cmux.next", category: "webrtc")
 
 /// Process-wide WebRTC factory. Creating `RTCPeerConnectionFactory` is
 /// expensive and SSL must be initialized once, so it lives for the process.
@@ -26,9 +29,13 @@ public final class WebRTCConnector: Connector {
         public var relayOnly: Bool
         public var connectTimeout: Duration
         /// How long ICE may stay `disconnected` before the link is failed.
+        /// libwebrtc reports `disconnected` after a couple of seconds without
+        /// check responses and usually recovers; relayed paths (two TURN hops)
+        /// and a busy device stall for several seconds without being dead.
+        /// libwebrtc itself moves to `failed` after about 30 s.
         public var disconnectGrace: Duration
 
-        public init(relayOnly: Bool = false, connectTimeout: Duration = .seconds(20), disconnectGrace: Duration = .seconds(6)) {
+        public init(relayOnly: Bool = false, connectTimeout: Duration = .seconds(20), disconnectGrace: Duration = .seconds(20)) {
             self.relayOnly = relayOnly; self.connectTimeout = connectTimeout; self.disconnectGrace = disconnectGrace
         }
     }
@@ -217,6 +224,7 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         case .bye:
             close(reason: "The host ended the session.")
         case .error(let code, let text, _):
+            webRTCLog.error("link \(self.sessionId, privacy: .public) signaling error \(code, privacy: .public): \(text ?? "", privacy: .public)")
             let error = SignalingError.server(code: code, message: text)
             failOpen(error)
             close(reason: error.errorDescription)
@@ -251,6 +259,7 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         let channels = Array(self.channels.values)
         lock.unlock()
 
+        webRTCLog.notice("link \(self.sessionId, privacy: .public) closed: \(reason ?? "local close", privacy: .public)")
         waiter?.resume(throwing: TransportError.connectFailed(reason ?? "Connection closed"))
         signalTask?.cancel()
         graceTask?.cancel()
@@ -318,6 +327,7 @@ extension WebRTCLinkTransport: RTCPeerConnectionDelegate {
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+        webRTCLog.notice("link \(self.sessionId, privacy: .public) ice \(newState.rawValue, privacy: .public)")
         switch newState {
         case .failed:
             failOpen(TransportError.connectFailed("Could not reach your Mac (ICE failed)."))

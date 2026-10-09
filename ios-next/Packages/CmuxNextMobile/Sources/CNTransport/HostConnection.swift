@@ -1,6 +1,9 @@
 import CNCore
 import Foundation
 import Observation
+import os
+
+let hostConnectionLog = Logger(subsystem: "dev.cmux.next", category: "connection")
 
 public enum HostConnectionState: Sendable, Hashable {
     case idle
@@ -34,6 +37,22 @@ public struct ReconnectBackoff: Sendable, Hashable {
     }
 }
 
+/// Counts consecutive unanswered `host.ping`s. One late ping is not a dead
+/// link: relayed paths and a busy device stall for several seconds, and SCTP
+/// delivers the backlog once the path recovers.
+public struct PingLiveness: Sendable, Hashable {
+    public let maxMisses: Int
+    public private(set) var misses = 0
+
+    public init(maxMisses: Int = 3) { self.maxMisses = max(1, maxMisses) }
+
+    /// Records one ping result; returns true when the link should be closed.
+    public mutating func record(answered: Bool) -> Bool {
+        misses = answered ? 0 : misses + 1
+        return misses >= maxMisses
+    }
+}
+
 /// The app's connection to one host: connects through a `Connector`, says
 /// hello, keeps RTT fresh with `host.ping`, and reconnects with backoff.
 /// Event subscriptions made here survive reconnects.
@@ -53,6 +72,8 @@ public final class HostConnection {
     @ObservationIgnored public let clientInfo: ClientInfo
     @ObservationIgnored public let backoff: ReconnectBackoff
     @ObservationIgnored public let pingInterval: Duration
+    /// Consecutive unanswered pings before the link is treated as dead.
+    @ObservationIgnored public let maxMissedPings: Int
     @ObservationIgnored private let clock: any Clock<Duration>
     @ObservationIgnored private let hub = EventHub(persistent: true)
     @ObservationIgnored private var runTask: Task<Void, Never>?
@@ -63,8 +84,10 @@ public final class HostConnection {
         clientInfo: ClientInfo,
         backoff: ReconnectBackoff = ReconnectBackoff(),
         pingInterval: Duration = .seconds(10),
+        maxMissedPings: Int = 3,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
+        self.maxMissedPings = maxMissedPings
         self.connector = connector
         self.clientInfo = clientInfo
         self.backoff = backoff
@@ -152,6 +175,7 @@ public final class HostConnection {
                 let reason = await client.waitUntilClosed()
                 tearDownSession()
                 lastError = reason ?? "Connection closed"
+                hostConnectionLog.notice("link to \(hostId, privacy: .public) closed: \(lastError ?? "", privacy: .public)")
             } catch {
                 lastError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             }
@@ -173,14 +197,22 @@ public final class HostConnection {
         }
         let interval = pingInterval
         let clock = self.clock
+        let maxMisses = maxMissedPings
         let ping = Task { [weak self] in
+            var liveness = PingLiveness(maxMisses: maxMisses)
             while !Task.isCancelled {
                 do { try await clock.sleep(for: interval) } catch { return }
                 guard let self else { return }
-                guard let rtt = await self.measureRTT(client) else {
-                    // An unanswered ping means the path is dead; reconnect.
+                let rtt = await self.measureRTT(client)
+                if liveness.record(answered: rtt != nil) {
+                    // Several unanswered pings in a row: the path is dead.
+                    hostConnectionLog.notice("\(liveness.misses) pings unanswered; closing the link")
                     client.close()
                     return
+                }
+                guard let rtt else {
+                    hostConnectionLog.notice("ping unanswered (\(liveness.misses)/\(liveness.maxMisses))")
+                    continue
                 }
                 var path = await transport.pathInfo()
                 path.rttMs = rtt

@@ -9,7 +9,7 @@ import { HostClient } from "./client.ts";
 import { HostCore } from "./host.ts";
 import { downloadChrome, findChromeBinaries } from "./providers/browser/chrome.ts";
 import { createLoopbackPair } from "./transport/loopback.ts";
-import { shutdownWebRtc } from "./transport/webrtc.ts";
+import { enableRtcLoggingFromEnv, shutdownWebRtc } from "./transport/webrtc.ts";
 import { configPath, makeLogger, readConfig, stateDir, VERSION, writeConfig } from "./util.ts";
 
 const USAGE = `cmux-next-host ${VERSION}
@@ -117,6 +117,7 @@ async function run(opts: { api?: string; relayOnly: boolean; cdp?: string; headl
   const cfg = readConfig();
   const apiBase = opts.api ?? cfg.api;
   if (!apiBase || !cfg.hostToken || !cfg.hostId) throw new Error("not logged in: run `cmux-next-host login --api https://<backend>` first");
+  enableRtcLoggingFromEnv(makeLogger("rtc"));
   const core = new HostCore({
     hostId: cfg.hostId,
     hostName: cfg.hostName,

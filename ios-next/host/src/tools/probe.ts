@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { ApiClient } from "../backend/api.ts";
 import { SignalingClient, type SignalFrame } from "../backend/signaling.ts";
 import { HostClient } from "../client.ts";
-import { WebRtcPeer, shutdownWebRtc } from "../transport/webrtc.ts";
+import { WebRtcPeer, enableRtcLoggingFromEnv, shutdownWebRtc } from "../transport/webrtc.ts";
 import { readConfig } from "../util.ts";
 
 async function main(): Promise<void> {
@@ -21,6 +21,7 @@ async function main(): Promise<void> {
       json: { type: "boolean", default: false },
       pings: { type: "string", default: "50" },
       timeout: { type: "string", default: "45" },
+      duration: { type: "string", default: "0" },
     },
   });
   const token = process.env.CMUX_NEXT_TOKEN;
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
     if (!values.json) console.log(m);
   };
   const report: Record<string, unknown> = { api: apiBase, relayOnly };
+  enableRtcLoggingFromEnv((m) => console.error(`${new Date().toISOString()} ${m}`));
   const t0 = performance.now();
 
   const api = new ApiClient(apiBase, token);
@@ -121,6 +123,60 @@ async function main(): Promise<void> {
   report.rttMs = { n, min: pct(0), p50: pct(0.5), p95: pct(0.95), max: pct(1), sctpRtt: peer.rttMs() };
   log(`rtt over ${n} pings: min ${pct(0)} p50 ${pct(0.5)} p95 ${pct(0.95)} max ${pct(1)} ms`);
   report.selectedPair = peer.selectedPair() ?? pair;
+
+  // Soak: keep the link up for --duration seconds with a ping every 2 s and a
+  // terminal round trip every 30 s; fail on the first missed ping or close.
+  const duration = Number(values.duration) * 1000;
+  if (duration > 0) {
+    const soakStart = Date.now();
+    let closedReason: string | null = null;
+    peer.link.on("state", (s) => {
+      if (s === "closed") closedReason = peer.link.closeReason ?? "closed";
+    });
+    const { terminal } = await client.request("term.create", { cols: 80, rows: 24 });
+    const { streamId } = await client.request("term.attach", { terminalId: terminal.id, cols: 80, rows: 24 });
+    let termOut = "";
+    client.onStream(streamId, (p) => (termOut += new TextDecoder().decode(p)));
+    let pings = 0;
+    let misses = 0;
+    let missedTotal = 0;
+    let worst = 0;
+    let echoes = 0;
+    let nextEcho = Date.now() + 30_000;
+    while (Date.now() - soakStart < duration) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const elapsed = Math.round((Date.now() - soakStart) / 1000);
+      if (closedReason) throw new Error(`soak: link closed after ${elapsed}s: ${closedReason}`);
+      // Same liveness rule as the app: three unanswered pings in a row.
+      const s = performance.now();
+      try {
+        await client.request("host.ping", {}, 8000);
+        misses = 0;
+      } catch (err) {
+        misses++;
+        missedTotal++;
+        log(`soak ${elapsed}s: ping unanswered (${misses}/3): ${(err as Error).message}`);
+        if (misses >= 3) throw new Error(`soak: 3 pings unanswered after ${elapsed}s`);
+        continue;
+      }
+      const rtt = performance.now() - s;
+      worst = Math.max(worst, rtt);
+      pings++;
+      if (Date.now() >= nextEcho) {
+        const marker = `soak-${elapsed}`;
+        client.sendInput(streamId, `echo ${marker}\r`);
+        const deadline = Date.now() + 8000;
+        while (termOut.split(marker).length < 3 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+        if (termOut.split(marker).length < 3) throw new Error(`soak: terminal echo failed after ${elapsed}s`);
+        echoes++;
+        nextEcho = Date.now() + 30_000;
+        const p = peer.selectedPair();
+        log(`soak ${elapsed}s: ${pings} pings ok (worst ${worst.toFixed(0)} ms), ${echoes} echoes, pair ${p?.local}->${p?.remote}`);
+      }
+    }
+    report.soak = { seconds: Math.round((Date.now() - soakStart) / 1000), pings, missedPings: missedTotal, echoes, worstRttMs: Math.round(worst), pair: peer.selectedPair() };
+    await client.request("term.close", { terminalId: terminal.id });
+  }
 
   signaling.send({ type: "bye", to: hostId, sessionId });
   peer.close();

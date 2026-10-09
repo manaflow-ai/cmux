@@ -171,6 +171,21 @@ actor OutputCollector {
     }
 }
 
+@Suite struct PingLivenessTests {
+    @Test func toleratesIsolatedMissesAndClosesAfterConsecutiveOnes() {
+        var liveness = PingLiveness(maxMisses: 3)
+        let results = [false, false, true, false, false, false].map { liveness.record(answered: $0) }
+        #expect(results == [false, false, false, false, false, true])
+        #expect(liveness.misses == 3)
+    }
+
+    @Test func clampsToAtLeastOneMiss() {
+        var liveness = PingLiveness(maxMisses: 0)
+        let close = liveness.record(answered: false)
+        #expect(close)
+    }
+}
+
 @Suite struct HostConnectionTests {
     @MainActor @Test func connectsAndReconnectsAfterDrop() async throws {
         let host = MockHost(options: MockHost.Options(speed: 40))

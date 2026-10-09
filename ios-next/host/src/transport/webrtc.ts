@@ -29,7 +29,11 @@ export interface PeerOptions {
   name?: string;
   onSignal: (signal: LocalSignal) => void;
   log?: (msg: string) => void;
-  /** Close the link if ICE stays disconnected for this long (ms). */
+  /**
+   * Close the link if ICE stays disconnected for this long (ms). Relayed
+   * paths stall for seconds and recover; libjuice reports `failed` on its own
+   * once consent really expires.
+   */
   disconnectTimeoutMs?: number;
 }
 
@@ -220,7 +224,7 @@ export class WebRtcPeer {
       if (state === "disconnected" && !this.disconnectTimer) {
         this.disconnectTimer = setTimeout(
           () => this.link.transportClosed("ice disconnected"),
-          opts.disconnectTimeoutMs ?? 15_000,
+          opts.disconnectTimeoutMs ?? 30_000,
         );
       }
       if (state === "failed" || state === "closed") this.link.transportClosed(`peer ${state}`);
@@ -321,6 +325,20 @@ export class WebRtcPeer {
 export function candidateType(candidate: string): string | null {
   const m = /\btyp\s+(\S+)/.exec(candidate);
   return m ? m[1]!.toLowerCase() : null;
+}
+
+/**
+ * Routes libdatachannel/libjuice logs to `log` when CMUX_NEXT_RTC_LOG is set
+ * (Verbose, Debug, Info, Warning, Error). Off by default.
+ */
+export function enableRtcLoggingFromEnv(log: (msg: string) => void): void {
+  const level = process.env.CMUX_NEXT_RTC_LOG;
+  if (!level) return;
+  try {
+    nodeDataChannel.initLogger(level as "Debug", (lvl: string, msg: string) => log(`[rtc ${lvl}] ${msg}`));
+  } catch (err) {
+    log(`rtc logging unavailable: ${(err as Error).message}`);
+  }
 }
 
 /** Releases libdatachannel threads so the process can exit. */
