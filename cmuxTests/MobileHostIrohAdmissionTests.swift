@@ -3,8 +3,6 @@ import CmuxAgentChat
 import CmuxIrohTransport
 @testable import CmuxMobileHost
 import CmuxMobileRPC
-import CmuxTerminalSharing
-import CmuxTerminalSizing
 import CmuxSettings
 import Darwin
 import Foundation
@@ -19,73 +17,6 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
-    @Test func testIrohTerminalInputActivityPromotesMappedPhoneForLatestSizing() throws {
-        let controller = TerminalController.shared
-        let surfaceID = UUID()
-        let macID = "mac:\(surfaceID.uuidString.lowercased())"
-        var host = LocalTerminalSizingHost(
-            macParticipant: TerminalSizingParticipant(
-                id: macID,
-                userID: nil,
-                deviceKind: .mac,
-                deviceName: "Mac",
-                viewport: TerminalGridSize(cols: 120, rows: 40)
-            ),
-            initialSize: TerminalGridSize(cols: 120, rows: 40),
-            policy: .latest
-        )
-        host.syncPhones([
-            TerminalSizingParticipant(
-                id: "mobile:phone-1",
-                userID: nil,
-                deviceKind: .iphone,
-                deviceName: "iPhone",
-                viewport: TerminalGridSize(cols: 66, rows: 53)
-            )
-        ])
-        _ = host.noteActivity(macID)
-        #expect(host.state.owners == [macID])
-        controller.localSizingHostsBySurfaceID[surfaceID] = host
-        defer {
-            controller.localSizingHostsBySurfaceID[surfaceID] = nil
-            MobileHostService.shared.debugResetMobileLifecycleStateForTesting()
-        }
-
-        let peer = try irohPeer(endpointCharacter: "p")
-        let connectionID = UUID()
-        let connection = MobileHostConnection(
-            id: connectionID,
-            transport: MobileHostFramedTestTransport(),
-            firstFrameTimeoutNanoseconds: 0,
-            authorizeRequest: { _ in nil },
-            onAuthorizedRequest: { _ in },
-            handleRequest: { _ in .ok([:]) },
-            onClose: { _ in }
-        )
-        let registry = MobileHostConnectionRegistry.shared
-        #expect(registry.insert(
-            connection,
-            id: connectionID,
-            authorization: .irohAdmission(peer),
-            limit: 10
-        ))
-        defer { registry.remove(id: connectionID) }
-        MobileHostService.shared.debugRecordClientIDForTesting(
-            "phone-1",
-            connectionID: connectionID
-        )
-
-        MobileHostService.shared.noteIrohTerminalInputActivity(
-            surfaceID: surfaceID,
-            bindingID: peer.bindingID
-        )
-
-        #expect(
-            controller.localSizingHostsBySurfaceID[surfaceID]?.state.owners
-                == ["mobile:phone-1"]
-        )
-    }
-
     @Test func testIrohAdmissionRejectsRequestsAfterAuthorizationExpires() async throws {
         let transport = MobileHostFramedTestTransport()
         let handled = MobileHostConnectionRequestRecorder()

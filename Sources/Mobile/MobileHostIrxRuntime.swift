@@ -1163,17 +1163,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     // Fire-and-forget: input delivery never waits on the
                     // output side. Keystrokes arrive at human rate.
                     Task { await eventWriter.noteInteractiveSurface(surfaceID.uuidString) }
-                },
-                onAcceptedInput: { [bindingID = admittedPeer.bindingID] surfaceID in
-                    // The input lane has no RPC envelope to carry client_id;
-                    // resolve it through the admitted Iroh binding before
-                    // updating shared-sizing activity.
-                    await MainActor.run {
-                        MobileHostService.shared.noteIrohTerminalInputActivity(
-                            surfaceID: surfaceID,
-                            bindingID: bindingID
-                        )
-                    }
                 })
         }
         let peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
@@ -1228,8 +1217,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         controlTransport: IrxControlByteTransport,
         tunnelHost: IrxTunnelHost?,
         journal: IrxJournal,
-        onInteractiveSurface: @escaping MobileHostIrxTerminalLaneServer.InteractiveSurfaceObserver,
-        onAcceptedInput: @escaping MobileHostIrxTerminalLaneServer.AcceptedInputObserver
+        onInteractiveSurface: @escaping MobileHostIrxTerminalLaneServer.InteractiveSurfaceObserver
     ) async {
         let terminalLaneQuota = MobileHostIrxTerminalLaneQuota()
         while !Task.isCancelled {
@@ -1258,8 +1246,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         cursor: cursor,
                         stream: lane.bidirectional(),
                         journal: journal,
-                        onInteractiveSurface: onInteractiveSurface,
-                        onAcceptedInput: onAcceptedInput
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }
@@ -1275,8 +1262,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         resourceID: resource,
                         stream: lane.bidirectional(),
                         journal: journal,
-                        onInteractiveSurface: onInteractiveSurface,
-                        onAcceptedInput: onAcceptedInput
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }

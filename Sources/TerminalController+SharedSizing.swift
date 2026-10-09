@@ -213,11 +213,7 @@ extension TerminalController {
         applyLocalSizing(surfaceID: surfaceID, previous: previous, reason: "mac.activity")
     }
 
-    /// Records accepted input from one phone for the shared-sizing policy.
-    ///
-    /// RPC input and the independent Iroh input lane both call this seam so
-    /// `latest` ownership cannot depend on which transport delivered the key.
-    func noteMobileSizingActivity(surfaceID: UUID, clientID: String) {
+    private func noteMobileSizingActivity(surfaceID: UUID, clientID: String) {
         if let relay = cloudSizingRelaysBySurfaceID[surfaceID]?.value, relay.relaysPhones {
             relay.relayPhoneActivity(clientID: clientID)
             return

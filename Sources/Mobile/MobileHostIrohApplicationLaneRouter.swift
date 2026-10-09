@@ -630,29 +630,13 @@ actor MobileHostIrohApplicationLaneRouter {
                     resourceID: resourceID.value,
                     cursor: cursor,
                     stream: stream,
-                    journal: Self.terminalLaneJournal,
-                    onAcceptedInput: { surfaceID in
-                        await MainActor.run {
-                            MobileHostService.shared.noteIrohTerminalInputActivity(
-                                surfaceID: surfaceID,
-                                bindingID: peer.bindingID
-                            )
-                        }
-                    }
+                    journal: Self.terminalLaneJournal
                 )
             case let .terminalInput(resourceID):
                 await MobileHostIrxTerminalLaneServer.serveInputOnly(
                     resourceID: resourceID.value,
                     stream: stream,
-                    journal: Self.terminalLaneJournal,
-                    onAcceptedInput: { surfaceID in
-                        await MainActor.run {
-                            MobileHostService.shared.noteIrohTerminalInputActivity(
-                                surfaceID: surfaceID,
-                                bindingID: peer.bindingID
-                            )
-                        }
-                    }
+                    journal: Self.terminalLaneJournal
                 )
             case let .artifact(resourceID, offset):
                 let didTakeOwnership = await artifactHandler.handleArtifactLane(
