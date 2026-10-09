@@ -29,7 +29,9 @@ public struct V2ControlDependencies: Sendable {
         sign: @escaping @Sendable (Data) async throws -> Data,
         now: @escaping @Sendable () -> Date = { Date() },
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
-            try await Task.sleep(for: .seconds(max(0, seconds)))
+            // Duration.seconds traps for NaN and past Int64 seconds; a delay past
+            // 2^31 s (68 years) is clamped there. NaN sleeps 0.
+            try await Task.sleep(for: .seconds(seconds.isNaN ? 0 : min(max(0, seconds), 2_147_483_648)))
         },
         jitter: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
         journal: IrxJournal? = nil

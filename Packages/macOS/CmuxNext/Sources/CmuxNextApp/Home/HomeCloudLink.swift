@@ -72,6 +72,8 @@ final class HomeCloudLink {
     private var provenInFloor = false
     /// The reason of a forced renewal asked for while `cooldown` runs.
     private var pendingForced: String?
+    /// The hops and timer deadlines in flight, for tests to wait on.
+    let probe = HomeCloudLinkProbe()
 
     /// `clock` runs the retry backoff; tests pass a manual clock.
     init(lease: HomeCloudLease, source: CloudHomeSource, localID: ParticipantID, stackProjectID: String? = nil,
@@ -82,13 +84,21 @@ final class HomeCloudLink {
         self.stackProjectID = stackProjectID
         retry = DemandTimer(owner: "App.homeCloud.leaseRetry", clock: clock)
         cooldown = DemandTimer(owner: "App.homeCloud.renewCooldown", clock: clock)
-        source.onLeaseMissing { [weak self] in
+        source.onLeaseMissing { [weak self, probe] in
+            probe.hopStarted()
             // task-owner: one hop to the main actor; ends at once
-            Task { @MainActor in self?.leaseMissing() }
+            Task { @MainActor in
+                self?.leaseMissing()
+                probe.hopEnded()
+            }
         }
-        source.onLeaseProven { [weak self] in
+        source.onLeaseProven { [weak self, probe] in
+            probe.hopStarted()
             // task-owner: one hop to the main actor; ends at once
-            Task { @MainActor in self?.leaseProven() }
+            Task { @MainActor in
+                self?.leaseProven()
+                probe.hopEnded()
+            }
         }
     }
 
@@ -232,8 +242,9 @@ final class HomeCloudLink {
         let rest = forcedWait - Self.firstRetry
         cooldownInFloor = true
         provenInFloor = false
-        cooldown.schedule(after: Self.firstRetry) { @MainActor [weak self] in
+        cooldown.schedule(after: Self.firstRetry) { @MainActor [weak self, probe] in
             self?.cooldownFloorPassed(rest: rest)
+            probe.fired()
         }
     }
 
@@ -247,8 +258,9 @@ final class HomeCloudLink {
             sendPendingForced()
             return
         }
-        cooldown.schedule(after: rest) { @MainActor [weak self] in
+        cooldown.schedule(after: rest) { @MainActor [weak self, probe] in
             self?.sendPendingForced()
+            probe.fired()
         }
     }
 
@@ -263,7 +275,8 @@ final class HomeCloudLink {
             guard !retry.isScheduled else { return }
             let delay = retryDelay
             retryDelay = min(retryDelay * 2, Self.maxRetry)
-            retry.schedule(after: delay) { @MainActor [weak self] in
+            retry.schedule(after: delay) { @MainActor [weak self, probe] in
+                defer { probe.fired() }
                 guard let self, leasing == 0 else { return }
                 renew(reason: reason)
             }
@@ -277,9 +290,19 @@ final class HomeCloudLink {
     }
 
     #if DEBUG
-    /// Waits for the lease work started so far (tests).
+    /// Waits until the hops started so far ran and the lease work they and
+    /// earlier calls started ended (tests). A timer deadline that passed is
+    /// not covered: wait for it with `timersFired(atLeast:)`.
     func settle() async {
-        await lease.settle()
+        repeat {
+            await probe.wait { hops, _ in hops == 0 }
+            await lease.settle()
+        } while probe.hops > 0
+    }
+
+    /// Waits until the link handled `count` timer deadlines in all (tests).
+    func timersFired(atLeast count: Int) async {
+        await probe.wait { _, fires in fires >= count }
     }
     #endif
 }

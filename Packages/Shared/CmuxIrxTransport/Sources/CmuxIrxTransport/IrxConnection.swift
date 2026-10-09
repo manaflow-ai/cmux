@@ -93,17 +93,7 @@ public actor IrxStreamReader {
     /// One length-prefixed control frame body, or nil on EOF.
     public func readControlFrameBody() async throws -> Data? {
         while true {
-            if buffer.count >= 4 {
-                let length = buffer.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
-                guard length <= IrxProtocol().maximumControlFrameByteCount else {
-                    throw IrxFrameCodecError.frameTooLarge(length)
-                }
-                if buffer.count >= 4 + length {
-                    let body = Data(buffer.dropFirst(4).prefix(length))
-                    buffer.removeFirst(4 + length)
-                    return body
-                }
-            }
+            if let body = try takeControlFrameBody() { return body }
             guard !eof else { return nil }
             let chunk = try await stream.read(sizeLimit: 1 << 16)
             if chunk.isEmpty {
@@ -113,6 +103,21 @@ public actor IrxStreamReader {
             activity?.record()
             buffer.append(chunk)
         }
+    }
+
+    /// The first whole frame's body, removed from `buffer`; nil until one is
+    /// complete. Synchronous, so the frame reader lives on the thread stack,
+    /// not across the read loop's suspension points.
+    private func takeControlFrameBody() throws -> Data? {
+        var frame = WireByteReader(buffer)
+        guard let header = frame.bigEndian(UInt32.self) else { return nil }
+        let length = Int(clamping: header)
+        guard length <= IrxProtocol().maximumControlFrameByteCount else {
+            throw IrxFrameCodecError.frameTooLarge(length)
+        }
+        guard let body = frame.bytes(length) else { return nil }
+        buffer = frame.remaining
+        return body
     }
 
     public func readControlFrame<T: Decodable>(_ type: T.Type) async throws -> T? {
@@ -135,7 +140,7 @@ public actor IrxStreamReader {
             return Data(drained)
         }
         guard !eof else { return nil }
-        let chunk = try await stream.read(sizeLimit: UInt32(min(bound, 1 << 16)))
+        let chunk = try await stream.read(sizeLimit: UInt32(clamping: min(bound, 1 << 16)))
         if chunk.isEmpty {
             eof = true
             return nil
