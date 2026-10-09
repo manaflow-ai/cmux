@@ -114,8 +114,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard !stopped else { return }
         let id = conversation
         withObservationTracking {
-            _ = homeStore.transcriptVersion[id]
-            _ = homeStore.typing[id]
+            _ = homeStore.transcriptVersion[id, default: 0] // // crash program: a dictionary read the ratchet can type
+            _ = homeStore.typing[id, default: []]
             _ = homeStore.rows
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
