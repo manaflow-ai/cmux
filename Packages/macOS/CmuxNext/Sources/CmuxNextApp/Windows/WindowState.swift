@@ -41,6 +41,11 @@ final class WindowState {
     /// (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the workspace. Selecting a
     /// workspace clears it (`showWorkspace(_:)`). Persisted in the record.
     var page: TopPageRoute?
+    /// A New Cloud Workspace this window shows until its terminal opens
+    /// (`CloudMachineCreation.id`, cx-lu8f): its progress fills the content
+    /// area and its sidebar row is selected. A top page still shows over
+    /// it; selecting another workspace clears it. In memory only.
+    var cloudCreation: UUID?
     /// Workspaces this window showed, most recent first (Switch to Last Used
     /// Workspace, Sort by Last Used). In memory only, at most 64.
     private(set) var workspaceRecency: [String] = []

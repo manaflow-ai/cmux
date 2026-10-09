@@ -40,6 +40,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// The progress of the Cloud creation this window shows (cx-lu8f).
+    private(set) var creationView: CloudMachineProgressView?
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
     private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
@@ -135,7 +137,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines)]
+                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines),
+                 Self.creationKey(state, cloud: cloud, machines: machines)]
                     + windows.registry.members(of: state.id)
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
             }) {
@@ -160,6 +163,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             return true
         }
         if let page = state.page, showTopPage(page) { return }
+        if showCreation() { return }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
@@ -173,6 +177,52 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // Keep what is shown (the old content stays until the manager
         // closes or refills this window); a window with nothing yet waits.
         if content == nil { showConnecting() }
+    }
+
+    /// What the creation observation re-runs on: the shown creation, and
+    /// whether its workspace is mirrored (then the window shows it).
+    private static func creationKey(_ state: WindowState, cloud: CloudService, machines: MachineRegistry) -> String {
+        guard let id = state.cloudCreation else { return "" }
+        guard let creation = cloud.creations.creation(id) else { return "gone" }
+        let mirrored = creation.workspaceID.map { machines.workspace(id: $0) != nil } ?? false
+        return "\(id):\(mirrored)"
+    }
+
+    /// Shows the window's Cloud creation (cx-lu8f) until its workspace is
+    /// mirrored; then the window shows that workspace. False when there is
+    /// none to show.
+    private func showCreation() -> Bool {
+        guard let id = state.cloudCreation else { return false }
+        guard let creation = services.cloud.creations.creation(id) else {
+            state.cloudCreation = nil
+            return false
+        }
+        if let opened = creation.workspaceID, services.machines.workspace(id: opened) != nil {
+            state.cloudCreation = nil
+            if state.workspaceID != opened { services.windows.select(opened, in: state) }
+            return false
+        }
+        if let view = creationView, view.creation === creation, root.content === view { return true }
+        if let current = content { park(current) }
+        content = nil
+        let view = CloudMachineProgressView(creation: creation, actions: CloudMachineProgressView.Actions(
+            retry: { [weak self] creation in
+                guard let self else { return }
+                CloudHandlers.creationFlow(AppActionContext(services: self.services)).retry(creation)
+            },
+            dismiss: { [weak self] creation in
+                guard let self else { return }
+                CloudHandlers.creationFlow(AppActionContext(services: self.services)).dismiss(creation, in: self.state)
+            }))
+        creationView = view
+        root.show(view)
+        // Keys typed before the terminal exists land on the view (it says so), not on a hidden pane.
+        window?.makeFirstResponder(view)
+        themeScope.show(nil)
+        titleObservation?.cancel()
+        root.titlebar.title = CloudStrings.newCloudWorkspaceTitle
+        services.windows.recordSaver.stateDidChange(state)
+        return true
     }
 
     /// The connecting (or unavailable) state of the local daemon's first
@@ -223,6 +273,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         startupObservation?.cancel()
         startupObservation = nil
         connectingView = nil
+        creationView = nil
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in
             for await title in Observations({ workspace.displayName }) { self?.root.titlebar.title = title }
