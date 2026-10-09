@@ -45,5 +45,11 @@ public final class TabKeysStepModel {
     }
 
     /// Continue: writes the pick when it differs from what cmux.json is on.
-    func commit() {}
+    /// Keys bound by hand count as differing from any pick (the App keeps
+    /// the hand bindings and writes the rest).
+    func commit() {
+        guard let selected, !isLoaded || selected != current else { return }
+        services.applyTabKeys(selected)
+        current = selected
+    }
 }

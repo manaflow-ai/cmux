@@ -24,15 +24,50 @@ public nonisolated enum ShortcutDigitScheme: String, CaseIterable, Sendable {
     /// The action ids a scheme may write (removed when switching to ``tabs``).
     public static let actionIDs = ["space.selectByNumber", "selectSurfaceByNumber"]
 
-    /// The edits that switch `bindings` (cmux.json `shortcuts.bindings`) to
-    /// this scheme.
-    public func plan(from bindings: [String: JSONValue]) -> ShortcutDigitSchemePlan {
-        ShortcutDigitSchemePlan(scheme: self, changes: [], kept: [])
+    /// The catalog defaults of the digit actions (the tabs scheme), so a
+    /// binding typed by hand that equals one counts as the scheme's.
+    static let catalogDefaults: [String: JSONValue] = ["space.selectByNumber": "ctrl+opt+1", "selectSurfaceByNumber": "ctrl+1"]
+
+    /// The binding this scheme gives `actionID` (its override, else the default).
+    func binding(for actionID: String) -> ShortcutBinding? {
+        (overrides.first { $0.key == actionID }?.value ?? Self.catalogDefaults[actionID]).flatMap(ShortcutBindingFormat.parse)
     }
 
-    /// The scheme `bindings` is on; nil when a digit binding was set by hand.
+    /// The edits that switch `bindings` (cmux.json `shortcuts.bindings`) to
+    /// this scheme. A scheme owns a digit binding that is absent or equal to
+    /// what some scheme gives it (compared parsed, so `opt+ctrl+1` counts);
+    /// any other value (a keymap preset's Cmd-1, a chord) was set by hand,
+    /// stays, and is listed in `kept`.
+    public func plan(from bindings: [String: JSONValue]) -> ShortcutDigitSchemePlan {
+        var changes: [ShortcutKeymapPlan.Change] = []
+        var kept: [String] = []
+        for id in Self.actionIDs {
+            let current = bindings[id].flatMap(ShortcutBindingFormat.parse)
+            // What the action has now: its binding, else the catalog default.
+            guard (current ?? Self.catalogDefaults[id].flatMap(ShortcutBindingFormat.parse)) != binding(for: id) else { continue }
+            let target = overrides.first { $0.key == id }?.value
+            guard bindings[id] == nil || Self.owns(id, current) else {
+                kept.append(id)
+                continue
+            }
+            changes.append(.init(actionID: id, write: target))
+        }
+        return ShortcutDigitSchemePlan(scheme: self, changes: changes, kept: kept)
+    }
+
+    /// The scheme `bindings` is on: switching to it changes nothing and it
+    /// keeps nothing. Nil when a digit binding was set by hand.
     public static func active(in bindings: [String: JSONValue]) -> ShortcutDigitScheme? {
-        nil
+        allCases.first { scheme in
+            let plan = scheme.plan(from: bindings)
+            return plan.isEmpty && plan.kept.isEmpty
+        }
+    }
+
+    /// `current` on `actionID` is a value some scheme gives it.
+    private static func owns(_ actionID: String, _ current: ShortcutBinding?) -> Bool {
+        guard let current else { return false }
+        return allCases.contains { $0.binding(for: actionID) == current }
     }
 }
 

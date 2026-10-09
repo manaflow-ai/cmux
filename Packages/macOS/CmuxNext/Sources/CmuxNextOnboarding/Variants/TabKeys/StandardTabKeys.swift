@@ -9,6 +9,7 @@ struct StandardTabKeys: OnboardingScreenVariant {
     static let surface = OnboardingSurface.fullGlass
     static let transition = OnboardingTransition.crossfade
     static func makeContent(_ context: OnboardingStepContext) -> NSView {
-        NSView()
+        OnboardingScaffold.make(title: OnboardingStrings.tabKeysTitle, subtitle: OnboardingStrings.tabKeysSubtitle,
+                                body: TabKeysStepView(model: context.model.tabKeys), context: context)
     }
 }

@@ -13,9 +13,10 @@ public final class OnboardingModel {
         case firstTask, projects, classicSessions, chats, defaultBrowser, importData, theme, computerUse, accounts, tabKeys
     }
 
-    /// The first run: agent sign-ins, classic cmux workspaces and agent
-    /// chats to bring over, then browser import. Done lands on the app.
-    static let firstRun: [Step] = [.accounts, .classicSessions, .chats, .importData]
+    /// The first run: agent sign-ins, what Ctrl-1…9 select, classic cmux
+    /// workspaces and agent chats to bring over, then browser import. Skip
+    /// and Done land on a New Tab page (the App's `OnboardingLanding`).
+    static let firstRun: [Step] = [.accounts, .tabKeys, .classicSessions, .chats, .importData]
     /// New Tab's Import and Sync: folders to open, then work to bring into them.
     static let bringWork: [Step] = [.projects, .classicSessions, .chats]
 

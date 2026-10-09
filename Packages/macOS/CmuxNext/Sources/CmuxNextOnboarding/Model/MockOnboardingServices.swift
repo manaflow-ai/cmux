@@ -163,6 +163,7 @@ public final class MockOnboardingServices: OnboardingServices {
         services.themeChoices = themes
         services.accountsView = accountsView
         services.firstTaskView = ThemedView()
+        services.offersTabKeys = true
         let day: TimeInterval = 86_400
         let now = Date()
         services.agentProjects = [

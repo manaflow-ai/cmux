@@ -46,6 +46,20 @@ import Testing
         #expect(ShortcutDigitScheme.tabs.plan(from: bindings).isEmpty)
     }
 
+    /// The catalog defaults typed by hand read as the tabs scheme, and they
+    /// are the registry's defaults (one owner of the default bindings).
+    @Test func theDefaultsTypedByHandReadAsTabs() {
+        let registry = ActionRegistry.standard()
+        let bindings: [String: JSONValue] = ["selectSurfaceByNumber": "ctrl+1", "space.selectByNumber": "ctrl+opt+1"]
+        for (id, value) in bindings {
+            guard case .stroke(let stroke)? = ShortcutBindingFormat.parse(value) else { Issue.record("\(id)"); continue }
+            #expect(registry.descriptor(for: ActionID(rawValue: id))?.defaultShortcut == SettingsApplier.shortcut(for: stroke), "\(id)")
+        }
+        #expect(ShortcutDigitScheme.active(in: bindings) == .tabs)
+        #expect(ShortcutDigitScheme.tabs.plan(from: bindings).isEmpty)
+        #expect(ShortcutDigitScheme.spaces.plan(from: bindings).changes.count == 2)
+    }
+
     /// The writer goes through cmux.json, and after the reload Ctrl-1
     /// follows the scheme in the registry.
     @Test func theWriterSwitchesCtrlOneInTheRegistry() async throws {
