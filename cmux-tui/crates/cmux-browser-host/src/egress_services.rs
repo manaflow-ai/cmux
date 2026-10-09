@@ -200,3 +200,44 @@ fn holders(inodes: &[u64]) -> (usize, Vec<Option<String>>) {
 #[cfg(test)]
 #[path = "egress_services_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod lsof_tests {
+    use super::*;
+
+    fn exe(name: &'static str) -> impl Fn(i32) -> Option<String> {
+        move |_| Some(format!("/Applications/x.app/Contents/MacOS/{name}"))
+    }
+
+    /// A connect proved a listener exists: no holder lsof can see (another
+    /// user's or root's) refuses the port. Before the dial, nothing seen is
+    /// "nobody listens" (allowed).
+    #[test]
+    fn a_hidden_listener_refuses_a_connected_port() {
+        let nobody = Lsof { pids: Vec::new(), exit: Some(1) };
+        assert!(lsof_verdict(3000, &nobody, true, exe("node")).is_some());
+        assert!(lsof_verdict(3000, &nobody, false, exe("node")).is_none());
+    }
+
+    /// lsof that failed (timeout, signal, an exit other than 0/1), or that
+    /// listed holders and then failed, refuses the port.
+    #[test]
+    fn a_failed_or_partial_lsof_refuses() {
+        let timed_out = Lsof { pids: Vec::new(), exit: None };
+        assert!(lsof_verdict(3000, &timed_out, false, exe("node")).is_some());
+        let partial = Lsof { pids: vec![7], exit: Some(1) };
+        assert!(lsof_verdict(3000, &partial, false, exe("node")).is_some());
+    }
+
+    /// A visible dev server is allowed; a cmux service, Chrome or another
+    /// Chromium-based browser is refused.
+    #[test]
+    fn holders_are_checked_by_executable_name() {
+        let one = Lsof { pids: vec![7], exit: Some(0) };
+        assert!(lsof_verdict(3000, &one, true, exe("node")).is_none());
+        for name in ["cmux DEV tag", "Google Chrome", "Chromium", "Microsoft Edge", "Brave Browser", "Electron", "cmuxd-remote"] {
+            assert!(lsof_verdict(3000, &one, true, exe(name)).is_some(), "{name}");
+        }
+        assert!(lsof_verdict(3000, &one, true, |_| None).is_some(), "an unreadable holder");
+    }
+}
