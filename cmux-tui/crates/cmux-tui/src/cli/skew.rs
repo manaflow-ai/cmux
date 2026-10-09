@@ -74,8 +74,6 @@ pub(super) enum Route {
     /// A local Unix socket whose peer has `peer_uid` and pid `peer_pid`
     /// (`None` when the kernel did not say).
     Local { peer_uid: u32, peer_pid: Option<u32> },
-    /// `--machine`, SSH, relay or Cloud: never re-exec.
-    Remote,
 }
 
 /// Why a dead end does not re-exec.
@@ -85,7 +83,6 @@ pub(super) enum Refusal {
     LoopGuard,
     /// The daemon is this build: its CLI would fail the same way.
     SameBuild,
-    Remote,
     OtherUser {
         uid: u32,
     },
@@ -108,7 +105,6 @@ impl std::fmt::Display for Refusal {
         match self {
             Self::LoopGuard => f.write_str("this CLI was already started by a re-exec"),
             Self::SameBuild => f.write_str("the daemon is this build"),
-            Self::Remote => f.write_str("the daemon is not on this machine"),
             Self::OtherUser { uid } => write!(f, "the daemon runs as uid {uid}"),
             Self::NotTheDaemon => f.write_str("the socket peer is not the daemon process"),
             Self::NotAbsolute => f.write_str("the daemon's CLI path is not absolute"),
@@ -143,8 +139,48 @@ pub(super) struct Own<'a> {
 
 /// The daemon's CLI to exec, or why not.
 pub(super) fn vet(daemon: &DaemonBuild, route: Route, own: &Own<'_>) -> Result<PathBuf, Refusal> {
-    let _ = (daemon, route, own);
-    Err(Refusal::Unreadable("not implemented".into()))
+    if own.guard.is_some() {
+        return Err(Refusal::LoopGuard);
+    }
+    let Route::Local { peer_uid, peer_pid } = route;
+    if peer_uid != own.uid {
+        return Err(Refusal::OtherUser { uid: peer_uid });
+    }
+    if peer_pid != Some(daemon.pid) {
+        return Err(Refusal::NotTheDaemon);
+    }
+    if daemon.build_id == own.build_id {
+        return Err(Refusal::SameBuild);
+    }
+    let path = &daemon.cli_path;
+    if !path.is_absolute() {
+        return Err(Refusal::NotAbsolute);
+    }
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|error| Refusal::Unreadable(error.to_string()))?;
+    if !metadata.file_type().is_file() {
+        return Err(Refusal::NotRegularFile);
+    }
+    let bundle = cmux_bundle_of(path).ok_or(Refusal::NotInCmuxBundle)?;
+    let own_bundle = cmux_bundle_of(own.exe).ok_or(Refusal::OtherInstallFamily)?;
+    if install_family(&own_bundle) != install_family(&bundle) {
+        return Err(Refusal::OtherInstallFamily);
+    }
+    for checked in path.ancestors().take_while(|ancestor| ancestor.starts_with(&bundle)) {
+        let metadata = std::fs::symlink_metadata(checked)
+            .map_err(|error| Refusal::Unreadable(error.to_string()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(Refusal::NotRegularFile);
+        }
+        if metadata.permissions().mode() & 0o022 != 0 {
+            return Err(Refusal::Writable(checked.to_path_buf()));
+        }
+        if metadata.uid() != own.uid && metadata.uid() != 0 {
+            return Err(Refusal::OtherOwner(checked.to_path_buf()));
+        }
+    }
+    (own.team)(path).map_err(Refusal::TeamId)?;
+    Ok(path.clone())
 }
 
 /// The `<name>.app` bundle when `path` is `<name>.app/Contents/Resources/bin/<file>`
@@ -198,7 +234,9 @@ fn shell_quote(value: &str) -> String {
 }
 
 /// The daemon `global` routes to, its build, and how it was reached; `None`
-/// when no local daemon answers (nothing is started).
+/// when no local daemon answers (nothing is started) and always for a
+/// `--machine` (remote) route, which is never probed. SSH, relay and Cloud
+/// forwards that end in a local socket fail the peer pid check in [`vet`].
 fn probe(global: &GlobalArgs) -> Option<(PathBuf, DaemonBuild, Route)> {
     if global.machine.is_some() {
         return None;
@@ -237,8 +275,7 @@ fn own_build_id() -> &'static str {
 }
 
 fn team_check(path: &Path) -> Result<(), String> {
-    let _ = path;
-    Err("not implemented".into())
+    cmux_link::app_caller::same_team_as_this_build(path).map(|_| ())
 }
 
 /// At a dead end: exec the daemon's CLI with this process's own arguments

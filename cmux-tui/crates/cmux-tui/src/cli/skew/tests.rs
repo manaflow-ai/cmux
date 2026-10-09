@@ -84,9 +84,9 @@ fn the_same_build_is_not_a_skew() {
 }
 
 #[test]
-fn a_remote_daemon_is_refused() {
-    let (_root, cli) = bundle("cmux.app");
-    assert_eq!(vet(&daemon(&cli), Route::Remote, &own(None)), Err(Refusal::Remote));
+fn a_remote_daemon_is_never_probed() {
+    let global = GlobalArgs { machine: Some("build-box".into()), ..GlobalArgs::default() };
+    assert_eq!(probe(&global), None);
 }
 
 #[test]

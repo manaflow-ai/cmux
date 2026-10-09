@@ -46,7 +46,6 @@ mod screen_help;
 mod script;
 mod shorthand;
 #[cfg(unix)]
-#[allow(dead_code)]
 mod skew;
 mod surface;
 mod topology_help;
@@ -292,10 +291,22 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             if let Some(code) = run_app_action_fallback(args) {
                 return code;
             }
+            // A command this build does not know may be one the daemon's
+            // build knows: run that daemon's CLI (cli/skew.rs).
+            #[cfg(unix)]
+            let skew = parse_globals(args)
+                .ok()
+                .and_then(|(global, _)| skew::reexec_at_dead_end(&global).err().flatten());
+            #[cfg(not(unix))]
+            let skew: Option<String> = None;
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
                 format!("cmux: {}", failure.error)
             } else {
                 failure.error.to_string()
+            };
+            let message = match skew {
+                Some(skew) => format!("{message}\n{skew}"),
+                None => message,
             };
             wire::print_local_error(
                 &serde_json::json!({

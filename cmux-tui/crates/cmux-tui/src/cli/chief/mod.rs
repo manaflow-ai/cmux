@@ -212,7 +212,12 @@ impl Session {
         let failed = |error: LinkError| match error {
             LinkError::Transport(message) => (3, message),
             LinkError::Rejected { code, .. } if code.starts_with("validation.invalid") => {
-                (1, m.no_conversations.to_owned())
+                // A daemon of another build: run its CLI (cli/skew.rs), else
+                // name the exact fix.
+                match super::skew::reexec_at_dead_end_on(&socket).err().flatten() {
+                    Some(fix) => (1, format!("{}\n{fix}", m.no_conversations)),
+                    None => (1, m.no_conversations.to_owned()),
+                }
             }
             rejected => (1, rejected.to_string()),
         };
