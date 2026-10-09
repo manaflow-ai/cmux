@@ -37,12 +37,12 @@ struct KeybindingReportTests {
     @Test func listGivesKeysWhenTextAndSourceAndFilters() {
         let registry = Self.registry()
         let all = Self.bindings(KeybindingReports.list([:], registry: registry))
-        let ctrlTab = all.first { $0["key"] == "ctrl+tab" && $0["command"] == "nextSurface" && $0["when"] == "surfaceKind != terminal" }
+        let ctrlTab = all.first { $0["key"] == "ctrl+tab" && $0["command"] == "navigate.next" && $0["when"] == "surfaceKind != terminal" }
         #expect(ctrlTab?["source"] == "default")
         #expect(ctrlTab?["display"] == .string(Shortcut("\t", modifiers: [.control]).displayString))
         #expect(all.contains { $0["key"] == "cmd+j j" && $0["command"] == "terminal.scrollToSelection" }, "a chord reads as two strokes")
         // Ctrl-Tab outside a terminal and in copy mode never hold together: no conflict between them.
-        let copyMode = all.first { $0["key"] == "ctrl+tab" && $0["command"] == "nextSurface" && $0 != ctrlTab }
+        let copyMode = all.first { $0["key"] == "ctrl+tab" && $0["command"] == "navigate.next" && $0 != ctrlTab }
         #expect(ctrlTab?["conflicts"]?.arrayValue?.contains(copyMode?["id"] ?? .null) == false)
         // Cmd-R: Rename Tab (always) and Reload (in a page) can hold together.
         let rename = all.first { $0["key"] == "cmd+r" && $0["command"] == "renameTab" }
@@ -52,9 +52,9 @@ struct KeybindingReportTests {
         let filtered = Self.bindings(KeybindingReports.list(["query": "ctrl+tab"], registry: registry))
         #expect(!filtered.isEmpty)
         #expect(filtered.allSatisfy { $0["key"]?.stringValue?.contains("ctrl+tab") == true })
-        let byCommand = Self.bindings(KeybindingReports.list(["command": "prevSurface"], registry: registry))
+        let byCommand = Self.bindings(KeybindingReports.list(["command": "navigate.previous"], registry: registry))
         #expect(!byCommand.isEmpty)
-        #expect(byCommand.allSatisfy { $0["command"] == "prevSurface" })
+        #expect(byCommand.allSatisfy { $0["command"] == "navigate.previous" })
         #expect(Self.bindings(KeybindingReports.list(["source": "user"], registry: registry)).isEmpty)
     }
 
@@ -62,7 +62,7 @@ struct KeybindingReportTests {
         let registry = Self.registry()
         let report = try #require(KeybindingReports.resolve("ctrl+tab", context: Self.agent, registry: registry, window: "w1"))
         #expect(report["outcome"] == "run")
-        #expect(report["winner"]?["command"] == "nextSurface")
+        #expect(report["winner"]?["command"] == "navigate.next")
         #expect(report["window"] == "w1")
         let verdicts = (report["candidates"]?.arrayValue ?? []).compactMap { $0["verdict"]?.stringValue }
         #expect(verdicts.contains("won"))
@@ -100,9 +100,9 @@ struct KeybindingReportTests {
     @Test func removedDefaultsAreListedForReset() throws {
         let registry = Self.registry()
         KeyBindingLoader(registry).load(KeyBindingLayers(removals: [
-            KeyBindingRemoval(command: "nextSurface", keys: [Shortcut("\t", modifiers: [.control])], when: .exactly(KeyBindingDefaults.notTerminal)),
+            KeyBindingRemoval(command: "navigate.next", keys: [Shortcut("\t", modifiers: [.control])], when: .exactly(KeyBindingDefaults.notTerminal)),
         ]))
-        let rows = Self.bindings(KeybindingReports.list(["command": "nextSurface"], registry: registry))
+        let rows = Self.bindings(KeybindingReports.list(["command": "navigate.next"], registry: registry))
         let removed = rows.filter { $0["removed"] == true }
         #expect(removed.count == 1)
         #expect(removed.first?["key"] == "ctrl+tab")

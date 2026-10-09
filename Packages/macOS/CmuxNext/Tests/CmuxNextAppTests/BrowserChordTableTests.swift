@@ -113,10 +113,10 @@ struct BrowserChordTableTests {
     /// laptop keyboard).
     static func tabSwitchChords() throws -> [(name: String, event: NSEvent, action: ActionID)] {
         [
-            ("ctrl-tab", try K.key("\t", keyCode: 48, [.control]), "nextSurface"),
-            ("ctrl-shift-tab", try K.key("\u{19}", keyCode: 48, [.control, .shift]), "prevSurface"),
-            ("ctrl-pagedown", try K.key(pageDown, keyCode: 121, [.control, .function]), "nextSurface"),
-            ("ctrl-pageup", try K.key(pageUp, keyCode: 116, [.control, .function]), "prevSurface"),
+            ("ctrl-tab", try K.key("\t", keyCode: 48, [.control]), "navigate.next"),
+            ("ctrl-shift-tab", try K.key("\u{19}", keyCode: 48, [.control, .shift]), "navigate.previous"),
+            ("ctrl-pagedown", try K.key(pageDown, keyCode: 121, [.control, .function]), "navigate.next"),
+            ("ctrl-pageup", try K.key(pageUp, keyCode: 116, [.control, .function]), "navigate.previous"),
         ]
     }
 
@@ -128,7 +128,7 @@ struct BrowserChordTableTests {
     @Test func tabSwitchChordsSwitchCmuxTabsInABrowserContext() throws {
         let services = Self.services()
         var ran: [ActionID] = []
-        for id: ActionID in ["nextSurface", "prevSurface"] {
+        for id: ActionID in ["navigate.next", "navigate.previous"] {
             services.registry.bind(id, invoke: { _ in ran.append(id) })
         }
         services.registry.context.insert(.browserFocused)
@@ -162,7 +162,7 @@ struct BrowserChordTableTests {
     @Test func unboundTabActionLeavesTheChordToThePage() throws {
         let services = Self.services()
         services.registry.context.insert(.browserFocused)
-        services.registry.setShortcutOverride(nil, for: "nextSurface")
+        services.registry.setShortcutOverride(nil, for: "navigate.next")
         let ctrlTab = try K.key("\t", keyCode: 48, [.control])
         #expect(services.keyRouter.candidate(for: ctrlTab, focus: K.page) == nil)
     }

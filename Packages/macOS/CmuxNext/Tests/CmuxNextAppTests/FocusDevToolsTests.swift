@@ -57,7 +57,7 @@ struct FocusDevToolsTests {
         services.registry.context.insert(.browserFocused)
         let event = try K.key("\t", keyCode: 48, [.control])
         let candidate = try #require(services.keyRouter.candidate(for: event, focus: Self.devTools))
-        #expect(candidate.id == "nextSurface")
+        #expect(candidate.id == "navigate.next")
         #expect(KeyRouter.intercepts(candidate, focus: Self.devTools, keyWindow: .content))
     }
 

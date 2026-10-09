@@ -94,13 +94,13 @@ struct KeyOwnershipMatrixTests {
     /// Expected owner per surface for ctrl-tab, ctrl-shift-tab,
     /// ctrl-pagedown, ctrl-pageup.
     static func expectedTabOwners(_ surface: String) -> [KeyOwner] {
-        let switches: [KeyOwner] = [.action("nextSurface"), .action("prevSurface"), .action("nextSurface"), .action("prevSurface")]
+        let switches: [KeyOwner] = [.action("navigate.next"), .action("navigate.previous"), .action("navigate.next"), .action("navigate.previous")]
         switch surface {
         // Ghostty's own `ctrl+tab=next_tab` (same action); the shell gets
         // Ctrl-PageDown/Up (no Ghostty default on macOS).
         case "terminal", "terminal alt screen": return [.surface, .surface, .surface, .surface]
         // Copy mode takes every other key; Ctrl-Tab must still change tabs.
-        case "terminal copy mode": return [.action("nextSurface"), .action("prevSurface"), .surface, .surface]
+        case "terminal copy mode": return [.action("navigate.next"), .action("navigate.previous"), .surface, .surface]
         case "browser focus mode": return [.surface, .surface, .surface, .surface]
         case "palette open": return [.panel, .panel, .panel, .panel]
         default: return switches

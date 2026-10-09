@@ -88,6 +88,7 @@ struct FocusCoordinatorTests {
         #expect(registry.keyTier(for: "toggleBrowserFocusMode") == .system)
         #expect(registry.keyTier(for: "focusLeft") == .navigation)
         #expect(registry.keyTier(for: "nextSurface") == .navigation)
+        #expect(registry.keyTier(for: "navigate.next") == .navigation)
         #expect(registry.keyTier(for: "splitRight") == .navigation)
         #expect(registry.keyTier(for: "focusBrowserAddressBar") == .navigation)
         #expect(registry.keyTier(for: "terminalCopy") == .content)
