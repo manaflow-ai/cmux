@@ -20,6 +20,13 @@ committed artifacts were built against. Anything changed, added, or missing
 from the manifest keeps its fresh mtime, so Cargo rebuilds it. Correctness therefore never depends on the manifest: a wrong or
 hostile manifest can only make a file look as old as an identical file did.
 
+Both commands also handle CPU-specific build output. ghostty-vt-sys builds
+libghostty-vt for zig's native CPU, so a warm target dir written on one
+Blacksmith host CPU makes every binary that links it die with SIGILL on
+another. `record` stores a CPU fingerprint next to the manifest. `restore`
+removes those packages' build and fingerprint dirs when the fingerprint is
+missing or different, and Cargo then reruns their build scripts.
+
 The manifest comes from a disk that candidate code wrote, so restore parses it
 strictly, touches only regular files inside the repository, and never follows
 a symlink.
@@ -27,11 +34,99 @@ a symlink.
 
 import hashlib
 import os
+import shutil
 import sys
 
 SOURCE_DIRS = ("cmux-tui", "ghostty", "ghostty-next")
 SKIP_DIRS = {".git", "target", ".zig-cache", "zig-cache", "zig-out", "node_modules"}
 MANIFEST_VERSION = "cmux-testbox-source-mtimes-v2"
+CPU_RECORD = ".cmux-testbox-cpu"
+# Packages whose build script compiles for the host CPU (zig native target).
+NATIVE_CPU_PACKAGES = ("ghostty-vt-sys",)
+
+
+def cpu_fingerprint() -> str:
+    """Hash of the CPU model and feature flags: what zig's native target uses."""
+    path = os.environ.get("CMUX_TESTBOX_CPUINFO", "/proc/cpuinfo")
+    model = flags = ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                key, _, value = line.partition(":")
+                key = key.strip()
+                if key == "model name" and not model:
+                    model = value.strip()
+                elif key == "flags" and not flags:
+                    flags = " ".join(sorted(value.split()))
+                if model and flags:
+                    break
+    except OSError:
+        return ""
+    if not flags:
+        return ""
+    return hashlib.sha256(f"{model}\n{flags}".encode()).hexdigest()
+
+
+def native_output_dirs(target: str):
+    """Build and fingerprint dirs of NATIVE_CPU_PACKAGES at any profile depth."""
+    for dirpath, dirnames, _ in os.walk(target):
+        depth = os.path.relpath(dirpath, target).count(os.sep)
+        if os.path.basename(dirpath) in ("build", ".fingerprint"):
+            for name in dirnames:
+                if any(name.startswith(package + "-") for package in NATIVE_CPU_PACKAGES):
+                    path = os.path.join(dirpath, name)
+                    if not os.path.islink(path):
+                        yield path
+            dirnames[:] = []
+        elif depth >= 2 or os.path.islink(dirpath):
+            dirnames[:] = []
+        else:
+            dirnames[:] = [
+                name for name in dirnames
+                if not os.path.islink(os.path.join(dirpath, name))
+                and name not in ("deps", "incremental", "examples")
+            ]
+
+
+def drop_foreign_cpu_outputs(target: str) -> None:
+    if not os.path.isdir(target) or os.path.islink(target):
+        return
+    current = cpu_fingerprint()
+    record = os.path.join(target, CPU_RECORD)
+    recorded = ""
+    if os.path.isfile(record) and not os.path.islink(record):
+        with open(record, encoding="utf-8", errors="replace") as handle:
+            recorded = handle.read().strip()
+    if current and recorded == current:
+        print("source-mtimes: same CPU as the snapshot; native build output kept")
+        return
+    removed = 0
+    for path in list(native_output_dirs(target)):
+        shutil.rmtree(path)
+        removed += 1
+    print(
+        f"source-mtimes: CPU differs from the snapshot (or is unknown); removed "
+        f"{removed} native-CPU build dirs ({', '.join(NATIVE_CPU_PACKAGES)})"
+    )
+    # Every native output left in target/ is now for this CPU (or absent), so
+    # say so at once. Otherwise a failed `record` at release would commit new
+    # output beside the old host's record, and a box on that old host would
+    # keep the foreign library.
+    write_cpu_record(target)
+
+
+def write_cpu_record(target: str) -> None:
+    record = os.path.join(target, CPU_RECORD)
+    try:
+        os.unlink(record)
+    except FileNotFoundError:
+        pass
+    current = cpu_fingerprint()
+    if not current:
+        return
+    descriptor = os.open(record, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as out:
+        out.write(current + "\n")
 
 
 def blob_id(path: str) -> str:
@@ -93,12 +188,14 @@ def record(repo: str, manifest: str) -> int:
             out.write(f"{kind}\t{identity}\t{stat.st_mtime_ns}\t{relative}\n")
             count += 1
     os.replace(temporary, manifest)
+    write_cpu_record(os.path.dirname(os.path.abspath(manifest)))
     print(f"source-mtimes: recorded {count} files and directories")
     return 0
 
 
 def restore(repo: str, manifest: str) -> int:
     repo = os.path.realpath(repo)
+    drop_foreign_cpu_outputs(os.path.dirname(os.path.abspath(manifest)))
     if not os.path.isfile(manifest) or os.path.islink(manifest):
         print("source-mtimes: no manifest; every source stays fresh (cold build)")
         return 0

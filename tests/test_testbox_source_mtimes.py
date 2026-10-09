@@ -101,5 +101,74 @@ class SourceMtimesTests(unittest.TestCase):
         self.assertGreater(self.mtime("cmux-tui/src/same.rs"), OLD)
 
 
+class NativeCpuOutputTests(unittest.TestCase):
+    """ghostty-vt-sys builds libghostty-vt for zig's native CPU. A warm target
+    dir from a Testbox on another CPU model made every test binary that links
+    it die with SIGILL (tbx_01m4gb5w6fhvccqwwjj54emkss, 2026-10-09), so restore
+    must drop those outputs when the CPU differs from the recording box."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = os.path.join(self.tmp.name, "repo")
+        self.target = os.path.join(self.repo, "cmux-tui", "target")
+        os.makedirs(os.path.join(self.repo, "cmux-tui", "src"))
+        self.manifest = os.path.join(self.target, ".cmux-testbox-source-mtimes.tsv")
+        self.native = [
+            os.path.join(self.target, "debug", "build", "ghostty-vt-sys-1a2b"),
+            os.path.join(self.target, "debug", ".fingerprint", "ghostty-vt-sys-1a2b"),
+            os.path.join(self.target, "x86_64-pc-windows-gnu", "debug", "build", "ghostty-vt-sys-3c4d"),
+        ]
+        self.portable = os.path.join(self.target, "debug", "build", "serde-5e6f")
+        for path in self.native + [self.portable]:
+            os.makedirs(path)
+            pathlib.Path(path, "output").write_text("x", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def cpuinfo(self, flags: str) -> str:
+        path = os.path.join(self.tmp.name, f"cpuinfo-{flags.replace(' ', '-')}")
+        pathlib.Path(path).write_text(
+            f"processor\t: 0\nmodel name\t: Test CPU\nflags\t\t: {flags}\n\n", encoding="utf-8"
+        )
+        return path
+
+    def run_with_cpu(self, command: str, flags: str) -> None:
+        subprocess.run(
+            [sys.executable, "-I", str(SCRIPT), command, self.repo, self.manifest],
+            check=True,
+            capture_output=True,
+            env={**os.environ, "CMUX_TESTBOX_CPUINFO": self.cpuinfo(flags)},
+        )
+
+    def test_same_cpu_keeps_native_outputs(self) -> None:
+        self.run_with_cpu("record", "sse2 avx2 avx512f")
+        self.run_with_cpu("restore", "sse2 avx2 avx512f")
+        for path in self.native + [self.portable]:
+            self.assertTrue(os.path.isdir(path), path)
+
+    def test_a_different_cpu_drops_only_native_outputs(self) -> None:
+        self.run_with_cpu("record", "sse2 avx2 avx512f")
+        self.run_with_cpu("restore", "sse2 avx2")
+        for path in self.native:
+            self.assertFalse(os.path.exists(path), path)
+        self.assertTrue(os.path.isdir(self.portable))
+
+    def test_restore_on_a_new_cpu_rewrites_the_cpu_record(self) -> None:
+        # A later failed `record` must not leave the old host's record beside
+        # output built on this host.
+        self.run_with_cpu("record", "sse2 avx2 avx512f")
+        self.run_with_cpu("restore", "sse2 avx2")
+        os.makedirs(self.native[0])
+        self.run_with_cpu("restore", "sse2 avx2 avx512f")
+        self.assertFalse(os.path.exists(self.native[0]))
+
+    def test_a_snapshot_without_a_cpu_record_drops_native_outputs(self) -> None:
+        self.run_with_cpu("restore", "sse2 avx2")
+        for path in self.native:
+            self.assertFalse(os.path.exists(path), path)
+        self.assertTrue(os.path.isdir(self.portable))
+
+
 if __name__ == "__main__":
     unittest.main()
