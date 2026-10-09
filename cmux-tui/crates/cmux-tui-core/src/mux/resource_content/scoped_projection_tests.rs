@@ -116,6 +116,16 @@ fn scoped_creates_without_the_crosscheck_leave_nothing_for_a_full_projection() {
                 mux.create_terminal_in_workspace(*id, None, None, None, Some((80, 24))).unwrap();
             }
         }
+        // Split, browser and create paths in b, then a scoped create in a:
+        // every topology change outside a's scope was committed by its own
+        // projection, so the scoped create leaves nothing behind.
+        let placement =
+            mux.create_terminal_in_workspace(ids[1], None, None, None, Some((80, 24))).unwrap();
+        mux.split(placement.pane, crate::SplitDir::Right, Some((80, 24))).unwrap();
+        let browser = mux
+            .new_browser_tab("about:blank#scoped".into(), Some(placement.pane), Some((80, 24)))
+            .unwrap();
+        mux.create_terminal_in_workspace(ids[0], None, None, None, Some((80, 24))).unwrap();
         assert!(stat(&mux, "scoped_projections") >= 6, "creates ran scoped");
         assert_eq!(stat(&mux, "crosschecks"), 0, "the cross-check was off");
         // The reference projection of the live tree finds every row stored.
@@ -124,5 +134,8 @@ fn scoped_creates_without_the_crosscheck_leave_nothing_for_a_full_projection() {
         let transaction = registry.connection.unchecked_transaction().unwrap();
         let written = prune_unchanged_resource_changes(&transaction, &full.patch).unwrap();
         assert!(written.changes.is_empty(), "scoped creates left rows behind: {written:?}");
+        drop(transaction);
+        drop(registry);
+        browser.kill();
     });
 }
